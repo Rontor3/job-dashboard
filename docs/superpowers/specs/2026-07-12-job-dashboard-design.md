@@ -97,9 +97,21 @@ Also reused: compares the profile against tracked postings (or a single posting)
   - Rejected for automated use: ContactOut, Lusha, RocketReach — each gates real API access behind custom/enterprise-priced tiers; their free tiers are browser-extension-only and can't be called from an automated skill.
 - **Cold email flow**: draft the message in the UI, but **do not auto-send**. Sending email on the user's behalf requires his explicit confirmation on each individual message — the UX should be "draft → review → user hits send," not an auto-pilot outreach loop.
 
+## 6. CI / testing safety net
+
+Reuses ai-job-search's CI pattern so the project can't silently break as sources, templates, and skills keep getting added — this is engineering hygiene for the codebase itself, not a job-search-facing feature:
+
+- **LaTeX smoke-compile tests**: every CV/cover-letter template gets compiled on each change, so a broken template is caught immediately rather than at the moment a real application needs it.
+- **Skill linting**: automated check that every skill file (job-portal scrapers, matching/ranking, resume/cover-letter generation, etc.) is well-formed before it's relied on.
+- **CLI type-checking**: for the search/scraper tools (JobSpy wrapper, Scrapling-based portal skills, agent-reach calls), catching integration breakage from upstream changes early.
+- **Security guards**: validates the permission allowlist, `.gitignore` rules, and manifests haven't drifted — relevant here since the project handles a resume, contact emails, and API keys (Hunter.io/Skrapp) that must never leak into a commit.
+
+Runs on every change to the project (e.g. via GitHub Actions once a remote exists), same as ai-job-search's own `.github/workflows/ci.yml`.
+
 ## Non-goals (deferred, not part of this design)
 
 - Dedicated freelance/gig marketplaces (Upwork, Toptal, Braintrust, Contra) and their bid/proposal action flow — revisit after v1 if surface-level contract-role filtering from existing sources proves insufficient
 - UI framework, hosting, and database technology choices — left to the implementation plan
 - Refresh/scheduling cadence specifics for each source — left to the implementation plan
 - Auto-sending cold emails without per-message user confirmation — explicitly out of scope, not just unbuilt
+- `/add-template` and `/reset` commands, and salary benchmarking — not adopted; can be revisited later if needed
