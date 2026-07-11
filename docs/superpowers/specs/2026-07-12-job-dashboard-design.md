@@ -20,6 +20,13 @@ The full vision decomposes into five subsystems, built in this order so each lay
 
 Freelance marketplaces (Upwork, Toptal, Braintrust, Contra) and any UI/hosting/DB technology choices are explicitly deferred to the implementation plan — see Non-goals.
 
+## 0. Profile (foundation for every other subsystem)
+
+Reuses ai-job-search's `/setup` and `/expand` commands as the onboarding layer, replacing the ad hoc "read the resume PDF / search chat history" approach this design process started with:
+
+- **`/setup`**: builds a durable, structured profile from a documents folder (CV, LinkedIn export, diplomas) or a direct interview walkthrough — output split across a profile narrative plus structured files (candidate profile, behavioral traits, writing style, job-evaluation criteria). Every other subsystem (matching, resume, cover letter) reads from this one profile instead of re-parsing the resume PDF each time.
+- **`/expand`**: enriches the profile by scanning Rakshit's own public sources (GitHub, portfolio, Kaggle, Google Scholar) for competencies the resume doesn't mention — directly addresses the resume being outdated relative to his actual current work (fraud-pipeline architecture, RAG system, LoRA fine-tuning, etc. barely make it onto the PDF version).
+
 ## 1. Job aggregation
 
 ### Sources and how each is pulled
@@ -28,7 +35,7 @@ Freelance marketplaces (Upwork, Toptal, Braintrust, Contra) and any UI/hosting/D
 |---|---|---|
 | Indeed, LinkedIn, Naukri, Glassdoor, Google Jobs, ZipRecruiter, Bayt, BDJobs | **[JobSpy](https://github.com/speedyapply/JobSpy)** (`pip install python-jobspy`, MIT, 3.7k★, actively maintained) | Returns full JD text, `job_type`, `emails`, salary, remote flag — no custom scraper needed |
 | We Work Remotely, Remotive, RemoteOK, Himalayas | Direct RSS/JSON API calls | These boards expose public feeds; no scraping tool needed |
-| Wellfound, jobs24x, unlistedjobs, remotejobs.io | **[Scrapling](https://github.com/d4vinci/Scrapling)** (69.1k★, BSD-3, Cloudflare/anti-bot bypass, stealth fetch) | Free alternative to paid services (Bright Data/Apify) for sites with bot protection and no API |
+| Wellfound, jobs24x, unlistedjobs, remotejobs.io | **[Scrapling](https://github.com/d4vinci/Scrapling)** (69.1k★, BSD-3, Cloudflare/anti-bot bypass, stealth fetch), scaffolded using ai-job-search's **`/add-portal` generator pattern** | Free alternative to paid services (Bright Data/Apify) for sites with bot protection and no API. `/add-portal`'s pattern — investigate the portal's structure, scaffold a CLI skill matching the shipped tools' shape, test-run live queries before registering — replaces writing one-off scraper scripts per source, so adding the next odd job board later follows the same repeatable process |
 | Recently-funded startups (Google Sheet) | Periodic read of the sheet's public CSV/htmlview export | Sheet is live and manually updated — re-read on a schedule, don't scrape once and forget |
 | Research fellowships/residencies (Anthropic Fellows Program, OpenAI/Google/Meta AI residencies, etc.) | Small curated static list of known program pages, checked periodically | Not a scraping problem — low volume, high signal |
 | "Last 24h fresh hiring" social signal (HR/founder posts on LinkedIn/Twitter announcing they're hiring) | **agent-reach** (Panniantong's CLI — reads Twitter/Reddit/LinkedIn/YouTube without per-platform API fees) | Different signal type than job boards: catches roles before/without a formal posting |
@@ -40,6 +47,7 @@ No repo in the job-scraping space clears 10k★ — the space tops out around Jo
 - **Semantic matching on full JD text**, not keyword/title filtering. Keyword filtering was rejected because it misses roles with unconventional titles and lets through irrelevant ones that happen to share a word — and layering a keyword pre-filter in front of semantic re-ranking was rejected too, since it would just inherit the same blind spot before semantic scoring ever runs.
 - Reuses/extends Rakshit's own prior project, **AI-Powered Resume – LLM-based Resume & JD Matcher** (semantic similarity via Sentence Transformers + ATS scoring, already built Aug 2024), rather than building a matcher from scratch.
 - Full JD text is required as input (not just title/snippet), which is why every source above must yield full description text, not just a feed summary.
+- Scoring itself follows ai-job-search's **`/rank`** pattern: parallel agents batch-score newly scraped postings against the profile, each producing honest strengths/gaps per posting (not just a bare number) and flagging deal-breakers, deadlines, and expired postings — rather than a single opaque similarity score.
 
 ### Persistent companies/contacts directory
 
@@ -48,6 +56,10 @@ Startup-sheet companies (and any company we look up a contact for) get a durable
 - Once a contact is looked up via Hunter.io/Skrapp, it's **saved permanently against the company** — never re-spend a lookup credit on a company we've already resolved
 - The list **accumulates** across refresh cycles (dedup by company, append new entries), functioning as a growing personal CRM
 - This directory is the backbone the Outreach subsystem reads from later
+
+### Application tracking
+
+Reuses ai-job-search's **`/outcome`** pattern: once Rakshit applies to something, the record tracks what actually happens — interview stage reached, offer, rejection, or silence — and archives the submitted resume/cover letter/posting text against that company. Two effects: it gives an honest history to look back on, and it feeds back into the `/rank` scoring above, letting the fit-framework calibrate over time against what actually got traction rather than staying a fixed guess.
 
 ### Filters (dashboard-facing, built on data already in the feed)
 
@@ -66,11 +78,17 @@ Reuses backend logic from **[ai-job-search](https://github.com/MadsLorentzen/ai-
 - **ATS compatibility check**: extracts the PDF's actual text layer (`pdftotext`) and verifies it the way a real ATS parser sees it (contact details as literal text, no garbled glyphs, sane reading order), scores keyword coverage against what parsers actually extract. This directly satisfies the "check if it's ATS-friendly" requirement — checking the real PDF rather than applying generic rules (which is what the HackerRank ATS tool and similar resources would otherwise be used for).
 - **Modular resume composition**: present segment/option boxes (skills blocks, project blocks, experience framing) the user picks per application, rather than one static resume.
 - **Rendering reuses ai-job-search's LaTeX CV pipeline directly**: once segments are chosen for an application, the selected content is composed into the same LaTeX template system ai-job-search uses to produce its CV, and compiled to a polished PDF (via the same TeX Live/MacTeX + optional `poppler` toolchain) — rather than building a new resume-rendering system from scratch. New resumes are generated this way, then immediately run through the ATS check above before being finalized for an application.
+- **PDF verification loop**: after compiling, the rendered pages are visually re-inspected and targeted layout fixes are applied (spacing, page-break, font-matching adjustments) until the output is clean — automatic on every generation, not a manual proofreading step.
+- **Relevance-weighted cutting on overflow**: if the tailored content doesn't fit the page limit, lines are scored by relevance to the target posting, uniqueness, and cover-letter dependency, and the lowest-scoring lines are cut first — so an older bullet that hits the posting's keywords survives over a recent one that doesn't, rather than blindly truncating from the bottom.
 - Drafter-reviewer agent pattern from ai-job-search is the reusable architecture for this and cover-letter generation.
 
 ## 4. Cover letter generation
 
 Also reuses ai-job-search's approach: a reviewer agent **researches the actual company** (not just the job posting text) before drafting — satisfying the "deep dive into company portfolio" requirement. Bonus feature carried over at no extra cost: ai-job-search's `/interview` command researches the company + interviewers for interview prep, which wasn't asked for but is directly useful.
+
+### Bonus: skill-gap analysis (`/upskill`)
+
+Also reused: compares the profile against tracked postings (or a single posting) and produces a prioritized skill-gap heatmap plus a learning plan with study resources and time estimates — aimed at Rakshit's stated next-move targets (AI Engineer/ML Engineer/Senior DS/DS3), not just at getting one application through.
 
 ## 5. Outreach
 
