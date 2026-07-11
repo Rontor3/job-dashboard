@@ -65,6 +65,7 @@ Reuses backend logic from **[ai-job-search](https://github.com/MadsLorentzen/ai-
 
 - **ATS compatibility check**: extracts the PDF's actual text layer (`pdftotext`) and verifies it the way a real ATS parser sees it (contact details as literal text, no garbled glyphs, sane reading order), scores keyword coverage against what parsers actually extract. This directly satisfies the "check if it's ATS-friendly" requirement — checking the real PDF rather than applying generic rules (which is what the HackerRank ATS tool and similar resources would otherwise be used for).
 - **Modular resume composition**: present segment/option boxes (skills blocks, project blocks, experience framing) the user picks per application, rather than one static resume.
+- **Rendering reuses ai-job-search's LaTeX CV pipeline directly**: once segments are chosen for an application, the selected content is composed into the same LaTeX template system ai-job-search uses to produce its CV, and compiled to a polished PDF (via the same TeX Live/MacTeX + optional `poppler` toolchain) — rather than building a new resume-rendering system from scratch. New resumes are generated this way, then immediately run through the ATS check above before being finalized for an application.
 - Drafter-reviewer agent pattern from ai-job-search is the reusable architecture for this and cover-letter generation.
 
 ## 4. Cover letter generation
