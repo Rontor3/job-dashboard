@@ -11,7 +11,7 @@ Cover letters use a custom LaTeX document class (`cover.cls`) with Lato/Raleway 
 ### Compile command
 
 ```bash
-cd cover_letters && xelatex -interaction=nonstopmode cover_<company>_<role>.tex
+cd .claude/skills/ai-job-search/cover_letters && xelatex -interaction=nonstopmode cover_<company>_<role>.tex
 ```
 
 Expected output: `Output written on cover_<company>_<role>.pdf (1 page, ...)`. Any page count other than 1 is a failure that must be fixed before presenting to the user.
