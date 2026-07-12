@@ -50,21 +50,28 @@ Gurgaon, India
 - **Offline Retrieval-Augmented Generation (RAG) System** (Oct–Nov 2024): Local, privacy-preserving RAG over sensitive data with no hosted API calls — Ollama Mistral LLM + sentence-transformers multilingual embeddings, served via Streamlit. [github.com/Rontor3]
 - **LLM Prompt Recovery** (Sep–Oct 2024): Fine-tuned Gemma with LoRA to recover original prompts from LLM-generated text; explored prompt↔output correlations for improved recovery accuracy. [github.com/Rontor3]
 - **AI-Powered Resume – LLM-based Resume & JD Matcher** (Aug 2024): Streamlit app giving ATS-compatibility scores, semantic match scores (Sentence Transformers), and improvement suggestions; LLM-based JD cleaning + custom Python PDF/text backend. *(Directly relevant prior art for this dashboard's own matching engine.)* [GitHub]
+- **RoamMate** (2025–2026, actively maintained): AI travel-planning app with a multi-agent architecture — two **MCP servers** (SocialTravelInsights, HotelFlightBooking), **FastAPI** backend, **Anthropic Claude** LLM, real-time data via Google Custom Search + Amadeus, and a deep-linking booking engine; containerized with **Docker Compose**, full-stack (vanilla JS/HTML/CSS). *(Discovered via GitHub — github.com/Rontor3/RoamMate)*
 
 ## Technical Skills
 
 ### Programming & ML
-- **Python** (primary): Pandas, NumPy, scikit-learn, LangChain
-- **LLM / GenAI:** RAG systems, LoRA fine-tuning (Gemma), sentence-transformers embeddings, prompt engineering, Ollama, MCP protocol
+- **Python** (primary): Pandas, NumPy, scikit-learn, LangChain; **FastAPI** *(GitHub — RoamMate)*
+- **LLM / GenAI:** RAG systems, LoRA fine-tuning (Gemma), sentence-transformers embeddings, prompt engineering, Ollama; **MCP** — applied MCP-server development & multi-agent orchestration *(GitHub — RoamMate)*; **Anthropic Claude API** *(GitHub — RoamMate)*
 - **SQL**
-- **Cloud / MLOps:** AWS Lambda, API Gateway, DynamoDB, SageMaker; server deployment; production scoring endpoints
+- **Cloud / MLOps:** AWS Lambda, API Gateway, DynamoDB, SageMaker; server deployment; production scoring endpoints; **Docker & Docker Compose** (containerization) *(GitHub — RoamMate)*
+
+### Web & APIs *(GitHub — RoamMate, TAB)*
+- Full-stack web: JavaScript, HTML5, CSS3
+- REST API design; third-party API integration (Google Custom Search, Amadeus, affiliate/booking deep-linking)
 
 ### Domain Expertise
 - Fraud detection / anomaly modeling (health insurance)
 - Predictive modeling, Deep Learning, NLP, Generative AI
+- Agentic LLM systems / tool-use orchestration *(GitHub — RoamMate)*
 - Model explainability (SHAP), EDA
 - Quantitative/financial modeling (ETF allocation, Monte Carlo, backtesting)
 - Marketing/engagement analytics (send-time optimization)
+- Competitive ML — Kaggle competition submissions *(GitHub — LLM_Prompt_Recovery / Kaggle)*
 
 ### Software & Tools
 - Streamlit, Google Analytics, Advanced Excel / App Script, Git/GitHub
