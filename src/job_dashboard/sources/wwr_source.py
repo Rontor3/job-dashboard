@@ -8,13 +8,18 @@ def fetch_wwr_jobs(feed_url="https://weworkremotely.com/categories/remote-progra
     jobs = []
     for entry in parsed.entries:
         raw_title = entry.get("title", "")
+        description = entry.get("summary", "")
+        if description is None or not str(description).strip():
+            # Project constraint: every JobListing carries full description
+            # text; rows lacking one are skipped.
+            continue
         jobs.append(
             JobListing(
                 source="weworkremotely",
                 title=_job_title(raw_title),
                 company=_company(raw_title),
                 location="Remote",
-                description=entry.get("summary", ""),
+                description=description,
                 job_url=entry.get("link"),
                 job_type=None,
                 is_remote=True,

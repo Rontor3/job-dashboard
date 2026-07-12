@@ -13,6 +13,11 @@ def fetch_remotive_jobs(search_term, limit=50):
     data = response.json()
     jobs = []
     for item in data.get("jobs", []):
+        description = item.get("description")
+        if description is None or not str(description).strip():
+            # Project constraint: every JobListing carries full description
+            # text; rows lacking one are skipped.
+            continue
         jobs.append(
             JobListing(
                 source="remotive",
@@ -20,7 +25,7 @@ def fetch_remotive_jobs(search_term, limit=50):
                 title=item.get("title"),
                 company=item.get("company_name"),
                 location=item.get("candidate_required_location"),
-                description=item.get("description") or "",
+                description=description,
                 job_url=item.get("url"),
                 job_type=item.get("job_type"),
                 is_remote=True,

@@ -14,6 +14,11 @@ def fetch_himalayas_jobs(query, employment_type=None):
     data = response.json()
     jobs = []
     for item in data.get("jobs", []):
+        description = item.get("description")
+        if description is None or not str(description).strip():
+            # Project constraint: every JobListing carries full description
+            # text; rows lacking one are skipped.
+            continue
         jobs.append(
             JobListing(
                 source="himalayas",
@@ -21,7 +26,7 @@ def fetch_himalayas_jobs(query, employment_type=None):
                 title=item.get("title"),
                 company=item.get("companyName"),
                 location=", ".join(item.get("locationRestrictions") or []) or "Worldwide",
-                description=item.get("description") or "",
+                description=description,
                 job_url=item.get("applicationLink"),
                 job_type=item.get("employmentType"),
                 is_remote=True,

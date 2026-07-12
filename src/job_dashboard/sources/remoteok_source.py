@@ -14,6 +14,11 @@ def fetch_remoteok_jobs():
     for item in data:
         if "position" not in item:
             continue  # first element is the API's legal notice, not a job
+        description = item.get("description")
+        if description is None or not str(description).strip():
+            # Project constraint: every JobListing carries full description
+            # text; rows lacking one are skipped.
+            continue
         jobs.append(
             JobListing(
                 source="remoteok",
@@ -21,7 +26,7 @@ def fetch_remoteok_jobs():
                 title=item.get("position"),
                 company=item.get("company"),
                 location=item.get("location") or "Remote",
-                description=item.get("description") or "",
+                description=description,
                 job_url=item.get("apply_url") or item.get("url"),
                 job_type="contract" if "contract" in (item.get("tags") or []) else None,
                 is_remote=True,
