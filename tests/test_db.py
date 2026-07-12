@@ -29,6 +29,25 @@ def test_insert_job_is_idempotent_on_job_url(tmp_path):
     assert count == 1
 
 
+def test_insert_job_skips_rows_missing_required_fields(tmp_path):
+    conn = init_db(tmp_path / "test.db")
+    missing_url = JobListing(
+        source="test", title="ML Engineer", company="Acme",
+        job_url=None, description="desc",
+    )
+    missing_company = JobListing(
+        source="test", title="ML Engineer", company="",
+        job_url="https://example.com/2", description="desc",
+    )
+
+    # A required NOT NULL field is absent — skip rather than crash on the
+    # sqlite NOT NULL constraint (validate at the SQL boundary).
+    assert insert_job(conn, missing_url) is False
+    assert insert_job(conn, missing_company) is False
+    count = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    assert count == 0
+
+
 def test_upsert_company_inserts_then_updates_without_clobbering_contact(tmp_path):
     conn = init_db(tmp_path / "test.db")
     upsert_company(conn, Company(name="Acme", funding_amount="$1M"))

@@ -49,7 +49,17 @@ def job_exists(conn, job_url):
     return row is not None
 
 
+# Columns declared NOT NULL in the jobs schema — a listing missing any of
+# these can't be stored, so it's skipped at this boundary rather than raising
+# sqlite3.IntegrityError mid-ingest.
+_REQUIRED_JOB_FIELDS = ("source", "title", "company", "description", "job_url")
+
+
 def insert_job(conn, job: JobListing):
+    for field in _REQUIRED_JOB_FIELDS:
+        value = getattr(job, field)
+        if value is None or not str(value).strip():
+            return False
     if job_exists(conn, job.job_url):
         return False
     conn.execute(

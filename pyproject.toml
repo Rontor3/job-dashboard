@@ -9,3 +9,9 @@ requires-python = ">=3.11"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# Scope collection to this project's tests. Without this, a bare `pytest`
+# also sweeps in vendor/ai-job-search/tests/ (a second `tests` package),
+# which collides with ours and errors during collection.
+testpaths = ["tests"]
