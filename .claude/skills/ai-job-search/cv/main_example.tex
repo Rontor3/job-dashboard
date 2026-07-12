@@ -1,8 +1,8 @@
-%% Example CV - [YOUR_NAME]
+%% Example CV - Rakshit Singh
 %% Comprehensive overview of all competencies, experience, and achievements.
 %% Use as a master reference when tailoring role-specific CVs.
 %%
-%% SETUP: Run /setup to populate this with your actual information.
+%% Populated by /setup on 2026-07-13 from documents/cv/Rakshit_Singh-4.pdf.
 %% Compile with: lualatex main_example.tex
 %% (pdflatex often fails on modern MiKTeX with fontawesome5 font-expansion errors.)
 
@@ -24,18 +24,18 @@
     linkcolor=blue,
     filecolor=magenta,
     urlcolor=blue,
-    pdftitle={[YOUR_NAME] - CV},
+    pdftitle={Rakshit Singh - CV},
     pdfpagemode=FullScreen,
 }
 \usepackage[scale=0.80]{geometry}
 \usepackage{import}
 
 % personal data
-\name{[First]}{[Last]}
-\address{[Your Address, City, Country]}{}{}
-\phone[mobile]{[+XX XXXXXXXXXX]}
-\email{[your.email@example.com]}
-\extrainfo{\href{[https://linkedin.com/in/your-profile]}{LinkedIn}, \href{[https://github.com/your-username]}{GitHub}}
+\name{Rakshit}{Singh}
+\address{Mumbai, India}{}{}
+\phone[mobile]{+91 7565052330}
+\email{privrakshit@gmail.com}
+\extrainfo{\href{https://linkedin.com/in/rakshit-singh}{LinkedIn}, \href{https://github.com/Rontor3}{GitHub}}
 
 \begin{document}
 
@@ -46,7 +46,7 @@
 % ============================================================
 
 \vspace{6pt}
-\small{[Write a 3-5 line profile statement tailored to the role you're applying for. Focus on what makes you uniquely qualified. Example: "Data scientist with a PhD in [field] and X years of industry experience. Combines deep domain expertise in [domain] with strong applied machine learning and Python development skills. Experienced in developing end-to-end ML pipelines, from data ingestion to stakeholder-facing dashboards."]}
+\small{Data Scientist with 2+ years building production ML at Tata AIG --- modular fraud-detection pipelines serving real-time decisions on AWS (Lambda, API Gateway, DynamoDB), plus hands-on GenAI/LLM work (offline RAG with Ollama + sentence-transformers, LoRA fine-tuning of Gemma). Combines applied machine learning, NLP, and MLOps ownership with a track record of shipping models end-to-end, from data to production endpoints. Targeting AI Engineer / ML Engineer / Senior Data Scientist roles, remote-first.}
 
 % ============================================================
 %     CORE COMPETENCIES
@@ -56,15 +56,15 @@
 \vspace{1pt}
 \begin{itemize}
 
-\item \textbf{[Skill Category 1]}: [Specific skills, frameworks, tools. Be concrete.]
+\item \textbf{Programming \& ML}: Python (Pandas, NumPy, scikit-learn, LangChain), SQL
 
-\item \textbf{[Skill Category 2]}: [Specific skills, frameworks, tools.]
+\item \textbf{GenAI / LLM}: RAG systems, LoRA fine-tuning (Gemma), sentence-transformers embeddings, prompt engineering, Ollama, MCP protocol
 
-\item \textbf{[Skill Category 3]}: [Specific skills, frameworks, tools.]
+\item \textbf{Machine Learning}: Predictive modeling, Deep Learning, NLP, anomaly/fraud detection, SHAP explainability, EDA
 
-\item \textbf{[Skill Category 4]}: [Domain expertise, methods, approaches.]
+\item \textbf{Cloud \& MLOps}: AWS Lambda, API Gateway, DynamoDB, SageMaker; real-time model serving; automated pipelines; server deployment
 
-\item \textbf{[Skill Category 5]}: [Tools, platforms, software.]
+\item \textbf{Quant \& Analytics}: Monte Carlo simulation, backtesting, PE/PB signal modeling; engagement/send-time optimization
 
 \end{itemize}
 
@@ -77,33 +77,35 @@
 \begin{itemize}
 
 % --- Most Recent Role ---
-\item{\cventry{[YYYY--Present]}{[Job Title]}{[Company]}{[City, Country]}{}{\vspace{1pt}
+\item{\cventry{2023--Present}{Data Scientist}{Tata AIG}{Mumbai, India}{}{\vspace{1pt}
 \begin{itemize}
-    \item [Achievement or responsibility 1 - be specific, use numbers where possible]
-    \item [Achievement or responsibility 2]
-    \item [Achievement or responsibility 3]
-    \item [Achievement or responsibility 4]
+    \item Architected modular, nested models for health fraud and repudiation: 30\% higher recall than baseline, F1 0.6 on repudiation, saving \textasciitilde500 man-hours/month via automated pipelines.
+    \item Built a dynamic mapper on AWS Lambda + DynamoDB for daily-updated marking of historical fraud, and productionized real-time fraud-scoring endpoints on Lambda + API Gateway.
+    \item Developed an ETF asset-selection/allocation model (Monte Carlo, PE/PB signals); backtested to 4\% excess XIRR and deployed to production, continuing to outperform.
+    \item Built Send-Time Optimization for Zero-Touch customers (19\% of base): +2\% early renewals, +8\% Email/WhatsApp stickiness.
 \end{itemize}}}
 
 \vspace{3pt}
 
 % --- Previous Role ---
-\item{\cventry{[YYYY--YYYY]}{[Job Title]}{[Company]}{[City, Country]}{}{\vspace{1pt}
+\item{\cventry{2022}{Data Science Intern}{OYO}{Gurgaon, India}{}{\vspace{1pt}
 \begin{itemize}
-    \item [Achievement or responsibility 1]
-    \item [Achievement or responsibility 2]
-    \item [Achievement or responsibility 3]
+    \item Built a ``D-Day Tracker'' for daily micro-level metrics (advanced Excel, App Script, Google Analytics).
+    \item Automated reporting with Python scripts and built custom SEO analytics (Google Analytics + regex) to improve conversion tracking.
 \end{itemize}}}
 
-\vspace{3pt}
+\end{itemize}
 
-% --- Earlier Role ---
-\item{\cventry{[YYYY--YYYY]}{[Job Title]}{[Company]}{[City, Country]}{}{\vspace{1pt}
+% ============================================================
+%     PROJECTS
+% ============================================================
+
+\section{Selected Projects}
+\vspace{1pt}
 \begin{itemize}
-    \item [Achievement or responsibility 1]
-    \item [Achievement or responsibility 2]
-\end{itemize}}}
-
+\item \textbf{Offline RAG System} (2024): Privacy-preserving local RAG over sensitive data --- Ollama Mistral + sentence-transformers, served via Streamlit.
+\item \textbf{LLM Prompt Recovery} (2024): LoRA fine-tuning of Gemma to recover source prompts from LLM output.
+\item \textbf{LLM-based Resume \& JD Matcher} (2024): Streamlit app with ATS scoring and semantic match (Sentence Transformers) --- prior art for semantic job matching.
 \end{itemize}
 
 % ============================================================
@@ -114,14 +116,8 @@
 \vspace{1pt}
 \begin{itemize}
 
-\item{\cventry{[YYYY--YYYY]}{[Degree] in [Field]}{[Institution]}{[City, Country]}{}{\vspace{1pt}
-Thesis: ``[Thesis Title].'' [Brief description of research focus.]
-}}
-
-\vspace{3pt}
-
-\item{\cventry{[YYYY--YYYY]}{[Degree] in [Field]}{[Institution]}{[City, Country]}{}{\vspace{1pt}
-[Brief description or key topics.]
+\item{\cventry{2019--2023}{B.Tech in Ceramic Engineering}{Indian Institute of Technology (BHU), Varanasi}{India}{}{\vspace{1pt}
+CGPI 8.26. Self-directed transition into machine learning and data science.
 }}
 
 \end{itemize}
@@ -133,27 +129,7 @@ Thesis: ``[Thesis Title].'' [Brief description of research focus.]
 \section{Languages}
 \vspace{1pt}
 \begin{itemize}
-\item [Language 1] (native), [Language 2] (fluent), [Language 3] (intermediate).
-\end{itemize}
-
-% ============================================================
-%     PUBLICATIONS (optional)
-% ============================================================
-
-\section{Publications}
-\vspace{1pt}
-\begin{itemize}
-\item [Author(s)] ([Year]). [Title]. [Journal/Conference]. \href{[DOI_URL]}{DOI link}
-\end{itemize}
-
-% ============================================================
-%     HONORS AND AWARDS (optional)
-% ============================================================
-
-\section{Honors and Awards}
-\vspace{1pt}
-\begin{itemize}
-\item{\textbf{[Award Name]} -- [Event/Organization] ([Year]).}
+\item English, Hindi.
 \end{itemize}
 
 % ============================================================

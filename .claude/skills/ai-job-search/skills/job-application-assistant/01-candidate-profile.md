@@ -1,60 +1,81 @@
 # Candidate Profile
 
-<!-- SETUP: This file is populated by running /setup -->
-<!-- After running /setup, all sections will be filled with your actual information -->
+<!-- Populated by /setup (Path A) from documents/cv/Rakshit_Singh-4.pdf on 2026-07-13 -->
 
 ## Identity
-- **Name:** [YOUR_NAME]
-- **Location:** [YOUR_ADDRESS]
-- **Phone:** [YOUR_PHONE]
-- **Email:** [YOUR_EMAIL]
-- **LinkedIn:** [YOUR_LINKEDIN_URL]
-- **GitHub:** [YOUR_GITHUB_URL]
-- **Languages:** [YOUR_LANGUAGES with proficiency levels]
-- **Status:** [YOUR_EMPLOYMENT_STATUS]
-- **Constraints:** [YOUR_COMMUTE_OR_LOCATION_CONSTRAINTS]
+- **Name:** Rakshit Singh
+- **Location:** Mumbai, India (current work base) — home region: Lucknow, India
+- **Phone:** +91-7565052330
+- **Email:** privrakshit@gmail.com
+- **LinkedIn:** https://linkedin.com/in/rakshit-singh
+- **GitHub:** https://github.com/Rontor3
+- **Languages:** English, Hindi *[proficiency levels to confirm]*
+- **Status:** Employed — Data Scientist at Tata AIG (since July 2023); open to new roles (India, abroad, remote) and to contract/freelance in addition to full-time
+- **Constraints:** *[commute / relocation / location tiers to confirm]*
 
 ## Education
 
 | Degree | Period | Institution | Key Topics |
 |--------|--------|-------------|------------|
-| [DEGREE] | [YEARS] | [INSTITUTION] | [TOPICS] |
+| B.Tech in Ceramic Engineering (CGPI 8.26) | 2019–2023 | Indian Institute of Technology (BHU), Varanasi | Engineering fundamentals; self-directed transition into ML/Data Science |
+| I.S.C. (92.50%) | 2018 | City Montessori School, Lucknow | — |
+| I.C.S.E. (94.00%) | 2016 | SETH M.R. Jaipuria School, Lucknow | — |
 
 ## Professional Experience
 
-### [JOB_TITLE] - [COMPANY] ([START] - [END])
-[LOCATION]
-- [RESPONSIBILITY_OR_ACHIEVEMENT_1]
-- [RESPONSIBILITY_OR_ACHIEVEMENT_2]
-- [RESPONSIBILITY_OR_ACHIEVEMENT_3]
+### Data Scientist - Tata AIG (July 2023 - Present)
+Mumbai, India
 
-<!-- Add more roles as needed -->
+**Health Fraud Pipeline**
+- Architected modular, nested models for health fraud and repudiation — 30% higher recall than baseline, F1 = 0.6 on repudiation — while automating pipelines to save ~500 man-hours/month.
+- Built a dynamic mapper using AWS Lambda and DynamoDB for daily-updated marking of historical fraud.
+- Productionized live fraud-scoring endpoints using AWS Lambda + API Gateway for real-time claims decisions.
+
+**Optimization of Passive Equity Investments**
+- Developed an asset selection and allocation model for ETF investments using historical price and PE/PB ratio data with Monte Carlo simulations to set parameters.
+- Backtested over 5 years for 4% excess XIRR over the actual portfolio; deployed to production after UAT and continues to outperform.
+
+**Send Time Optimization (STO)**
+- Developed engagement strategies for Zero-Touch customers (19% of base): +2% early renewals, +1% self-assisted customers.
+- Boosted stickiness by 8% on Email and WhatsApp via optimal contact timing/channel guidance; designed communication rules for long-term strategic planning.
+
+### Data Science Intern - OYO (May 2022 - Jul 2022)
+Gurgaon, India
+- Built a "D-Day Tracker" for daily micro-level metrics using advanced Excel, App Script, and Google Analytics.
+- Automated reporting with Python scripts to transfer data (Global V2 changes), improving tracker efficiency.
+- Built custom SEO website analytics using Google Analytics + regex to track and improve conversion rates.
 
 ## Independent Projects
-<!-- Projects outside of employment: freelance, open source, personal -->
-- **[PROJECT_NAME]**: [DESCRIPTION]
+<!-- Projects outside of employment: personal / open source -->
+- **Offline Retrieval-Augmented Generation (RAG) System** (Oct–Nov 2024): Local, privacy-preserving RAG over sensitive data with no hosted API calls — Ollama Mistral LLM + sentence-transformers multilingual embeddings, served via Streamlit. [github.com/Rontor3]
+- **LLM Prompt Recovery** (Sep–Oct 2024): Fine-tuned Gemma with LoRA to recover original prompts from LLM-generated text; explored prompt↔output correlations for improved recovery accuracy. [github.com/Rontor3]
+- **AI-Powered Resume – LLM-based Resume & JD Matcher** (Aug 2024): Streamlit app giving ATS-compatibility scores, semantic match scores (Sentence Transformers), and improvement suggestions; LLM-based JD cleaning + custom Python PDF/text backend. *(Directly relevant prior art for this dashboard's own matching engine.)* [GitHub]
 
 ## Technical Skills
 
 ### Programming & ML
-- **[LANGUAGE]** ([PROFICIENCY]): [FRAMEWORKS_AND_LIBRARIES]
-- [OTHER_SKILLS]
+- **Python** (primary): Pandas, NumPy, scikit-learn, LangChain
+- **LLM / GenAI:** RAG systems, LoRA fine-tuning (Gemma), sentence-transformers embeddings, prompt engineering, Ollama, MCP protocol
+- **SQL**
+- **Cloud / MLOps:** AWS Lambda, API Gateway, DynamoDB, SageMaker; server deployment; production scoring endpoints
 
 ### Domain Expertise
-- [DOMAIN_1]
-- [DOMAIN_2]
+- Fraud detection / anomaly modeling (health insurance)
+- Predictive modeling, Deep Learning, NLP, Generative AI
+- Model explainability (SHAP), EDA
+- Quantitative/financial modeling (ETF allocation, Monte Carlo, backtesting)
+- Marketing/engagement analytics (send-time optimization)
 
 ### Software & Tools
-- [TOOL_LIST]
+- Streamlit, Google Analytics, Advanced Excel / App Script, Git/GitHub
 
 ## Publications
-<!-- List peer-reviewed publications, if any -->
-1. [AUTHOR_LIST] ([YEAR]). [TITLE]. [JOURNAL]. [DOI_LINK]
+<!-- None listed on CV -->
+None listed.
 
 ## Awards
-- [AWARD] - [EVENT] ([YEAR])
+<!-- None listed on CV -->
+None listed.
 
 ## References
-- [NAME], [TITLE], [COMPANY] ([EMAIL], [PHONE])
-
-More references available upon request.
+Available upon request.

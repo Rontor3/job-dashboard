@@ -1,75 +1,81 @@
 # Search Queries for Job Scraper
 
-<!-- SETUP: Customize these queries based on your skills, target roles, and location -->
+<!-- Populated by /setup on 2026-07-13. Profile: Rakshit Singh. -->
+<!-- Orientation: REMOTE-FIRST (global). Broad across target titles — deliberately
+     not overfit to one narrow role. GenAI/LLM involvement, no-pure-BI, and
+     remote-friendly are ranking preferences, not hard filters. -->
 
 ## Search Sites
 
-Primary (your market's job boards - scaffold one with `/add-portal`):
-- **[YOUR_JOB_BOARD]** - your market's largest general job board
-- **linkedin.com/jobs** - LinkedIn job listings (filter: [YOUR_COUNTRY] / [YOUR_CITY])
-- **[YOUR_INDUSTRY_JOB_BOARD]** - a niche/industry board for your field (optional)
-- **[YOUR_ADDITIONAL_JOB_BOARD]** - another major board for your market (optional)
-
-Secondary (company career pages via Google):
-- Direct Google searches with `site:` filters for known target companies
+Remote-first — the Job Aggregation backend (`src/job_dashboard/`) already covers
+Remotive, RemoteOK, We Work Remotely, Himalayas, plus JobSpy (LinkedIn/Indeed/
+Naukri/Glassdoor/Google Jobs/ZipRecruiter). These queries feed the JobSpy /
+Google `site:` search layer.
+- **linkedin.com/jobs** - filter: Remote (Worldwide), India
+- **Remotive / RemoteOK / We Work Remotely / Himalayas** - remote-native boards (via backend)
+- **naukri.com** - India coverage for India-based remote/hybrid
+- Company career pages via Google `site:` searches for target companies
 
 ## Query Categories
 
-Queries are grouped by priority. Each query should be combined with your location terms (e.g. your city, region, or metro area) where the site supports it.
+Combine with `remote` and, secondarily, `India`. Titles are kept broad on purpose.
 
-### Priority 1: [YOUR_PRIMARY_ROLE_TYPE]
-
-These match your strongest and most desired career direction.
+### Priority 1: Core target titles (AI / ML Engineer)
 
 ```
-site:[YOUR_JOB_BOARD] "[YOUR_PRIMARY_JOB_TITLE]" [YOUR_CITY]
-site:[YOUR_JOB_BOARD] "[YOUR_KEY_SKILL]" [YOUR_CITY]
-site:linkedin.com/jobs "[YOUR_PRIMARY_JOB_TITLE]" [YOUR_COUNTRY]
+site:linkedin.com/jobs "AI Engineer" remote
+site:linkedin.com/jobs "Machine Learning Engineer" remote
+site:linkedin.com/jobs ("LLM Engineer" OR "GenAI Engineer") remote
+"AI Engineer" OR "ML Engineer" remote (LLM OR RAG OR "fine-tuning")
 ```
 
-### Priority 2: [YOUR_DOMAIN_EXPERTISE]
-
-These match your domain expertise.
+### Priority 2: Senior Data Scientist / DS3 and domain strengths
 
 ```
-site:[YOUR_JOB_BOARD] [YOUR_DOMAIN_KEYWORD_1] [YOUR_CITY] OR [YOUR_REGION]
-site:[YOUR_JOB_BOARD] [YOUR_DOMAIN_KEYWORD_2] [YOUR_COUNTRY]
-site:linkedin.com/jobs [YOUR_DOMAIN_KEYWORD_1] [YOUR_CITY] [YOUR_COUNTRY]
+site:linkedin.com/jobs "Senior Data Scientist" remote (LLM OR "machine learning")
+site:linkedin.com/jobs "Data Scientist" remote (fraud OR "risk" OR anomaly)
+"Data Scientist III" OR "DS3" remote
+Data Scientist remote (MLOps OR "production ML" OR AWS)
 ```
 
-### Priority 3: [YOUR_ADJACENT_ROLE_TYPE]
-
-Adjacent roles you could pivot into.
+### Priority 3: Adjacent GenAI / applied-LLM roles
 
 ```
-site:[YOUR_JOB_BOARD] "[YOUR_ADJACENT_TITLE_1]" [YOUR_KEY_SKILL] [YOUR_CITY]
-site:[YOUR_JOB_BOARD] "[YOUR_ADJACENT_TITLE_2]" [YOUR_KEY_SKILL] [YOUR_CITY]
+site:linkedin.com/jobs ("Applied Scientist" OR "Applied AI") remote
+"NLP Engineer" OR "Generative AI" remote
+"MLOps Engineer" remote (Python OR AWS)
+"AI/ML" (RAG OR LangChain OR "sentence-transformers" OR LoRA) remote
 ```
 
-### Priority 4: Broader Technical / Consulting
-
-Wider net for general technical roles.
+### Priority 4: Broader technical / contract net
 
 ```
-site:[YOUR_JOB_BOARD] [YOUR_KEY_SKILL] developer [YOUR_CITY]
-site:linkedin.com/jobs "[YOUR_KEY_SKILL] developer" [YOUR_CITY]
-site:[YOUR_JOB_BOARD] "technical consultant" [YOUR_DOMAIN] [YOUR_CITY]
+"Machine Learning" OR "Data Science" contract remote
+Python "machine learning" remote (startup OR "Series A" OR "Series B")
+freelance ("LLM" OR "GenAI" OR "machine learning") remote
 ```
 
 ## Location Filter
 
-When evaluating results, verify the job location is within reasonable commute distance from your home. Define acceptable areas:
-- [YOUR_CITY] and surrounding areas
-- [ACCEPTABLE_AREA_1]
-- [ACCEPTABLE_AREA_2]
-- [BORDERLINE_AREA] (borderline - ~X min by transit)
-- [TOO_FAR_AREA] (too far)
+Remote-first — rank by remote availability, not commute:
+- **Ideal:** Remote (Worldwide) or Remote (India) — no relocation required
+- **Acceptable:** Remote within a compatible timezone band; India-based hybrid
+- **Borderline:** On-site abroad WITH relocation/visa support
+- **Too far / drop:** Strictly on-site-only with no remote option (unless exceptional fit)
+
+## Ranking preferences (soft, not hard filters)
+
+- **Prefer** roles involving GenAI/LLM work (RAG, fine-tuning, agents, applied LLM).
+- **Down-rank** pure BI/dashboarding/reporting roles mislabeled as Data Science.
+- **Require-ish** remote-friendliness (strong down-rank for on-site-only).
+- Keep the net WIDE across titles — judge on overall fit, not title/keyword alone.
 
 ## Date Filter
 
-Only include jobs posted within the last 14 days, or with an application deadline that has not yet passed. If a posting date cannot be determined, include it but flag as "date unknown".
+Only include jobs posted within the last 14 days, or with a future application
+deadline. If a posting date can't be determined, include it but flag "date unknown".
 
 ## Adapting Queries
 
-If the user specifies a focus area, select queries from the matching category and also generate 2-3 custom queries for that focus. For example:
-- "/scrape [focus_area]" -> relevant category queries + custom focus-specific queries
+If the user specifies a focus area, select the matching category and generate 2-3
+custom focus-specific queries.

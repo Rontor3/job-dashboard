@@ -16,9 +16,9 @@ How well do the required/preferred skills align with the candidate's capabilitie
 | 40-59 | Partial match, significant upskilling needed |
 | 0-39 | Fundamental mismatch |
 
-**Strong match areas:** [YOUR_PRIMARY_SKILLS]
-**Moderate match areas:** [YOUR_SECONDARY_SKILLS]
-**Weak match areas:** [SKILLS_YOU_LACK]
+**Strong match areas:** Python; ML/DL & NLP; GenAI/LLM engineering (RAG, LoRA fine-tuning, sentence-transformers embeddings, prompt engineering); fraud/anomaly detection; model explainability (SHAP); AWS Lambda/API Gateway/DynamoDB; real-time model serving / production ML
+**Moderate match areas:** SQL; broader MLOps (orchestration, CI/CD for ML); AWS SageMaker; LangChain / agentic patterns; quantitative/financial modeling (Monte Carlo, backtesting); Streamlit
+**Weak match areas:** large-scale distributed training; deep infra (Kubernetes, heavy DevOps); non-Python stacks; formal research publications; front-end/UI engineering
 
 ### 2. Experience Match (0-100)
 Does work history align with what they're looking for?
@@ -30,9 +30,9 @@ Does work history align with what they're looking for?
 | 40-59 | Adjacent experience, would need to make the case |
 | 0-39 | Unrelated experience |
 
-**Strong:** [YOUR_DIRECT_EXPERIENCE_DOMAINS]
-**Moderate:** [YOUR_ADJACENT_EXPERIENCE]
-**Entry-level:** [ROLES_WITH_LIMITED_EXPERIENCE]
+**Strong:** production fraud/anomaly ML in insurance (health); applied LLM/GenAI project work (RAG, LoRA fine-tuning); real-time model serving on AWS
+**Moderate:** quantitative/financial modeling; marketing/engagement analytics; MLOps at larger org scale
+**Entry-level:** pure-research positions; big-tech-scale distributed systems; formal team leadership/management
 
 ### 3. Behavioral/Culture Fit (0-100)
 Does the role and company culture match the behavioral profile?
@@ -46,10 +46,12 @@ Does the role and company culture match the behavioral profile?
 
 **Red flags to research:** Department disorganization, work dominated by maintenance over development, poor chemistry with leadership, culture mismatches. Check reviews, media coverage, LinkedIn connections, and network contacts for insider perspective.
 
-### 4. Location & Logistics (Pass/Fail + Notes)
-- Within commute range: PASS
-- Remote with occasional office: PASS
-- Requires relocation: FAIL (deal-breaker)
+### 4. Location & Logistics (remote-first ranking + Notes)
+Candidate is **remote-first (global)**, open to India and abroad.
+- Remote (Worldwide / India): PASS — ideal
+- Remote with occasional office / compatible-timezone remote: PASS
+- On-site abroad WITH relocation/visa support: FLAG (borderline — discuss with user)
+- Strictly on-site-only, no remote option: strong DOWN-RANK (not an absolute deal-breaker if the fit is exceptional)
 - Frequent international travel: FLAG (discuss with user)
 
 ### 5. Career Alignment & Motivation (0-100)
@@ -63,19 +65,19 @@ Does this role advance career goals and contain tasks that energize?
 | 0-39 | Dead end or backwards step |
 
 **Career goals:**
-- [YOUR_CAREER_GOAL_1]
-- [YOUR_CAREER_GOAL_2]
-- [YOUR_CAREER_GOAL_3]
+- Move into AI Engineer / ML Engineer / Senior Data Scientist / DS3 (or related new titles) — kept broad on purpose, not narrowed to one track.
+- Deepen GenAI/LLM engineering (RAG, fine-tuning, agents, applied LLM) while retaining production/MLOps ownership.
+- Remote-first roles; open to India and abroad; open to contract/freelance alongside full-time.
 
 **Motivation filter:** Evaluate not just whether you *can* do the tasks, but whether the tasks will *energize* you. Consider:
-- Tasks that energize: [YOUR_ENERGIZING_TASKS]
-- Tasks that drain: [YOUR_DRAINING_TASKS]
+- Tasks that energize: building/shipping ML & LLM systems end-to-end; GenAI experimentation (RAG, fine-tuning, agents); owning models in production
+- Tasks that drain: pure BI/dashboarding/reporting; manual analysis with no modeling; roles with no modern ML/LLM component
 - Non-task factors: leadership style, department culture, company values, degree of autonomy
 
 **Life situation alignment:** Consider personal constraints:
-- **Security**: [YOUR_FINANCIAL_SITUATION_CONTEXT]
-- **Flexibility**: [YOUR_SCHEDULE_CONSTRAINTS]
-- **Professional development**: [YOUR_GROWTH_PRIORITIES]
+- **Security**: currently employed (Tata AIG) — can be selective; not a forced/urgent move
+- **Flexibility**: remote-first strongly preferred
+- **Professional development**: prioritizes modern GenAI/LLM depth and increased scope
 
 ### 6. Salary Benchmark (Optional)
 

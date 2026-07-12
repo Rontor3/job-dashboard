@@ -10,30 +10,30 @@ Keep answers to 1-2 minutes. Be specific. End with what you learned or would do 
 
 ## Ready-Made STAR Examples
 
-<!-- These are populated by /setup from your actual experience. Below are templates showing the format. -->
+<!-- Drafted by /setup from CV bullets on 2026-07-13. Refine/verify the numbers before an interview. -->
 
-### 1. [PROJECT_NAME] ([SKILL_DEMONSTRATED])
-**S:** [CONTEXT - what was happening, what was the problem]
-**T:** [YOUR RESPONSIBILITY - what you specifically needed to do]
-**A:** [WHAT YOU DID - specific actions, tools, methods]
-**R:** [OUTCOME - measurable results, adoption, impact]
-**Use for:** "[QUESTION_TYPE_1]", "[QUESTION_TYPE_2]"
+### 1. Health Fraud Pipeline (production ML ownership, impact)
+**S:** Health-insurance fraud/repudiation detection at Tata AIG relied on a baseline that missed cases and consumed heavy manual review.
+**T:** Design and productionize a better-performing, automated fraud-detection system.
+**A:** Architected modular, nested models; built a dynamic fraud mapper on AWS Lambda + DynamoDB; deployed real-time scoring endpoints on Lambda + API Gateway.
+**R:** 30% higher recall than baseline, F1 0.6 on repudiation, ~500 man-hours/month saved via automation.
+**Use for:** "Tell me about a project you owned end-to-end", "Describe production ML you shipped", "A time you improved a metric"
 
-### 2. [PROJECT_NAME] ([SKILL_DEMONSTRATED])
-**S:** [CONTEXT]
-**T:** [YOUR RESPONSIBILITY]
-**A:** [WHAT YOU DID]
-**R:** [OUTCOME]
-**Use for:** "[QUESTION_TYPE_1]", "[QUESTION_TYPE_2]"
+### 2. Offline RAG System (GenAI/LLM engineering, privacy constraints)
+**S:** Needed to query sensitive data with an LLM without sending it to hosted APIs.
+**T:** Build a private, efficient RAG system runnable locally.
+**A:** Integrated Ollama Mistral with sentence-transformers multilingual embeddings; served a lightweight app via Streamlit.
+**R:** Delivered a private, scalable RAG tool that eliminated hosted-API exposure for sensitive queries.
+**Use for:** "Describe your GenAI/LLM experience", "A time you handled a hard constraint", "Show applied RAG knowledge"
 
-### 3. [PROJECT_NAME] ([SKILL_DEMONSTRATED])
-**S:** [CONTEXT]
-**T:** [YOUR RESPONSIBILITY]
-**A:** [WHAT YOU DID]
-**R:** [OUTCOME]
-**Use for:** "[QUESTION_TYPE_1]", "[QUESTION_TYPE_2]"
+### 3. ETF Optimization (quantitative modeling, measurable business result)
+**S:** Passive equity/ETF investments were tracking the actual portfolio with no systematic edge.
+**T:** Build an asset-selection and allocation model to beat the benchmark.
+**A:** Used historical price and PE/PB data with Monte Carlo simulations to set parameters; backtested over 5 years; deployed after UAT.
+**R:** 4% excess XIRR over the actual portfolio; still outperforming in production.
+**Use for:** "A time you drove measurable impact", "Describe an analytical/quant project", "Owning something into production"
 
-<!-- Add more STAR examples as needed. Aim for 4-6 covering different competencies. -->
+<!-- Add more STAR examples as needed (e.g. LLM Prompt Recovery / LoRA, Send-Time Optimization). Aim for 4-6 covering different competencies. -->
 
 ## Common Tough Questions
 
