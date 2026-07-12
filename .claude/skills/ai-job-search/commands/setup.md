@@ -222,7 +222,7 @@ Documents cover skills, experience, education, references, and behavioral signal
 - Commute or location constraints (if not visible from CV)
 - Job search configuration (use the questions from Path C Section 9 below)
 
-Then proceed to Step 3 to populate the non-skill files (`CLAUDE.md`, `.claude/skills/ai-job-search/cv/main_example.tex`, `.claude/skills/ai-job-search/skills/job-scraper/search-queries.md`). Step 3 will detect that the seven skill files are already populated and skip those substeps.
+Then proceed to Step 3 to populate the non-skill files (`.claude/profile/CANDIDATE.md`, `.claude/skills/ai-job-search/cv/main_example.tex`, `.claude/skills/ai-job-search/skills/job-scraper/search-queries.md`). Step 3 will detect that the seven skill files are already populated and skip those substeps.
 
 ---
 
@@ -328,8 +328,8 @@ This proactive suggestion step helps users discover career paths they might not 
 
 Once data collection is complete, generate or finish populating the following files. **For Path A**, the seven skill files are already populated by Step A7; check each before writing and skip if its content is no longer placeholder text.
 
-### 1. Update `CLAUDE.md`
-Replace all `[PLACEHOLDER]` tokens with the user's actual information. Keep the structure, workflow, and verification checklist intact.
+### 1. Write `.claude/profile/CANDIDATE.md`
+Write the user's full candidate-profile narrative to `.claude/profile/CANDIDATE.md` (create the `.claude/profile/` directory if needed). Do NOT write the profile into the project root `CLAUDE.md` — that file holds this project's build/config instructions and must be left untouched.
 
 ### 2. Populate `01-candidate-profile.md` *(Path B and C; skip if Path A populated it)*
 Write the full candidate profile with structured sections: Identity, Education, Professional Experience, Independent Projects, Technical Skills, Publications, Awards, References.
@@ -374,7 +374,7 @@ Present a summary:
 
 > **Setup complete!** Here's what was generated:
 >
-> - `CLAUDE.md` - Your full candidate profile
+> - `.claude/profile/CANDIDATE.md` - Your full candidate profile
 > - `.claude/skills/ai-job-search/skills/job-application-assistant/01-candidate-profile.md` - Structured profile
 > - `.claude/skills/ai-job-search/skills/job-application-assistant/02-behavioral-profile.md` - Behavioral assessment
 > - `.claude/skills/ai-job-search/skills/job-application-assistant/04-job-evaluation.md` - Personalized evaluation framework
