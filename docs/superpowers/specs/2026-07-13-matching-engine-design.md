@@ -56,8 +56,12 @@ profile change makes stale scores detectable and re-scorable.
 - Normalize `(company, title)` per job: lowercase, strip punctuation and filler noise.
 - Group canonical-candidate rows by the normalized key; the **earliest-fetched** row in a
   group is canonical; the rest get `duplicate_of → jobs.id` (new nullable column).
-- Duplicates are **marked, not deleted** — the dashboard collapses them under the
-  canonical row and can show "also posted on: Indeed, RemoteOK".
+- Duplicates are **marked, never deleted** (user directive 2026-07-13): suspected
+  duplicates are surfaced under their own "Suspected duplicates" section in any
+  listing/report output, each annotated with the canonical job it is believed to
+  duplicate (e.g. "suspected duplicate of #42 — jobspy:linkedin"). The user verifies
+  the logic against real data first; rows are removed only on an explicit later
+  command, never automatically.
 - Scoring (stages 3–4) runs only on canonical rows (`duplicate_of IS NULL`).
 
 ## Storage
