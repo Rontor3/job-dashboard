@@ -67,3 +67,24 @@ def test_run_pipeline_survives_missing_profile(tmp_path):
 
     assert result["embed_scored"] == 0
     assert "/setup" in result["embed_skipped"]
+
+
+def test_run_pipeline_survives_model_failure_during_scoring(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    profile = tmp_path / "01.md"
+    profile.write_text(PROFILE_MD)
+
+    class ExplodingModel:
+        def encode(self, texts):
+            raise RuntimeError("model exploded mid-batch")
+
+    result = pipeline.run_pipeline(
+        conn, job_sources=_sources(), company_sources=[],
+        profile_file=profile, evaluation_file=tmp_path / "absent.md",
+        model_loader=lambda: ExplodingModel(),
+    )
+
+    assert result["ingest"]["new_jobs"] == 2
+    assert result["duplicates_marked"] == 1
+    assert result["embed_scored"] == 0
+    assert "model exploded" in result["embed_skipped"]
