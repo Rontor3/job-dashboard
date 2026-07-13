@@ -9,16 +9,23 @@ from job_dashboard.match.profile_text import (
 
 def run_pipeline(conn, job_sources, company_sources,
                  profile_file=None, evaluation_file=None,
-                 model_loader=load_default_model):
+                 model_loader=load_default_model, on_stage=None):
     """ingest -> dedup -> embed-score. Embedding problems of any kind
     (missing dependency, missing profile, model errors) never abort ingest/dedup
     — they surface in embed_skipped."""
+    def _stage(name):
+        if on_stage is not None:
+            on_stage(name)
+
+    _stage("ingesting")
     ingest_result = run_ingest(conn, job_sources, company_sources)
+    _stage("deduping")
     duplicates_marked = mark_duplicates(conn)
 
     embed_scored = 0
     embed_skipped = None
     try:
+        _stage("scoring")
         profile = compose_profile_text(
             profile_file if profile_file is not None else PROFILE_FILE,
             evaluation_file if evaluation_file is not None else EVALUATION_FILE,
