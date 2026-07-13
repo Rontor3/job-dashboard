@@ -27,6 +27,10 @@ def test_cosine_basics():
     assert cosine([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
 
 
+def test_cosine_zero_vector_returns_zero():
+    assert cosine([0.0, 0.0], [1.0, 0.0]) == 0.0
+
+
 def test_compute_embed_scores_scores_all_unscored_and_orders_feed(tmp_path):
     conn = init_db(tmp_path / "t.db")
     insert_job(conn, _job(1, "ml job"))

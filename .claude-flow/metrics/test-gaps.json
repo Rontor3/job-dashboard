@@ -1,0 +1,117 @@
+{
+  "timestamp": "2026-07-13T04:06:27.862Z",
+  "mode": "headless",
+  "workerType": "testgaps",
+  "model": "sonnet",
+  "durationMs": 126320,
+  "executionId": "testgaps_1783915461542_cadnlj",
+  "success": true,
+  "findings": {
+    "sections": [
+      {
+        "title": "Test Coverage Analysis — `src/job_dashboard`",
+        "content": "\nReviewed 8 source modules (593 lines) against 32 existing tests across `tests/`. Testing conventions used throughout: `tmp_path` for sqlite, `monkeypatch` + `tests.conftest.FakeResponse` for HTTP sources. I followed the same style below.\n\n",
+        "level": 2
+      },
+      {
+        "title": "Summary of gaps by severity",
+        "content": "\n| Area | Gap | Risk |\n|---|---|---|\n| `db.py` | `jobs_needing_embed_score` never tested against a **duplicate** job | High — dedup+matching interaction untested |\n| `db.py` | `record_llm_evaluation` success path never asserts stored `strengths/gaps/flags` JSON | High — silent JSON corruption possible |\n| `db.py` | `record_llm_evaluation` type-check branch (`not isinstance(llm_score, int)`) untested | Medium |\n| `ingest.py` | `company_sources` exception isolation untested (only `job_sources` is) | High — asymmetric coverage of duplicated logic |\n| All `requests`-based sources | HTTP error (`raise_for_status`) propagation untested in every module | High — silent failures possible in prod |\n| `remoteok_source.py` | `location` fallback, `job_url` fallback, non-\"contract\" `job_type` branch, salary edge cases untested | Medium |\n| `himalayas_source.py`/`remotive_source.py` | `_format_salary`/salary-fallback partial-data branches untested | Medium |\n| `wwr_source.py` | Title without `:` separator (→ `\"Unknown\"` company) untested | Low |\n| `profile_text.py` | Evaluation file present but regex doesn't match (no `**Career goals:**` section) untested | Low |\n| Integration | No test exercises a real source fetcher through `run_ingest` → `db` end-to-end | Medium |\n\n---\n\n",
+        "level": 3
+      },
+      {
+        "title": "1. `db.py` — `jobs_needing_embed_score` ignores duplicates (untested)",
+        "content": "\n```python\ndef test_duplicate_job_excluded_from_needing_embed_score(tmp_path):\n    conn = init_db(tmp_path / \"t.db\")\n    insert_job(conn, _job(1))\n    insert_job(conn, _job(2))\n    ids = [r[0] for r in conn.execute(\"SELECT id FROM jobs ORDER BY id\").fetchall()]\n    mark_duplicate(conn, ids[1], ids[0])\n\n    needing = jobs_needing_embed_score(conn, \"hashA\")\n\n    assert [row[0] for row in needing] == [ids[0]]\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "2. `db.py` — `record_llm_evaluation` success path doesn't verify stored fields",
+        "content": "\n```python\ndef test_record_llm_evaluation_stores_json_fields(tmp_path):\n    conn = init_db(tmp_path / \"t.db\")\n    insert_job(conn, _job(1))\n    job_id = conn.execute(\"SELECT id FROM jobs\").fetchone()[0]\n    upsert_embed_score(conn, job_id, 0.8, \"h\")\n\n    record_llm_evaluation(\n        conn, job_id, 74, \"Good Fit\",\n        strengths=[\"Python\"], gaps=[\"No Rust\"], flags={\"visa\": True},\n    )\n\n    row = conn.execute(\n        \"SELECT llm_score, verdict, strengths, gaps, flags, llm_scored_at \"\n        \"FROM match_scores WHERE job_id = ?\", (job_id,),\n    ).fetchone()\n    assert row[0] == 74\n    assert row[1] == \"Good Fit\"\n    assert json.loads(row[2]) == [\"Python\"]\n    assert json.loads(row[3]) == [\"No Rust\"]\n    assert json.loads(row[4]) == {\"visa\": True}\n    assert row[5] is not None\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "3. `db.py` — non-int `llm_score` type check",
+        "content": "\n```python\ndef test_record_llm_evaluation_rejects_non_int_score(tmp_path):\n    conn = init_db(tmp_path / \"t.db\")\n    insert_job(conn, _job(1))\n    job_id = conn.execute(\"SELECT id FROM jobs\").fetchone()[0]\n    upsert_embed_score(conn, job_id, 0.8, \"h\")\n\n    with pytest.raises(ValueError):\n        record_llm_evaluation(conn, job_id, 74.5, \"Good Fit\", [], [], {})\n    with pytest.raises(ValueError):\n        record_llm_evaluation(conn, job_id, \"74\", \"Good Fit\", [], [], {})\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "4. `ingest.py` — company source failure isolation (mirror of job-source test, currently missing)",
+        "content": "\n```python\ndef test_run_ingest_isolates_a_failing_company_source(tmp_path):\n    conn = init_db(tmp_path / \"test.db\")\n    good_company = Company(name=\"Acme\", funding_amount=\"$1M\")\n\n    def boom():\n        raise RuntimeError(\"sheet unreachable\")\n\n    result = ingest.run_ingest(\n        conn,\n        job_sources=[],\n        company_sources=[boom, lambda: [good_company]],\n    )\n\n    assert result == {\"new_jobs\": 0, \"companies_seen\": 1, \"source_errors\": 1}\n    row_count = conn.execute(\"SELECT COUNT(*) FROM companies\").fetchone()[0]\n    assert row_count == 1\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "5. HTTP error propagation — untested in every `requests`-based source (himalayas, remoteok, remotive, startup_sheet)",
+        "content": "\n`FakeResponse.raise_for_status` already supports this via `status_code`; no test exercises it. Example for `remotive_source.py` (repeat pattern for the other three):\n\n```python\ndef test_fetch_remotive_jobs_propagates_http_errors(monkeypatch):\n    monkeypatch.setattr(\n        remotive_source.requests, \"get\",\n        lambda *a, **k: FakeResponse(status_code=503),\n    )\n\n    with pytest.raises(RuntimeError):\n        remotive_source.fetch_remotive_jobs(\"AI engineer\")\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "6. `remoteok_source.py` — several untested branches",
+        "content": "\n```python\ndef test_fetch_remoteok_jobs_defaults_location_and_falls_back_job_url(monkeypatch):\n    payload = [\n        {\"legal\": \"...\"},\n        {\n            \"id\": \"1\", \"position\": \"Backend Eng\", \"company\": \"Co\",\n            \"location\": \"\", \"description\": \"desc\",\n            \"apply_url\": None, \"url\": \"https://remoteok.com/remote-jobs/1\",\n            \"tags\": [\"python\"],  # no \"contract\" tag\n        },\n    ]\n    monkeypatch.setattr(\n        remoteok_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    jobs = remoteok_source.fetch_remoteok_jobs()\n\n    assert jobs[0].location == \"Remote\"\n    assert jobs[0].job_url == \"https://remoteok.com/remote-jobs/1\"\n    assert jobs[0].job_type is None  # no \"contract\" tag present\n\n\ndef test_fetch_remoteok_jobs_salary_missing_both_bounds(monkeypatch):\n    payload = [\n        {\"legal\": \"...\"},\n        {\"id\": \"1\", \"position\": \"Eng\", \"company\": \"Co\", \"location\": \"\",\n         \"description\": \"desc\", \"apply_url\": \"https://x/1\"},\n    ]\n    monkeypatch.setattr(\n        remoteok_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    jobs = remoteok_source.fetch_remoteok_jobs()\n    assert jobs[0].salary_text is None\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "7. `himalayas_source.py` — salary partial-data and location default",
+        "content": "\n```python\ndef test_fetch_himalayas_jobs_salary_and_location_fallbacks(monkeypatch):\n    payload = {\"jobs\": [{\n        \"guid\": \"x\", \"title\": \"Role\", \"companyName\": \"Co\",\n        \"locationRestrictions\": [], \"description\": \"desc\",\n        \"applicationLink\": \"https://x/1\",\n        \"minSalary\": None, \"maxSalary\": None,  # neither present\n    }]}\n    monkeypatch.setattr(\n        himalayas_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    jobs = himalayas_source.fetch_himalayas_jobs(\"ml\")\n\n    assert jobs[0].location == \"Worldwide\"\n    assert jobs[0].salary_text is None\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "8. `wwr_source.py` — title without a `:` separator",
+        "content": "\n```python\ndef test_fetch_wwr_jobs_handles_title_without_colon(monkeypatch):\n    rss = SAMPLE_RSS.replace(\n        \"Acme Corp: Senior Machine Learning Engineer\", \"Just A Plain Title\"\n    )\n    real_parse = feedparser.parse\n    monkeypatch.setattr(wwr_source.feedparser, \"parse\", lambda url: real_parse(rss))\n\n    jobs = wwr_source.fetch_wwr_jobs()\n\n    assert jobs[0].company == \"Unknown\"\n    assert jobs[0].title == \"Just A Plain Title\"\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "9. `profile_text.py` — evaluation file present but no matching section",
+        "content": "\n```python\ndef test_evaluation_file_without_career_goals_section_is_ignored(tmp_path):\n    profile = tmp_path / \"01.md\"\n    evaluation = tmp_path / \"04.md\"\n    profile.write_text(PROFILE_MD)\n    evaluation.write_text(\"# Job Evaluation Framework\\nNo goals section here.\\n\")\n\n    result = compose_profile_text(profile, evaluation)\n\n    assert \"Target Roles & Career Goals\" not in result.text\n```\n\n",
+        "level": 3
+      },
+      {
+        "title": "10. Integration gap — no test wires a real source module through `run_ingest` into `db`",
+        "content": "Every existing `ingest.py` test uses hand-built `JobListing`/`Company` objects, never a real source fetcher. Recommend one smoke test per pipeline stage boundary, e.g.:\n\n```python\ndef test_run_ingest_end_to_end_with_real_source_module(tmp_path, monkeypatch):\n    conn = init_db(tmp_path / \"t.db\")\n    payload = {\"jobs\": [{\n        \"guid\": \"abc\", \"title\": \"ML Engineer\", \"companyName\": \"Acme\",\n        \"locationRestrictions\": [\"US\"], \"description\": \"desc\",\n        \"applicationLink\": \"https://himalayas.app/jobs/abc\",\n    }]}\n    monkeypatch.setattr(\n        himalayas_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    result = ingest.run_ingest(\n        conn,\n        job_sources=[lambda: himalayas_source.fetch_himalayas_jobs(\"ml\")],\n        company_sources=[],\n    )\n\n    assert result[\"new_jobs\"] == 1\n    assert job_exists(conn, \"https://himalayas.app/jobs/abc\")\n```\n\n---\n\n**Not covered by this pass (out of scope for `src/job_dashboard`):** `vendor/ai-job-search/` (has its own test suite already) and `.claude/` tooling scripts — treated as vendored/tooling code, not the primary project.\n\nI wasn't able to run `pytest --cov` directly (command requires approval in this session) — the analysis above is from manual line-by-line comparison of each source module against its test file. If you want exact line/branch percentages, say the word and I'll get approval to run `pytest --cov=job_dashboard --cov-report=term-missing`.",
+        "level": 3
+      }
+    ],
+    "codeBlocks": [
+      {
+        "language": "python",
+        "code": "def test_duplicate_job_excluded_from_needing_embed_score(tmp_path):\n    conn = init_db(tmp_path / \"t.db\")\n    insert_job(conn, _job(1))\n    insert_job(conn, _job(2))\n    ids = [r[0] for r in conn.execute(\"SELECT id FROM jobs ORDER BY id\").fetchall()]\n    mark_duplicate(conn, ids[1], ids[0])\n\n    needing = jobs_needing_embed_score(conn, \"hashA\")\n\n    assert [row[0] for row in needing] == [ids[0]]"
+      },
+      {
+        "language": "python",
+        "code": "def test_record_llm_evaluation_stores_json_fields(tmp_path):\n    conn = init_db(tmp_path / \"t.db\")\n    insert_job(conn, _job(1))\n    job_id = conn.execute(\"SELECT id FROM jobs\").fetchone()[0]\n    upsert_embed_score(conn, job_id, 0.8, \"h\")\n\n    record_llm_evaluation(\n        conn, job_id, 74, \"Good Fit\",\n        strengths=[\"Python\"], gaps=[\"No Rust\"], flags={\"visa\": True},\n    )\n\n    row = conn.execute(\n        \"SELECT llm_score, verdict, strengths, gaps, flags, llm_scored_at \"\n        \"FROM match_scores WHERE job_id = ?\", (job_id,),\n    ).fetchone()\n    assert row[0] == 74\n    assert row[1] == \"Good Fit\"\n    assert json.loads(row[2]) == [\"Python\"]\n    assert json.loads(row[3]) == [\"No Rust\"]\n    assert json.loads(row[4]) == {\"visa\": True}\n    assert row[5] is not None"
+      },
+      {
+        "language": "python",
+        "code": "def test_record_llm_evaluation_rejects_non_int_score(tmp_path):\n    conn = init_db(tmp_path / \"t.db\")\n    insert_job(conn, _job(1))\n    job_id = conn.execute(\"SELECT id FROM jobs\").fetchone()[0]\n    upsert_embed_score(conn, job_id, 0.8, \"h\")\n\n    with pytest.raises(ValueError):\n        record_llm_evaluation(conn, job_id, 74.5, \"Good Fit\", [], [], {})\n    with pytest.raises(ValueError):\n        record_llm_evaluation(conn, job_id, \"74\", \"Good Fit\", [], [], {})"
+      },
+      {
+        "language": "python",
+        "code": "def test_run_ingest_isolates_a_failing_company_source(tmp_path):\n    conn = init_db(tmp_path / \"test.db\")\n    good_company = Company(name=\"Acme\", funding_amount=\"$1M\")\n\n    def boom():\n        raise RuntimeError(\"sheet unreachable\")\n\n    result = ingest.run_ingest(\n        conn,\n        job_sources=[],\n        company_sources=[boom, lambda: [good_company]],\n    )\n\n    assert result == {\"new_jobs\": 0, \"companies_seen\": 1, \"source_errors\": 1}\n    row_count = conn.execute(\"SELECT COUNT(*) FROM companies\").fetchone()[0]\n    assert row_count == 1"
+      },
+      {
+        "language": "python",
+        "code": "def test_fetch_remotive_jobs_propagates_http_errors(monkeypatch):\n    monkeypatch.setattr(\n        remotive_source.requests, \"get\",\n        lambda *a, **k: FakeResponse(status_code=503),\n    )\n\n    with pytest.raises(RuntimeError):\n        remotive_source.fetch_remotive_jobs(\"AI engineer\")"
+      },
+      {
+        "language": "python",
+        "code": "def test_fetch_remoteok_jobs_defaults_location_and_falls_back_job_url(monkeypatch):\n    payload = [\n        {\"legal\": \"...\"},\n        {\n            \"id\": \"1\", \"position\": \"Backend Eng\", \"company\": \"Co\",\n            \"location\": \"\", \"description\": \"desc\",\n            \"apply_url\": None, \"url\": \"https://remoteok.com/remote-jobs/1\",\n            \"tags\": [\"python\"],  # no \"contract\" tag\n        },\n    ]\n    monkeypatch.setattr(\n        remoteok_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    jobs = remoteok_source.fetch_remoteok_jobs()\n\n    assert jobs[0].location == \"Remote\"\n    assert jobs[0].job_url == \"https://remoteok.com/remote-jobs/1\"\n    assert jobs[0].job_type is None  # no \"contract\" tag present\n\n\ndef test_fetch_remoteok_jobs_salary_missing_both_bounds(monkeypatch):\n    payload = [\n        {\"legal\": \"...\"},\n        {\"id\": \"1\", \"position\": \"Eng\", \"company\": \"Co\", \"location\": \"\",\n         \"description\": \"desc\", \"apply_url\": \"https://x/1\"},\n    ]\n    monkeypatch.setattr(\n        remoteok_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    jobs = remoteok_source.fetch_remoteok_jobs()\n    assert jobs[0].salary_text is None"
+      },
+      {
+        "language": "python",
+        "code": "def test_fetch_himalayas_jobs_salary_and_location_fallbacks(monkeypatch):\n    payload = {\"jobs\": [{\n        \"guid\": \"x\", \"title\": \"Role\", \"companyName\": \"Co\",\n        \"locationRestrictions\": [], \"description\": \"desc\",\n        \"applicationLink\": \"https://x/1\",\n        \"minSalary\": None, \"maxSalary\": None,  # neither present\n    }]}\n    monkeypatch.setattr(\n        himalayas_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    jobs = himalayas_source.fetch_himalayas_jobs(\"ml\")\n\n    assert jobs[0].location == \"Worldwide\"\n    assert jobs[0].salary_text is None"
+      },
+      {
+        "language": "python",
+        "code": "def test_fetch_wwr_jobs_handles_title_without_colon(monkeypatch):\n    rss = SAMPLE_RSS.replace(\n        \"Acme Corp: Senior Machine Learning Engineer\", \"Just A Plain Title\"\n    )\n    real_parse = feedparser.parse\n    monkeypatch.setattr(wwr_source.feedparser, \"parse\", lambda url: real_parse(rss))\n\n    jobs = wwr_source.fetch_wwr_jobs()\n\n    assert jobs[0].company == \"Unknown\"\n    assert jobs[0].title == \"Just A Plain Title\""
+      },
+      {
+        "language": "python",
+        "code": "def test_evaluation_file_without_career_goals_section_is_ignored(tmp_path):\n    profile = tmp_path / \"01.md\"\n    evaluation = tmp_path / \"04.md\"\n    profile.write_text(PROFILE_MD)\n    evaluation.write_text(\"# Job Evaluation Framework\\nNo goals section here.\\n\")\n\n    result = compose_profile_text(profile, evaluation)\n\n    assert \"Target Roles & Career Goals\" not in result.text"
+      },
+      {
+        "language": "python",
+        "code": "def test_run_ingest_end_to_end_with_real_source_module(tmp_path, monkeypatch):\n    conn = init_db(tmp_path / \"t.db\")\n    payload = {\"jobs\": [{\n        \"guid\": \"abc\", \"title\": \"ML Engineer\", \"companyName\": \"Acme\",\n        \"locationRestrictions\": [\"US\"], \"description\": \"desc\",\n        \"applicationLink\": \"https://himalayas.app/jobs/abc\",\n    }]}\n    monkeypatch.setattr(\n        himalayas_source.requests, \"get\", lambda *a, **k: FakeResponse(json_data=payload)\n    )\n\n    result = ingest.run_ingest(\n        conn,\n        job_sources=[lambda: himalayas_source.fetch_himalayas_jobs(\"ml\")],\n        company_sources=[],\n    )\n\n    assert result[\"new_jobs\"] == 1\n    assert job_exists(conn, \"https://himalayas.app/jobs/abc\")"
+      }
+    ]
+  },
+  "rawOutputPreview": "## Test Coverage Analysis — `src/job_dashboard`\n\nReviewed 8 source modules (593 lines) against 32 existing tests across `tests/`. Testing conventions used throughout: `tmp_path` for sqlite, `monkeypatch` + `tests.conftest.FakeResponse` for HTTP sources. I followed the same style below.\n\n### Summary of gaps by severity\n\n| Area | Gap | Risk |\n|---|---|---|\n| `db.py` | `jobs_needing_embed_score` never tested against a **duplicate** job | High — dedup+matching interaction untested |\n| `db.py` | `record_llm_evaluation` success path never asserts stored `strengths/gaps/flags` JSON | High — silent JSON corruption possible |\n| `db.py` | `record_llm_evaluation` type-check branch (`not isinstance(llm_score, int)`) untested | Medium |\n| `ingest.py` | `company_sources` exception isolation untested (only `job_sources` is) | High — asymmetric coverage of duplicated logic |\n| All `requests`-based sources | HTTP error (`raise_for_status`) propagation untested in every module | High — silent failures possible in prod |\n| `remoteok_source.py` | `location` fallback, `job_url` fallback, non-\"contract\" `job_type` branch, salary edge cases untested | Medium |\n| `himalayas_source.py`/`remotive_source.py` | `_format_salary`/salary-fallback partial-data branches untested | Medium |\n| `wwr_source.py` | Title without `:` separator (→ `\"Unknown\"` company) untested | Low |\n| `profile_text.py` | Evaluation file present but regex doesn't match (no `**Career goals:**` section) untested | Low |\n| Integration | No test exercises a real source fetcher through `run_ingest` → `db` end-to-end | Medium |\n\n---\n\n### 1. `db.py` — `jobs_needing_embed_score` ignores duplicates (untested)\n\n```python\ndef test_duplicate_job_excluded_from_needing_embed_score(tmp_path):\n    conn = init_db(tmp_path / \"t.db\")\n    insert_job(conn, _job(1))\n    insert_job(conn, _job(2))\n    ids = [r[0] for r in conn.execute(\"SELECT id FROM jobs ORDER BY id\").fetchall()]\n    mark_duplicate(conn, ids[1], ids[0])\n\n    needing = jobs_need",
+  "rawOutputLength": 9236
+}

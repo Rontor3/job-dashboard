@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+# assumes this module lives at <repo>/src/job_dashboard/match/profile_text.py
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 PROFILE_FILE = _REPO_ROOT / ".claude/skills/ai-job-search/skills/job-application-assistant/01-candidate-profile.md"
@@ -22,6 +23,10 @@ def compose_profile_text(profile_file=PROFILE_FILE, evaluation_file=EVALUATION_F
             f"Profile file not found: {profile_file}. Run /setup to generate it first."
         )
     text = profile_file.read_text(encoding="utf-8")
+    if not text.strip():
+        raise ValueError(
+            f"Profile file is empty: {profile_file}. Run /setup to generate it first."
+        )
     goals = _career_goals_block(Path(evaluation_file))
     if goals:
         text += "\n\n## Target Roles & Career Goals\n" + goals

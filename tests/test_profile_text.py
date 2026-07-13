@@ -54,3 +54,10 @@ def test_missing_evaluation_file_is_tolerated(tmp_path):
 
     result = compose_profile_text(profile, tmp_path / "absent.md")
     assert "Python, ML" in result.text
+
+
+def test_empty_profile_raises_actionable_error(tmp_path):
+    profile = tmp_path / "01.md"
+    profile.write_text("   \n")
+    with pytest.raises(ValueError, match="/setup"):
+        compose_profile_text(profile, tmp_path / "absent.md")

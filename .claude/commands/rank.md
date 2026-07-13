@@ -5,7 +5,7 @@ against `.claude/skills/ai-job-search/skills/job-application-assistant/04-job-ev
 
 ## Steps
 
-1. Fetch the batch (default 30; `$ARGUMENTS` may override with a number):
+1. Fetch the batch — default 30; if `$ARGUMENTS` contains a number, substitute it for `30` in the command below:
 
    ```bash
    python3 -m job_dashboard.rank_io top --db data/jobs.db --limit 30
