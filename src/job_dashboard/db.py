@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS match_scores (
 """
 
 VALID_VERDICTS = {"Strong Fit", "Good Fit", "Moderate Fit", "Weak Fit", "Poor Fit"}
+VALID_STATUSES = {"saved", "applied", "dismissed"}
 
 
 def init_db(path):
@@ -61,6 +62,7 @@ def init_db(path):
     conn.executescript(SCHEMA)
     conn.executescript(MATCH_SCHEMA)
     _ensure_duplicate_of_column(conn)
+    _ensure_status_column(conn)
     conn.commit()
     return conn
 
@@ -69,6 +71,12 @@ def _ensure_duplicate_of_column(conn):
     cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
     if "duplicate_of" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN duplicate_of INTEGER")
+
+
+def _ensure_status_column(conn):
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
+    if "status" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN status TEXT")
 
 
 def job_exists(conn, job_url):
@@ -218,3 +226,107 @@ def suspected_duplicates(conn):
     keys = ("id", "title", "company", "source", "job_url", "duplicate_of",
             "canonical_source")
     return [dict(zip(keys, row)) for row in rows]
+
+
+def set_job_status(conn, job_id, status):
+    if status is not None and status not in VALID_STATUSES:
+        raise ValueError(f"status must be one of {sorted(VALID_STATUSES)} or None, got {status!r}")
+    cur = conn.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
+    conn.commit()
+    if cur.rowcount == 0:
+        raise KeyError(f"no job with id {job_id}")
+
+
+_JOB_COLUMNS = ("id", "title", "company", "location", "job_url", "job_type",
+                "is_remote", "posted_date", "source", "status",
+                "embed_score", "llm_score", "verdict")
+
+
+def query_jobs(conn, q=None, remote=None, job_type=None, source=None, status=None,
+               min_score=None, include_dismissed=False, sort="embed",
+               limit=50, offset=0):
+    where = ["j.duplicate_of IS NULL"]
+    params = []
+    if q:
+        where.append("(LOWER(j.title) LIKE ? OR LOWER(j.company) LIKE ?)")
+        needle = f"%{q.lower()}%"
+        params += [needle, needle]
+    if remote is not None:
+        where.append("j.is_remote = ?")
+        params.append(int(remote))
+    if job_type:
+        where.append("j.job_type = ?")
+        params.append(job_type)
+    if source:
+        where.append("j.source = ?")
+        params.append(source)
+    if status:
+        where.append("j.status = ?")
+        params.append(status)
+    elif not include_dismissed:
+        where.append("(j.status IS NULL OR j.status != 'dismissed')")
+    if min_score is not None:
+        where.append("m.embed_score >= ?")
+        params.append(min_score)
+
+    order = {
+        "embed": "m.embed_score IS NULL, m.embed_score DESC, j.id",
+        "llm": "m.llm_score IS NULL, m.llm_score DESC, j.id",
+        "date": "j.posted_date IS NULL, j.posted_date DESC, j.id",
+    }.get(sort, "m.embed_score IS NULL, m.embed_score DESC, j.id")
+
+    base = f"""FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
+               WHERE {' AND '.join(where)}"""
+    total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
+    rows = conn.execute(
+        f"""SELECT j.id, j.title, j.company, j.location, j.job_url, j.job_type,
+                   j.is_remote, j.posted_date, j.source, j.status,
+                   m.embed_score, m.llm_score, m.verdict
+            {base} ORDER BY {order} LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    ).fetchall()
+    return [dict(zip(_JOB_COLUMNS, row)) for row in rows], total
+
+
+def job_detail(conn, job_id):
+    row = conn.execute(
+        """SELECT j.id, j.title, j.company, j.location, j.job_url, j.job_type,
+                  j.is_remote, j.posted_date, j.source, j.status,
+                  m.embed_score, m.llm_score, m.verdict,
+                  j.description, m.strengths, m.gaps, m.flags
+           FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
+           WHERE j.id = ?""",
+        (job_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    detail = dict(zip(_JOB_COLUMNS + ("description", "strengths", "gaps", "flags"), row))
+    detail["strengths"] = json.loads(detail["strengths"]) if detail["strengths"] else []
+    detail["gaps"] = json.loads(detail["gaps"]) if detail["gaps"] else []
+    detail["flags"] = json.loads(detail["flags"]) if detail["flags"] else {}
+    detail["cross_listings"] = [
+        {"id": r[0], "source": r[1], "job_url": r[2]}
+        for r in conn.execute(
+            "SELECT id, source, job_url FROM jobs WHERE duplicate_of = ? ORDER BY id",
+            (job_id,),
+        ).fetchall()
+    ]
+    return detail
+
+
+def dashboard_stats(conn):
+    def one(sql, *params):
+        return conn.execute(sql, params).fetchone()[0]
+
+    canonical = "FROM jobs WHERE duplicate_of IS NULL"
+    return {
+        "total": one(f"SELECT COUNT(*) {canonical}"),
+        "new": one(f"SELECT COUNT(*) {canonical} AND status IS NULL"),
+        "saved": one(f"SELECT COUNT(*) {canonical} AND status = 'saved'"),
+        "applied": one(f"SELECT COUNT(*) {canonical} AND status = 'applied'"),
+        "dismissed": one(f"SELECT COUNT(*) {canonical} AND status = 'dismissed'"),
+        "unranked": one(
+            """SELECT COUNT(*) FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
+               WHERE j.duplicate_of IS NULL AND m.llm_score IS NULL"""
+        ),
+    }
