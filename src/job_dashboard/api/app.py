@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.db import (
     dashboard_stats, init_db, job_detail, query_jobs, set_job_status,
     suspected_duplicates,
@@ -18,7 +19,7 @@ class StatusPatch(BaseModel):
     status: Optional[str] = None
 
 
-def create_app(db_path=DEFAULT_DB):
+def create_app(db_path=DEFAULT_DB, pipeline_runner=None):
     app = FastAPI(title="Job Dashboard")
 
     @contextmanager
@@ -71,6 +72,20 @@ def create_app(db_path=DEFAULT_DB):
     def stats():
         with db() as conn:
             return dashboard_stats(conn)
+
+    state = RefreshState()
+    runner = pipeline_runner or default_pipeline_runner
+
+    @app.post("/api/refresh")
+    def start_refresh():
+        started = state.start(lambda on_stage: runner(db_path, on_stage))
+        if not started:
+            raise HTTPException(status_code=409, detail="refresh already running")
+        return {"started": True}
+
+    @app.get("/api/refresh/status")
+    def refresh_status():
+        return state.snapshot()
 
     return app
 
