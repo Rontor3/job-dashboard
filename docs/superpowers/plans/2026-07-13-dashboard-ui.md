@@ -16,8 +16,15 @@
 - Job status values: `saved`, `applied`, `dismissed`, or `NULL` (= new). Anything else is a 422/ValueError.
 - Refresh: `POST /api/refresh` returns 409 if a run is in progress; embedding problems surface as non-fatal `embed_skipped` (warning banner), never as a failed refresh.
 - No test performs a real network call, requires sentence-transformers, or hits a real browser.
-- Visual register (binding, from the spec): pastel families — lavender `#EEEDFE/#3C3489`, mint `#E1F5EE/#085041`, peach/amber `#FAEEDA/#633806`, pink `#FBEAF0/#72243E`; text on a pastel fill always uses the dark end of the same family; pill shapes; 12–16px radii.
-- Motion (binding): staggered row entrance (~50ms/row, ease-out), verdict-pill pop-in, hover lift/nudge, score count-up (<1s), refresh spin, breathing live-dot — all disabled under `prefers-reduced-motion: reduce`.
+- Visual register (binding, from the spec): pastel families — lavender `#EEEDFE/#3C3489`, mint `#E1F5EE/#085041`, peach/amber `#FAEEDA/#633806`, pink `#FBEAF0/#72243E`; text on a pastel fill always uses the dark end of the same family; pill shapes for small tags/chips/buttons only.
+- Design discipline (binding, from the `minimalist-ui` taste skill — `.agents/skills/minimalist-ui/SKILL.md`):
+  - Fonts: sans stack `'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif` (never Inter/Roboto/Open Sans); metadata (dates, source names, scores' sublabels) in monospace `'SF Mono', 'JetBrains Mono', monospace`, small size, wide tracking.
+  - Text: body never pure black — warm charcoal `#2C2C2A`; secondary `#787774`; line-height ≥1.6 on prose (the JD text).
+  - Structure: card radius 12px max; hairline borders `1px` at ~6% opacity; generous internal padding; canvas warm bone `#F7F6F3`.
+  - No emoji or unicode symbol glyphs in markup (⟳ ✕ ✓ ▾ etc.) — use small inline SVG primitives with consistent stroke width.
+  - No gradients, no heavy shadows (any shadow ≤ 0.05 opacity), no glassmorphism.
+  - **Documented deviation (user preference governs):** the skill treats color as scarce and bans colored backgrounds on large elements; the user explicitly chose a pastel playful register, so the lavender header band and pastel strengths/gaps cards stay. Pastel stays desaturated (the chosen 50-stop fills), never saturated primaries.
+- Motion (binding — skill physics + spec behaviors): staggered row entrance `translateY(12px)+fade`, 600ms, `cubic-bezier(0.16,1,0.3,1)`, 80ms/row cascade; verdict-pill pop-in; hover = 200ms ultra-subtle shadow lift (`0 2px 8px rgba(0,0,0,0.04)`) + gentle nudge; `scale(0.98)` on button press; score count-up (<1s); refresh spin; breathing live-dot. Animate only `transform`/`opacity`. All disabled under `prefers-reduced-motion: reduce`.
 - Frontend code lives only in `frontend/`; `frontend/dist/` and `node_modules/` are gitignored.
 
 ---
@@ -888,7 +895,7 @@ git commit -m "feat: background refresh job with stage reporting and 409 guard"
 ### Task 5: Frontend scaffold — Vite + React + pastel tokens + API client + app shell
 
 **Files:**
-- Create: `frontend/package.json`, `frontend/vite.config.js`, `frontend/index.html`, `frontend/src/main.jsx`, `frontend/src/App.jsx`, `frontend/src/api.js`, `frontend/src/styles/tokens.css`, `frontend/src/styles/app.css`, `frontend/src/__tests__/smoke.test.jsx`
+- Create: `frontend/package.json`, `frontend/vite.config.js`, `frontend/index.html`, `frontend/src/main.jsx`, `frontend/src/App.jsx`, `frontend/src/api.js`, `frontend/src/components/icons.jsx`, `frontend/src/styles/tokens.css`, `frontend/src/styles/app.css`, `frontend/src/__tests__/smoke.test.jsx`
 - Modify: `.gitignore` (add `node_modules/`, `frontend/dist/`)
 
 **Interfaces:**
@@ -966,12 +973,15 @@ export default defineConfig({
   --pastel-mint: #E1F5EE;     --pastel-mint-ink: #085041;     --pastel-mint-mid: #0F6E56;
   --pastel-peach: #FAEEDA;    --pastel-peach-ink: #633806;    --pastel-peach-mid: #854F0B;
   --pastel-pink: #FBEAF0;     --pastel-pink-ink: #72243E;     --pastel-pink-mid: #993556;
-  --paper: #FFFFFF; --paper-dim: #F7F6F3; --ink: #2C2C2A; --ink-soft: #5F5E5A; --ink-faint: #888780;
-  --hairline: rgba(44, 44, 42, 0.12);
-  --radius-row: 12px; --radius-card: 16px; --radius-pill: 999px;
-  --dur-quick: 150ms; --dur-enter: 450ms;
+  --paper: #FFFFFF; --paper-dim: #F7F6F3; --ink: #2C2C2A; --ink-soft: #787774; --ink-faint: #9B9A94;
+  --hairline: rgba(44, 44, 42, 0.06);
+  --radius-row: 8px; --radius-card: 12px; --radius-pill: 999px;
+  --font-sans: 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+  --dur-quick: 200ms; --dur-enter: 600ms;
   --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -989,9 +999,10 @@ export default defineConfig({
 /* frontend/src/styles/app.css */
 @import "./tokens.css";
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--paper-dim); color: var(--ink); }
-.shell { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
-@keyframes rowIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+body { margin: 0; font-family: var(--font-sans); background: var(--paper-dim); color: var(--ink); }
+.shell { max-width: 1100px; margin: 0 auto; padding: 32px 16px; }
+.meta { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; }
+@keyframes rowIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes popIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
@@ -1025,6 +1036,32 @@ export const fetchDuplicates = () => fetch("/api/duplicates").then(json);
 export const fetchStats = () => fetch("/api/stats").then(json);
 export const startRefresh = () => fetch("/api/refresh", { method: "POST" }).then(json);
 export const refreshStatus = () => fetch("/api/refresh/status").then(json);
+```
+
+```javascript
+// frontend/src/components/icons.jsx
+import React from "react";
+
+const base = { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none",
+               stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round",
+               strokeLinejoin: "round", "aria-hidden": true };
+
+export const CheckIcon = () => (
+  <svg {...base}><path d="M5 13l4 4L19 7" /></svg>
+);
+export const XIcon = () => (
+  <svg {...base}><path d="M6 6l12 12M18 6L6 18" /></svg>
+);
+export const RefreshIcon = ({ spinning }) => (
+  <svg {...base} style={spinning ? { animation: "spin 0.9s linear infinite" } : undefined}>
+    <path d="M20 11A8 8 0 1 0 4.6 14M20 11V5m0 6h-6" />
+  </svg>
+);
+export const ChevronIcon = ({ open }) => (
+  <svg {...base} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform var(--dur-quick) ease-out" }}>
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
 ```
 
 ```javascript
@@ -1180,7 +1217,7 @@ test("rows get staggered animation delays", () => {
   render(<Feed jobs={JOBS} selectedId={null} onSelect={() => {}} />);
   const rows = screen.getAllByRole("listitem");
   expect(rows[0].style.animationDelay).toBe("0ms");
-  expect(rows[1].style.animationDelay).toBe("50ms");
+  expect(rows[1].style.animationDelay).toBe("80ms");
 });
 
 test("filter chips toggle and propagate", () => {
@@ -1260,7 +1297,7 @@ export default function Feed({ jobs, selectedId, onSelect }) {
           onClick={() => onSelect(j.id)}
           style={{
             animation: "rowIn var(--dur-enter) var(--ease-out) both",
-            animationDelay: `${i * 50}ms`,
+            animationDelay: `${i * 80}ms`,
             display: "flex", alignItems: "center", justifyContent: "space-between",
             padding: "13px 20px", cursor: "pointer",
             borderTop: i ? "0.5px solid var(--hairline)" : "none",
@@ -1268,11 +1305,11 @@ export default function Feed({ jobs, selectedId, onSelect }) {
             opacity: j.status === "dismissed" || j.status === "applied" ? 0.75 : 1,
             transition: "transform var(--dur-quick) ease-out, background var(--dur-quick) ease-out",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = "translateX(6px)"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = "translateX(4px)"; e.currentTarget.style.boxShadow = "var(--hover-shadow)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 12, background: "var(--pastel-lavender)", color: "var(--pastel-lavender-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 13 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 8, background: "var(--pastel-lavender)", color: "var(--pastel-lavender-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 13 }}>
               {monogram(j.company)}
             </div>
             <div>
@@ -1280,11 +1317,11 @@ export default function Feed({ jobs, selectedId, onSelect }) {
                 {j.title}
                 {j.status && (
                   <span style={{ ...PILL, background: "var(--pastel-peach)", color: "var(--pastel-peach-mid)", marginLeft: 8 }}>
-                    {j.status} ✓
+                    {j.status}
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+              <div className="meta" style={{ color: "var(--ink-soft)" }}>
                 {j.company} · {j.location || "—"} · {j.posted_date || ""} · {j.source}
               </div>
             </div>
@@ -1309,6 +1346,7 @@ export default function Feed({ jobs, selectedId, onSelect }) {
 ```javascript
 // frontend/src/components/FilterBar.jsx
 import React from "react";
+import { CheckIcon } from "./icons.jsx";
 
 const CHIPS = [
   { key: "remote", label: "Remote", on: { background: "var(--pastel-mint)", color: "var(--pastel-mint-ink)" } },
@@ -1349,7 +1387,7 @@ export default function FilterBar({ filters, setFilters }) {
             onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; }}
           >
-            {c.label}{active ? " ✓" : ""}
+            {c.label}{active && <CheckIcon />}
           </button>
         );
       })}
@@ -1476,6 +1514,7 @@ Expected: FAIL — components don't exist.
 // frontend/src/components/JobDetail.jsx
 import React, { useEffect, useState } from "react";
 import { fetchJob, patchStatus } from "../api.js";
+import { XIcon } from "./icons.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 
@@ -1512,7 +1551,7 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
               </div>
             </div>
           )}
-          <button onClick={onClose} aria-label="Close" style={{ ...BTN, background: "var(--paper-dim)", color: "var(--ink-faint)" }}>✕</button>
+          <button onClick={onClose} aria-label="Close" style={{ ...BTN, background: "var(--paper-dim)", color: "var(--ink-faint)" }}><XIcon /></button>
         </div>
       </div>
 
@@ -1561,6 +1600,7 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
 // frontend/src/components/RefreshButton.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { refreshStatus, startRefresh } from "../api.js";
+import { RefreshIcon } from "./icons.jsx";
 
 export default function RefreshButton({ onDone }) {
   const [status, setStatus] = useState({ running: false, stage: "idle" });
@@ -1594,7 +1634,7 @@ export default function RefreshButton({ onDone }) {
         disabled={status.running}
         style={{ border: "none", cursor: status.running ? "wait" : "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 6, background: "var(--paper)", borderRadius: "var(--radius-pill)", padding: "7px 16px", color: "var(--pastel-lavender-ink)" }}
       >
-        <span aria-hidden="true" style={{ display: "inline-block", animation: status.running ? "spin 0.9s linear infinite" : "none" }}>⟳</span>
+        <RefreshIcon spinning={status.running} />
         {status.running ? status.stage : "Refresh"}
       </button>
     </span>
@@ -1606,6 +1646,7 @@ export default function RefreshButton({ onDone }) {
 // frontend/src/components/DuplicatesSection.jsx
 import React, { useEffect, useState } from "react";
 import { fetchDuplicates } from "../api.js";
+import { ChevronIcon } from "./icons.jsx";
 
 export default function DuplicatesSection() {
   const [dupes, setDupes] = useState([]);
@@ -1620,7 +1661,7 @@ export default function DuplicatesSection() {
         onClick={() => setOpen((o) => !o)}
         style={{ border: "none", cursor: "pointer", width: "100%", textAlign: "left", background: "var(--pastel-pink)", color: "var(--pastel-pink-ink)", borderRadius: open ? "12px 12px 0 0" : 12, padding: "11px 16px", fontSize: 13 }}
       >
-        Suspected duplicates ({dupes.length}) — kept safe, never deleted {open ? "▴" : "▾"}
+        Suspected duplicates ({dupes.length}) — kept safe, never deleted <ChevronIcon open={open} />
       </button>
       {open && (
         <ul style={{ listStyle: "none", margin: 0, padding: 0, background: "var(--paper)", borderRadius: "0 0 12px 12px" }}>
@@ -1736,7 +1777,7 @@ git commit -m "feat: serve built frontend from FastAPI; launch config; e2e smoke
 
 ## After this plan (not tasks — session-level follow-ups)
 
-1. **Taste pass:** apply the `minimalist-ui` skill's palette/layout discipline to refine `tokens.css` + component polish (it owns "muted pastels, flat bento, typographic contrast").
+1. **Taste pass:** the `minimalist-ui` skill's rules are now baked into the Global Constraints and Task 5 tokens (fonts, text colors, hairlines, radii, motion physics, SVG-only icons — with one documented pastel deviation per user preference). The post-build taste pass is therefore a verification sweep, not a retrofit: confirm the built UI matches the discipline block.
 2. **impeccable pass:** `/impeccable audit` + `polish` against the running app in the browser — explicit audit points: pastel-fill contrast (dark end of same family), `prefers-reduced-motion`, empty/error states, keyboard navigation.
 3. First real refresh run (needs `pip3 install sentence-transformers` + network).
 
