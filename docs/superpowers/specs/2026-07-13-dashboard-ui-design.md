@@ -9,8 +9,9 @@ master design (see `2026-07-12-job-dashboard-design.md` §2); first UI-bearing s
 so it also establishes the project's visual system.
 
 Decisions fixed here (user-confirmed 2026-07-13): **React + Vite SPA** frontend,
-**FastAPI** JSON API, **minimalist/calm** visual register (`minimalist-ui` taste skill
-drives tokens; impeccable audits the built UI), **background-job refresh with polling**.
+**FastAPI** JSON API, **light-pastel playful** visual register with micro-animations
+(user revised from minimalist after seeing a mockup — taste skill drives tokens;
+impeccable audits the built UI), **background-job refresh with polling**.
 
 ## Architecture
 
@@ -90,22 +91,42 @@ adding a source later is a one-line change.
 
 ## Frontend
 
-Single-screen layout, minimalist register (dense rows over cards; data does the
-talking; one accent color for scores):
+Single-screen layout, **light-pastel playful register** (user-approved via mockup
+2026-07-13): soft pastel families (lavender primary; mint = positive/fit, peach/amber =
+status/warning, pink = duplicates/accents), pill shapes over hard rectangles, colored
+company-monogram avatars, generous 12–16px radii, dense rows (not heavy cards).
 
-- **Header**: title, `GET /api/stats` counts, RefreshButton (spinner + stage text while
-  polling; warning banner when `embed_skipped`).
-- **FilterBar**: search box, chips (remote, job_type, source, status), min-score
-  slider (off by default), sort selector, "show dismissed" toggle.
-- **Feed**: dense rows — title, company, location, source badge, posted date,
-  ScoreBadge (embed % always; verdict pill once LLM-ranked). Click → detail panel.
-- **JobDetail** (right-side panel): full JD rendered, scores, strengths/gaps lists,
-  flags (deal-breakers/deadline/expired), StatusControl buttons, "apply ↗" link,
-  "also posted on" cross-listings.
-- **DuplicatesSection**: collapsed at the bottom ("Suspected duplicates (N)");
-  expanding lists each with "suspected duplicate of #id — source". No delete action.
-- Design tokens in `styles/tokens.css`, set by the `minimalist-ui` taste skill at
-  implementation time; impeccable audits/polishes the built UI afterward.
+**Motion is a first-class requirement**, not decoration:
+- Staggered row entrance on load/filter change (slide-up + fade, ~50ms stagger,
+  ease-out).
+- Verdict pills pop in with a soft overshoot once ranked.
+- Hover feedback: rows nudge + tint wash; chips/buttons lift 2px.
+- Match scores count up from 0 (ease-out cubic, <1s).
+- Refresh button spins while the pipeline runs; a breathing "live" dot in the header.
+- **`prefers-reduced-motion: reduce` disables all of it** (instant states) — hard
+  requirement, verified in the impeccable pass.
+
+Components:
+- **Header** (pastel lavender band): title, `GET /api/stats` counts + live dot,
+  RefreshButton (spin + stage text while polling; warning banner when `embed_skipped`).
+- **FilterBar**: pill search box, pastel toggle chips (remote, job_type, source,
+  status), min-score slider (off by default), sort selector, "show dismissed" toggle.
+- **Feed**: dense rows — monogram avatar, title, company, location, posted date,
+  source badge, ScoreBadge (embed score count-up; verdict pill once LLM-ranked;
+  "Ranking…" pill while unranked). Applied/dismissed rows dim, never vanish.
+  Click → detail panel.
+- **JobDetail** (right-side panel): monogram + title header, big match-score chip with
+  embed/LLM breakdown, pastel StatusControl pill-buttons (Save / Applied / Dismiss),
+  "Apply ↗" link, mint Strengths card + amber Gaps card, flags
+  (deal-breakers/deadline/expired), full JD rendered, "also posted on" cross-listings.
+- **DuplicatesSection**: collapsed pastel-pink strip at the bottom ("Suspected
+  duplicates (N) — kept safe, never deleted"); expanding lists each with "suspected
+  duplicate of #id — source". No delete action.
+- Design tokens (pastel palette with light/dark variants, radii, motion durations/
+  easings) live in `styles/tokens.css`, refined by the taste skill at implementation
+  time; impeccable audits/polishes the built UI afterward (contrast on pastel fills —
+  text must use the dark end of the same color family — and reduced-motion are
+  explicit audit points).
 
 ## Error handling
 
