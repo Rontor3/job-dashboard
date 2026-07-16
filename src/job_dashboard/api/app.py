@@ -87,6 +87,12 @@ def create_app(db_path=DEFAULT_DB, pipeline_runner=None):
     def refresh_status():
         return state.snapshot()
 
+    # Mount frontend static files (SPA with fallback to index.html)
+    dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    if dist.is_dir():
+        from fastapi.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=str(dist), html=True), name="frontend")
+
     return app
 
 
