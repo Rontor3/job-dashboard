@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS match_scores (
 """
 
 VALID_VERDICTS = {"Strong Fit", "Good Fit", "Moderate Fit", "Weak Fit", "Poor Fit"}
-VALID_STATUSES = {"saved", "applied", "dismissed"}
+VALID_STATUSES = {"saved", "applied", "interviewing", "offer", "rejected", "dismissed"}
 
 
 def init_db(path):
@@ -324,6 +324,9 @@ def dashboard_stats(conn):
         "new": one(f"SELECT COUNT(*) {canonical} AND status IS NULL"),
         "saved": one(f"SELECT COUNT(*) {canonical} AND status = 'saved'"),
         "applied": one(f"SELECT COUNT(*) {canonical} AND status = 'applied'"),
+        "interviewing": one(f"SELECT COUNT(*) {canonical} AND status = 'interviewing'"),
+        "offer": one(f"SELECT COUNT(*) {canonical} AND status = 'offer'"),
+        "rejected": one(f"SELECT COUNT(*) {canonical} AND status = 'rejected'"),
         "dismissed": one(f"SELECT COUNT(*) {canonical} AND status = 'dismissed'"),
         "unranked": one(
             """SELECT COUNT(*) FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id

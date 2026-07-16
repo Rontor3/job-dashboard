@@ -133,4 +133,22 @@ def test_dashboard_stats(tmp_path):
 
     stats = dashboard_stats(conn)
     assert stats == {"total": 3, "new": 2, "saved": 0, "applied": 1,
+                     "interviewing": 0, "offer": 0, "rejected": 0,
                      "dismissed": 0, "unranked": 2}
+
+
+def test_response_statuses_are_valid_and_counted(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    ids = [_seed(conn, n) for n in (1, 2, 3, 4)]
+    set_job_status(conn, ids[0], "interviewing")
+    set_job_status(conn, ids[1], "offer")
+    set_job_status(conn, ids[2], "rejected")
+
+    stats = dashboard_stats(conn)
+    assert stats["interviewing"] == 1
+    assert stats["offer"] == 1
+    assert stats["rejected"] == 1
+    assert stats["new"] == 1
+
+    rows, total = query_jobs(conn)  # response statuses stay in default feed
+    assert total == 4
