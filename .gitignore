@@ -5,3 +5,5 @@ data/*.db
 documents/
 vendor/
 *.egg-info/
+node_modules/
+frontend/dist/
