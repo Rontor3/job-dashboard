@@ -91,10 +91,38 @@ adding a source later is a one-line change.
 
 ## Frontend
 
-Single-screen layout, **light-pastel playful register** (user-approved via mockup
-2026-07-13): soft pastel families (lavender primary; mint = positive/fit, peach/amber =
-status/warning, pink = duplicates/accents), pill shapes over hard rectangles, colored
-company-monogram avatars, generous 12–16px radii, dense rows (not heavy cards).
+**REGISTER v2 (2026-07-16, supersedes pastel v1 — user rejected the built pastel look
+and approved a Teal-inspired mockup):** warm, friendly, light-only.
+
+- **Font:** Poppins (self-hosted via `@fontsource/poppins`, weights 400/500/600/700) —
+  rounded geometric; bold friendly headings. Monospace only for tiny metadata.
+- **Palette:** cream canvas `#FAF6F0`; white cards with `#E8E0D4` hairlines; deep
+  forest green `#1E4744` primary (headings, active chips, score numbers, ring);
+  mustard gold `#E9B23F` for THE action button (text `#4A3208`); sage `#9DBBB2`/
+  `#6E9C8F`/`#3F7266` ramp for pipeline bars and fit pills (`#E4EFEA` tint); warm
+  peach/terracotta `#F6C99F`/`#E8A87C` for the header illustration and warm tags
+  (`#FBEED9` tint, text `#8A5A1C`); duplicates strip `#F5E9E4`/text `#8A4A38`;
+  body ink `#26312E`, secondary `#7A6A52`, faint `#A89B85`.
+  **Light theme always — the dark-mode token block is removed** (register decision,
+  not an omission).
+- **Warm illustrated header:** flat SVG sunset scene (layered hills + standing stones
+  + sun) on a `#FBEED9` band behind the title — decorative, subtle, flat fills (the
+  user's landing-page reference direction).
+- **Overview row (NEW spec section):** two cards under the header —
+  (1) **Applications ring**: SVG progress ring, applied-count vs weekly goal
+  (constant 10 for v1), forest green on `#EFE7DA` track;
+  (2) **Job search pipeline**: horizontal bars with counts for Saved / Applied /
+  Interviewing / Offer / Rejected (sage→green ramp, rejected in `#D9B8A6`),
+  widths proportional to the max count.
+- **Status set extended:** `saved / applied / interviewing / offer / rejected /
+  dismissed` (NULL = new). `interviewing`/`offer`/`rejected` record the response to
+  an application — the visible slice of outcome tracking (full /outcome archiving
+  stays a later sprint). Detail-panel status buttons cover all six; feed rows show a
+  status chip. Pipeline + stats count all of them.
+- Cards over dense rows: white, 14px radius, sector-tag chips, match score + fit
+  pill right-aligned, "N days ago" faint.
+
+Prior pastel token names in code are replaced by the v2 palette above.
 
 **Motion is a first-class requirement**, not decoration:
 - Staggered row entrance on load/filter change (slide-up + fade, ~50ms stagger,
