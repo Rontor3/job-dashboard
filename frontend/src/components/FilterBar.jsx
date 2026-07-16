@@ -7,6 +7,8 @@ const CHIPS = [
   { key: "status", label: "Saved", value: "saved", on: { background: "var(--pastel-peach)", color: "var(--pastel-peach-ink)" } },
 ];
 
+const SOURCES = ["", "remotive", "remoteok", "weworkremotely", "himalayas", "jobspy:linkedin", "jobspy:indeed"];
+
 export default function FilterBar({ filters, setFilters }) {
   const toggle = (key, value = true) =>
     setFilters((f) => {
@@ -54,6 +56,48 @@ export default function FilterBar({ filters, setFilters }) {
           <option value="embed">match score</option>
           <option value="llm">LLM score</option>
           <option value="date">newest</option>
+        </select>
+      </label>
+      <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 6, alignItems: "center" }}>
+        Min score
+        <input
+          type="range"
+          aria-label="Minimum match score"
+          min={0}
+          max={100}
+          step={5}
+          defaultValue={0}
+          onChange={(e) => {
+            const value = Number(e.target.value);
+            setFilters((f) => {
+              const next = { ...f };
+              if (value === 0) delete next.min_score;
+              else next.min_score = value / 100;
+              return next;
+            });
+          }}
+        />
+        <span>{filters.min_score != null ? Math.round(filters.min_score * 100) : 0}</span>
+      </label>
+      <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 6, alignItems: "center" }}>
+        Source
+        <select
+          aria-label="Filter by source"
+          value={filters.source ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            setFilters((f) => {
+              const next = { ...f };
+              if (!value) delete next.source;
+              else next.source = value;
+              return next;
+            });
+          }}
+          style={{ border: "none", background: "var(--paper)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
+        >
+          {SOURCES.map((s) => (
+            <option key={s} value={s}>{s === "" ? "all sources" : s}</option>
+          ))}
         </select>
       </label>
       <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 4, alignItems: "center" }}>

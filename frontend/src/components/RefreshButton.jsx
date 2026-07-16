@@ -13,6 +13,8 @@ export default function RefreshButton({ onDone }) {
       setStatus(s);
       if (s.running) timer.current = setTimeout(poll, 1000);
       else if (s.stage === "done" || s.stage === "error") onDone(s);
+    }).catch((e) => {
+      if (alive.current) setStatus({ running: false, stage: "error", error: String(e), last_result: null });
     });
   };
 

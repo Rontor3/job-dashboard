@@ -39,3 +39,25 @@ test("filter chips toggle and propagate", () => {
   const updater = setFilters.mock.calls[0][0];
   expect(updater({ sort: "embed" })).toEqual({ sort: "embed", remote: true });
 });
+
+test("min-score slider sets min_score as a 0-1 float, and 0 clears it", () => {
+  const setFilters = vi.fn();
+  render(<FilterBar filters={{ sort: "embed" }} setFilters={setFilters} />);
+  const slider = screen.getByLabelText("Minimum match score");
+
+  fireEvent.change(slider, { target: { value: "50" } });
+  let updater = setFilters.mock.calls[setFilters.mock.calls.length - 1][0];
+  expect(updater({ sort: "embed" }).min_score).toBe(0.5);
+
+  fireEvent.change(slider, { target: { value: "0" } });
+  updater = setFilters.mock.calls[setFilters.mock.calls.length - 1][0];
+  expect(updater({ sort: "embed", min_score: 0.5 })).not.toHaveProperty("min_score");
+});
+
+test("source select sets filters.source", () => {
+  const setFilters = vi.fn();
+  render(<FilterBar filters={{ sort: "embed" }} setFilters={setFilters} />);
+  fireEvent.change(screen.getByLabelText("Filter by source"), { target: { value: "remotive" } });
+  const updater = setFilters.mock.calls[0][0];
+  expect(updater({ sort: "embed" }).source).toBe("remotive");
+});

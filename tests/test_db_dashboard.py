@@ -75,6 +75,18 @@ def test_query_jobs_text_search_and_filters(tmp_path):
     assert len(rows) == 1 and rows[0]["title"] == "ML Engineer"
 
 
+def test_query_jobs_job_type_filter_is_format_insensitive(tmp_path):
+    conn = init_db(tmp_path / "t.db")
+    _seed(conn, 1, job_type="fulltime")
+    _seed(conn, 2, job_type="full_time")
+    _seed(conn, 3, job_type="FULL_TIME")
+    _seed(conn, 4, job_type="contract")
+
+    rows, total = query_jobs(conn, job_type="fulltime")
+    assert total == 3
+    assert len(rows) == 3
+
+
 def test_query_jobs_skips_duplicates(tmp_path):
     conn = init_db(tmp_path / "t.db")
     a = _seed(conn, 1)

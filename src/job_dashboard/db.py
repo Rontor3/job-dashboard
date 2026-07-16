@@ -255,8 +255,8 @@ def query_jobs(conn, q=None, remote=None, job_type=None, source=None, status=Non
         where.append("j.is_remote = ?")
         params.append(int(remote))
     if job_type:
-        where.append("j.job_type = ?")
-        params.append(job_type)
+        where.append("REPLACE(LOWER(j.job_type), '_', '') = ?")
+        params.append(job_type.lower().replace("_", ""))
     if source:
         where.append("j.source = ?")
         params.append(source)

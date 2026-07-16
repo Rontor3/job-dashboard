@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { fetchJob, patchStatus } from "../api.js";
-import { XIcon } from "./icons.jsx";
+import { XIcon, ArrowUpRightIcon } from "./icons.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 
@@ -52,7 +52,7 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
         <button style={{ ...BTN, background: "var(--paper-dim)", color: "var(--ink-faint)" }} onClick={() => setStatus("dismissed")}>Dismiss</button>
         <a href={job.job_url} target="_blank" rel="noreferrer"
            style={{ ...BTN, background: "var(--pastel-lavender)", color: "var(--pastel-lavender-ink)", marginLeft: "auto", textDecoration: "none" }}>
-          Apply ↗
+          Apply <ArrowUpRightIcon />
         </a>
       </div>
 

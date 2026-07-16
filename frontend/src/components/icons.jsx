@@ -20,3 +20,6 @@ export const ChevronIcon = ({ open }) => (
     <path d="M6 9l6 6 6-6" />
   </svg>
 );
+export const ArrowUpRightIcon = () => (
+  <svg {...base}><path d="M7 17L17 7M9 7h8v8" /></svg>
+);
