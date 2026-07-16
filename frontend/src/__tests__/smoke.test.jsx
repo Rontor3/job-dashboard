@@ -16,5 +16,4 @@ test("renders feed and stats from the API", async () => {
   render(<App />);
   await waitFor(() => expect(screen.getByText(/ML Engineer/)).toBeDefined());
   expect(screen.getByTestId("stats").textContent).toContain("2 jobs");
-  expect(screen.getByTestId("total").textContent).toBe("2");
 });

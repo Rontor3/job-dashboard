@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { fetchJobs, fetchStats } from "./api.js";
+import FilterBar from "./components/FilterBar.jsx";
+import Feed from "./components/Feed.jsx";
 
 export default function App() {
   const [filters, setFilters] = useState({ sort: "embed" });
@@ -33,12 +35,8 @@ export default function App() {
       </header>
       {error && <div role="alert" style={{ color: "var(--pastel-pink-ink)", background: "var(--pastel-pink)", borderRadius: 12, padding: "10px 14px", marginTop: 12 }}>{error}</div>}
       <main data-testid="feed-slot">
-        <ul data-testid="job-list">
-          {jobs.map((j) => (
-            <li key={j.id}>{j.title} — {j.company}</li>
-          ))}
-        </ul>
-        <span data-testid="total">{total}</span>
+        <FilterBar filters={filters} setFilters={setFilters} />
+        <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} />
       </main>
     </div>
   );
