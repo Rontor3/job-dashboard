@@ -9,8 +9,13 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     setJob(null);
-    fetchJob(id).then(setJob).catch((e) => setError(String(e)));
+    setError(null);
+    fetchJob(id)
+      .then((j) => { if (!cancelled) setJob(j); })
+      .catch((e) => { if (!cancelled) setError(String(e)); });
+    return () => { cancelled = true; };
   }, [id]);
 
   if (error) return <div role="alert" style={{ padding: 16, color: "var(--pastel-pink-ink)" }}>{error}</div>;
@@ -67,6 +72,32 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
           </div>
         </div>
       )}
+
+      {(() => {
+        const flags = job.flags || {};
+        const dealBreakers = flags.deal_breakers || [];
+        const hasFlags = dealBreakers.length > 0 || flags.deadline != null || flags.expired;
+        if (!hasFlags) return null;
+        return (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+            {dealBreakers.map((d) => (
+              <span key={d} style={{ fontSize: 11, background: "var(--pastel-pink)", color: "var(--pastel-pink-ink)", borderRadius: "var(--radius-pill)", padding: "4px 10px" }}>
+                deal-breaker: {d}
+              </span>
+            ))}
+            {flags.deadline != null && (
+              <span style={{ fontSize: 11, background: "var(--pastel-peach)", color: "var(--pastel-peach-ink)", borderRadius: "var(--radius-pill)", padding: "4px 10px" }}>
+                deadline: {flags.deadline}
+              </span>
+            )}
+            {flags.expired && (
+              <span style={{ fontSize: 11, background: "var(--pastel-pink)", color: "var(--pastel-pink-ink)", borderRadius: "var(--radius-pill)", padding: "4px 10px" }}>
+                expired
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 12, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
         {job.description}

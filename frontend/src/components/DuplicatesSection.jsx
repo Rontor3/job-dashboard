@@ -15,7 +15,7 @@ export default function DuplicatesSection() {
         onClick={() => setOpen((o) => !o)}
         style={{ border: "none", cursor: "pointer", width: "100%", textAlign: "left", background: "var(--pastel-pink)", color: "var(--pastel-pink-ink)", borderRadius: open ? "12px 12px 0 0" : 12, padding: "11px 16px", fontSize: 13 }}
       >
-        Suspected duplicates ({dupes.length}) — kept safe, read-only <ChevronIcon open={open} />
+        Suspected duplicates ({dupes.length}) — kept safe, never deleted <ChevronIcon open={open} />
       </button>
       {open && (
         <ul style={{ listStyle: "none", margin: 0, padding: 0, background: "var(--paper)", borderRadius: "0 0 12px 12px" }}>

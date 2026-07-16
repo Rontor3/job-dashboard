@@ -5,19 +5,26 @@ import { RefreshIcon } from "./icons.jsx";
 export default function RefreshButton({ onDone }) {
   const [status, setStatus] = useState({ running: false, stage: "idle" });
   const timer = useRef(null);
+  const alive = useRef(true);
 
   const poll = () => {
     refreshStatus().then((s) => {
+      if (!alive.current) return;
       setStatus(s);
       if (s.running) timer.current = setTimeout(poll, 1000);
       else if (s.stage === "done" || s.stage === "error") onDone(s);
     });
   };
 
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => () => {
+    alive.current = false;
+    clearTimeout(timer.current);
+  }, []);
 
   const click = () =>
-    startRefresh().then(() => poll());
+    startRefresh()
+      .then(() => poll())
+      .catch((e) => setStatus({ running: false, stage: "error", error: String(e) }));
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
