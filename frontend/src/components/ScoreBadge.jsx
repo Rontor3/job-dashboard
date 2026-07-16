@@ -21,7 +21,7 @@ export default function ScoreBadge({ value }) {
 
   if (target == null) return <span style={{ fontSize: 12, color: "var(--ink-faint)" }}>—</span>;
   return (
-    <span style={{ fontSize: 16, fontWeight: 500, color: "var(--pastel-lavender-mid)", minWidth: 26, textAlign: "right" }}>
+    <span style={{ fontSize: 16, fontWeight: 700, color: "var(--green)", minWidth: 26, textAlign: "right" }}>
       {shown}
     </span>
   );

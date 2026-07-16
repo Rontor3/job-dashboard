@@ -1,25 +1,18 @@
 :root {
-  --pastel-lavender: #EEEDFE; --pastel-lavender-ink: #3C3489; --pastel-lavender-mid: #534AB7;
-  --pastel-mint: #E1F5EE;     --pastel-mint-ink: #085041;     --pastel-mint-mid: #0F6E56;
-  --pastel-peach: #FAEEDA;    --pastel-peach-ink: #633806;    --pastel-peach-mid: #854F0B;
-  --pastel-pink: #FBEAF0;     --pastel-pink-ink: #72243E;     --pastel-pink-mid: #993556;
-  --paper: #FFFFFF; --paper-dim: #F7F6F3; --ink: #2C2C2A; --ink-soft: #787774; --ink-faint: #9B9A94;
-  --hairline: rgba(44, 44, 42, 0.06);
-  --radius-row: 8px; --radius-card: 12px; --radius-pill: 999px;
-  --font-sans: 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif;
+  --canvas: #FAF6F0; --card: #FFFFFF; --hairline: #E8E0D4;
+  --green: #1E4744; --green-mid: #3F7266; --green-soft: #6E9C8F; --sage: #9DBBB2;
+  --green-tint: #E4EFEA;
+  --gold: #E9B23F; --gold-ink: #4A3208;
+  --peach: #F6C99F; --peach-deep: #E8A87C; --warm-band: #FBEED9;
+  --warm-tint: #FBEED9; --warm-ink: #8A5A1C;
+  --dupe-bg: #F5E9E4; --dupe-ink: #8A4A38; --rejected-bar: #D9B8A6;
+  --ink: #26312E; --ink-soft: #7A6A52; --ink-faint: #A89B85;
+  --ring-track: #EFE7DA;
+  --radius-card: 14px; --radius-tag: 6px; --radius-pill: 999px;
+  --font-sans: 'Poppins', 'Helvetica Neue', system-ui, sans-serif;
   --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
   --dur-quick: 200ms; --dur-enter: 600ms;
   --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #1E1E1C; --paper-dim: #262624; --ink: #F1EFE8; --ink-soft: #B4B2A9; --ink-faint: #888780;
-    --hairline: rgba(241, 239, 232, 0.14);
-    --pastel-lavender: #26215C; --pastel-lavender-ink: #CECBF6; --pastel-lavender-mid: #AFA9EC;
-    --pastel-mint: #04342C;     --pastel-mint-ink: #9FE1CB;     --pastel-mint-mid: #5DCAA5;
-    --pastel-peach: #412402;    --pastel-peach-ink: #FAC775;    --pastel-peach-mid: #EF9F27;
-    --pastel-pink: #4B1528;     --pastel-pink-ink: #F4C0D1;     --pastel-pink-mid: #ED93B1;
-  }
+  --hover-shadow: 0 2px 8px rgba(74, 58, 30, 0.08);
 }

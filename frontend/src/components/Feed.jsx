@@ -16,7 +16,7 @@ export default function Feed({ jobs, selectedId, onSelect }) {
     );
   }
   return (
-    <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, background: "var(--paper)", borderRadius: "var(--radius-card)", overflow: "hidden" }}>
+    <ul style={{ listStyle: "none", margin: 0, padding: "10px 0 0", display: "flex", flexDirection: "column", gap: 10 }}>
       {jobs.map((j, i) => (
         <li
           key={j.id}
@@ -26,9 +26,10 @@ export default function Feed({ jobs, selectedId, onSelect }) {
             animation: "rowIn var(--dur-enter) var(--ease-out) both",
             animationDelay: `${i * 80}ms`,
             display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "13px 20px", cursor: "pointer",
-            borderTop: i ? "0.5px solid var(--hairline)" : "none",
-            background: j.id === selectedId ? "var(--pastel-lavender)" : "transparent",
+            padding: "14px 18px", cursor: "pointer",
+            background: "var(--card)",
+            border: j.id === selectedId ? "1.5px solid var(--green)" : "0.5px solid var(--hairline)",
+            borderRadius: "var(--radius-card)",
             opacity: j.status === "dismissed" || j.status === "applied" ? 0.75 : 1,
             transition: "transform var(--dur-quick) ease-out, background var(--dur-quick) ease-out",
           }}
@@ -36,14 +37,14 @@ export default function Feed({ jobs, selectedId, onSelect }) {
           onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 38, height: 38, borderRadius: 8, background: "var(--pastel-lavender)", color: "var(--pastel-lavender-ink)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 13 }}>
+            <div style={{ width: 38, height: 38, borderRadius: 12, background: "var(--green)", color: "var(--peach)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 500, fontSize: 13 }}>
               {monogram(j.company)}
             </div>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
                 {j.title}
                 {j.status && (
-                  <span style={{ ...PILL, background: "var(--pastel-peach)", color: "var(--pastel-peach-mid)", marginLeft: 8 }}>
+                  <span style={{ ...PILL, background: "var(--green-tint)", color: "var(--green-mid)", marginLeft: 8 }}>
                     {j.status}
                   </span>
                 )}
@@ -55,11 +56,20 @@ export default function Feed({ jobs, selectedId, onSelect }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {j.verdict ? (
-              <span style={{ ...PILL, background: "var(--pastel-mint)", color: "var(--pastel-mint-ink)", animation: "popIn 0.4s var(--ease-pop) both", animationDelay: `${300 + i * 100}ms` }}>
+              <span
+                style={{
+                  ...PILL,
+                  ...(j.verdict === "Strong Fit"
+                    ? { background: "var(--gold)", color: "var(--gold-ink)" }
+                    : { background: "var(--green-tint)", color: "var(--green-mid)" }),
+                  animation: "popIn 0.4s var(--ease-pop) both",
+                  animationDelay: `${300 + i * 100}ms`,
+                }}
+              >
                 {j.verdict}
               </span>
             ) : (
-              <span style={{ ...PILL, background: "var(--paper-dim)", color: "var(--ink-faint)" }}>Ranking…</span>
+              <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>Ranking…</span>
             )}
             <ScoreBadge value={j.embed_score} />
           </div>

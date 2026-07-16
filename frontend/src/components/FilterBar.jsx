@@ -1,10 +1,12 @@
 import React from "react";
 import { CheckIcon } from "./icons.jsx";
 
+const ACTIVE_CHIP = { background: "var(--green)", color: "#FFFFFF" };
+
 const CHIPS = [
-  { key: "remote", label: "Remote", on: { background: "var(--pastel-mint)", color: "var(--pastel-mint-ink)" } },
-  { key: "job_type", label: "Full-time", value: "fulltime", on: { background: "var(--pastel-pink)", color: "var(--pastel-pink-ink)" } },
-  { key: "status", label: "Saved", value: "saved", on: { background: "var(--pastel-peach)", color: "var(--pastel-peach-ink)" } },
+  { key: "remote", label: "Remote", on: ACTIVE_CHIP },
+  { key: "job_type", label: "Full-time", value: "fulltime", on: ACTIVE_CHIP },
+  { key: "status", label: "Saved", value: "saved", on: ACTIVE_CHIP },
 ];
 
 const SOURCES = ["", "remotive", "remoteok", "weworkremotely", "himalayas", "jobspy:linkedin", "jobspy:indeed"];
@@ -25,7 +27,7 @@ export default function FilterBar({ filters, setFilters }) {
         placeholder="Search roles, companies…"
         aria-label="Search jobs"
         onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-        style={{ flex: 1, minWidth: 150, border: "none", background: "var(--paper)", borderRadius: "var(--radius-pill)", padding: "8px 14px", fontSize: 13, color: "var(--ink)" }}
+        style={{ flex: 1, minWidth: 150, border: "1px solid var(--hairline)", background: "var(--card)", borderRadius: "var(--radius-pill)", padding: "8px 14px", fontSize: 13, color: "var(--ink)" }}
       />
       {CHIPS.map((c) => {
         const active = filters[c.key] === (c.value ?? true);
@@ -34,10 +36,12 @@ export default function FilterBar({ filters, setFilters }) {
             key={c.label}
             onClick={() => toggle(c.key, c.value ?? true)}
             style={{
-              border: "none", cursor: "pointer", fontSize: 12, padding: "6px 12px",
+              cursor: "pointer", fontSize: 12, padding: "6px 12px",
               borderRadius: "var(--radius-pill)",
               transition: "transform var(--dur-quick) ease-out",
-              ...(active ? c.on : { background: "var(--paper)", color: "var(--ink-soft)" }),
+              ...(active
+                ? { border: "none", ...c.on }
+                : { border: "1px solid #CBBFA9", background: "var(--card)", color: "var(--ink-soft)" }),
             }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; }}
@@ -51,7 +55,7 @@ export default function FilterBar({ filters, setFilters }) {
         <select
           value={filters.sort}
           onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))}
-          style={{ border: "none", background: "var(--paper)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
+          style={{ border: "1px solid var(--hairline)", background: "var(--card)", color: "var(--ink-soft)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
         >
           <option value="embed">match score</option>
           <option value="llm">LLM score</option>
@@ -93,7 +97,7 @@ export default function FilterBar({ filters, setFilters }) {
               return next;
             });
           }}
-          style={{ border: "none", background: "var(--paper)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
+          style={{ border: "1px solid var(--hairline)", background: "var(--card)", color: "var(--ink-soft)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
         >
           {SOURCES.map((s) => (
             <option key={s} value={s}>{s === "" ? "all sources" : s}</option>
