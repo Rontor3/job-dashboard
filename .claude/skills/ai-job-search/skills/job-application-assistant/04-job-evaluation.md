@@ -46,12 +46,18 @@ Does the role and company culture match the behavioral profile?
 
 **Red flags to research:** Department disorganization, work dominated by maintenance over development, poor chemistry with leadership, culture mismatches. Check reviews, media coverage, LinkedIn connections, and network contacts for insider perspective.
 
-### 4. Location & Logistics (remote-first ranking + Notes)
-Candidate is **remote-first (global)**, open to India and abroad.
-- Remote (Worldwide / India): PASS — ideal
-- Remote with occasional office / compatible-timezone remote: PASS
-- On-site abroad WITH relocation/visa support: FLAG (borderline — discuss with user)
-- Strictly on-site-only, no remote option: strong DOWN-RANK (not an absolute deal-breaker if the fit is exceptional)
+### 4. Location & Logistics (visa-aware, region-specific ranking)
+Candidate is **India-based**. A US work visa (H1B) is **not** realistically available —
+this changes the rules per region (user directive 2026-07-17):
+- **Remote (Worldwide / India-eligible): PASS — ideal.** Verify the posting doesn't
+  restrict remote hiring to US-only ("US work authorization required" = treat as US onsite).
+- **US-based roles: REMOTE ONLY.** Onsite or hybrid in the US = **deal-breaker**
+  (add flag "requires US work authorization") → Poor Fit regardless of technical match,
+  unless the posting explicitly allows working remotely from India or explicitly offers
+  visa sponsorship + relocation (then FLAG for discussion instead).
+- **Europe-based roles: remote preferred.** Onsite/hybrid Europe = strong DOWN-RANK
+  unless explicit visa sponsorship is stated (easier than H1B, still a barrier — FLAG).
+- **India roles: remote, hybrid, AND onsite all PASS** — no penalty for any work mode.
 - Frequent international travel: FLAG (discuss with user)
 
 ### 5. Career Alignment & Motivation (0-100)

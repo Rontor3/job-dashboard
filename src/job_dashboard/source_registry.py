@@ -12,11 +12,24 @@ from job_dashboard.sources.wwr_source import fetch_wwr_jobs
 
 SEARCH_TERMS = ["machine learning engineer", "ai engineer", "senior data scientist"]
 
+# Geographic strategy (user constraint 2026-07-17, no US work visa):
+#   US      -> remote-only searches
+#   Europe  -> remote-preferred searches
+#   India   -> remote + hybrid + onsite all welcome (naukri is India-native)
+REGION_SEARCHES = [
+    ("Remote", ["linkedin", "indeed"]),          # US/global remote
+    ("European Union", ["linkedin"]),            # Europe
+    ("India", ["linkedin", "naukri"]),           # India, all work modes
+]
+
 
 def job_sources():
     fetchers = []
     for term in SEARCH_TERMS:
-        fetchers.append(lambda t=term: fetch_jobspy_jobs(t, "Remote", ["linkedin", "indeed"]))
+        for location, sites in REGION_SEARCHES:
+            fetchers.append(
+                lambda t=term, loc=location, s=sites: fetch_jobspy_jobs(t, loc, s)
+            )
         fetchers.append(lambda t=term: fetch_remotive_jobs(t))
         fetchers.append(lambda t=term: fetch_himalayas_jobs(t))
     fetchers.append(lambda: fetch_remoteok_jobs())
