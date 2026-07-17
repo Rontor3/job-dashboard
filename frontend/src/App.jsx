@@ -5,6 +5,8 @@ import Feed from "./components/Feed.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 import RefreshButton from "./components/RefreshButton.jsx";
 import DuplicatesSection from "./components/DuplicatesSection.jsx";
+import Overview from "./components/Overview.jsx";
+import HeaderScene from "./components/HeaderScene.jsx";
 
 export default function App() {
   const [filters, setFilters] = useState({ sort: "embed" });
@@ -26,8 +28,9 @@ export default function App() {
 
   return (
     <div className="shell">
-      <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
+      <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative", overflow: "hidden" }}>
+        <HeaderScene />
+        <div style={{ position: "relative" }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--green)", margin: 0 }}>
             Job dashboard
           </h1>
@@ -42,6 +45,7 @@ export default function App() {
       </header>
       {error && <div role="alert" style={{ color: "var(--dupe-ink)", background: "var(--dupe-bg)", borderRadius: 12, padding: "10px 14px", marginTop: 12 }}>{error}</div>}
       <main data-testid="feed-slot">
+        <Overview stats={stats} />
         <FilterBar filters={filters} setFilters={setFilters} />
         <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} />
         {selectedId && <JobDetail id={selectedId} onStatusChange={() => reload()} onClose={() => setSelectedId(null)} />}
