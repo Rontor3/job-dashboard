@@ -22,6 +22,12 @@ REGION_SEARCHES = [
     ("Remote", ["linkedin", "indeed"], None),        # US/global remote
     ("European Union", ["linkedin"], None),          # Europe
     ("India", ["linkedin", "indeed"], "India"),      # India, all work modes
+    # Google Jobs aggregates Naukri/Shine/Foundit/company pages for India —
+    # the legitimate route to Naukri inventory while its API captcha-blocks.
+    ("India", ["google"], None),
+    # Naukri direct: captcha-blocked (406) as of 2026-07-17 but intermittent;
+    # per-source isolation makes it a free bet — contributes when unblocked.
+    ("India", ["naukri"], None),
 ]
 
 
