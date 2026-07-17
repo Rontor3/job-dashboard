@@ -28,14 +28,20 @@ def _format_amount(v):
     return str(v)
 
 
-def fetch_jobspy_jobs(search_term, location, site_names, results_wanted=20):
-    df = scrape_jobs(
+def fetch_jobspy_jobs(search_term, location, site_names, results_wanted=20, country=None):
+    kwargs = dict(
         site_name=site_names,
         search_term=search_term,
         location=location,
         results_wanted=results_wanted,
         description_format="markdown",
+        # LinkedIn omits descriptions unless explicitly fetched; without this
+        # every LinkedIn row fails the full-JD requirement and is dropped.
+        linkedin_fetch_description=True,
     )
+    if country is not None:
+        kwargs["country_indeed"] = country
+    df = scrape_jobs(**kwargs)
     jobs = []
     for _, row in df.iterrows():
         description = _clean(row.get("description"))

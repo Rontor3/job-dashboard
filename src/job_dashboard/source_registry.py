@@ -15,20 +15,24 @@ SEARCH_TERMS = ["machine learning engineer", "ai engineer", "senior data scienti
 # Geographic strategy (user constraint 2026-07-17, no US work visa):
 #   US      -> remote-only searches
 #   Europe  -> remote-preferred searches
-#   India   -> remote + hybrid + onsite all welcome (naukri is India-native)
+#   India   -> remote + hybrid + onsite all welcome (indeed regionalized via
+#              country param; naukri dropped 2026-07-17 — captcha-blocked 406,
+#              revisit in the Scrapling follow-up plan)
 REGION_SEARCHES = [
-    ("Remote", ["linkedin", "indeed"]),          # US/global remote
-    ("European Union", ["linkedin"]),            # Europe
-    ("India", ["linkedin", "naukri"]),           # India, all work modes
+    ("Remote", ["linkedin", "indeed"], None),        # US/global remote
+    ("European Union", ["linkedin"], None),          # Europe
+    ("India", ["linkedin", "indeed"], "India"),      # India, all work modes
 ]
 
 
 def job_sources():
     fetchers = []
     for term in SEARCH_TERMS:
-        for location, sites in REGION_SEARCHES:
+        for location, sites, country in REGION_SEARCHES:
             fetchers.append(
-                lambda t=term, loc=location, s=sites: fetch_jobspy_jobs(t, loc, s)
+                lambda t=term, loc=location, s=sites, c=country: fetch_jobspy_jobs(
+                    t, loc, s, country=c
+                )
             )
         fetchers.append(lambda t=term: fetch_remotive_jobs(t))
         fetchers.append(lambda t=term: fetch_himalayas_jobs(t))

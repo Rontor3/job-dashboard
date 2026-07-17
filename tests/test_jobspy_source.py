@@ -110,3 +110,32 @@ def test_fetch_jobspy_jobs_no_nan_leakage_into_fields(monkeypatch):
         assert job.external_id != "nan"
         assert job.posted_date != "nan"
         assert job.salary_text != "nan-nan"
+
+
+def test_fetch_jobspy_jobs_fetches_linkedin_descriptions_and_passes_country(monkeypatch):
+    captured = {}
+
+    def fake_scrape(**kwargs):
+        captured.update(kwargs)
+        return pd.DataFrame([])
+
+    monkeypatch.setattr(jobspy_source, "scrape_jobs", fake_scrape)
+
+    jobspy_source.fetch_jobspy_jobs("ml engineer", "India", ["linkedin", "indeed"], country="India")
+
+    assert captured["linkedin_fetch_description"] is True
+    assert captured["country_indeed"] == "India"
+
+
+def test_fetch_jobspy_jobs_omits_country_when_not_given(monkeypatch):
+    captured = {}
+
+    def fake_scrape(**kwargs):
+        captured.update(kwargs)
+        return pd.DataFrame([])
+
+    monkeypatch.setattr(jobspy_source, "scrape_jobs", fake_scrape)
+
+    jobspy_source.fetch_jobspy_jobs("ml engineer", "Remote", ["indeed"])
+
+    assert "country_indeed" not in captured
