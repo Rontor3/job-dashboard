@@ -6,8 +6,8 @@ const STATS = { total: 30, new: 10, saved: 14, applied: 7,
                 interviewing: 3, offer: 1, rejected: 2, dismissed: 3, unranked: 12 };
 
 test("renders applications ring with applied count and goal", () => {
-  render(<Overview stats={STATS} />);
-  expect(screen.getAllByText("7").length).toBeGreaterThan(0);
+  const { container } = render(<Overview stats={STATS} />);
+  expect(container.querySelector("svg text").textContent).toBe("7");
   expect(screen.getByText(/Weekly goal: 10/)).toBeDefined();
 });
 

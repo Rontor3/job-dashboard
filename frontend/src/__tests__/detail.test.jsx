@@ -100,3 +100,13 @@ test("refresh button shows alert with backend error message on error stage", asy
   fireEvent.click(screen.getByRole("button"));
   await waitFor(() => expect(screen.getByText(/boom/)).toBeDefined());
 });
+
+test("response status buttons PATCH interviewing/offer/rejected", async () => {
+  const onStatusChange = vi.fn();
+  render(<JobDetail id={1} onStatusChange={onStatusChange} onClose={() => {}} />);
+  await waitFor(() => screen.getByText("Interviewing"));
+  fireEvent.click(screen.getByText("Interviewing"));
+  await waitFor(() => expect(onStatusChange).toHaveBeenCalledWith("interviewing"));
+  const patch = global.fetch.mock.calls.find(([, o]) => o && o.method === "PATCH");
+  expect(JSON.parse(patch[1].body)).toEqual({ status: "interviewing" });
+});

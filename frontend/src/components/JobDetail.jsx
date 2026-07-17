@@ -56,6 +56,13 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
         </a>
       </div>
 
+      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
+        <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-soft)" }}>Response:</span>
+        <button style={{ ...BTN, background: "var(--green-tint)", color: "var(--green-mid)" }} onClick={() => setStatus("interviewing")}>Interviewing</button>
+        <button style={{ ...BTN, background: "var(--green)", color: "#FFFFFF" }} onClick={() => setStatus("offer")}>Offer</button>
+        <button style={{ ...BTN, background: "var(--dupe-bg)", color: "var(--dupe-ink)" }} onClick={() => setStatus("rejected")}>Rejected</button>
+      </div>
+
       {(job.strengths.length > 0 || job.gaps.length > 0) && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div style={{ background: "var(--green-tint)", borderRadius: 12, padding: "12px 14px" }}>
