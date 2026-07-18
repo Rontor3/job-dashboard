@@ -10,7 +10,33 @@ from job_dashboard.sources.remotive_source import fetch_remotive_jobs
 from job_dashboard.sources.startup_sheet import fetch_funded_startups
 from job_dashboard.sources.wwr_source import fetch_wwr_jobs
 
-SEARCH_TERMS = ["machine learning engineer", "ai engineer", "senior data scientist"]
+SEARCH_TERMS = [
+    # Core ML/AI engineering
+    "machine learning engineer",
+    "ai engineer",
+    "ai/ml engineer",
+    "applied machine learning engineer",
+    "applied scientist",
+    "deep learning engineer",
+    # GenAI / LLM tilt (candidate's strongest current direction)
+    "llm engineer",
+    "generative ai engineer",
+    "nlp engineer",
+    # Data science ladder (incl. new-title variants)
+    "data scientist",
+    "senior data scientist",
+    "data scientist iii",
+    "staff data scientist",
+    "lead data scientist",
+    # Platform / ops
+    "mlops engineer",
+    "ml platform engineer",
+    # Research (fellowship/residency angle)
+    "research engineer",
+    # Domain-tilted (fraud/risk — candidate's Tata AIG edge)
+    "fraud data scientist",
+    "risk data scientist",
+]
 
 # Geographic strategy (user constraint 2026-07-17, no US work visa):
 #   US      -> remote-only searches
