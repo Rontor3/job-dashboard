@@ -6,3 +6,11 @@ sentence-transformers>=2.2
 fastapi>=0.110
 uvicorn>=0.29
 httpx>=0.27
+
+# Naukri source (optional — only needed for the vendored NopeRi Naukri
+# fetcher; naukri_source.py import-guards these so nothing else requires
+# them). curl_cffi replaces NopeRi's default httpcloak session backend
+# (see src/job_dashboard/sources/naukri_session_shim.py); pycryptodome
+# backs NopeRi's nkparam signing (src/utils/nkparam_generator.py).
+curl_cffi>=0.7
+pycryptodome>=3.20

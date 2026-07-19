@@ -5,6 +5,7 @@ profile's target titles (see search-queries.md) — remote-first, not overfit.
 """
 from job_dashboard.sources.himalayas_source import fetch_himalayas_jobs
 from job_dashboard.sources.jobspy_source import fetch_jobspy_jobs
+from job_dashboard.sources.naukri_source import fetch_naukri_jobs
 from job_dashboard.sources.remoteok_source import fetch_remoteok_jobs
 from job_dashboard.sources.remotive_source import fetch_remotive_jobs
 from job_dashboard.sources.startup_sheet import fetch_funded_startups
@@ -42,8 +43,10 @@ SEARCH_TERMS = [
 #   US      -> remote-only searches
 #   Europe  -> remote-preferred searches
 #   India   -> remote + hybrid + onsite all welcome (indeed regionalized via
-#              country param; naukri dropped 2026-07-17 — captcha-blocked 406,
-#              revisit in the Scrapling follow-up plan)
+#              country param; naukri direct dropped from jobspy 2026-07-17 —
+#              captcha-blocked 406. Replaced by fetch_naukri_jobs below, the
+#              vendored-NopeRi read-only source fed by a cached login session
+#              — see scripts/naukri_login.py)
 REGION_SEARCHES = [
     ("Remote", ["linkedin", "indeed"], None),        # US/global remote
     ("European Union", ["linkedin"], None),          # Europe
@@ -51,9 +54,6 @@ REGION_SEARCHES = [
     # Google Jobs aggregates Naukri/Shine/Foundit/company pages for India —
     # the legitimate route to Naukri inventory while its API captcha-blocks.
     ("India", ["google"], None),
-    # Naukri direct: captcha-blocked (406) as of 2026-07-17 but intermittent;
-    # per-source isolation makes it a free bet — contributes when unblocked.
-    ("India", ["naukri"], None),
 ]
 
 
@@ -68,6 +68,7 @@ def job_sources():
             )
         fetchers.append(lambda t=term: fetch_remotive_jobs(t))
         fetchers.append(lambda t=term: fetch_himalayas_jobs(t))
+        fetchers.append(lambda t=term: fetch_naukri_jobs(t))
     fetchers.append(lambda: fetch_remoteok_jobs())
     fetchers.append(lambda: fetch_wwr_jobs())
     return fetchers

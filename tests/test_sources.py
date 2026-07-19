@@ -8,12 +8,13 @@ def test_job_sources_returns_noarg_callables_without_network(monkeypatch):
     monkeypatch.setattr(sources, "fetch_remoteok_jobs", lambda *a, **k: calls.append("remoteok") or [])
     monkeypatch.setattr(sources, "fetch_wwr_jobs", lambda *a, **k: calls.append("wwr") or [])
     monkeypatch.setattr(sources, "fetch_himalayas_jobs", lambda *a, **k: calls.append("himalayas") or [])
+    monkeypatch.setattr(sources, "fetch_naukri_jobs", lambda *a, **k: calls.append("naukri") or [])
 
     fetchers = sources.job_sources()
     assert len(fetchers) >= 5
     for fetch in fetchers:
         assert fetch() == []
-    assert {"jobspy", "remotive", "remoteok", "wwr", "himalayas"} <= set(calls)
+    assert {"jobspy", "remotive", "remoteok", "wwr", "himalayas", "naukri"} <= set(calls)
 
 
 def test_company_sources_wraps_startup_sheet(monkeypatch):

@@ -2,8 +2,12 @@ __pycache__/
 *.pyc
 .venv/
 data/*.db
+data/naukri_session.json
 documents/
 vendor/
 *.egg-info/
 node_modules/
 frontend/dist/
+.env
+.env.*
+!.env.example

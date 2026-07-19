@@ -26,6 +26,9 @@ def _default_client_factory(session):
     vendor = Path(__file__).resolve().parents[3] / "vendor" / "NopeRi"
     if str(vendor) not in sys.path:
         sys.path.insert(0, str(vendor))
+    # Registers NaukriLoginClient.restore_session (NopeRi has no built-in
+    # equivalent) — must be imported before it's called below.
+    from job_dashboard.sources import naukri_session_shim  # noqa: F401
     from src.client.naukri_client import NaukriLoginClient  # type: ignore
     from src.client.job_client import NaukriJobClient  # type: ignore
 
