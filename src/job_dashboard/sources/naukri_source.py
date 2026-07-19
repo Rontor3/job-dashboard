@@ -50,7 +50,7 @@ def fetch_naukri_jobs(search_term, session_path=DEFAULT_SESSION_PATH, client_fac
         client = factory(session)
         raw_jobs = client.search_jobs(keyword=search_term) if _accepts_kw(client) else client.search_jobs(search_term)
     except Exception as exc:  # blocked, token expired, import failure, etc.
-        logger.warning("Naukri fetch failed (%s): %s", search_term, exc)
+        logger.warning("Naukri fetch failed (%s): %s", search_term, type(exc).__name__)
         return []
 
     jobs = []
@@ -58,15 +58,21 @@ def fetch_naukri_jobs(search_term, session_path=DEFAULT_SESSION_PATH, client_fac
         description = getattr(r, "description", "") or ""
         if not str(description).strip():
             continue
+        title = getattr(r, "title", None)
+        company = getattr(r, "company", None)
+        job_url = getattr(r, "apply_link", None)
+        # Skip rows missing required non-null fields
+        if not title or not str(title).strip() or not company or not str(company).strip() or not job_url:
+            continue
         jobs.append(
             JobListing(
                 source="naukri",
                 external_id=str(getattr(r, "job_id", "") or "") or None,
-                title=getattr(r, "title", None),
-                company=getattr(r, "company", None),
+                title=title,
+                company=company,
                 location=getattr(r, "location", None),
                 description=description,
-                job_url=getattr(r, "apply_link", None),
+                job_url=job_url,
                 job_type=None,
                 is_remote=False,
                 salary_text=(getattr(r, "salary", "") or None),
