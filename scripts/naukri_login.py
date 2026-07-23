@@ -36,7 +36,6 @@ def main():
     # Read-only import surface: login/OTP/session only — never apply_job,
     # apply_agent, resume-upload, or profile-update code.
     from src.client.naukri_client import NaukriLoginClient  # type: ignore
-    from src.exceptions.exceptions import NaukriAuthError  # type: ignore
     from job_dashboard.sources.naukri_session_shim import (
         force_curl_cffi_backend,
         serialize_session,
@@ -48,21 +47,27 @@ def main():
 
     client = NaukriLoginClient(user, pw)
 
+    # Any login failure (auth error, blocked IP, transport error) falls back to
+    # the manual OTP flow rather than dumping a raw traceback.
     try:
         client.login()
-    except NaukriAuthError as exc:
-        print(f"Login did not complete directly ({exc}); trying the OTP flow.")
+    except Exception as exc:
+        print(f"Login did not complete directly ({type(exc).__name__}); trying the OTP flow.")
+        # Naukri sends OTP by SMS (mobile) or email depending on the account;
+        # the endpoint differs, so ask which channel actually received it.
+        channel = input("Where did/should the OTP arrive — [m]obile SMS or [e]mail? ").strip().lower()
+        is_mobile = not channel.startswith("e")
         try:
-            client.send_otp()
+            client.send_otp(is_mobile=is_mobile)
         except Exception as send_exc:
-            print(f"Login failed: {exc}")
-            print(f"Could not trigger an OTP either: {send_exc}")
+            print(f"Login failed ({type(exc).__name__}); could not trigger an OTP "
+                  f"either ({type(send_exc).__name__}). Check credentials / IP and retry.")
             return 1
         code = input("Enter the OTP Naukri sent you: ").strip()
         try:
-            client.verify_otp(code)
+            client.verify_otp(code, is_mobile=is_mobile)
         except Exception as otp_exc:
-            print(f"OTP verification failed: {otp_exc}")
+            print(f"OTP verification failed ({type(otp_exc).__name__}).")
             return 1
 
     SESSION_PATH.parent.mkdir(parents=True, exist_ok=True)
