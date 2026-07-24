@@ -28,3 +28,34 @@ def test_real_segment_library_loads():
     for s in segs:
         assert isinstance(s, Segment)
         assert s.text.strip() != ""
+
+
+def test_exclusive_group_loaded():
+    """Verify exclusive_group field is loaded correctly."""
+    segs = load_segments()
+
+    # Find Tata AIG segments
+    tata_aig_ids = [
+        "experience-tata-aig-full",
+        "experience-tata-aig-etf",
+        "experience-tata-aig-sto",
+        "project-fraud-pipeline",
+    ]
+
+    tata_aig_segs = {s.id: s for s in segs if s.id in tata_aig_ids}
+
+    # Verify all 4 Tata AIG segments have exclusive_group set to "tata-aig"
+    for seg_id in tata_aig_ids:
+        seg = tata_aig_segs[seg_id]
+        assert seg.exclusive_group == "tata-aig", (
+            f"{seg_id} should have exclusive_group='tata-aig', got {seg.exclusive_group}"
+        )
+
+    # Verify a non-Tata AIG segment has exclusive_group=None
+    other_segs = {s.id: s for s in segs if s.id not in tata_aig_ids}
+    assert len(other_segs) > 0, "Should have segments without exclusive_group"
+
+    for seg in list(other_segs.values())[:3]:  # Check first 3
+        assert seg.exclusive_group is None, (
+            f"{seg.id} should have exclusive_group=None, got {seg.exclusive_group}"
+        )

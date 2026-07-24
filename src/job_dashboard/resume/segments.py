@@ -25,6 +25,7 @@ class Segment:
     tags: list[str]
     tex_path: Path
     text: str
+    exclusive_group: str | None = None
 
 
 def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
@@ -51,6 +52,7 @@ def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
                 tags=list(entry.get("tags", [])),
                 tex_path=tex_path,
                 text=text,
+                exclusive_group=entry.get("exclusive_group"),
             )
         )
     return segments
