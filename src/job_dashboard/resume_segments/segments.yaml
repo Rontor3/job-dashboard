@@ -1,0 +1,115 @@
+# Resume segment library manifest.
+#
+# Every block here is lifted verbatim (or trivially reformatted into a LaTeX
+# \item) from the real source CV. See:
+#   - .claude/skills/ai-job-search/cv/main_example.tex
+#   - .claude/skills/ai-job-search/skills/job-application-assistant/01-candidate-profile.md
+# No skill, project, or experience claim here was invented.
+segments:
+  - id: header-contact
+    kind: header
+    title: Header / Contact
+    tags: [contact, name, location, mumbai, linkedin, github]
+    tex: header-contact.tex
+
+  - id: summary-main
+    kind: summary
+    title: Profile Summary
+    tags: [summary, data-scientist, fraud, genai, llm, rag, lora, mlops, ai-engineer, ml-engineer]
+    tex: summary-main.tex
+
+  - id: skills-programming-ml
+    kind: skills
+    title: Programming & ML Skills
+    tags: [python, pandas, numpy, scikit-learn, langchain, sql]
+    tex: skills-programming-ml.tex
+
+  - id: skills-genai-llm
+    kind: skills
+    title: GenAI / LLM Skills
+    tags: [genai, llm, rag, lora, gemma, sentence-transformers, prompt-engineering, ollama, mcp]
+    tex: skills-genai-llm.tex
+
+  - id: skills-ml-general
+    kind: skills
+    title: Machine Learning Skills
+    tags: [machine-learning, predictive-modeling, deep-learning, nlp, fraud-detection, anomaly-detection, shap, eda]
+    tex: skills-ml-general.tex
+
+  - id: skills-cloud-mlops
+    kind: skills
+    title: Cloud & MLOps Skills
+    tags: [aws, lambda, api-gateway, dynamodb, sagemaker, mlops, real-time-serving, pipelines, deployment]
+    tex: skills-cloud-mlops.tex
+
+  - id: skills-quant-analytics
+    kind: skills
+    title: Quant & Analytics Skills
+    tags: [quant, monte-carlo, backtesting, pe-pb, engagement, send-time-optimization]
+    tex: skills-quant-analytics.tex
+
+  - id: skills-web-apis
+    kind: skills
+    title: Web & APIs Skills
+    tags: [javascript, html, css, rest-api, third-party-integration, fastapi]
+    tex: skills-web-apis.tex
+
+  - id: project-rag
+    kind: project
+    title: "Project: Offline RAG System"
+    tags: [rag, retrieval-augmented-generation, ollama, mistral, sentence-transformers, streamlit, genai, llm]
+    tex: project-rag.tex
+
+  - id: project-lora
+    kind: project
+    title: "Project: LLM Prompt Recovery"
+    tags: [lora, fine-tuning, gemma, llm, genai, prompt-recovery]
+    tex: project-lora.tex
+
+  - id: project-resume-matcher
+    kind: project
+    title: "Project: LLM-based Resume & JD Matcher"
+    tags: [resume-matching, ats, semantic-search, sentence-transformers, streamlit, job-matching, llm]
+    tex: project-resume-matcher.tex
+
+  - id: project-roammate
+    kind: project
+    title: "Project: RoamMate"
+    tags: [multi-agent, mcp, fastapi, anthropic-claude, docker, docker-compose, agentic, full-stack, travel]
+    tex: project-roammate.tex
+
+  - id: project-fraud-pipeline
+    kind: project
+    title: "Project: Health Fraud Pipeline (Tata AIG)"
+    tags: [fraud-detection, machine-learning, aws-lambda, dynamodb, api-gateway, real-time, production-ml]
+    tex: project-fraud-pipeline.tex
+
+  - id: experience-tata-aig-full
+    kind: experience
+    title: "Experience: Data Scientist, Tata AIG (full)"
+    tags: [tata-aig, data-scientist, fraud, aws, monte-carlo, send-time-optimization, production-ml]
+    tex: experience-tata-aig-full.tex
+
+  - id: experience-tata-aig-etf
+    kind: experience
+    title: "Experience: Tata AIG — ETF allocation model (framing)"
+    tags: [quant, etf, monte-carlo, pe-pb, backtesting, xirr, finance]
+    tex: experience-tata-aig-etf.tex
+
+  - id: experience-tata-aig-sto
+    kind: experience
+    title: "Experience: Tata AIG — Send-Time Optimization (framing)"
+    tags: [engagement, marketing-analytics, send-time-optimization, growth]
+    tex: experience-tata-aig-sto.tex
+
+  - id: experience-oyo-intern
+    kind: experience
+    title: "Experience: Data Science Intern, OYO"
+    tags: [oyo, internship, excel, app-script, google-analytics, seo, reporting]
+    tex: experience-oyo-intern.tex
+
+  - id: education-btech
+    kind: education
+    title: "Education: B.Tech, IIT (BHU) Varanasi"
+    tags: [education, btech, ceramic-engineering, iit-bhu, varanasi]
+    tex: education-btech.tex

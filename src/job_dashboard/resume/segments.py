@@ -1,0 +1,56 @@
+"""Resume segment library loader.
+
+Reads a manifest (``segments.yaml``) describing reusable resume blocks and
+the LaTeX text file backing each one, and returns them as :class:`Segment`
+objects. Used by the resume-tailoring engine to assemble a CV from real,
+pre-authored content blocks rather than generating new text.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+# Default location of the real segment library shipped with this package.
+SEGMENTS_DIR = Path(__file__).resolve().parent.parent / "resume_segments"
+
+
+@dataclass
+class Segment:
+    id: str
+    kind: str
+    title: str
+    tags: list[str]
+    tex_path: Path
+    text: str
+
+
+def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
+    """Load all segments described by ``root/segments.yaml``.
+
+    Each manifest entry's ``tex`` file is read relative to ``root``. Raises
+    ``FileNotFoundError`` naming the missing tex file if one is absent.
+    """
+    root = Path(root)
+    manifest_path = root / "segments.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text()) or {}
+
+    segments: list[Segment] = []
+    for entry in manifest.get("segments", []):
+        tex_path = root / entry["tex"]
+        if not tex_path.exists():
+            raise FileNotFoundError(f"Segment tex file not found: {tex_path}")
+        text = tex_path.read_text()
+        segments.append(
+            Segment(
+                id=entry["id"],
+                kind=entry["kind"],
+                title=entry["title"],
+                tags=list(entry.get("tags", [])),
+                tex_path=tex_path,
+                text=text,
+            )
+        )
+    return segments
