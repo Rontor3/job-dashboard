@@ -22,6 +22,11 @@ const SUGGESTION = {
       proposed_text: "Python 3.10+",
       confidence: "exact-synonym",
     },
+    {
+      original_text: "led a team",
+      proposed_text: "orchestrated cross-functional initiatives",
+      confidence: "transferable",
+    },
   ],
   gaps: ["Kubernetes", "Docker"],
 };
@@ -129,7 +134,7 @@ test("generate calls generateResume with blockIds and acceptedRephrasings", asyn
   // Accept first rephrasing by clicking the first rephrasings checkbox (after block checkboxes)
   const allCheckboxes = screen.getAllByRole("checkbox");
   // allCheckboxes[0] and [1] are block checkboxes, [2] onwards are rephrasing checkboxes
-  fireEvent.click(allCheckboxes[2]); // first rephrasing checkbox
+  fireEvent.click(allCheckboxes[2]); // first rephrasing checkbox (rep-0)
 
   fireEvent.click(screen.getByText(/Generate tailored resume/));
   await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
@@ -142,6 +147,10 @@ test("generate calls generateResume with blockIds and acceptedRephrasings", asyn
   expect(body.block_ids).toContain("exp");
   expect(body.block_ids).toContain("skills");
   expect(body.accepted_rephrasings).toBeDefined();
+  // Assert specific rephrasing content: rep-0 (first one) should be accepted
+  expect(body.accepted_rephrasings).toContain("rep-0");
+  // Assert rep-1 (second one) is NOT accepted since we only clicked rep-0
+  expect(body.accepted_rephrasings).not.toContain("rep-1");
 });
 
 test("after generate, renders pdf link", async () => {
@@ -194,4 +203,40 @@ test("Start over button goes back to idle", async () => {
   fireEvent.click(screen.getByText(/Start over/));
   await waitFor(() => expect(screen.queryByText(/ATS Score/)).toBeNull());
   expect(screen.getByText(/Tailor resume/)).toBeDefined();
+});
+
+test("transferable confidence rephrasing shows 'verify in interview' label", async () => {
+  render(<ResumePanel jobId={1} />);
+  fireEvent.click(screen.getByText(/Tailor resume/));
+  await waitFor(() =>
+    expect(screen.getByText("Keyword suggestions")).toBeDefined()
+  );
+  // Assert that "verify in interview" label renders for transferable confidence
+  expect(screen.getByText(/verify in interview/)).toBeDefined();
+});
+
+test("accepts transferable rephrasing and verifies interview_prep in generated output", async () => {
+  render(<ResumePanel jobId={1} />);
+  fireEvent.click(screen.getByText(/Tailor resume/));
+  await waitFor(() => screen.getByText("Resume blocks"));
+
+  // Accept the transferable rephrasing (rep-2, the third one)
+  const allCheckboxes = screen.getAllByRole("checkbox");
+  // allCheckboxes[0] and [1] are block checkboxes, [2], [3], [4] are rephrasing checkboxes
+  fireEvent.click(allCheckboxes[4]); // third rephrasing checkbox (rep-2, the transferable one)
+
+  fireEvent.click(screen.getByText(/Generate tailored resume/));
+  await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
+
+  // Verify the accepted_rephrasings contains the transferable one
+  const generateCall = global.fetch.mock.calls.find(([url]) =>
+    String(url).includes("/resume/generate")
+  );
+  const body = JSON.parse(generateCall[1].body);
+  expect(body.accepted_rephrasings).toContain("rep-2");
+
+  // Verify interview_prep renders after generate
+  expect(screen.getByText(/Interview prep/)).toBeDefined();
+  expect(screen.getByText(/Be ready to discuss ML model deployment/)).toBeDefined();
+  expect(screen.getByText(/Emphasize experience with Python/)).toBeDefined();
 });
