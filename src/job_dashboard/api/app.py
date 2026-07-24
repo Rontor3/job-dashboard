@@ -1,15 +1,23 @@
 from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.db import (
-    dashboard_stats, init_db, job_detail, query_jobs, set_job_status,
-    suspected_duplicates,
+    dashboard_stats, get_resume, init_db, job_detail, query_jobs,
+    resumes_for_job, set_job_status, suspected_duplicates,
 )
+from job_dashboard.resume.engine import generate_resume, suggest_blocks
+from job_dashboard.resume.segments import load_segments
+from job_dashboard.resume.render import render_pdf
+from job_dashboard.resume.ats import ats_check
+from job_dashboard.resume.fit import fit_to_page
+from job_dashboard.resume.keyword_map import Rephrasing, simple_deep_rank
 
 DEFAULT_DB = "data/jobs.db"
 
@@ -18,7 +26,12 @@ class StatusPatch(BaseModel):
     status: Optional[str] = None
 
 
-def create_app(db_path=DEFAULT_DB, pipeline_runner=None):
+class ResumeGenerateRequest(BaseModel):
+    block_ids: list[str]
+    accepted_rephrasings: list[dict] = []
+
+
+def create_app(db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None):
     app = FastAPI(title="Job Dashboard")
 
     @contextmanager
@@ -85,6 +98,144 @@ def create_app(db_path=DEFAULT_DB, pipeline_runner=None):
     @app.get("/api/refresh/status")
     def refresh_status():
         return state.snapshot()
+
+    # Resume API endpoints
+    @app.get("/api/resume/segments")
+    def list_segments():
+        """Return block manifest (id, kind, title, tags, exclusive_group)."""
+        segments = load_segments()
+        return {
+            "segments": [
+                {
+                    "id": s.id,
+                    "kind": s.kind,
+                    "title": s.title,
+                    "tags": s.tags,
+                    "exclusive_group": s.exclusive_group,
+                }
+                for s in segments
+            ]
+        }
+
+    @app.post("/api/jobs/{job_id}/resume/suggest")
+    def suggest_resume(job_id: int):
+        """Suggest resume blocks for a job."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+
+        if resume_engine is None:
+            segments = load_segments()
+            result = suggest_blocks(
+                segments, detail["description"], simple_deep_rank
+            )
+        else:
+            result = resume_engine.suggest_blocks(
+                detail["description"], job_id
+            )
+
+        return result
+
+    @app.post("/api/jobs/{job_id}/resume/generate")
+    def generate_job_resume(job_id: int, body: ResumeGenerateRequest):
+        """Generate a tailored resume PDF."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+
+        if resume_engine is None:
+            segments = load_segments()
+            # Parse accepted rephrasings from request
+            accepted_rephrasings = []
+            for r in body.accepted_rephrasings:
+                accepted_rephrasings.append(
+                    Rephrasing(
+                        block_id=r.get("block_id"),
+                        original_text=r.get("original_text", ""),
+                        proposed_text=r.get("proposed_text", ""),
+                        jd_keyword=r.get("jd_keyword", ""),
+                        confidence=r.get("confidence", "equivalent"),
+                        needs_interview_prep=r.get("needs_interview_prep", False),
+                    )
+                )
+
+            out_dir = Path(db_path).parent / "resumes"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            try:
+                with db() as conn:
+                    result = generate_resume(
+                        conn,
+                        job_id,
+                        body.block_ids,
+                        accepted_rephrasings,
+                        segments=segments,
+                        jd_text=detail["description"],
+                        render_pdf=render_pdf,
+                        ats_check=ats_check,
+                        fit_to_page=fit_to_page,
+                        out_dir=out_dir,
+                    )
+            except RuntimeError as e:
+                if "lualatex not found" in str(e):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="install MacTeX — lualatex not found",
+                    )
+                raise
+
+            # Convert ats_report to dict if it's a dataclass
+            ats_report_dict = result["ats_report"]
+            if hasattr(result["ats_report"], "__dataclass_fields__"):
+                ats_report_dict = asdict(result["ats_report"])
+
+            return {
+                "resume_id": result["resume_id"],
+                "pdf_url": f"/api/resumes/{result['resume_id']}/pdf",
+                "ats_report": ats_report_dict,
+                "blocks_used": result["blocks_used"],
+                "cut_lines": result["cut_lines"],
+                "interview_prep": result["interview_prep"],
+            }
+        else:
+            try:
+                result = resume_engine.generate_resume(
+                    job_id, body.block_ids, body.accepted_rephrasings
+                )
+            except RuntimeError as e:
+                if "lualatex not found" in str(e):
+                    raise HTTPException(
+                        status_code=503,
+                        detail="install MacTeX — lualatex not found",
+                    )
+                raise
+            return result
+
+    @app.get("/api/jobs/{job_id}/resumes")
+    def list_job_resumes(job_id: int):
+        """Get all resumes for a job."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+            if detail is None:
+                raise HTTPException(status_code=404, detail="job not found")
+            resumes = resumes_for_job(conn, job_id)
+        return {"resumes": resumes}
+
+    @app.get("/api/resumes/{resume_id}/pdf")
+    def get_resume_pdf(resume_id: int):
+        """Serve a resume PDF."""
+        with db() as conn:
+            resume = get_resume(conn, resume_id)
+        if resume is None or not resume.get("pdf_path"):
+            raise HTTPException(status_code=404, detail="resume not found")
+
+        pdf_path = Path(resume["pdf_path"])
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="PDF file not found")
+
+        return FileResponse(pdf_path, media_type="application/pdf")
 
     # Mount frontend static files (SPA with fallback to index.html)
     dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
