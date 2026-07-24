@@ -55,12 +55,12 @@ export default function ResumePanel({ jobId }) {
     setCheckedBlocks(updated);
   };
 
-  const toggleRephrasing = (rephId) => {
+  const toggleRephrasing = (rephrasing) => {
     const updated = new Set(acceptedRephrasings);
-    if (updated.has(rephId)) {
-      updated.delete(rephId);
+    if (updated.has(rephrasing)) {
+      updated.delete(rephrasing);
     } else {
-      updated.add(rephId);
+      updated.add(rephrasing);
     }
     setAcceptedRephrasings(updated);
   };
@@ -153,8 +153,8 @@ export default function ResumePanel({ jobId }) {
                   <div key={repId} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                     <input
                       type="checkbox"
-                      checked={acceptedRephrasings.has(repId)}
-                      onChange={() => toggleRephrasing(repId)}
+                      checked={acceptedRephrasings.has(rep)}
+                      onChange={() => toggleRephrasing(rep)}
                       style={{ marginTop: 4, cursor: "pointer" }}
                     />
                     <div style={{ flex: 1, fontSize: 12 }}>
@@ -214,9 +214,9 @@ export default function ResumePanel({ jobId }) {
               Gaps
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {suggestion.gaps.map((gap, idx) => (
+              {suggestion.gaps.map((gap) => (
                 <span
-                  key={idx}
+                  key={gap.jd_keyword}
                   style={{
                     fontSize: 11,
                     background: "var(--warm-tint)",
@@ -225,7 +225,7 @@ export default function ResumePanel({ jobId }) {
                     padding: "4px 10px",
                   }}
                 >
-                  JD wants {gap} — no match
+                  JD wants {gap.jd_keyword} — no match
                 </span>
               ))}
             </div>
@@ -352,7 +352,9 @@ export default function ResumePanel({ jobId }) {
               }}
             >
               {generated.interview_prep.map((prep, idx) => (
-                <li key={idx}>{prep}</li>
+                <li key={idx}>
+                  {prep.jd_keyword}: {prep.proposed_text}
+                </li>
               ))}
             </ul>
           </div>

@@ -13,22 +13,31 @@ const SUGGESTION = {
   rationale: "Strong match",
   rephrasings: [
     {
+      block_id: "exp",
       original_text: "built ML models",
       proposed_text: "architected and deployed production ML systems",
+      jd_keyword: "architected",
       confidence: "equivalent",
+      needs_interview_prep: false,
     },
     {
+      block_id: "skills",
       original_text: "Python",
       proposed_text: "Python 3.10+",
+      jd_keyword: "python",
       confidence: "exact-synonym",
+      needs_interview_prep: false,
     },
     {
+      block_id: "exp",
       original_text: "led a team",
       proposed_text: "orchestrated cross-functional initiatives",
+      jd_keyword: "leadership",
       confidence: "transferable",
+      needs_interview_prep: true,
     },
   ],
-  gaps: ["Kubernetes", "Docker"],
+  gaps: [{ jd_keyword: "Kubernetes" }, { jd_keyword: "Docker" }],
 };
 
 const GENERATED = {
@@ -41,8 +50,16 @@ const GENERATED = {
   blocks_used: ["exp", "skills"],
   cut_lines: [],
   interview_prep: [
-    "Be ready to discuss ML model deployment at scale",
-    "Emphasize experience with Python ecosystem",
+    {
+      block_id: "exp",
+      jd_keyword: "leadership",
+      proposed_text: "orchestrated cross-functional initiatives",
+    },
+    {
+      block_id: "skills",
+      jd_keyword: "python",
+      proposed_text: "Python 3.10+",
+    },
   ],
 };
 
@@ -147,10 +164,18 @@ test("generate calls generateResume with blockIds and acceptedRephrasings", asyn
   expect(body.block_ids).toContain("exp");
   expect(body.block_ids).toContain("skills");
   expect(body.accepted_rephrasings).toBeDefined();
-  // Assert specific rephrasing content: rep-0 (first one) should be accepted
-  expect(body.accepted_rephrasings).toContain("rep-0");
-  // Assert rep-1 (second one) is NOT accepted since we only clicked rep-0
-  expect(body.accepted_rephrasings).not.toContain("rep-1");
+  expect(body.accepted_rephrasings).toHaveLength(1);
+  // Assert specific rephrasing content: the first one (equivalent, "architected") should be accepted
+  expect(body.accepted_rephrasings[0]).toMatchObject({
+    block_id: "exp",
+    jd_keyword: "architected",
+    proposed_text: "architected and deployed production ML systems",
+    confidence: "equivalent",
+  });
+  // Assert the second rephrasing (exact-synonym, "python") is NOT accepted since we only clicked the first
+  expect(
+    body.accepted_rephrasings.some((r) => r.jd_keyword === "python")
+  ).toBe(false);
 });
 
 test("after generate, renders pdf link", async () => {
@@ -188,10 +213,11 @@ test("after generate, renders interview prep list", async () => {
   fireEvent.click(screen.getByText(/Generate tailored resume/));
   await waitFor(() =>
     expect(
-      screen.getByText(/Be ready to discuss ML model deployment/),
+      screen.getByText(/orchestrated cross-functional initiatives/),
     ).toBeDefined()
   );
-  expect(screen.getByText(/Emphasize experience with Python/)).toBeDefined();
+  expect(screen.getByText(/leadership/)).toBeDefined();
+  expect(screen.getByText(/python/)).toBeDefined();
 });
 
 test("Start over button goes back to idle", async () => {
@@ -220,23 +246,29 @@ test("accepts transferable rephrasing and verifies interview_prep in generated o
   fireEvent.click(screen.getByText(/Tailor resume/));
   await waitFor(() => screen.getByText("Resume blocks"));
 
-  // Accept the transferable rephrasing (rep-2, the third one)
+  // Accept the transferable rephrasing (the third one, jd_keyword "leadership")
   const allCheckboxes = screen.getAllByRole("checkbox");
   // allCheckboxes[0] and [1] are block checkboxes, [2], [3], [4] are rephrasing checkboxes
-  fireEvent.click(allCheckboxes[4]); // third rephrasing checkbox (rep-2, the transferable one)
+  fireEvent.click(allCheckboxes[4]); // third rephrasing checkbox (transferable one)
 
   fireEvent.click(screen.getByText(/Generate tailored resume/));
   await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
 
-  // Verify the accepted_rephrasings contains the transferable one
+  // Verify the accepted_rephrasings contains the full transferable rephrasing object
   const generateCall = global.fetch.mock.calls.find(([url]) =>
     String(url).includes("/resume/generate")
   );
   const body = JSON.parse(generateCall[1].body);
-  expect(body.accepted_rephrasings).toContain("rep-2");
+  expect(body.accepted_rephrasings).toHaveLength(1);
+  expect(body.accepted_rephrasings[0]).toMatchObject({
+    block_id: "exp",
+    jd_keyword: "leadership",
+    proposed_text: "orchestrated cross-functional initiatives",
+    confidence: "transferable",
+  });
 
   // Verify interview_prep renders after generate
   expect(screen.getByText(/Interview prep/)).toBeDefined();
-  expect(screen.getByText(/Be ready to discuss ML model deployment/)).toBeDefined();
-  expect(screen.getByText(/Emphasize experience with Python/)).toBeDefined();
+  expect(screen.getByText(/orchestrated cross-functional initiatives/)).toBeDefined();
+  expect(screen.getByText(/python/)).toBeDefined();
 });
