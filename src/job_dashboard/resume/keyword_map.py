@@ -8,8 +8,26 @@ forbids naming any tool/skill/framework absent from the block's own text
 trusts it. Every proposal the injected ``llm`` returns is re-validated in
 code by ``_integrity_violation`` before it is allowed to become a
 ``Rephrasing``. A proposal that fails validation is dropped and its JD
-keyword is reported as a ``GapKeyword`` instead — a fabricated claim never
-reaches the resume.
+keyword is reported as a ``GapKeyword`` instead.
+
+Honest scope of ``_integrity_violation``: it is a BEST-EFFORT pattern filter
+for common fabrication shapes (a fabricated tool token, a known multi-word
+product name, a natural-cased proper noun spaced across generic words). It
+is NOT a hard guarantee — perfect programmatic detection of "does this
+rephrasing claim something the candidate can't back up" is NLI-hard, and an
+adversarial or unusually-phrased proposal can still slip past a
+regex/whitelist filter (see ``_natural_casing_violation`` for one documented
+residual). The filter is one layer of a larger control stack, not the sole
+line of defense:
+
+(a) the LLM prompt itself forbids fabrication (``build_prompt``);
+(b) this code-side filter catches what the prompt alone wouldn't stop;
+(c) — the authoritative control — every ``Rephrasing`` this module produces
+    is a proposed diff that requires mandatory human approval before it
+    enters the actual resume; nothing here auto-applies to output;
+(d) any accepted ``Rephrasing`` with ``confidence == "transferable"`` is
+    flagged via ``needs_interview_prep`` so the candidate is prompted to be
+    ready to honestly discuss the connection in an interview.
 """
 
 from __future__ import annotations
@@ -101,6 +119,12 @@ _ALLOWED_GENERIC = _STOPWORDS | {
     "provisioning", "provisioned", "networking", "autoscaling",
     "scaling", "scaled", "staging", "environment", "environments",
     "configuration",
+    # Connective/attribution words: truthful rephrasings routinely need
+    # these to honestly describe HOW an existing (source-backed) tool was
+    # used, without themselves naming anything new.
+    "used", "via", "leveraging", "leveraged", "across", "within",
+    "through", "enabling", "enabled", "reducing", "improving",
+    "delivering", "owning", "owned",
 }
 
 # Known specific tool / product / vendor names, as phrases (space-separated
@@ -131,6 +155,17 @@ _KNOWN_TOOL_PATTERNS = [
     )
     for phrase in _KNOWN_TOOLS
 ]
+
+# A run of 2+ consecutive Capitalized (or ALL-CAPS) words in ORIGINAL
+# casing — the shape a resume actually uses for a multi-word proper noun:
+# "Elastic Search", "Cloud Search", "Big Query", "Vertex AI".
+_CAP_WORD_RUN_RE = re.compile(r"[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)+")
+
+# A token with an internal lower->upper case transition — the shape of a
+# CamelCase / internal-caps product name: "BigQuery", "PyTorch",
+# "LangChain". Pure acronyms ("AWS", "API", "SQL") have no such
+# transition and are not matched.
+_CAMEL_CASE_RE = re.compile(r"[a-z][A-Z]")
 
 
 @dataclass
@@ -210,26 +245,90 @@ def build_prompt(segment: Segment, jd_text: str) -> str:
     )
 
 
+def _natural_casing_violation(proposed_text: str, source_text: str) -> bool:
+    """Catches a proper-noun tool spelled the way resumes actually write it.
+
+    Closes a STRUCTURAL gap the token-whitelist in ``_integrity_violation``
+    can't see: a real tool made of two ordinary-looking words spaced apart
+    ("Elastic Search" for Elasticsearch, "Cloud Search" for AWS
+    CloudSearch) passes that whitelist because each word, on its own, is
+    generic English already in ``_ALLOWED_GENERIC`` — and ``_KNOWN_TOOLS``
+    only has an entry for the contiguous form, not the spaced one.
+
+    Unlike ``_integrity_violation``, this checks ``proposed_text`` in its
+    ORIGINAL casing (not lowercased) for the visual shape a proper noun
+    takes on a resume:
+
+    (a) a run of 2+ consecutive Capitalized/ALL-CAPS words
+        ("Elastic Search", "Cloud Search", "Big Query", "Vertex AI"), or
+    (b) a single CamelCase / internal-caps token
+        ("BigQuery", "PyTorch", "LangChain").
+
+    Either shape is a violation unless that same phrase/token also appears
+    (case-insensitively) in the block's own ``source_text`` — i.e. the
+    candidate's resume genuinely already names it.
+
+    Documented accepted residual: an ALL-LOWERCASE spaced tool name
+    ("elastic search", no capitals at all) still slips past both this
+    check and the whitelist. That casing is not how a human actually
+    writes a tool name on a resume — it is an adversarial-only input, not
+    a realistic fabrication path — and closing it would mean banning
+    ordinary lowercase word pairs outright, which is not worth the
+    false-positive cost. See the module docstring: this function is one
+    layer of a best-effort filter, not a hard guarantee.
+    """
+    for match in _CAP_WORD_RUN_RE.findall(proposed_text):
+        words = match.split()
+        pattern = re.compile(
+            r"\b" + r"\s+".join(re.escape(w) for w in words) + r"\b", re.IGNORECASE
+        )
+        if not pattern.search(source_text):
+            return True
+
+    source_tokens_lower = {t.lower() for t in _TOKEN_RE.findall(source_text)}
+    for token in _TOKEN_RE.findall(proposed_text):
+        if not _CAMEL_CASE_RE.search(token):
+            continue
+        word = token.lower()
+        if word in source_tokens_lower or word in _ALLOWED_GENERIC:
+            continue
+        return True
+
+    return False
+
+
 def _integrity_violation(proposed_text: str, source_text: str) -> bool:
     """True if ``proposed_text`` introduces content the source can't back up.
 
-    Whitelist model, not a classifier: EVERY token in ``proposed_text`` is
-    tokenized and lowercased, then must be either (a) present in the
-    block's own ``source_text`` tokens (case-insensitive), or (b) generic
-    resume/tech English (``_ALLOWED_GENERIC``). Anything else is an
-    unverifiable specific claim and the whole proposal is rejected. Being
-    case-insensitive by construction, this catches a fabricated lowercase
-    tool name ("kafka") exactly like a capitalized one ("Kafka") — the
-    previous capitalized/digit-shape classifier missed lowercase entirely.
+    BEST-EFFORT filter, not a hard guarantee — see the module docstring
+    for the full control stack this is one layer of. Perfect programmatic
+    detection of "did this rephrasing invent a claim" is NLI-hard; this is
+    pattern-based defense in depth, not a proof.
 
-    A second, independent check nets multi-word product names whose
-    component words might each look individually generic ("Big Query" ->
-    "big" + "query"): any ``_KNOWN_TOOLS`` phrase found in ``proposed_text``
-    but absent from ``source_text`` is a violation regardless of how its
-    words classify on their own. This is the hard backstop: it runs
-    regardless of what the llm claims, so a fabricated tool name can never
-    reach a ``Rephrasing``. Bias is conservative — over-reject rather than
-    let a fabrication through.
+    Three checks, in order:
+
+    1. Whitelist model, not a classifier: EVERY token in ``proposed_text``
+       is tokenized and lowercased, then must be either (a) present in the
+       block's own ``source_text`` tokens (case-insensitive), or (b)
+       generic resume/tech English (``_ALLOWED_GENERIC``). Anything else
+       is an unverifiable specific claim and the whole proposal is
+       rejected. Being case-insensitive by construction, this catches a
+       fabricated lowercase tool name ("kafka") exactly like a
+       capitalized one ("Kafka").
+    2. A second, independent check nets multi-word product names whose
+       component words might each look individually generic ("Big Query"
+       -> "big" + "query"): any ``_KNOWN_TOOLS`` phrase found in
+       ``proposed_text`` but absent from ``source_text`` is a violation
+       regardless of how its words classify on their own.
+    3. ``_natural_casing_violation`` nets the residual gap in (1)+(2):
+       a real tool spelled as natural-cased spaced generic words that
+       aren't a literal ``_KNOWN_TOOLS`` entry ("Elastic Search", "Cloud
+       Search") — see that function's docstring for what's still not
+       covered.
+
+    Bias is conservative — over-reject rather than let a fabrication
+    through — but "reject" here means "route to interview-prep-flagged
+    human review or a GapKeyword," not "impossible to fabricate."
     """
     source_tokens_lower = {t.lower() for t in _TOKEN_RE.findall(source_text)}
     for token in _TOKEN_RE.findall(proposed_text):
@@ -243,6 +342,9 @@ def _integrity_violation(proposed_text: str, source_text: str) -> bool:
     for _phrase, pattern in _KNOWN_TOOL_PATTERNS:
         if pattern.search(proposed_lower) and not pattern.search(source_lower):
             return True
+
+    if _natural_casing_violation(proposed_text, source_text):
+        return True
 
     return False
 

@@ -2,8 +2,7 @@
 
 The integrity-critical case: an injected fake llm proposes a fabricated
 tool name absent from the block's own source text. The code-side guard
-must reject it and emit a GapKeyword instead — never a Rephrasing that
-carries a claim the candidate cannot back up.
+must reject it and emit a GapKeyword instead of a Rephrasing.
 """
 
 from __future__ import annotations
@@ -16,6 +15,8 @@ from job_dashboard.resume.keyword_map import (
     LlmProposal,
     Rephrasing,
     _ALLOWED_GENERIC,
+    _CAMEL_CASE_RE,
+    _CAP_WORD_RUN_RE,
     _KNOWN_TOOLS,
     _TOKEN_RE,
     extract_keywords,
@@ -190,6 +191,22 @@ def test_no_rephrasing_ever_carries_a_tool_token_absent_from_its_source():
                 f"KNOWN_TOOLS phrase {phrase!r} leaked into an accepted Rephrasing"
             )
 
+        # Natural-casing leaks: capitalized-word runs / CamelCase tokens
+        # must trace back to source text too.
+        for match in _CAP_WORD_RUN_RE.findall(r.proposed_text):
+            words = match.split()
+            pattern = re.compile(
+                r"\b" + r"\s+".join(re.escape(w) for w in words) + r"\b",
+                re.IGNORECASE,
+            )
+            assert pattern.search(source_text), f"cap-word-run {match!r} leaked"
+
+        for token in _TOKEN_RE.findall(r.proposed_text):
+            if not _CAMEL_CASE_RE.search(token):
+                continue
+            word = token.lower()
+            assert word in source_tokens or word in _ALLOWED_GENERIC, f"leaked {token!r}"
+
 
 def test_lowercase_fabricated_tool_rejected():
     """Bypass #1 (closed): a lowercase fabricated tool name ("kafka", not
@@ -351,6 +368,114 @@ def test_unknown_block_id_from_llm_becomes_gap_not_rephrasing():
     result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
 
     assert all(isinstance(r, GapKeyword) for r in result)
+
+
+def test_natural_cased_spaced_tool_rejected():
+    """STRUCTURAL residual (closed): "Elastic Search" isn't a literal
+    ``_KNOWN_TOOLS`` entry (only the contiguous "elasticsearch" form is),
+    and "elastic"/"search" are each individually in ``_ALLOWED_GENERIC`` —
+    the old guard let it through. Natural-casing check must reject it."""
+    segments = [_segment("skills-data", r"\item Python, SQL, ETL pipelines")]
+    jd_text = "Experience with Elasticsearch for full-text search is required."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-data",
+                jd_keyword="elasticsearch",
+                proposed_text=r"\item Python, SQL, ETL pipelines, Elastic Search",
+                confidence="equivalent",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    gaps = [g for g in result if isinstance(g, GapKeyword)]
+
+    assert rephrasings == []
+    assert any(g.jd_keyword == "elasticsearch" for g in gaps)
+
+
+def test_cloud_search_rejected():
+    """Same bypass, second example: "Cloud Search" (AWS CloudSearch) —
+    "cloud" and "search" are each individually generic."""
+    segments = [_segment("skills-data", r"\item Python, SQL, ETL pipelines")]
+    jd_text = "Experience with AWS CloudSearch is a plus."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-data",
+                jd_keyword="cloudsearch",
+                proposed_text=r"\item Python, SQL, ETL pipelines, Cloud Search",
+                confidence="equivalent",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    gaps = [g for g in result if isinstance(g, GapKeyword)]
+
+    assert rephrasings == []
+    assert any(g.jd_keyword == "cloudsearch" for g in gaps)
+
+
+def test_camelcase_tool_rejected():
+    """CamelCase / internal-caps names ("BigQuery", "LangChain") not in
+    source must be rejected (also caught by the base whitelist already —
+    this locks in the explicit natural-casing check as defense in depth)."""
+    segments = [_segment("skills-data", r"\item Python, SQL, ETL pipelines")]
+    jd_text = "BigQuery and LangChain experience wanted."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-data",
+                jd_keyword="bigquery",
+                proposed_text=r"\item Python, SQL, ETL pipelines, BigQuery",
+                confidence="equivalent",
+            ),
+            LlmProposal(
+                block_id="skills-data",
+                jd_keyword="langchain",
+                proposed_text=r"\item Python, SQL, ETL pipelines, LangChain",
+                confidence="equivalent",
+            ),
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    gaps = {g.jd_keyword for g in result if isinstance(g, GapKeyword)}
+
+    assert rephrasings == []
+    assert "bigquery" in gaps
+    assert "langchain" in gaps
+
+
+def test_truthful_reorder_of_source_tools_accepted():
+    """Over-rejection fix: reordering source-only tools with ordinary
+    connective words (used, and, for) must be ACCEPTED."""
+    segments = [_segment("skills-db", r"\item \textbf{Databases}: PostgreSQL, Redis")]
+    jd_text = "Looking for caching experience with Redis."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-db",
+                jd_keyword="caching",
+                proposed_text=r"\item \textbf{Databases}: Redis and PostgreSQL, used for caching",
+                confidence="exact-synonym",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    assert len(rephrasings) == 1
+    assert rephrasings[0].jd_keyword == "caching"
 
 
 def test_invalid_confidence_value_is_rejected_to_gap():
