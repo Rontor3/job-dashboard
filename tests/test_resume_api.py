@@ -234,6 +234,118 @@ def test_get_resume_pdf_unknown_resume(client_with_fake_engine):
     assert resp.status_code == 404
 
 
+def test_generate_then_list_resumes_roundtrip(tmp_path):
+    """POST /api/jobs/{id}/resume/generate then GET /api/jobs/{id}/resumes returns persisted resume."""
+    from job_dashboard.db import save_resume
+
+    db_path = tmp_path / "t.db"
+    conn = init_db(db_path)
+    insert_job(
+        conn,
+        JobListing(
+            source="s",
+            title="ML Engineer",
+            company="Stripe",
+            job_url="https://x.com/1",
+            description="jd 1",
+        ),
+    )
+    job_id = conn.execute("SELECT id FROM jobs LIMIT 1").fetchone()[0]
+    conn.close()
+
+    # Create a persisting fake engine that actually writes to the database
+    class PersistingFakeResumeEngine(FakeResumeEngine):
+        """Fake engine that persists resumes via db.save_resume()."""
+
+        def generate_resume(self, job_id, block_ids, accepted_rephrasings):
+            """Generate resume and persist to database."""
+            # Create a fake PDF file
+            resumes_dir = db_path.parent / "resumes"
+            resumes_dir.mkdir(parents=True, exist_ok=True)
+            pdf_path = resumes_dir / f"resume_{job_id}.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4\n%EOF\n")  # Minimal valid PDF
+
+            # Prepare the ATS report and blocks used
+            ats_report = {
+                "ats_score": 85,
+                "contact_ok": True,
+                "reading_order_ok": True,
+                "keyword_coverage": 0.9,
+                "missing_keywords": [],
+                "warnings": [],
+            }
+            blocks_used = block_ids
+
+            # Persist to database
+            temp_conn = init_db(db_path)
+            resume_id = save_resume(
+                temp_conn,
+                job_id,
+                str(pdf_path),
+                blocks_used,
+                85,
+                ats_report,
+            )
+            temp_conn.close()
+
+            # Return the expected format with the real resume_id
+            return {
+                "resume_id": resume_id,
+                "pdf_url": f"/api/resumes/{resume_id}/pdf",
+                "ats_report": ats_report,
+                "blocks_used": blocks_used,
+                "cut_lines": [],
+                "interview_prep": [
+                    {
+                        "block_id": "exp1",
+                        "jd_keyword": "machine learning",
+                        "proposed_text": "Built ML systems",
+                    }
+                ],
+            }
+
+    fake_engine = PersistingFakeResumeEngine()
+    app = create_app(db_path=str(db_path), resume_engine=fake_engine)
+    tc = TestClient(app)
+
+    # POST: Generate resume
+    generate_body = {
+        "block_ids": ["header", "summary", "exp1"],
+        "accepted_rephrasings": [
+            {
+                "block_id": "exp1",
+                "original_text": "Built systems",
+                "proposed_text": "Built ML systems",
+                "jd_keyword": "machine learning",
+                "confidence": "transferable",
+                "needs_interview_prep": True,
+            }
+        ],
+    }
+    gen_resp = tc.post(f"/api/jobs/{job_id}/resume/generate", json=generate_body)
+    assert gen_resp.status_code == 200
+    gen_result = gen_resp.json()
+    generated_resume_id = gen_result["resume_id"]
+    assert generated_resume_id > 0
+    assert gen_result["ats_report"]["ats_score"] == 85
+    assert gen_result["blocks_used"] == ["header", "summary", "exp1"]
+
+    # GET: List resumes for the job
+    list_resp = tc.get(f"/api/jobs/{job_id}/resumes")
+    assert list_resp.status_code == 200
+    list_body = list_resp.json()
+    assert "resumes" in list_body
+    resumes = list_body["resumes"]
+    assert len(resumes) == 1
+
+    # Assert the persisted resume matches the generated one
+    persisted = resumes[0]
+    assert persisted["id"] == generated_resume_id
+    assert persisted["ats_score"] == 85
+    assert persisted["blocks_used"] == ["header", "summary", "exp1"]
+    assert persisted["ats_report"]["ats_score"] == 85
+
+
 def test_generate_and_fetch_resume_pdf(tmp_path):
     """Full flow: generate resume and fetch PDF."""
     db_path = tmp_path / "t.db"
