@@ -69,7 +69,7 @@ beforeEach(() => {
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(SEGMENTS),
+        json: () => Promise.resolve({ segments: SEGMENTS }),
       });
     if (String(url).includes("/resume/suggest"))
       return Promise.resolve({

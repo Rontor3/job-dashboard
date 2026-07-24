@@ -22,7 +22,8 @@ export const fetchStats = () => fetch("/api/stats").then(json);
 export const startRefresh = () => fetch("/api/refresh", { method: "POST" }).then(json);
 export const refreshStatus = () => fetch("/api/refresh/status").then(json);
 
-export const fetchSegments = () => fetch("/api/resume/segments").then(json);
+export const fetchSegments = () =>
+  fetch("/api/resume/segments").then(json).then((d) => d.segments || []);
 export const suggestResume = (id) =>
   fetch(`/api/jobs/${id}/resume/suggest`, { method: "POST" }).then(json);
 export const generateResume = (id, blockIds, acceptedRephrasings) =>
