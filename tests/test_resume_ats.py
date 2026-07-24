@@ -77,7 +77,7 @@ def test_missing_keywords_list_capped_at_twenty():
     assert len(report.missing_keywords) <= 20
 
 
-def test_reading_order_scrambled_sections_flagged_not_ok():
+def test_skills_first_resume_is_valid_reading_order():
     resume_text = """
     jane@example.com 555-111-2222
     Skills
@@ -87,8 +87,29 @@ def test_reading_order_scrambled_sections_flagged_not_ok():
     Education
     BS in CS.
     """
-    # Canonical expected order is experience -> education -> skills; here
-    # skills appears first, before experience/education, so it is scrambled.
+    # Skills-first / Summary-first layouts are a legitimate resume style, not
+    # a parser scramble. The check is order-agnostic: any monotonic sequence
+    # of distinct section headers is a valid reading order.
+    report = ats_check("fake.pdf", "python go experience", extract=lambda p: resume_text)
+
+    assert report.reading_order_ok is True
+
+
+def test_genuinely_scrambled_sections_flagged():
+    # A section header re-appearing at a non-adjacent position (interleaved
+    # with a different header in between) is the real column-jumble tell:
+    # e.g. a two-column PDF flattened as col1-row1, col2-row1, col1-row2...
+    resume_text = """
+    jane@example.com 555-111-2222
+    Experience
+    Backend engineer for five years.
+    Skills
+    Python, Go
+    Experience
+    Continued backend engineer duties.
+    Education
+    BS in CS.
+    """
     report = ats_check("fake.pdf", "python go experience", extract=lambda p: resume_text)
 
     assert report.reading_order_ok is False
@@ -103,8 +124,9 @@ def test_reading_order_ok_when_no_section_headers_present():
 
 
 @pytest.mark.skipif(
-    not shutil.which("lualatex") and not Path("/Library/TeX/texbin/lualatex").exists(),
-    reason="no lualatex",
+    (not shutil.which("lualatex") and not Path("/Library/TeX/texbin/lualatex").exists())
+    or not shutil.which("pdftotext"),
+    reason="no lualatex/pdftotext",
 )
 def test_live_ats_check_on_real_rendered_pdf(tmp_path):
     """Render a real PDF (Task 3 render_pdf, real lualatex) and run ats_check

@@ -38,8 +38,19 @@ STOPWORDS = {
     "an", "be", "or", "at", "by", "it", "we",
 }
 
-# Canonical expected top-to-bottom order for a v1 reading-order heuristic.
-SECTION_HEADERS = ["experience", "education", "skills"]
+# Known section headers scanned for scramble-detection. This check is
+# order-agnostic — Skills-first / Summary-first resumes are valid layouts,
+# not parser scrambles — so this list is not a required or expected order.
+SECTION_HEADERS = ["experience", "education", "skills", "projects", "summary"]
+
+# Matches a line that is (mostly) just a section header — optionally prefixed
+# with markdown/bullet decoration and suffixed with a colon — so that the
+# word appearing inside a sentence (e.g. "five years of experience") isn't
+# mistaken for an actual section heading.
+_HEADER_LINE_RE = re.compile(
+    r"^[#>*\-\s]*(" + "|".join(SECTION_HEADERS) + r")\s*:?\s*$",
+    re.IGNORECASE,
+)
 
 REPLACEMENT_CHAR = "�"
 # Above this ratio of replacement/non-printable chars, flag likely garbling.
@@ -83,13 +94,36 @@ def _contact_ok(text: str) -> bool:
 
 
 def _reading_order_ok(text: str) -> bool:
-    lower = text.lower()
-    found = [(header, lower.find(header)) for header in SECTION_HEADERS]
-    found = [(header, idx) for header, idx in found if idx != -1]
-    if len(found) < 2:
+    """Detect PARSER SCRAMBLE (column-jumbled extraction), not candidate
+    section ordering — any section order is a valid resume layout.
+
+    Scans for standalone-ish section-header lines and flags a scramble only
+    on a genuine tell:
+      - the same header appears 2+ times at non-adjacent positions in the
+        header sequence (a classic column-interleave signature), or
+      - 3+ header-hits collapse to fewer than 2 distinct headers
+        (fragmentation — e.g. the same heading repeated by a broken parser).
+    Any monotonic sequence of distinct headers, in any order, is fine.
+    """
+    hits = [
+        match.group(1).lower()
+        for line in text.splitlines()
+        if (match := _HEADER_LINE_RE.match(line))
+    ]
+    if len(hits) < 2:
         return True
-    positions = [idx for _, idx in found]
-    return positions == sorted(positions)
+
+    distinct = set(hits)
+    if len(hits) >= 3 and len(distinct) < 2:
+        return False
+
+    for header in distinct:
+        positions = [i for i, h in enumerate(hits) if h == header]
+        for a, b in zip(positions, positions[1:]):
+            if b - a > 1:
+                return False
+
+    return True
 
 
 def _keyword_coverage(jd_text: str, resume_text: str) -> tuple[float, list[str]]:
