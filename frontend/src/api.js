@@ -21,3 +21,14 @@ export const fetchDuplicates = () => fetch("/api/duplicates").then(json);
 export const fetchStats = () => fetch("/api/stats").then(json);
 export const startRefresh = () => fetch("/api/refresh", { method: "POST" }).then(json);
 export const refreshStatus = () => fetch("/api/refresh/status").then(json);
+
+export const fetchSegments = () => fetch("/api/resume/segments").then(json);
+export const suggestResume = (id) =>
+  fetch(`/api/jobs/${id}/resume/suggest`, { method: "POST" }).then(json);
+export const generateResume = (id, blockIds, acceptedRephrasings) =>
+  fetch(`/api/jobs/${id}/resume/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ block_ids: blockIds, accepted_rephrasings: acceptedRephrasings }),
+  }).then(json);
+export const fetchResumes = (id) => fetch(`/api/jobs/${id}/resumes`).then(json);
