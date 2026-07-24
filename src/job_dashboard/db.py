@@ -63,6 +63,7 @@ def init_db(path):
     conn.executescript(MATCH_SCHEMA)
     _ensure_duplicate_of_column(conn)
     _ensure_status_column(conn)
+    _ensure_resumes_table(conn)
     conn.commit()
     return conn
 
@@ -77,6 +78,65 @@ def _ensure_status_column(conn):
     cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
     if "status" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN status TEXT")
+
+
+def _ensure_resumes_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS resumes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            pdf_path TEXT,
+            blocks_used TEXT,
+            ats_score REAL,
+            ats_report TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+
+def save_resume(conn, job_id, pdf_path, blocks_used, ats_score, ats_report):
+    """Save a resume for a job. Returns the new resume id."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO resumes (job_id, pdf_path, blocks_used, ats_score, ats_report, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (job_id, pdf_path, json.dumps(blocks_used), ats_score, json.dumps(ats_report), now),
+    )
+    conn.commit()
+    return conn.execute("SELECT id FROM resumes ORDER BY id DESC LIMIT 1").fetchone()[0]
+
+
+def resumes_for_job(conn, job_id):
+    """Get all resumes for a job, newest first. Returns list of dicts with parsed JSON."""
+    rows = conn.execute(
+        """SELECT id, job_id, pdf_path, blocks_used, ats_score, ats_report, created_at
+           FROM resumes WHERE job_id = ? ORDER BY created_at DESC""",
+        (job_id,),
+    ).fetchall()
+    keys = ("id", "job_id", "pdf_path", "blocks_used", "ats_score", "ats_report", "created_at")
+    result = []
+    for row in rows:
+        d = dict(zip(keys, row))
+        d["blocks_used"] = json.loads(d["blocks_used"]) if d["blocks_used"] else []
+        d["ats_report"] = json.loads(d["ats_report"]) if d["ats_report"] else {}
+        result.append(d)
+    return result
+
+
+def get_resume(conn, resume_id):
+    """Get a single resume by id. Returns dict with parsed JSON or None."""
+    row = conn.execute(
+        """SELECT id, job_id, pdf_path, blocks_used, ats_score, ats_report, created_at
+           FROM resumes WHERE id = ?""",
+        (resume_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    keys = ("id", "job_id", "pdf_path", "blocks_used", "ats_score", "ats_report", "created_at")
+    d = dict(zip(keys, row))
+    d["blocks_used"] = json.loads(d["blocks_used"]) if d["blocks_used"] else []
+    d["ats_report"] = json.loads(d["ats_report"]) if d["ats_report"] else {}
+    return d
 
 
 def job_exists(conn, job_url):
