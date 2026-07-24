@@ -40,6 +40,98 @@ _STOPWORDS = {
 # Tokens made of letters plus tool-ish punctuation (C++, Node.js, CI/CD, ...).
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9+#./_-]*")
 
+# Generic resume/tech English a rephrasing may freely use even when the word
+# isn't literally in the block's own source text — deliberately generous but
+# strictly GENERIC: no specific tool, product, or vendor proper nouns belong
+# here (those go in _KNOWN_TOOLS, or must come from the source text itself).
+_ALLOWED_GENERIC = _STOPWORDS | {
+    "system", "systems", "production", "pipeline", "pipelines", "model",
+    "models", "data", "engineering", "engineer", "engineers", "built",
+    "build", "builds", "building", "developed", "developing", "develop",
+    "design", "designed", "designing", "scalable", "distributed", "real",
+    "time", "retrieval", "orchestration", "embedding", "embeddings",
+    "inference", "training", "train", "trained", "deployment", "deploy",
+    "deployed", "serving", "serve", "served", "api", "apis", "cloud",
+    "backend", "frontend", "services", "service", "platform", "platforms",
+    "automation", "automate", "automated", "analysis", "analyze",
+    "analyzed", "learning", "machine", "deep", "neural", "language",
+    "natural", "processing", "process", "processed", "vector", "vectors",
+    "search", "searching", "semantic", "framework", "frameworks",
+    "libraries", "library", "tools", "tool", "based", "architecture",
+    "architected", "application", "applications", "software", "code",
+    "coding", "algorithm", "algorithms", "database", "databases",
+    "server", "servers", "network", "networks", "security", "testing",
+    "test", "tests", "quality", "performance", "scale", "scalability",
+    "reliability", "availability", "monitoring", "monitor", "monitored",
+    "logging", "log", "logs", "metrics", "workflow", "workflows",
+    "feature", "features", "module", "modules", "component", "components",
+    "interface", "interfaces", "user", "users", "customer", "customers",
+    "product", "products", "project", "projects", "stakeholders",
+    "requirements", "solution", "solutions", "technical", "technology",
+    "technologies", "tech", "stack", "full", "cross", "functional",
+    "agile", "integration", "integrations", "delivery", "continuous",
+    "devops", "ci", "cd", "event", "events", "streaming", "stream",
+    "streams", "queue", "queues", "message", "messages", "messaging",
+    "storage", "store", "stored", "compute", "container", "containers",
+    "microservice", "microservices", "rest", "restful", "json", "xml",
+    "http", "https", "web", "app", "apps", "mobile", "desktop", "script",
+    "scripts", "scripting", "optimize", "optimized", "optimization",
+    "improve", "improved", "improvement", "reduce", "reduced", "increase",
+    "increased", "deliver", "delivered", "implement", "implemented",
+    "manage", "managed", "lead", "led", "create", "created", "collaborate",
+    "collaborated", "maintain", "maintained", "support", "supported",
+    "high", "low", "level", "key", "core", "end", "multi", "primary",
+    "secondary", "query", "queries", "serverless", "asynchronous",
+    "synchronous", "concurrent", "concurrency", "parallel",
+    "parallelism", "fault", "tolerant", "tolerance", "elastic",
+    "elasticity", "horizontal", "vertical", "caching", "cache",
+    "cached", "batch", "batches", "scheduled", "scheduler",
+    "reactive", "resilient", "resiliency", "observability", "tracing",
+    "trace", "alerting", "alert", "alerts", "dashboard", "dashboards",
+    "visualization", "reporting", "warehouse", "warehousing",
+    "governance", "compliance", "encryption", "encrypted",
+    "authentication", "authorization", "auth", "token", "tokens",
+    "session", "sessions", "endpoint", "endpoints", "schema",
+    "schemas", "index", "indexes", "indexing", "transaction",
+    "transactions", "throughput", "latency", "uptime", "cluster",
+    "clusters", "clustering", "node", "nodes", "replication",
+    "replica", "replicas", "backup", "backups", "recovery",
+    "migration", "migrations", "migrate", "migrated", "versioning",
+    "release", "releases", "rollback", "infrastructure", "infra",
+    "provisioning", "provisioned", "networking", "autoscaling",
+    "scaling", "scaled", "staging", "environment", "environments",
+    "configuration",
+}
+
+# Known specific tool / product / vendor names, as phrases (space-separated
+# for multi-word names). Case-insensitive substring net: if any of these
+# appears in a proposed rephrasing's text but NOT in the block's own source
+# text, that's a fabricated specific claim — even when every individual
+# word in the phrase happens to look generic on its own (e.g. "Big Query").
+_KNOWN_TOOLS = (
+    "kafka", "langchain", "llamaindex", "llama index", "bigquery",
+    "big query", "postgres", "postgresql", "spark", "airflow",
+    "snowflake", "databricks", "kubernetes", "terraform", "tensorflow",
+    "pytorch", "hadoop", "redis", "mongodb", "elasticsearch", "tableau",
+    "powerbi", "power bi", "sagemaker", "vertex ai", "docker", "jenkins",
+    "grafana", "prometheus", "kibana", "cassandra", "dynamodb",
+    "rabbitmq", "mysql", "sqlite", "nginx", "react", "angular", "vue",
+    "django", "flask", "fastapi", "numpy", "pandas", "scikit-learn",
+    "sklearn", "keras", "opencv", "graphql", "jupyter", "matlab",
+    "scala", "golang", "node.js", "nodejs", "express", "spring",
+    "hibernate", "openai", "chatgpt", "gemini", "anthropic",
+    "hugging face", "huggingface", "pinecone", "weaviate", "milvus",
+    "qdrant", "faiss", "chroma", "chromadb",
+)
+
+_KNOWN_TOOL_PATTERNS = [
+    (
+        phrase,
+        re.compile(r"\b" + r"\s+".join(re.escape(p) for p in phrase.split(" ")) + r"\b"),
+    )
+    for phrase in _KNOWN_TOOLS
+]
+
 
 @dataclass
 class Rephrasing:
@@ -118,48 +210,40 @@ def build_prompt(segment: Segment, jd_text: str) -> str:
     )
 
 
-def _is_tool_like(token: str) -> bool:
-    """Heuristic: looks like a proper-noun tool/tech name, not plain prose.
+def _integrity_violation(proposed_text: str, source_text: str) -> bool:
+    """True if ``proposed_text`` introduces content the source can't back up.
 
-    Capitalized (mid- or start-of-sentence) or containing a digit / '+' /
-    '#' — the shapes real tool names take (Kafka, Python, C++, Node.js).
-    """
-    if len(token) < 2:
-        return False
-    return token[0].isupper() or bool(re.search(r"[0-9+#]", token))
+    Whitelist model, not a classifier: EVERY token in ``proposed_text`` is
+    tokenized and lowercased, then must be either (a) present in the
+    block's own ``source_text`` tokens (case-insensitive), or (b) generic
+    resume/tech English (``_ALLOWED_GENERIC``). Anything else is an
+    unverifiable specific claim and the whole proposal is rejected. Being
+    case-insensitive by construction, this catches a fabricated lowercase
+    tool name ("kafka") exactly like a capitalized one ("Kafka") — the
+    previous capitalized/digit-shape classifier missed lowercase entirely.
 
-
-def _appears_lowercase(word: str, text: str) -> bool:
-    """True if ``word`` occurs in ``text`` spelled all-lowercase somewhere.
-
-    Evidence the word is ordinary vocabulary (e.g. a capitalized
-    sentence-initial "Built") rather than a proper-noun tool name — real
-    tool names ("Kafka", "Python") essentially never appear lowercase in
-    prose, so this does not create a loophole for fabricated tools that the
-    JD happens to mention by their proper capitalized name.
-    """
-    pattern = re.compile(r"\b" + re.escape(word.lower()) + r"\b")
-    return bool(pattern.search(text))
-
-
-def _integrity_violation(proposed_text: str, source_text: str, jd_text: str) -> bool:
-    """True if ``proposed_text`` names a tool-like term absent from source.
-
-    Tokenizes ``proposed_text`` and rejects it if ANY tool-like token is
-    both (a) absent from the block's own source text and (b) not
-    demonstrably generic JD vocabulary (see ``_appears_lowercase``). This
-    is the hard backstop: it runs regardless of what the llm claims, so a
-    fabricated tool name can never reach a ``Rephrasing``.
+    A second, independent check nets multi-word product names whose
+    component words might each look individually generic ("Big Query" ->
+    "big" + "query"): any ``_KNOWN_TOOLS`` phrase found in ``proposed_text``
+    but absent from ``source_text`` is a violation regardless of how its
+    words classify on their own. This is the hard backstop: it runs
+    regardless of what the llm claims, so a fabricated tool name can never
+    reach a ``Rephrasing``. Bias is conservative — over-reject rather than
+    let a fabrication through.
     """
     source_tokens_lower = {t.lower() for t in _TOKEN_RE.findall(source_text)}
     for token in _TOKEN_RE.findall(proposed_text):
-        if not _is_tool_like(token):
-            continue
-        if token.lower() in source_tokens_lower:
-            continue
-        if _appears_lowercase(token, jd_text):
+        word = token.lower()
+        if word in source_tokens_lower or word in _ALLOWED_GENERIC:
             continue
         return True
+
+    proposed_lower = proposed_text.lower()
+    source_lower = source_text.lower()
+    for _phrase, pattern in _KNOWN_TOOL_PATTERNS:
+        if pattern.search(proposed_lower) and not pattern.search(source_lower):
+            return True
+
     return False
 
 
@@ -210,7 +294,7 @@ def propose_rephrasings(
         if (
             seg is None
             or proposal.confidence not in VALID_CONFIDENCE
-            or _integrity_violation(proposal.proposed_text, seg.text, jd_text)
+            or _integrity_violation(proposal.proposed_text, seg.text)
         ):
             # Rejected proposal. Only surface it as a gap if the keyword
             # isn't already truthfully present elsewhere in source text —

@@ -8,12 +8,16 @@ carries a claim the candidate cannot back up.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from job_dashboard.resume.keyword_map import (
     GapKeyword,
     LlmProposal,
     Rephrasing,
+    _ALLOWED_GENERIC,
+    _KNOWN_TOOLS,
+    _TOKEN_RE,
     extract_keywords,
     propose_rephrasings,
     simple_deep_rank,
@@ -118,14 +122,19 @@ def test_fabricated_tool_is_rejected_and_becomes_gap_keyword():
 
 
 def test_no_rephrasing_ever_carries_a_tool_token_absent_from_its_source():
-    """Property check across a mixed batch: one truthful proposal, one
-    fabricated one. No accepted Rephrasing may contain a capitalized /
-    tool-like token that isn't present in that block's own source text."""
+    """Property check across a mixed batch: one truthful proposal, two
+    fabricated ones — a lowercase tool ("kafka") and a multi-word product
+    ("Big Query") whose words each look generic in isolation. This is the
+    blind spot the old capitalized-only classifier missed; the rewritten
+    whitelist guard must scan ALL tokens case-insensitively against
+    source+generic vocabulary, and separately reject any KNOWN_TOOLS
+    phrase absent from the source, regardless of casing or word-splitting.
+    """
     segments = [
         _segment("skills-db", r"\item \textbf{Databases}: PostgreSQL, Redis"),
         _segment("skills-cloud", r"\item \textbf{Cloud}: AWS Lambda, DynamoDB"),
     ]
-    jd_text = "PostgreSQL and Kafka experience required."
+    jd_text = "PostgreSQL and kafka and Big Query experience required."
 
     def fake_llm(segs, jd):
         return [
@@ -138,8 +147,14 @@ def test_no_rephrasing_ever_carries_a_tool_token_absent_from_its_source():
             LlmProposal(
                 block_id="skills-cloud",
                 jd_keyword="kafka",
-                proposed_text=r"\item \textbf{Cloud}: AWS Lambda, DynamoDB, Kafka streaming",
+                proposed_text=r"\item \textbf{Cloud}: AWS Lambda, DynamoDB, kafka streaming",
                 confidence="transferable",
+            ),
+            LlmProposal(
+                block_id="skills-cloud",
+                jd_keyword="bigquery",
+                proposed_text=r"\item \textbf{Cloud}: AWS Lambda, DynamoDB, Big Query",
+                confidence="equivalent",
             ),
         ]
 
@@ -150,19 +165,152 @@ def test_no_rephrasing_ever_carries_a_tool_token_absent_from_its_source():
     assert len(rephrasings) == 1
     assert rephrasings[0].jd_keyword == "postgresql"
     assert any(g.jd_keyword == "kafka" for g in gaps)
+    assert any(g.jd_keyword == "bigquery" for g in gaps)
 
     seg_by_id = {s.id: s for s in segments}
     for r in rephrasings:
-        source_tokens = {t.lower() for t in extract_keywords(seg_by_id[r.block_id].text)}
-        proposed_words = r.proposed_text.replace(r"\item", " ").replace(r"\textbf", " ").split()
-        for word in proposed_words:
-            cleaned = "".join(c for c in word if c.isalnum())
-            if cleaned and cleaned[0].isupper() and len(cleaned) > 2:
-                # Any capitalized word in the accepted proposal must trace
-                # back to the block's own source text.
-                assert cleaned.lower() in source_tokens or cleaned.lower() in extract_keywords(seg_by_id[r.block_id].text), (
-                    f"fabricated token {cleaned!r} leaked into an accepted Rephrasing"
-                )
+        source_text = seg_by_id[r.block_id].text
+        source_tokens = {t.lower() for t in _TOKEN_RE.findall(source_text)}
+        for token in _TOKEN_RE.findall(r.proposed_text):
+            word = token.lower()
+            # EVERY token, case-insensitively — not just capitalized ones —
+            # must trace back to source text or generic vocabulary.
+            assert word in source_tokens or word in _ALLOWED_GENERIC, (
+                f"fabricated token {word!r} leaked into an accepted Rephrasing"
+            )
+
+        proposed_lower = r.proposed_text.lower()
+        source_lower = source_text.lower()
+        for phrase in _KNOWN_TOOLS:
+            pattern = re.compile(
+                r"\b" + r"\s+".join(re.escape(p) for p in phrase.split(" ")) + r"\b"
+            )
+            leaked = pattern.search(proposed_lower) and not pattern.search(source_lower)
+            assert not leaked, (
+                f"KNOWN_TOOLS phrase {phrase!r} leaked into an accepted Rephrasing"
+            )
+
+
+def test_lowercase_fabricated_tool_rejected():
+    """Bypass #1 (closed): a lowercase fabricated tool name ("kafka", not
+    "Kafka") must be rejected exactly like a capitalized one — the old
+    guard's ``_is_tool_like`` ignored lowercase tokens entirely, letting
+    this straight through as "not tool-like"."""
+    segments = [
+        _segment(
+            "skills-cloud", r"\item \textbf{Cloud}: AWS Lambda, API Gateway, DynamoDB"
+        )
+    ]
+    jd_text = "Must have hands-on Kafka experience for event streaming."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-cloud",
+                jd_keyword="kafka",
+                proposed_text=r"\item \textbf{Cloud}: AWS Lambda, API Gateway, DynamoDB, kafka",
+                confidence="equivalent",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    gaps = [g for g in result if isinstance(g, GapKeyword)]
+
+    assert rephrasings == []
+    assert any(g.jd_keyword == "kafka" for g in gaps)
+
+
+def test_multiword_fabricated_tool_rejected():
+    """Bypass #2 (closed): "Big Query" splits into "Big" + "Query", each of
+    which the old classifier treated as plausible generic English on its
+    own. The KNOWN_TOOLS phrase net must catch the multi-word product name
+    even when its component words look individually harmless."""
+    segments = [
+        _segment("skills-data", r"\item \textbf{Data}: Python, SQL, ETL pipelines")
+    ]
+    jd_text = "Experience with BigQuery for data warehousing is required."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-data",
+                jd_keyword="bigquery",
+                proposed_text=r"\item \textbf{Data}: Python, SQL, ETL pipelines, Big Query",
+                confidence="equivalent",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    gaps = [g for g in result if isinstance(g, GapKeyword)]
+
+    assert rephrasings == []
+    assert any(g.jd_keyword == "bigquery" for g in gaps)
+
+
+def test_capitalized_fabricated_tool_still_rejected():
+    """Regression guard: the original capitalized-tool bypass case (Kafka)
+    must remain caught by the rewritten whitelist-based guard, not just
+    the new lowercase/multi-word cases it was added to close."""
+    segments = [
+        _segment(
+            "skills-cloud", r"\item \textbf{Cloud}: AWS Lambda, API Gateway, DynamoDB"
+        )
+    ]
+    jd_text = "Must have hands-on Kafka experience for event streaming."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-cloud",
+                jd_keyword="kafka",
+                proposed_text=r"\item \textbf{Cloud}: AWS Lambda, API Gateway, DynamoDB, Kafka",
+                confidence="equivalent",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    gaps = [g for g in result if isinstance(g, GapKeyword)]
+
+    assert rephrasings == []
+    assert any(g.jd_keyword == "kafka" for g in gaps)
+
+
+def test_legit_generic_rephrasing_still_accepted():
+    """The guard must not be so strict it kills legitimate synonym-style
+    rephrasings: reusing the block's own words plus generic tech/resume
+    vocabulary (introducing no new proper-noun tool) must still pass."""
+    segments = [
+        _segment(
+            "skills-ml",
+            r"\item Built sentence-transformers embeddings pipeline for retrieval",
+        )
+    ]
+    jd_text = "Looking for experience with vector search and semantic retrieval."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="skills-ml",
+                jd_keyword="semantic",
+                proposed_text=(
+                    r"\item Built vector search / semantic retrieval embeddings "
+                    r"pipeline using sentence-transformers"
+                ),
+                confidence="equivalent",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    assert len(rephrasings) == 1
+    assert rephrasings[0].jd_keyword == "semantic"
 
 
 def test_no_llm_means_every_uncovered_keyword_is_a_gap():

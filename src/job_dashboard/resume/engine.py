@@ -255,8 +255,10 @@ def generate_resume(
 ) -> dict:
     """Generate and save a tailored resume PDF. Steps run in this order:
     (a) enforce exclusive_group on block_ids, (b) apply accepted
-    rephrasings, (c) kind-aware compose, (d) fit_to_page, (e) render FINAL
-    pdf, (f) ats_check the FINAL pdf, (g) db.save_resume.
+    rephrasings, (c) fit_to_page (probing candidate subsets via its own
+    kind-aware compose), (d) kind-aware compose of the final surviving
+    blocks, (e) render FINAL pdf, (f) ats_check the FINAL pdf,
+    (g) db.save_resume.
     """
     out_dir = Path(out_dir)
     seg_by_id = {s.id: s for s in segments}
@@ -268,7 +270,7 @@ def generate_resume(
     # (b) apply accepted rephrasings to block text.
     ordered_blocks = _apply_rephrasings(ordered_blocks, accepted_rephrasings)
 
-    # (c)/(d): fit-loop operates on cuttable content ("lines" = whole
+    # (c) fit-loop operates on cuttable content ("lines" = whole
     # item-bearing block texts, so a cut never leaves a stray \item or
     # breaks the itemize a kept item still needs); fixed (header/summary)
     # blocks are never candidates for cutting.
@@ -285,7 +287,7 @@ def generate_resume(
         if not _is_item_bearing(b) or b.text in kept_texts
     ]
 
-    # (c) kind-aware compose of the final surviving blocks.
+    # (d) kind-aware compose of the final surviving blocks.
     body = _compose_kind_aware(final_blocks)
     tex = _build_tex(body)
 
