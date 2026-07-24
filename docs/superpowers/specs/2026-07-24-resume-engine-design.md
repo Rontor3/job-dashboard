@@ -41,6 +41,36 @@ For a job, an LLM proposes which blocks to include + their order, using that job
 the JD text. Output: `{suggested_block_ids: [...], emphasis: {...}, rationale}`. The user
 sees this as pre-checked toggles — they add/remove blocks before generating.
 
+## Adaptive block phrasing — truthful keyword mapping (user-added 2026-07-24)
+
+The other half of the ATS keyword-coverage check: instead of only reporting "JD wants X,
+resume lacks it," the engine offers to re-phrase the candidate's **real** blocks in the
+JD's vocabulary — as pick-options the user approves, never auto-inserted.
+
+For each JD keyword a block doesn't already carry, propose alternative phrasings of the
+candidate's actual experience, **each tagged by confidence**:
+- `exact-synonym` — same tech, different name (sentence-transformers ↔ "vector search /
+  semantic retrieval"). Offer freely.
+- `equivalent` — same capability, defensible wording (e.g. "productionized real-time
+  scoring endpoints" for "low-latency model serving").
+- `transferable — verify` — adjacent work reframed in the JD's broader terms (built RAG
+  with Ollama/Mistral → "production RAG: retrieval + LLM orchestration" when the JD says
+  "LangChain RAG"). **Flagged** so the user knows to speak to it in interview.
+
+**Integrity guardrails (binding, policy = "truthful map + flag transferable"):**
+- The engine **never writes a specific tool/skill/framework the candidate did not use**
+  (never "LangChain"/"Kafka" onto experience that used something else). A true gap stays
+  a **flagged gap** ("JD wants Kafka; your equivalent is RabbitMQ/message-queues — reframe
+  or leave as gap"), never a fabricated claim.
+- Every rephrasing is a **user-approved option**, presented as "this block could read as
+  …"; nothing is silently substituted.
+- Rephrasings draw only from content already true in the source CV — this reinforces, not
+  overrides, the segment-integrity rule.
+
+Output per suggestion: `{block_id, original_text, proposed_text, jd_keyword, confidence,
+needs_interview_prep: bool}`. Approved rephrasings become the block's rendered text and
+feed the fit-loop keyword relevance + close ATS coverage gaps truthfully.
+
 ## Generation pipeline (ordering is binding)
 
 1. **Compose** the chosen blocks into the vendored ai-job-search LaTeX template.
@@ -85,9 +115,13 @@ under `documents/generated/` (gitignored).
 ## Dashboard panel
 
 On each job's detail: **"Tailor resume"** → calls `suggest` → shows blocks as toggles
-(suggested ones pre-checked, with the rationale) → **Generate** → server runs the
-pipeline → **inline PDF preview + ATS score + missing-keyword chips** → download / mark
-as the resume attached to this application. Register warm (matches the Teal v2 tokens).
+(suggested ones pre-checked, with the rationale). Blocks with proposed keyword-mapped
+rephrasings show a **"this could read as …"** inline diff (original → proposed) tagged
+`exact-synonym`/`equivalent`/`transferable — verify`, each accepted per-option; true gaps
+show as **amber gap chips** ("JD wants Kafka — no match"). Then **Generate** → server runs
+the pipeline → **inline PDF preview + ATS score + missing-keyword chips + an
+"interview-prep" list of accepted transferable claims** → download / mark as the resume
+attached to this application. Register warm (matches the Teal v2 tokens).
 
 ## Boundaries (deferred)
 
