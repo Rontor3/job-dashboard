@@ -17,8 +17,10 @@ from job_dashboard.resume.segments import load_segments
 from job_dashboard.resume.render import render_pdf
 from job_dashboard.resume.ats import ats_check
 from job_dashboard.resume.fit import fit_to_page
-from job_dashboard.resume.keyword_map import Rephrasing, simple_deep_rank
-from job_dashboard.resume.resume_llm import make_ollama_llm
+from job_dashboard.resume.keyword_map import (
+    GapKeyword, Rephrasing, extract_keywords, simple_deep_rank,
+)
+from job_dashboard.resume.resume_llm import extract_jd_keywords, make_ollama_llm
 
 DEFAULT_DB = "data/jobs.db"
 
@@ -32,7 +34,10 @@ class ResumeGenerateRequest(BaseModel):
     accepted_rephrasings: list[dict] = []
 
 
-def create_app(db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None, resume_llm=None):
+def create_app(
+    db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
+    resume_llm=None, jd_keyword_extractor=None,
+):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
     without touching real Ollama). Defaults to ``make_ollama_llm()``, a
@@ -42,9 +47,18 @@ def create_app(db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None, res
     failure is already caught (see ``resume_llm.make_ollama_llm`` and
     ``keyword_map.propose_rephrasings``) so an unreachable Ollama can never
     turn into a 500.
+
+    ``jd_keyword_extractor`` overrides the clean-JD-tech-keyword source
+    (tests inject a fake here too). Defaults to ``resume_llm.
+    extract_jd_keywords`` — a single Ollama call per suggest request; same
+    never-raises contract as above, so an unreachable Ollama degrades to
+    the crude JD-tokenization fallback in ``suggest_resume``, never a 500.
     """
     app = FastAPI(title="Job Dashboard")
     default_resume_llm = resume_llm if resume_llm is not None else make_ollama_llm()
+    default_jd_keyword_extractor = (
+        jd_keyword_extractor if jd_keyword_extractor is not None else extract_jd_keywords
+    )
 
     @contextmanager
     def db():
@@ -139,15 +153,51 @@ def create_app(db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None, res
 
         if resume_engine is None:
             segments = load_segments()
-            # Stored deep-rank gaps (from /rank's record_llm_evaluation) are
-            # real JD-relevant tech terms; use them as the salient keyword
-            # source instead of crude JD tokenization when present.
-            stored_gaps = detail.get("gaps") or []
+            jd_text = detail["description"]
+
+            # Rephrasing keyword source: clean JD tech keywords from a
+            # single LLM extraction call (e.g. "kubernetes", "pytorch"),
+            # cross-referenced against the resume's own text so the LLM
+            # isn't asked to reword blocks that already truthfully cover a
+            # term. Deliberately NOT the stored deep-rank gaps below —
+            # those are narrative fit-gap text ("5+ years required...")
+            # meant for human display, not clean single-term keywords a
+            # rephrasing prompt can act on.
+            try:
+                extracted_keywords = default_jd_keyword_extractor(jd_text) or []
+            except Exception:
+                # Defensive: extract_jd_keywords itself never raises, but an
+                # injected/alternate extractor might (e.g. simulating
+                # Ollama down) — treat that the same as "extraction
+                # unavailable" rather than letting it 500 the endpoint.
+                extracted_keywords = []
+            if extracted_keywords:
+                covered = set()
+                for seg in segments:
+                    covered |= set(extract_keywords(seg.text))
+                rephrasing_keywords = [
+                    kw for kw in extracted_keywords if kw.lower() not in covered
+                ]
+            else:
+                # Extraction unavailable (e.g. Ollama down) -> fall back to
+                # crude JD tokenization, same as before this fix.
+                rephrasing_keywords = None
+
             result = suggest_blocks(
-                segments, detail["description"], simple_deep_rank,
+                segments, jd_text, simple_deep_rank,
                 llm=default_resume_llm,
-                keywords=stored_gaps or None,
+                keywords=rephrasing_keywords or None,
             )
+
+            # Displayed gap chips are the stored deep-rank narrative gaps
+            # (from /rank's record_llm_evaluation) when present — real
+            # fit-gap feedback for a human, kept separate from the
+            # extracted keywords driving rephrasing above. Falls back to
+            # the engine's own JD-tokenization-based gap computation when
+            # nothing is stored (unchanged prior behavior).
+            stored_gaps = detail.get("gaps") or []
+            if stored_gaps:
+                result["gaps"] = [GapKeyword(jd_keyword=g) for g in stored_gaps]
         else:
             result = resume_engine.suggest_blocks(
                 detail["description"], job_id
