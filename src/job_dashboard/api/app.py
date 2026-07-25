@@ -18,6 +18,7 @@ from job_dashboard.resume.render import render_pdf
 from job_dashboard.resume.ats import ats_check
 from job_dashboard.resume.fit import fit_to_page
 from job_dashboard.resume.keyword_map import Rephrasing, simple_deep_rank
+from job_dashboard.resume.resume_llm import make_ollama_llm
 
 DEFAULT_DB = "data/jobs.db"
 
@@ -31,8 +32,19 @@ class ResumeGenerateRequest(BaseModel):
     accepted_rephrasings: list[dict] = []
 
 
-def create_app(db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None):
+def create_app(db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None, resume_llm=None):
+    """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
+    a fake here to exercise the default ``resume_engine=None`` wiring
+    without touching real Ollama). Defaults to ``make_ollama_llm()``, a
+    local Ollama call — building that closure does NOT touch the network
+    (``make_ollama_llm`` never makes an HTTP call itself); it's only
+    invoked, per-keyword, from inside ``suggest_resume`` below, where every
+    failure is already caught (see ``resume_llm.make_ollama_llm`` and
+    ``keyword_map.propose_rephrasings``) so an unreachable Ollama can never
+    turn into a 500.
+    """
     app = FastAPI(title="Job Dashboard")
+    default_resume_llm = resume_llm if resume_llm is not None else make_ollama_llm()
 
     @contextmanager
     def db():
@@ -127,8 +139,14 @@ def create_app(db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None):
 
         if resume_engine is None:
             segments = load_segments()
+            # Stored deep-rank gaps (from /rank's record_llm_evaluation) are
+            # real JD-relevant tech terms; use them as the salient keyword
+            # source instead of crude JD tokenization when present.
+            stored_gaps = detail.get("gaps") or []
             result = suggest_blocks(
-                segments, detail["description"], simple_deep_rank
+                segments, detail["description"], simple_deep_rank,
+                llm=default_resume_llm,
+                keywords=stored_gaps or None,
             )
         else:
             result = resume_engine.suggest_blocks(

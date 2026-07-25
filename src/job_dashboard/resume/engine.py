@@ -216,19 +216,26 @@ def suggest_blocks(
     deep_rank: DeepRankFn,
     llm: LlmFn | None = None,
     min_score: float = 0.0,
+    keywords: list[str] | None = None,
 ) -> dict:
     """Suggest relevant, non-conflicting blocks for a JD.
 
     Returns ``{block_ids, rationale, rephrasings, gaps}``. Blocks with a
     deep_rank score at or below ``min_score`` are excluded as irrelevant;
     within each exclusive_group only the highest-scoring survivor remains.
+
+    ``keywords``, when given, is passed through to ``propose_rephrasings``
+    as the salient-keyword source (e.g. a job's stored deep-rank gaps)
+    instead of crude JD tokenization — see that function's docstring.
     """
     scores = deep_rank(segments, jd_text)
     candidates = [s for s in segments if scores.get(s.id, 0.0) > min_score]
     survivors = _drop_exclusive_group_losers(candidates, scores)
     survivors.sort(key=lambda s: -scores.get(s.id, 0.0))
 
-    proposals = propose_rephrasings(survivors, jd_text, deep_rank, llm=llm)
+    proposals = propose_rephrasings(
+        survivors, jd_text, deep_rank, llm=llm, keywords=keywords
+    )
     rephrasings = [p for p in proposals if isinstance(p, Rephrasing)]
     gaps = [p for p in proposals if isinstance(p, GapKeyword)]
 

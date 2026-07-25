@@ -350,11 +350,17 @@ def _integrity_violation(proposed_text: str, source_text: str) -> bool:
 
 
 def _covered_keywords(segments: list[Segment], jd_keywords: list[str]) -> set[str]:
-    """JD keywords already present verbatim in some segment's own text."""
+    """JD keywords already present verbatim in some segment's own text.
+
+    Comparison is case-insensitive so a caller-supplied keyword (e.g. a
+    stored deep-rank gap like ``"Kubernetes"``) still matches the
+    lowercased tokens ``extract_keywords`` produces from segment text,
+    while the keyword itself is returned in its original casing.
+    """
     all_tokens: set[str] = set()
     for seg in segments:
         all_tokens |= set(extract_keywords(seg.text))
-    return {kw for kw in jd_keywords if kw in all_tokens}
+    return {kw for kw in jd_keywords if kw.lower() in all_tokens}
 
 
 def propose_rephrasings(
@@ -362,6 +368,7 @@ def propose_rephrasings(
     jd_text: str,
     deep_rank: DeepRankFn,
     llm: LlmFn | None = None,
+    keywords: list[str] | None = None,
 ) -> list[Rephrasing | GapKeyword]:
     """Truthfully map JD keywords onto existing segment text, or report gaps.
 
@@ -373,17 +380,31 @@ def propose_rephrasings(
     llm returns is validated against the block's own source text before it
     is trusted; anything that fails validation becomes a ``GapKeyword``
     instead of a ``Rephrasing``.
+
+    ``keywords``, when given, REPLACES the crude ``extract_keywords(jd_text)``
+    tokenization as the salient-keyword source (e.g. a job's stored
+    deep-rank ``gaps`` — real tech terms rather than raw JD stopwords).
+    Falls back to ``extract_keywords(jd_text)`` when ``None`` or empty.
+
+    The ``llm`` call is wrapped: any exception it raises (e.g. Ollama
+    unreachable) is treated the same as it returning no proposals — every
+    JD keyword becomes a gap instead of the whole call failing.
     """
     deep_rank(segments, jd_text)  # computed for real-llm prioritization; not required for the guard
 
     seg_by_id = {seg.id: seg for seg in segments}
-    jd_keywords = extract_keywords(jd_text)
+    jd_keywords = list(keywords) if keywords else extract_keywords(jd_text)
     covered = _covered_keywords(segments, jd_keywords)
 
     if llm is None:
         return [GapKeyword(kw) for kw in jd_keywords if kw not in covered]
 
-    proposals = llm(segments, jd_text)
+    try:
+        proposals = llm(segments, jd_text)
+    except Exception:
+        # Ollama down/unreachable or any other llm failure -> no proposals,
+        # every uncovered keyword falls through to the gap loop below.
+        proposals = []
 
     results: list[Rephrasing | GapKeyword] = []
     resolved: set[str] = set()  # keywords with >=1 accepted Rephrasing
