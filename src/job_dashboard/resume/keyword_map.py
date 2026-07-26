@@ -124,7 +124,19 @@ _ALLOWED_GENERIC = _STOPWORDS | {
     # used, without themselves naming anything new.
     "used", "via", "leveraging", "leveraged", "across", "within",
     "through", "enabling", "enabled", "reducing", "improving",
-    "delivering", "owning", "owned",
+    "delivering", "owning", "owned", "utilizing", "incorporating",
+    "involved", "working", "involving",
+    # Generic (non-product) capability words a TRANSFERABLE rephrasing
+    # needs to make a real adjacency explicit — e.g. reframing a
+    # candidate's own "multi-agent architecture" bullet as adjacent to a
+    # JD's "agent frameworks" ask. None of these name a specific tool,
+    # product, or vendor (contrast "agent"/"agents" with "LangChain";
+    # "scheduling"/"containerization" describe a capability category, not
+    # a product like "Airflow" or "Docker" — those stay source-only via
+    # _KNOWN_TOOLS). "orchestration"/"workflow(s)"/"distributed"/
+    # "streaming"/"pipelines" were already generic above; only the four
+    # below are new.
+    "agent", "agents", "scheduling", "containerization",
 }
 
 # Known specific tool / product / vendor names, as phrases (space-separated
@@ -155,6 +167,25 @@ _KNOWN_TOOL_PATTERNS = [
     )
     for phrase in _KNOWN_TOOLS
 ]
+
+# Trailing punctuation that ``_TOKEN_RE`` glues onto a sentence-final word
+# (its continuation class includes "."), e.g. "...agent frameworks." tokenizes
+# as "frameworks." — a different string from the whitelist entry
+# "frameworks". This carries no semantic content and is unrelated to
+# fabrication detection, but left unstripped it makes the whitelist
+# over-reject a truthful, already-allowed word for the sole reason that the
+# model happened to end a sentence right after it. Stripped symmetrically
+# from BOTH the token under test and the source/whitelist comparison sets
+# below, so it only removes this false-positive path — it cannot let a real
+# fabrication through: "kafka." still normalizes to "kafka", still absent
+# from source and from _ALLOWED_GENERIC, so it's still rejected. Internal
+# punctuation that IS part of a real tool token ("Node.js", "C++", "CI/CD")
+# is untouched — none of those tokens end in one of these characters.
+_TRAILING_PUNCT = ".,;:!?"
+
+
+def _normalize_guard_token(token: str) -> str:
+    return token.lower().rstrip(_TRAILING_PUNCT)
 
 # A run of 2+ consecutive Capitalized (or ALL-CAPS) words in ORIGINAL
 # casing — the shape a resume actually uses for a multi-word proper noun:
@@ -285,11 +316,13 @@ def _natural_casing_violation(proposed_text: str, source_text: str) -> bool:
         if not pattern.search(source_text):
             return True
 
-    source_tokens_lower = {t.lower() for t in _TOKEN_RE.findall(source_text)}
+    source_tokens_lower = {
+        _normalize_guard_token(t) for t in _TOKEN_RE.findall(source_text)
+    }
     for token in _TOKEN_RE.findall(proposed_text):
         if not _CAMEL_CASE_RE.search(token):
             continue
-        word = token.lower()
+        word = _normalize_guard_token(token)
         if word in source_tokens_lower or word in _ALLOWED_GENERIC:
             continue
         return True
@@ -330,9 +363,11 @@ def _integrity_violation(proposed_text: str, source_text: str) -> bool:
     through — but "reject" here means "route to interview-prep-flagged
     human review or a GapKeyword," not "impossible to fabricate."
     """
-    source_tokens_lower = {t.lower() for t in _TOKEN_RE.findall(source_text)}
+    source_tokens_lower = {
+        _normalize_guard_token(t) for t in _TOKEN_RE.findall(source_text)
+    }
     for token in _TOKEN_RE.findall(proposed_text):
-        word = token.lower()
+        word = _normalize_guard_token(token)
         if word in source_tokens_lower or word in _ALLOWED_GENERIC:
             continue
         return True
@@ -416,6 +451,7 @@ def propose_rephrasings(
 
         if (
             seg is None
+            or not proposal.proposed_text.strip()
             or proposal.confidence not in VALID_CONFIDENCE
             or _integrity_violation(proposal.proposed_text, seg.text)
         ):

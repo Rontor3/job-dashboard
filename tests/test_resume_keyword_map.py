@@ -478,6 +478,99 @@ def test_truthful_reorder_of_source_tools_accepted():
     assert rephrasings[0].jd_keyword == "caching"
 
 
+def test_transferable_adjacency_reusing_source_words_is_accepted():
+    """The legit surfacing case (task 3): a real block about multi-agent
+    work is genuinely adjacent to a JD's "agent frameworks" ask. A
+    transferable rephrasing that REUSES the block's own real terms
+    ("multi-agent", "MCP servers", "orchestration"-style connectors) plus
+    only generic non-product words must survive the guard — the whole
+    point of the safe design is that source-word reuse passes naturally,
+    with no product/tool name introduced."""
+    segments = [
+        _segment(
+            "project-roammate",
+            r"\item \textbf{RoamMate}: AI travel-planning app with a "
+            r"multi-agent architecture --- two MCP servers "
+            r"(SocialTravelInsights, HotelFlightBooking), multi-agent "
+            r"orchestration for real-time trip planning.",
+            tags=["multi-agent", "mcp", "agentic"],
+            kind="project",
+        )
+    ]
+    jd_text = "Looking for experience with agent frameworks."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="project-roammate",
+                jd_keyword="agent frameworks",
+                proposed_text=(
+                    r"\item \textbf{RoamMate}: AI travel-planning app "
+                    r"built on a multi-agent architecture with agent "
+                    r"orchestration across two MCP servers "
+                    r"(SocialTravelInsights, HotelFlightBooking)"
+                ),
+                confidence="transferable",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    assert len(rephrasings) == 1
+    r = rephrasings[0]
+    assert r.jd_keyword == "agent frameworks"
+    assert r.confidence == "transferable"
+    assert r.needs_interview_prep is True
+
+    # No new product/tool name leaked in: every token traces back to the
+    # block's own source text or generic vocabulary (same invariant the
+    # fabrication tests above check).
+    source_text = segments[0].text
+    source_tokens = {t.lower() for t in _TOKEN_RE.findall(source_text)}
+    for token in _TOKEN_RE.findall(r.proposed_text):
+        word = token.lower()
+        assert word in source_tokens or word in _ALLOWED_GENERIC, (
+            f"unexpected token {word!r} in transferable rephrasing"
+        )
+
+
+def test_no_adjacency_keyword_stays_gap_not_fabricated():
+    """The other half of task 3: a keyword with NO real adjacency (kafka,
+    against a block with no streaming content at all) must stay a gap —
+    the (fake) llm honestly returns an empty proposed_text per the new
+    prompt rule 5, and no Rephrasing is manufactured for it."""
+    segments = [
+        _segment(
+            "project-roammate",
+            r"\item \textbf{RoamMate}: AI travel-planning app with a "
+            r"multi-agent architecture --- two MCP servers, FastAPI "
+            r"backend, containerized with Docker Compose.",
+            tags=["multi-agent", "mcp", "fastapi"],
+            kind="project",
+        )
+    ]
+    jd_text = "Must have hands-on Kafka experience for event streaming."
+
+    def fake_llm(segs, jd):
+        return [
+            LlmProposal(
+                block_id="project-roammate",
+                jd_keyword="kafka",
+                proposed_text="",  # honest: no adjacency, no fabrication
+                confidence="transferable",
+            )
+        ]
+
+    result = propose_rephrasings(segments, jd_text, simple_deep_rank, llm=fake_llm)
+
+    rephrasings = [r for r in result if isinstance(r, Rephrasing)]
+    gaps = [g for g in result if isinstance(g, GapKeyword)]
+
+    assert rephrasings == []
+    assert any(g.jd_keyword == "kafka" for g in gaps)
+
+
 def test_invalid_confidence_value_is_rejected_to_gap():
     segments = [_segment("skills-cloud", r"\item \textbf{Cloud}: AWS Lambda, DynamoDB")]
     jd_text = "Kafka experience wanted."

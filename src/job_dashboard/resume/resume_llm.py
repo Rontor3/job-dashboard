@@ -125,11 +125,27 @@ def _build_system_prompt() -> str:
     return (
         "You are rewording ONE resume bullet so it truthfully surfaces a "
         "job-description keyword. Rules:\n"
-        "1. NEVER invent or imply a tool, library, framework, or skill that "
-        "is not already present in the bullet's own text below.\n"
+        "1. NEVER invent or imply a tool, library, framework, or specific "
+        "product/skill that is not already present in the bullet's own "
+        "text below.\n"
         "2. Keep every real tool/skill already named in the bullet.\n"
-        "3. If there is no truthful way to connect the keyword to this "
-        "bullet, return an empty string for proposed_text.\n"
+        "3. If the bullet's own work is an exact synonym or a direct "
+        "equivalent of the keyword, reword the bullet to surface that and "
+        'set confidence to "exact-synonym" or "equivalent".\n'
+        "4. If the bullet does NOT show the same thing but DOES show a "
+        "genuinely ADJACENT capability to the keyword — real transferable "
+        "work, not a coincidence — rewrite the bullet to make that "
+        "adjacency explicit. REUSE the candidate's own real terms already "
+        "in the bullet plus generic descriptive connector words (e.g. "
+        '"agent", "orchestration", "workflow", "pipeline"). Do NOT '
+        "introduce any specific product, tool, or framework name that is "
+        'not already in the bullet. Set confidence to "transferable".\n'
+        "5. If the keyword names a specific tool or product and the "
+        "bullet demonstrates no genuinely adjacent capability for it "
+        "(e.g. a specific streaming/database/infra product the candidate "
+        "never used), return an empty string for proposed_text — it "
+        "becomes an honest gap. Do not force a connection that isn't "
+        "real.\n"
         "Respond with ONLY a JSON object with exactly two keys: "
         '"proposed_text" (string) and "confidence" (one of '
         '"exact-synonym", "equivalent", "transferable").'
@@ -156,21 +172,48 @@ def _salient_keywords(segments: list[Segment], jd_text: str) -> list[str]:
 
 
 def _best_matching_segment(segments: list[Segment], jd_keyword: str) -> Segment | None:
-    """Segment whose own text+tags share the most salient tokens with the
-    rest of the JD context around ``jd_keyword`` — here, simply the segment
-    whose tags/text tokens most overlap the keyword itself, falling back to
-    the first segment when nothing overlaps (still a valid reword target).
+    """Segment whose own text+tags best overlap ``jd_keyword``, falling
+    back to the first segment when nothing overlaps at all (still a valid
+    reword target).
+
+    Multi-word JD keywords (e.g. "agent frameworks") are split into their
+    own salient words via ``extract_keywords`` so each word is scored
+    independently — a keyword doesn't need to appear as one exact phrase
+    in a block to be considered relevant.
+
+    Two match strengths, deterministic and still simple:
+    - exact token match (keyword word == a segment token/tag) scores 2;
+    - partial/substring overlap in EITHER direction (e.g. keyword word
+      "agent" is a substring of segment token "multi-agent", or vice
+      versa) scores 1. This is what lets a segment genuinely about
+      "multi-agent architecture" / "multi-agent orchestration" surface as
+      the best match for a JD's "agent frameworks", without any fuzzy/ML
+      matching — plain substring containment on already-tokenized words.
+
+    Ties keep the first segment with the highest score seen so far (score
+    comparison is strict ``>``), so segment order in the input list is the
+    deterministic tie-break, same as before this function scored partial
+    overlap.
     """
     if not segments:
         return None
+
+    keyword_words = extract_keywords(jd_keyword) or [jd_keyword.lower()]
 
     best_seg = segments[0]
     best_score = -1
     for seg in segments:
         seg_tokens = set(extract_keywords(seg.text)) | {t.lower() for t in seg.tags}
-        score = 1 if jd_keyword in seg_tokens else 0
-        # Tie-break toward segments with generally larger tag/keyword overlap
-        # with the keyword's own token, then keep first-seen on exact ties.
+        score = 0
+        for word in keyword_words:
+            if word in seg_tokens:
+                score += 2
+                continue
+            if any(
+                len(tok) >= 3 and (word in tok or tok in word)
+                for tok in seg_tokens
+            ):
+                score += 1
         if score > best_score:
             best_score = score
             best_seg = seg
@@ -226,7 +269,7 @@ def make_ollama_llm(
                     ),
                     "stream": False,
                     "format": "json",
-                    "options": {"temperature": 0.2},
+                    "options": {"temperature": 0.1},
                 }
 
                 resp = post_fn(url, body)
