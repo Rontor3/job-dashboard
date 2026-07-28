@@ -9,9 +9,15 @@ from pydantic import BaseModel
 
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.db import (
-    dashboard_stats, get_resume, init_db, job_detail, query_jobs,
-    resumes_for_job, set_job_status, suspected_duplicates,
+    cover_letters_for_job, dashboard_stats, get_cover_letter, get_resume,
+    init_db, job_detail, query_jobs, resumes_for_job, save_cover_letter,
+    set_job_status, suspected_duplicates,
 )
+from job_dashboard.letter.company_research import company_research
+from job_dashboard.letter.draft import draft_cover_letter
+from job_dashboard.letter.grounding import check_grounding
+from job_dashboard.letter.render_letter import render_letter_pdf
+from job_dashboard.match.profile_text import compose_profile_text
 from job_dashboard.resume.engine import generate_resume, suggest_blocks
 from job_dashboard.resume.segments import load_segments
 from job_dashboard.resume.render import render_pdf
@@ -34,9 +40,81 @@ class ResumeGenerateRequest(BaseModel):
     accepted_rephrasings: list[dict] = []
 
 
+class CoverLetterGenerateRequest(BaseModel):
+    body: str
+
+
+class DefaultLetterEngine:
+    """Real wiring for cover-letter research/draft/generate, mirroring how
+    ``resume_engine`` defaults to real modules. Unlike ``resume_engine``
+    (which stays ``None`` and is branched around per-route), this default is
+    always a concrete object — every route just calls its methods — so a
+    test's fake ``letter_engine`` is a drop-in replacement with the exact
+    same three-method surface (``research``/``draft``/``generate``).
+
+    Each method takes the full job ``detail`` dict (company/title/
+    description/strengths) rather than loose args, since drafting needs all
+    of them. Every method is graceful: TinyFish/Ollama failures degrade to
+    an empty bundle / general-template body (see ``company_research`` and
+    ``draft_cover_letter``'s own never-raise contracts) rather than raising,
+    so these routes never 500 on a down dependency.
+    """
+
+    def __init__(self, db_path):
+        self.db_path = db_path
+
+    def _research_bundle(self, detail):
+        return company_research(
+            detail.get("company") or "",
+            detail.get("title") or "",
+            detail.get("description") or "",
+        )
+
+    def research(self, detail):
+        bundle = self._research_bundle(detail)
+        return {
+            "facts": [{"text": f.text, "source_url": f.source_url} for f in bundle.facts],
+            "queries_used": bundle.queries_used,
+            "empty": bundle.empty,
+        }
+
+    def draft(self, detail):
+        bundle = self._research_bundle(detail)
+        try:
+            profile_text = compose_profile_text().text
+        except Exception:
+            # Missing/empty candidate profile file -> draft with no profile
+            # context rather than 500ing; draft_cover_letter tolerates "".
+            profile_text = ""
+        result = draft_cover_letter(detail, profile_text, bundle)
+        grounding = check_grounding(result["body"], bundle, profile_text)
+        return {
+            "body": result["body"],
+            "company_facts_used": result["company_facts_used"],
+            "flags": result["flags"],
+            "grounding": {"unsupported_company_claims": grounding.unsupported_company_claims},
+        }
+
+    def generate(self, job_id, body):
+        out_dir = Path(self.db_path).parent / "cover_letters"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        pdf_path = render_letter_pdf(body, out_dir)  # may raise RuntimeError (no lualatex)
+
+        conn = init_db(self.db_path)
+        try:
+            cover_letter_id = save_cover_letter(conn, job_id, str(pdf_path), body, [])
+        finally:
+            conn.close()
+
+        return {
+            "cover_letter_id": cover_letter_id,
+            "pdf_url": f"/api/cover-letters/{cover_letter_id}/pdf",
+        }
+
+
 def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
-    resume_llm=None, jd_keyword_extractor=None,
+    resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -53,12 +131,23 @@ def create_app(
     extract_jd_keywords`` — a single Ollama call per suggest request; same
     never-raises contract as above, so an unreachable Ollama degrades to
     the crude JD-tokenization fallback in ``suggest_resume``, never a 500.
+
+    ``letter_engine`` overrides the cover-letter engine (tests inject a fake
+    with a ``research``/``draft``/``generate`` surface here, so no real
+    TinyFish/Ollama/LaTeX call is ever made in the suite). Defaults to
+    ``DefaultLetterEngine(db_path)``, which wires the real
+    ``letter.company_research``/``letter.draft``/``letter.grounding``/
+    ``letter.render_letter`` modules — each of those already never raises on
+    a down TinyFish/Ollama (see their own docstrings), so the cover-letter
+    routes below degrade gracefully (empty research / general-template
+    draft) rather than 500ing.
     """
     app = FastAPI(title="Job Dashboard")
     default_resume_llm = resume_llm if resume_llm is not None else make_ollama_llm()
     default_jd_keyword_extractor = (
         jd_keyword_extractor if jd_keyword_extractor is not None else extract_jd_keywords
     )
+    engine = letter_engine if letter_engine is not None else DefaultLetterEngine(db_path)
 
     @contextmanager
     def db():
@@ -300,6 +389,71 @@ def create_app(
             raise HTTPException(status_code=404, detail="resume not found")
 
         pdf_path = Path(resume["pdf_path"])
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="PDF file not found")
+
+        return FileResponse(pdf_path, media_type="application/pdf")
+
+    # Cover-letter API endpoints
+    @app.post("/api/jobs/{job_id}/cover-letter/research")
+    def research_cover_letter(job_id: int):
+        """Research company facts for a job (TinyFish). Never 500s — a down
+        TinyFish degrades to an empty bundle (see ``DefaultLetterEngine``)."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return engine.research(detail)
+
+    @app.post("/api/jobs/{job_id}/cover-letter/draft")
+    def draft_job_cover_letter(job_id: int):
+        """Draft a grounded cover letter (research + draft + grounding
+        guard). Never 500s — a down TinyFish/Ollama degrades to a general
+        template body (see ``DefaultLetterEngine``)."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return engine.draft(detail)
+
+    @app.post("/api/jobs/{job_id}/cover-letter/generate")
+    def generate_job_cover_letter(job_id: int, body: CoverLetterGenerateRequest):
+        """Render the (human-reviewed) letter body to PDF and persist it."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+
+        try:
+            result = engine.generate(job_id, body.body)
+        except RuntimeError as e:
+            if "lualatex not found" in str(e):
+                raise HTTPException(
+                    status_code=503,
+                    detail="install MacTeX — lualatex not found",
+                )
+            raise
+        return result
+
+    @app.get("/api/jobs/{job_id}/cover-letters")
+    def list_job_cover_letters(job_id: int):
+        """Get all cover letters for a job."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+            if detail is None:
+                raise HTTPException(status_code=404, detail="job not found")
+            letters = cover_letters_for_job(conn, job_id)
+        return {"cover_letters": letters}
+
+    @app.get("/api/cover-letters/{cover_letter_id}/pdf")
+    def get_cover_letter_pdf(cover_letter_id: int):
+        """Serve a cover letter PDF."""
+        with db() as conn:
+            letter = get_cover_letter(conn, cover_letter_id)
+        if letter is None or not letter.get("pdf_path"):
+            raise HTTPException(status_code=404, detail="cover letter not found")
+
+        pdf_path = Path(letter["pdf_path"])
         if not pdf_path.exists():
             raise HTTPException(status_code=404, detail="PDF file not found")
 
