@@ -67,6 +67,17 @@ def test_facts_always_carry_a_nonempty_source_url():
         assert isinstance(fact.source_url, str) and fact.source_url
 
 
+def test_non_string_inputs_never_raise():
+    # role is not a string and jd_text has no salient token -> query-building
+    # would blow up if it ran outside the never-raises guard.
+    b = company_research(
+        "Acme", 42, "the and for",
+        search=lambda q, api_key=None: [], fetch=lambda u, api_key=None: [],
+        api_key="k",
+    )
+    assert isinstance(b, ResearchBundle) and b.empty and b.facts == []
+
+
 @pytest.mark.skipif(
     not os.getenv("TINYFISH_API_KEY"), reason="requires TINYFISH_API_KEY for live smoke"
 )

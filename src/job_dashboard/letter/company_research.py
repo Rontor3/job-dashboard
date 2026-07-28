@@ -208,11 +208,12 @@ def company_research(
     malformed data, no results, no facts) yields an empty bundle; this
     function never raises.
     """
-    queries = _build_queries(company, role, jd_text)
+    queries: list[str] = []
     search_fn = search or _default_search
     fetch_fn = fetch or _default_fetch
 
     try:
+        queries = _build_queries(company, role, jd_text)
         urls: list[str] = []
         seen_urls: set[str] = set()
         for query in queries:
