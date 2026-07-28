@@ -77,6 +77,62 @@ def test_unsourced_product_phrase_is_flagged():
     assert "QuantumFlow Analytics" in report.unsupported_company_claims
 
 
+def test_percent_substring_of_larger_figure_is_not_treated_as_supported():
+    # Adversarial: a real "140%" fact must NOT bless a fabricated "40%" claim.
+    body = "Dear Hiring Manager,\n\nAcme cut fraud losses 40% last year.\n\nSincerely,\n[Your Name]"
+    research = ResearchBundle(
+        facts=[Fact(text="Acme grew revenue 140% year over year.", source_url="https://acme.com")],
+        queries_used=["Acme revenue"],
+        empty=False,
+    )
+
+    report = check_grounding(body, research, "profile text")
+
+    assert any("40%" in c for c in report.unsupported_company_claims)
+
+
+def test_genuinely_sourced_percent_is_not_flagged():
+    body = "Dear Hiring Manager,\n\nAcme cut fraud losses 40% last year.\n\nSincerely,\n[Your Name]"
+    research = ResearchBundle(
+        facts=[Fact(text="Acme cut fraud losses 40% last year.", source_url="https://acme.com")],
+        queries_used=["Acme"],
+        empty=False,
+    )
+
+    report = check_grounding(body, research, "profile text")
+
+    assert report.unsupported_company_claims == []
+
+
+def test_dollar_substring_of_larger_figure_is_not_treated_as_supported():
+    # "$5M" fact must NOT bless a fabricated "$50M" claim.
+    body = "Dear Hiring Manager,\n\nAcme raised $50M recently.\n\nSincerely,\n[Your Name]"
+    research = ResearchBundle(
+        facts=[Fact(text="Acme raised $5M in seed funding.", source_url="https://acme.com")],
+        queries_used=["Acme funding"],
+        empty=False,
+    )
+
+    report = check_grounding(body, research, "profile text")
+
+    assert any("$50M" in c for c in report.unsupported_company_claims)
+
+
+def test_spelled_out_money_and_percent_are_flagged_when_unsourced():
+    body = (
+        "Dear Hiring Manager,\n\n"
+        "Acme raised USD 500 million and grew 40 percent last year.\n\n"
+        "Sincerely,\n[Your Name]"
+    )
+    research = ResearchBundle(facts=[], queries_used=[], empty=True)
+
+    report = check_grounding(body, research, "profile text")
+
+    claims_blob = " ".join(report.unsupported_company_claims).lower()
+    assert "500 million" in claims_blob
+    assert "40 percent" in claims_blob
+
+
 def test_sourced_product_phrase_is_not_flagged():
     body = "Dear Hiring Manager,\n\nI admire what Acme built with QuantumFlow Analytics.\n\nSincerely,\n[Your Name]"
     research = ResearchBundle(

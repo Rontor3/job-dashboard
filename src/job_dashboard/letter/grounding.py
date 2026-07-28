@@ -17,8 +17,18 @@ from dataclasses import dataclass, field
 
 from job_dashboard.letter.company_research import ResearchBundle
 
-_MONEY_RE = re.compile(r"\$\s?\d[\d,]*(?:\.\d+)?\s?(?:[MmBbKk](?:illion)?)?")
-_PERCENT_RE = re.compile(r"\b\d+(?:\.\d+)?\s?%")
+# Money: a currency-marked figure ($, €, £, USD/EUR/GBP) OR a bare number
+# followed by an explicit "million/billion" magnitude word. We deliberately do
+# NOT match a bare number+M/B suffix ("14B", "7B") -- in an AI/ML letter those
+# are almost always model sizes, not money, and flagging them is pure noise.
+_MONEY_RE = re.compile(
+    r"(?:\$|€|£|USD\s?|EUR\s?|GBP\s?)\s?\d[\d,]*(?:\.\d+)?\s?"
+    r"(?:[MmBbKk](?:illion)?|million|billion|thousand)?"
+    r"|\b\d[\d,]*(?:\.\d+)?\s?(?:million|billion)\b",
+    re.IGNORECASE,
+)
+# Percent as symbol OR the spelled-out word ("40%", "40 percent").
+_PERCENT_RE = re.compile(r"\b\d+(?:\.\d+)?\s?(?:%|percent\b)")
 _FUNDING_TERM_RE = re.compile(
     r"\b(Series\s+[A-Z]|funding\s+round|funding|valuation|revenue|ARR|IPO|"
     r"acquisition|acquired|raised|round)\b",
@@ -53,7 +63,19 @@ def _facts_text_blob(research: ResearchBundle | None) -> str:
 
 
 def _is_supported(claim: str, facts_blob: str) -> bool:
-    return bool(claim) and claim.lower() in facts_blob.lower()
+    """True iff ``claim`` appears in ``facts_blob`` as a whole figure/phrase.
+
+    A plain ``in`` substring test is unsafe for numeric claims: a fabricated
+    "40%" is a substring of a real "140%", and "$5M" of "$50M", so the guard
+    would silently bless an invented figure. We anchor with a negative
+    lookbehind (no preceding digit or decimal point) and lookahead (no
+    trailing digit) so a figure only counts as supported when the *whole*
+    number matches. Harmless for word claims (letters never trip the guards).
+    """
+    if not claim:
+        return False
+    pattern = r"(?<![\d.])" + re.escape(claim.lower()) + r"(?!\d)"
+    return re.search(pattern, facts_blob.lower()) is not None
 
 
 def _is_boilerplate_phrase(phrase: str) -> bool:
