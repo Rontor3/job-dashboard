@@ -64,6 +64,7 @@ def init_db(path):
     _ensure_duplicate_of_column(conn)
     _ensure_status_column(conn)
     _ensure_resumes_table(conn)
+    _ensure_cover_letters_table(conn)
     conn.commit()
     return conn
 
@@ -136,6 +137,62 @@ def get_resume(conn, resume_id):
     d = dict(zip(keys, row))
     d["blocks_used"] = json.loads(d["blocks_used"]) if d["blocks_used"] else []
     d["ats_report"] = json.loads(d["ats_report"]) if d["ats_report"] else {}
+    return d
+
+
+def _ensure_cover_letters_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cover_letters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            pdf_path TEXT,
+            body TEXT,
+            company_facts_used TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+
+def save_cover_letter(conn, job_id, pdf_path, body, company_facts_used):
+    """Save a cover letter for a job. Returns the new cover letter id."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO cover_letters (job_id, pdf_path, body, company_facts_used, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (job_id, pdf_path, body, json.dumps(company_facts_used), now),
+    )
+    conn.commit()
+    return conn.execute("SELECT id FROM cover_letters ORDER BY id DESC LIMIT 1").fetchone()[0]
+
+
+def cover_letters_for_job(conn, job_id):
+    """Get all cover letters for a job, newest first. Returns list of dicts with parsed JSON."""
+    rows = conn.execute(
+        """SELECT id, job_id, pdf_path, body, company_facts_used, created_at
+           FROM cover_letters WHERE job_id = ? ORDER BY created_at DESC""",
+        (job_id,),
+    ).fetchall()
+    keys = ("id", "job_id", "pdf_path", "body", "company_facts_used", "created_at")
+    result = []
+    for row in rows:
+        d = dict(zip(keys, row))
+        d["company_facts_used"] = json.loads(d["company_facts_used"]) if d["company_facts_used"] else []
+        result.append(d)
+    return result
+
+
+def get_cover_letter(conn, cover_letter_id):
+    """Get a single cover letter by id. Returns dict with parsed JSON or None."""
+    row = conn.execute(
+        """SELECT id, job_id, pdf_path, body, company_facts_used, created_at
+           FROM cover_letters WHERE id = ?""",
+        (cover_letter_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    keys = ("id", "job_id", "pdf_path", "body", "company_facts_used", "created_at")
+    d = dict(zip(keys, row))
+    d["company_facts_used"] = json.loads(d["company_facts_used"]) if d["company_facts_used"] else []
     return d
 
 
