@@ -33,3 +33,14 @@ export const generateResume = (id, blockIds, acceptedRephrasings) =>
     body: JSON.stringify({ block_ids: blockIds, accepted_rephrasings: acceptedRephrasings }),
   }).then(json);
 export const fetchResumes = (id) => fetch(`/api/jobs/${id}/resumes`).then(json);
+
+export const draftCoverLetter = (id) =>
+  fetch(`/api/jobs/${id}/cover-letter/draft`, { method: "POST" }).then(json);
+export const generateCoverLetter = (id, body) =>
+  fetch(`/api/jobs/${id}/cover-letter/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  }).then(json);
+export const fetchCoverLetters = (id) =>
+  fetch(`/api/jobs/${id}/cover-letters`).then(json).then((d) => d.cover_letters || []);

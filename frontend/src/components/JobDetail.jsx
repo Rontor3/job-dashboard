@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { fetchJob, patchStatus } from "../api.js";
 import { XIcon, ArrowUpRightIcon } from "./icons.jsx";
 import ResumePanel from "./ResumePanel.jsx";
+import CoverLetterPanel from "./CoverLetterPanel.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 
@@ -108,6 +109,7 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
       })()}
 
       <ResumePanel jobId={id} />
+      <CoverLetterPanel jobId={id} />
 
       <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 12, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
         {job.description}
