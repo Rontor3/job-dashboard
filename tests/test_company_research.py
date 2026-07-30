@@ -80,7 +80,7 @@ def test_ranking_prefers_monetary_facts_over_social_noise():
     assert "$600M" in b.facts[0].text or "200%" in b.facts[0].text
 
 
-def test_third_query_does_not_echo_company_name():
+def test_queries_target_technical_work_and_dont_echo_company():
     captured = []
 
     def fake_search(query, api_key=None):
@@ -91,8 +91,31 @@ def test_third_query_does_not_echo_company_name():
         "Notion", "Engineer", "Notion is a collaborative workspace tool.",
         search=fake_search, fetch=lambda u, api_key=None: [], api_key="k",
     )
-    # queries built even though search returns nothing; 3rd must not be "Notion notion"
-    assert captured[2].lower() != "notion notion"
+    blob = " ".join(captured).lower()
+    # queries aim at concrete engineering/technical work
+    assert "engineering" in blob and ("machine learning" in blob or "platform" in blob)
+    # no query degenerates into "{company} {company}"
+    assert all(q.lower() != "notion notion" for q in captured)
+
+
+def test_ranking_prefers_technical_sentence_over_price_fragment():
+    # The Nike trap: a storefront "$315" must lose to a real technical sentence.
+    def fake_search(query, api_key=None):
+        return [
+            {"url": "https://www.nike.com/w/all-products", "title": "Shop",
+             "snippet": "$315"},
+            {"url": "https://engineering.acme.com/blog/recsys", "title": "Eng",
+             "snippet": "We built a real-time recommendation platform serving "
+                        "millions of users with sub-100ms inference latency."},
+        ]
+
+    b = company_research(
+        "Acme", "ML Engineer", "recommendation systems role",
+        search=fake_search, fetch=lambda u, api_key=None: [], api_key="k",
+    )
+    assert not b.empty
+    assert "recommendation platform" in b.facts[0].text
+    assert "$315" not in b.facts[0].text
 
 
 def test_empty_bundle_on_search_error_never_raises():

@@ -94,10 +94,18 @@ def _first_salient_role_keyword(jd_text: str, role: str, company: str = "") -> s
 
 
 def _build_queries(company: str, role: str, jd_text: str) -> list[str]:
+    """Queries aimed at CONCRETE technical/business work, not marketing.
+
+    We deliberately target engineering blogs, ML/data-platform write-ups,
+    recent launches/announcements, and a role-tied angle -- these carry the
+    "built X with Y to solve Z" detail a candidate actually cares about, and
+    steer away from storefront/marketing pages (e.g. a retailer's shop).
+    """
     keyword = _first_salient_role_keyword(jd_text, role, company)
     return [
-        f"{company} product",
-        f"{company} revenue funding milestone",
+        f"{company} engineering blog how we built",
+        f"{company} machine learning data platform infrastructure",
+        f"{company} launches announces 2026",
         f"{company} {keyword}",
     ]
 
@@ -113,8 +121,20 @@ _KEYWORD_CUE_RE = re.compile(
     r"\b(funding|round|revenue|product|launch|customers?)\b", re.IGNORECASE
 )
 
-# Grounding scope is *company* monetary/product impact -- not forum chatter.
-# We rank harvested facts so the strongest impact signals survive the cap.
+# CONCRETE TECHNICAL WORK -- "built X with Y to solve Z". This is what makes a
+# letter specific and interesting, so a sentence carrying any of these counts
+# as a fact even without a $/% figure.
+_TECH_CUE_RE = re.compile(
+    r"\b(built|building|launch(?:ed|ing)?|shipp(?:ed|ing)|scal(?:e|ed|ing)|"
+    r"migrat\w+|architect\w+|infrastructure|pipeline|models?|machine learning|"
+    r"deep learning|neural|algorithm|latency|throughput|real[- ]?time|deploy\w*|"
+    r"open[- ]?sourced?|framework|platform|inference|training|embeddings?|"
+    r"dataset|petabyte|microservices?|kubernetes|streaming|recommendation|"
+    r"generative|foundation model|LLM|AI)\b",
+    re.IGNORECASE,
+)
+
+# Monetary / scale impact -- still valued, secondary to concrete tech work.
 _STRONG_IMPACT_RE = re.compile(
     r"\b(valuation|revenue|funding|raised|ARR|billion|million|customers?|users?|"
     r"trusted|Fortune|Forbes|acquired|IPO|growth|profitable)\b",
@@ -122,20 +142,42 @@ _STRONG_IMPACT_RE = re.compile(
 )
 _SOCIAL_DOMAINS = (
     "reddit.com", "youtube.com", "quora.com", "facebook.com",
-    "twitter.com", "x.com", "medium.com", "pinterest.com",
+    "twitter.com", "x.com", "pinterest.com",
+)
+# Storefront / marketing / price pages -- the Nike "$315 sneaker" trap.
+_STORE_MARKERS = (
+    "/w/", "/shop", "/products/", "/product/", "/p/", "/pd/", "/buy",
+    "/cart", "/store", "add to bag", "add to cart",
+)
+# High-signal sources for engineering/business detail (incl. LinkedIn, news).
+_QUALITY_MARKERS = (
+    "engineering", "/blog", "eng.", "developer", "/tech", "techcrunch",
+    "theverge", "linkedin.com", "/news", "medium.com", "venturebeat",
+    "wired", "github.com",
 )
 
 
 def _fact_score(fact: "Fact") -> int:
-    """Higher = stronger company-impact signal. Used to rank before capping."""
+    """Higher = more specific, source-worthy company detail. Ranks before cap."""
     text = fact.text or ""
+    url = (fact.source_url or "").lower()
     score = 0
-    if _NUMERIC_CUE_RE.search(text):          # a concrete $/% figure
+    if _TECH_CUE_RE.search(text):             # concrete technical work -- top signal
         score += 3
-    if _STRONG_IMPACT_RE.search(text):        # a monetary/scale impact word
+    if _STRONG_IMPACT_RE.search(text):        # monetary / scale impact
         score += 2
-    if any(d in (fact.source_url or "") for d in _SOCIAL_DOMAINS):
-        score -= 2                            # forum/social page, weak source
+    if _NUMERIC_CUE_RE.search(text):          # a $/% figure
+        score += 1
+    if len(text) >= 60:                       # a descriptive sentence, not a fragment
+        score += 1
+    if len(text) < 25:                        # bare "$315" / one-word fragment
+        score -= 2
+    if any(m in url for m in _QUALITY_MARKERS):
+        score += 1
+    if any(m in url for m in _STORE_MARKERS):
+        score -= 3                            # storefront / price page
+    if any(d in url for d in _SOCIAL_DOMAINS):
+        score -= 1                            # forum/social page (LinkedIn NOT here)
     stripped = text.strip()
     if stripped.startswith("#") or stripped.endswith("?"):
         score -= 2                            # heading fragment / forum question
@@ -175,7 +217,14 @@ def _split_sentences(content: str) -> list[str]:
 
 
 def _is_impact_sentence(sentence: str) -> bool:
-    return bool(_NUMERIC_CUE_RE.search(sentence) or _KEYWORD_CUE_RE.search(sentence))
+    # Keep a sentence if it carries a $/% figure, a monetary/product cue, OR a
+    # concrete technical-work cue -- the last is what surfaces the "how they
+    # built it" detail. Ranking (_fact_score) then orders the keepers.
+    return bool(
+        _NUMERIC_CUE_RE.search(sentence)
+        or _KEYWORD_CUE_RE.search(sentence)
+        or _TECH_CUE_RE.search(sentence)
+    )
 
 
 def _extract_facts(fetched: list[dict]) -> list[Fact]:
@@ -307,11 +356,11 @@ def company_research(
             if len(urls) >= _MAX_URLS:
                 break
 
-        # SECONDARY: fetch full pages only if snippets were thin -- avoids
-        # burning fetch quota when search alone gave us plenty. We over-collect
-        # here (past _MAX_FACTS) on purpose so ranking has candidates to choose
-        # from before the cap.
-        if len(facts) < _MAX_FACTS and urls:
+        # DEPTH: always fetch the collected pages -- engineering-blog / tech
+        # pages carry the concrete "how we built it" sentences that short
+        # search snippets don't. We over-collect (past _MAX_FACTS) on purpose
+        # so ranking picks the most specific/technical facts before the cap.
+        if urls:
             fetched = fetch_fn(urls, api_key=api_key) or []
             for fact in _extract_facts(fetched):
                 key = fact.text.lower()
