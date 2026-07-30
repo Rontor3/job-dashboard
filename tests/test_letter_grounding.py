@@ -77,6 +77,49 @@ def test_unsourced_product_phrase_is_flagged():
     assert "QuantumFlow Analytics" in report.unsupported_company_claims
 
 
+def test_candidate_metric_in_profile_is_not_flagged_as_company_claim():
+    # Two-sided grounding: the candidate's own "30%" (from their profile) is a
+    # candidate claim, NOT an unsupported company claim -- must not be flagged.
+    body = "Dear Hiring Manager,\n\nMy fraud pipeline improved recall by 30%.\n\nSincerely,\n[Your Name]"
+    research = ResearchBundle(facts=[], queries_used=[], empty=True)
+    profile_text = "Built a health fraud pipeline that improved recall by 30% saving 500 man-hours."
+
+    report = check_grounding(body, research, profile_text)
+
+    assert report.unsupported_company_claims == []
+
+
+def test_role_title_from_job_text_is_not_flagged():
+    # The role title echoed from the JD is not a fabricated company claim.
+    body = "Dear Hiring Manager,\n\nI'm applying for the Software Engineer, AI Platform role.\n\nSincerely,\n[Your Name]"
+    research = ResearchBundle(facts=[], queries_used=[], empty=True)
+
+    report = check_grounding(
+        body, research, "profile text",
+        job_text="Software Engineer, AI Platform at Notion — build the AI Platform.",
+    )
+
+    assert report.unsupported_company_claims == []
+
+
+def test_fabricated_company_figure_still_flagged_despite_profile_and_job():
+    # The two-sided fix must NOT weaken the guard: a $ figure in NEITHER
+    # research, profile, nor JD is still surfaced.
+    body = "Dear Hiring Manager,\n\nI love that Notion raised $900M.\n\nSincerely,\n[Your Name]"
+    research = ResearchBundle(
+        facts=[Fact(text="Notion is a productivity tool.", source_url="https://notion.com")],
+        queries_used=["Notion product"],
+        empty=False,
+    )
+
+    report = check_grounding(
+        body, research, "candidate profile with 30% recall",
+        job_text="Software Engineer at Notion",
+    )
+
+    assert any("$900M" in c for c in report.unsupported_company_claims)
+
+
 def test_percent_substring_of_larger_figure_is_not_treated_as_supported():
     # Adversarial: a real "140%" fact must NOT bless a fabricated "40%" claim.
     body = "Dear Hiring Manager,\n\nAcme cut fraud losses 40% last year.\n\nSincerely,\n[Your Name]"

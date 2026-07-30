@@ -114,16 +114,33 @@ def check_grounding(
     letter_body: str,
     research: ResearchBundle | None,
     profile_text: str,
+    job_text: str = "",
 ) -> GroundingReport:
-    """Flag company-specific claims in ``letter_body`` unsupported by
-    ``research.facts``. Best-effort, does not rewrite. ``profile_text`` is
-    accepted for interface symmetry (candidate-side grounding is a separate
-    concern) but is not itself scanned here -- this checker is focused on
-    company claims specifically.
+    """Flag *unsupported company claims* in ``letter_body``.
+
+    Two-sided grounding: a figure/product-ish phrase in the letter is only a
+    problem if it purports to be a fabricated fact about the COMPANY. It is
+    legitimate -- and must NOT be flagged -- when it traces to:
+      * ``research.facts``  -> a real, cited company fact, or
+      * ``profile_text``    -> the candidate's own experience (their real
+        "30% recall", their employer "Tata AIG"), or
+      * ``job_text``        -> the JD itself (the role title "Software
+        Engineer", a technology named in the posting).
+
+    Only claims absent from ALL THREE are surfaced -- those are the ones a
+    human should verify or cut. Best-effort; does not rewrite. Earlier this
+    scanned research only, which mislabeled the candidate's own metrics and
+    the role title as "unsupported company claims" (pure noise).
     """
     body = letter_body if isinstance(letter_body, str) else ""
-    facts_blob = _facts_text_blob(research)
+    support_blob = " \n".join(
+        part for part in (
+            _facts_text_blob(research),
+            profile_text if isinstance(profile_text, str) else "",
+            job_text if isinstance(job_text, str) else "",
+        ) if part
+    )
 
     claims = _collect_claims(body)
-    unsupported = [c for c in claims if not _is_supported(c, facts_blob)]
+    unsupported = [c for c in claims if not _is_supported(c, support_blob)]
     return GroundingReport(unsupported_company_claims=unsupported)

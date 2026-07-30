@@ -87,7 +87,10 @@ class DefaultLetterEngine:
             # context rather than 500ing; draft_cover_letter tolerates "".
             profile_text = ""
         result = draft_cover_letter(detail, profile_text, bundle)
-        grounding = check_grounding(result["body"], bundle, profile_text)
+        job_text = " ".join(
+            str(detail.get(k) or "") for k in ("title", "company", "description")
+        )
+        grounding = check_grounding(result["body"], bundle, profile_text, job_text)
         return {
             "body": result["body"],
             "company_facts_used": result["company_facts_used"],
