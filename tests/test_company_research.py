@@ -98,6 +98,26 @@ def test_queries_target_technical_work_and_dont_echo_company():
     assert all(q.lower() != "notion notion" for q in captured)
 
 
+def test_ranking_prefers_official_company_domain_over_third_party_blog():
+    # Same-quality facts: the company's OWN domain should outrank a 3rd-party blog.
+    def fake_search(query, api_key=None):
+        return [
+            {"url": "https://techtidesolutions.com/blog/jpmorgan",
+             "title": "blog",
+             "snippet": "JPMorgan built machine learning models for fraud detection at scale."},
+            {"url": "https://www.jpmorgan.com/payments/newsroom/account-confidence-score",
+             "title": "ACS",
+             "snippet": "JPMorgan launched the Account Confidence Score, an AI and ML fraud-risk model."},
+        ]
+
+    b = company_research(
+        "JPMorgan", "Data Scientist", "fraud risk role",
+        search=fake_search, fetch=lambda u, api_key=None: [], api_key="k",
+    )
+    assert not b.empty
+    assert "jpmorgan.com" in b.facts[0].source_url
+
+
 def test_ranking_prefers_technical_sentence_over_price_fragment():
     # The Nike trap: a storefront "$315" must lose to a real technical sentence.
     def fake_search(query, api_key=None):

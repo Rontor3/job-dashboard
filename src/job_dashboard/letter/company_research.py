@@ -103,6 +103,7 @@ def _build_queries(company: str, role: str, jd_text: str) -> list[str]:
     """
     keyword = _first_salient_role_keyword(jd_text, role, company)
     return [
+        f"{company} AI ML achievements results case study",
         f"{company} engineering blog how we built",
         f"{company} machine learning data platform infrastructure",
         f"{company} launches announces 2026",
@@ -157,7 +158,17 @@ _QUALITY_MARKERS = (
 )
 
 
-def _fact_score(fact: "Fact") -> int:
+def _company_tokens(company: str) -> set[str]:
+    """Distinctive lowercased tokens from the company name, for detecting the
+    company's OWN domain in a source URL (e.g. 'jpmorgan' -> jpmorgan.com)."""
+    stop = {"inc", "llc", "ltd", "the", "co", "corp", "group", "labs", "and"}
+    return {
+        t for t in (m.lower() for m in _TOKEN_RE.findall(company or ""))
+        if len(t) >= 4 and t not in stop
+    }
+
+
+def _fact_score(fact: "Fact", company_tokens: set[str] = frozenset()) -> int:
     """Higher = more specific, source-worthy company detail. Ranks before cap."""
     text = fact.text or ""
     url = (fact.source_url or "").lower()
@@ -172,8 +183,12 @@ def _fact_score(fact: "Fact") -> int:
         score += 1
     if len(text) < 25:                        # bare "$315" / one-word fragment
         score -= 2
+    # Prefer the company's OWN domain (official) above third-party blogs.
+    host = url.split("//", 1)[-1].split("/", 1)[0]
+    if company_tokens and any(t in host for t in company_tokens):
+        score += 3                            # official company-owned source
     if any(m in url for m in _QUALITY_MARKERS):
-        score += 1
+        score += 1                            # eng blog / reputable news / LinkedIn
     if any(m in url for m in _STORE_MARKERS):
         score -= 3                            # storefront / price page
     if any(d in url for d in _SOCIAL_DOMAINS):
@@ -184,17 +199,20 @@ def _fact_score(fact: "Fact") -> int:
     return score
 
 
-def _rank_and_cap(facts: list["Fact"]) -> list["Fact"]:
+def _rank_and_cap(facts: list["Fact"], company: str = "") -> list["Fact"]:
     """Sort by impact score (stable), prefer positive-signal facts, cap.
 
     Keeps only facts with a positive score when any exist (drops pure noise);
     if none score positive, falls back to the top ``_MAX_FACTS`` so a
     low-profile company still yields *something* rather than an empty bundle.
+    Official (company-owned-domain) sources are boosted so they outrank
+    third-party blogs.
     """
     if not facts:
         return []
-    ranked = sorted(facts, key=_fact_score, reverse=True)
-    positive = [f for f in ranked if _fact_score(f) > 0]
+    tokens = _company_tokens(company)
+    ranked = sorted(facts, key=lambda f: _fact_score(f, tokens), reverse=True)
+    positive = [f for f in ranked if _fact_score(f, tokens) > 0]
     chosen = positive if positive else ranked
     return chosen[:_MAX_FACTS]
 
@@ -369,7 +387,7 @@ def company_research(
                 seen_facts.add(key)
                 facts.append(fact)
 
-        facts = _rank_and_cap(facts)
+        facts = _rank_and_cap(facts, company)
         return ResearchBundle(facts, queries, empty=not facts)
     except Exception:
         # Any HTTP error, unreachable host, malformed response, etc. ->
