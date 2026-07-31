@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   draftCoverLetter,
   generateCoverLetter,
   gatherCompanyResources,
+  fetchCompanyResources,
   selectCompanyResources,
 } from "../api.js";
 
@@ -19,6 +20,25 @@ export default function CoverLetterPanel({ jobId }) {
   const [resources, setResources] = useState([]);
   const [selectedUrls, setSelectedUrls] = useState([]);
   const [limitHint, setLimitHint] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCompanyResources(jobId)
+      .then((found) => {
+        if (cancelled) return;
+        if (found && found.length > 0) {
+          setResources(found);
+          setSelectedUrls(found.filter((r) => r.selected).map((r) => r.source_url));
+          setStage("researched");
+        }
+      })
+      .catch(() => {
+        // no saved resources yet (or request failed) — stay on idle
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId]);
 
   const handleGatherResearch = () => {
     setStage("gathering");

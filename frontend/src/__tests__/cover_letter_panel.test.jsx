@@ -211,6 +211,40 @@ test("selecting more than two sources is prevented", async () => {
   expect(checkboxes[2].checked).toBe(false);
 });
 
+test("saved company resources auto-load on mount without clicking Find company research", async () => {
+  const SAVED = {
+    company: "Acme",
+    resources: [
+      {
+        source_url: "https://acme.com/acs",
+        title: "acme.com",
+        summary: "Account Confidence Score, an AI/ML fraud score.",
+        selected: true,
+      },
+      {
+        source_url: "https://blog.acme.com/mesh",
+        title: "blog.acme.com",
+        summary: "Built a data mesh.",
+        selected: false,
+      },
+    ],
+  };
+  global.fetch = vi.fn((url) => {
+    if (String(url).includes("/company-resources"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(SAVED) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) });
+  });
+  render(<CoverLetterPanel jobId={1} />);
+
+  await waitFor(() => expect(screen.getByText(/Account Confidence Score/)).toBeDefined());
+  expect(screen.getByText(/Built a data mesh/)).toBeDefined();
+
+  const checkboxes = screen.getAllByRole("checkbox");
+  expect(checkboxes.length).toBe(2);
+  expect(checkboxes[0].checked).toBe(true);
+  expect(checkboxes[1].checked).toBe(false);
+});
+
 test("no send/apply/email control exists in the research step", async () => {
   global.fetch = vi.fn(() =>
     Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(RESOURCES) })
