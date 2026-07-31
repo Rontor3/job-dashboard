@@ -9,14 +9,16 @@ from pydantic import BaseModel
 
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.db import (
-    cover_letters_for_job, dashboard_stats, get_cover_letter, get_resume,
-    init_db, job_detail, query_jobs, resumes_for_job, save_cover_letter,
-    set_job_status, suspected_duplicates,
+    company_key, company_resources_for, cover_letters_for_job, dashboard_stats,
+    get_cover_letter, get_resume, init_db, job_detail, query_jobs,
+    resumes_for_job, save_cover_letter, selected_resources_for, set_job_status,
+    set_selected_resources, suspected_duplicates, upsert_company_resources,
 )
-from job_dashboard.letter.company_research import company_research
+from job_dashboard.letter.company_research import Fact, ResearchBundle, company_research
 from job_dashboard.letter.draft import draft_cover_letter
 from job_dashboard.letter.grounding import check_grounding
 from job_dashboard.letter.render_letter import render_letter_pdf
+from job_dashboard.letter.research_store import resources_from_bundle
 from job_dashboard.match.profile_text import compose_profile_text
 from job_dashboard.resume.engine import generate_resume, suggest_blocks
 from job_dashboard.resume.segments import load_segments
@@ -42,6 +44,15 @@ class ResumeGenerateRequest(BaseModel):
 
 class CoverLetterGenerateRequest(BaseModel):
     body: str
+
+
+class ResourceSelectRequest(BaseModel):
+    source_urls: list[str] = []
+
+
+def _public_resources(rows):
+    return [{"source_url": r["source_url"], "title": r["title"],
+             "summary": r["summary"], "selected": r["selected"]} for r in rows]
 
 
 class DefaultLetterEngine:
@@ -70,6 +81,9 @@ class DefaultLetterEngine:
             detail.get("description") or "",
         )
 
+    def _company_key(self, detail):
+        return company_key(detail.get("company") or "")
+
     def research(self, detail):
         bundle = self._research_bundle(detail)
         return {
@@ -78,8 +92,60 @@ class DefaultLetterEngine:
             "empty": bundle.empty,
         }
 
-    def draft(self, detail):
+    def gather_resources(self, detail):
+        """Fresh TinyFish research, grouped into per-source resources and
+        persisted (upserted) for this company, then returned in full."""
         bundle = self._research_bundle(detail)
+        ck = self._company_key(detail)
+        conn = init_db(self.db_path)
+        try:
+            upsert_company_resources(conn, ck, [
+                {"source_url": r.source_url, "title": r.title, "summary": r.summary}
+                for r in resources_from_bundle(bundle)
+            ])
+            rows = company_resources_for(conn, ck)
+        finally:
+            conn.close()
+        return {"company": detail.get("company"), "resources": _public_resources(rows)}
+
+    def list_resources(self, detail):
+        """Previously-gathered resources for this company (no network call)."""
+        conn = init_db(self.db_path)
+        try:
+            rows = company_resources_for(conn, self._company_key(detail))
+        finally:
+            conn.close()
+        return {"company": detail.get("company"), "resources": _public_resources(rows)}
+
+    def select_resources(self, detail, source_urls):
+        """Persist the user's curated pick (capped at 2 by ``set_selected_resources``)."""
+        ck = self._company_key(detail)
+        conn = init_db(self.db_path)
+        try:
+            set_selected_resources(conn, ck, source_urls or [])
+            rows = company_resources_for(conn, ck)
+        finally:
+            conn.close()
+        return {"company": detail.get("company"), "resources": _public_resources(rows)}
+
+    def draft(self, detail):
+        """Ground the draft in the user's selected resources when present;
+        else fall back to the top-2 gathered-but-unselected resources; else
+        fall back to a fresh research call (today's behavior when nothing
+        has been gathered yet)."""
+        ck = self._company_key(detail)
+        conn = init_db(self.db_path)
+        try:
+            chosen = selected_resources_for(conn, ck) or company_resources_for(conn, ck)[:2]
+        finally:
+            conn.close()
+        if chosen:
+            bundle = ResearchBundle(
+                facts=[Fact(text=r["summary"], source_url=r["source_url"]) for r in chosen],
+                queries_used=[], empty=False,
+            )
+        else:
+            bundle = self._research_bundle(detail)
         try:
             profile_text = compose_profile_text().text
         except Exception:
@@ -437,6 +503,35 @@ def create_app(
                 )
             raise
         return result
+
+    @app.post("/api/jobs/{job_id}/company-research")
+    def gather_company_research(job_id: int):
+        """Gather fresh TinyFish research grouped into curatable resources
+        and persist them for this company. Never 500s — a down TinyFish
+        degrades to an empty resource list (see ``DefaultLetterEngine``)."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return engine.gather_resources(detail)
+
+    @app.get("/api/jobs/{job_id}/company-resources")
+    def get_company_resources(job_id: int):
+        """Previously-gathered resources for this job's company."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return engine.list_resources(detail)
+
+    @app.post("/api/jobs/{job_id}/company-resources/select")
+    def select_company_resources(job_id: int, body: ResourceSelectRequest):
+        """Persist the user's curated pick (capped at 2) for grounding."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return engine.select_resources(detail, body.source_urls)
 
     @app.get("/api/jobs/{job_id}/cover-letters")
     def list_job_cover_letters(job_id: int):
