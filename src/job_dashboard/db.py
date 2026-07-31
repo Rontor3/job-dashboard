@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 
@@ -65,6 +66,7 @@ def init_db(path):
     _ensure_status_column(conn)
     _ensure_resumes_table(conn)
     _ensure_cover_letters_table(conn)
+    _ensure_company_resources_table(conn)
     conn.commit()
     return conn
 
@@ -194,6 +196,82 @@ def get_cover_letter(conn, cover_letter_id):
     d = dict(zip(keys, row))
     d["company_facts_used"] = json.loads(d["company_facts_used"]) if d["company_facts_used"] else []
     return d
+
+
+_COMPANY_SUFFIX_RE = re.compile(r"\b(inc|llc|ltd|corp|co)\.?$")
+
+
+def company_key(company):
+    key = " ".join((company or "").split()).strip().lower()
+    return _COMPANY_SUFFIX_RE.sub("", key).strip()
+
+
+def _ensure_company_resources_table(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS company_resources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_key TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            title TEXT,
+            summary TEXT,
+            selected INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            UNIQUE (company_key, source_url)
+        )
+    """)
+
+
+def upsert_company_resources(conn, company_key, resources):
+    now = datetime.now(timezone.utc).isoformat()
+    n = 0
+    for r in resources:
+        conn.execute(
+            """INSERT INTO company_resources
+                   (company_key, source_url, title, summary, selected, created_at)
+               VALUES (?, ?, ?, ?, 0, ?)
+               ON CONFLICT(company_key, source_url)
+               DO UPDATE SET title=excluded.title, summary=excluded.summary""",
+            (company_key, r["source_url"], r.get("title"), r.get("summary"), now),
+        )
+        n += 1
+    conn.commit()
+    return n
+
+
+def _resource_rows(conn, company_key, selected_only=False):
+    q = ("SELECT id, company_key, source_url, title, summary, selected, created_at "
+         "FROM company_resources WHERE company_key = ?")
+    if selected_only:
+        q += " AND selected = 1"
+    q += " ORDER BY created_at DESC, id DESC"
+    keys = ("id", "company_key", "source_url", "title", "summary", "selected", "created_at")
+    out = []
+    for row in conn.execute(q, (company_key,)).fetchall():
+        d = dict(zip(keys, row))
+        d["selected"] = bool(d["selected"])
+        out.append(d)
+    return out
+
+
+def company_resources_for(conn, company_key):
+    return _resource_rows(conn, company_key)
+
+
+def selected_resources_for(conn, company_key):
+    return _resource_rows(conn, company_key, selected_only=True)
+
+
+def set_selected_resources(conn, company_key, source_urls):
+    conn.execute("UPDATE company_resources SET selected = 0 WHERE company_key = ?",
+                 (company_key,))
+    existing = {r["source_url"] for r in company_resources_for(conn, company_key)}
+    chosen = [u for u in source_urls if u in existing][:2]
+    for u in chosen:
+        conn.execute(
+            "UPDATE company_resources SET selected = 1 WHERE company_key = ? AND source_url = ?",
+            (company_key, u),
+        )
+    conn.commit()
 
 
 def job_exists(conn, job_url):
