@@ -67,6 +67,8 @@ def init_db(path):
     _ensure_resumes_table(conn)
     _ensure_cover_letters_table(conn)
     _ensure_company_resources_table(conn)
+    from job_dashboard.apply.store import ensure_application_tables
+    ensure_application_tables(conn)
     conn.commit()
     return conn
 
