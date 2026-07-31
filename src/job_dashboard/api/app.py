@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from job_dashboard.api.apply_routes import build_apply_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.db import (
     company_key, company_resources_for, cover_letters_for_job, dashboard_stats,
@@ -184,6 +185,7 @@ class DefaultLetterEngine:
 def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
+    screening_engine=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -210,6 +212,13 @@ def create_app(
     a down TinyFish/Ollama (see their own docstrings), so the cover-letter
     routes below degrade gracefully (empty research / general-template
     draft) rather than 500ing.
+
+    ``screening_engine`` overrides the Application Agent's screening-answer
+    engine (tests inject a fake with an ``answer(detail, question)``
+    surface). The apply routes themselves live in ``api/apply_routes.py``
+    (``build_apply_router``), kept out of this module to respect the
+    500-line cap; its default engine reuses ``apply.screening.
+    draft_screening_answer`` and never 500s.
     """
     app = FastAPI(title="Job Dashboard")
     default_resume_llm = resume_llm if resume_llm is not None else make_ollama_llm()
@@ -217,6 +226,7 @@ def create_app(
         jd_keyword_extractor if jd_keyword_extractor is not None else extract_jd_keywords
     )
     engine = letter_engine if letter_engine is not None else DefaultLetterEngine(db_path)
+    app.include_router(build_apply_router(db_path, screening_engine))
 
     @contextmanager
     def db():
