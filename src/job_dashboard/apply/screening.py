@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Callable
 
 from job_dashboard.letter.draft import make_default_llm
+from job_dashboard.letter.grounding import check_grounding
 
 LlmFn = Callable[[str], str]
 
@@ -78,11 +79,30 @@ def draft_screening_answer(job, question, profile_text, research, resume_text=""
     (still truthful) answer was returned instead. Never raises.
     """
     llm_fn = llm or make_default_llm()
+    answer, flags = None, []
     try:
         prompt = _build_prompt(job, question, profile_text, research, resume_text)
-        answer = llm_fn(prompt)
-        if isinstance(answer, str) and answer.strip():
-            return {"answer": answer.strip(), "flags": []}
+        candidate = llm_fn(prompt)
+        if isinstance(candidate, str) and candidate.strip():
+            answer = candidate.strip()
     except Exception:
-        pass
-    return {"answer": _general_answer(job, profile_text), "flags": ["general_fallback"]}
+        answer = None
+    if answer is None:
+        answer = _general_answer(job, profile_text)
+        flags = ["general_fallback"]
+
+    # Post-hoc grounding check (parity with the cover-letter guard): flag any
+    # company-specific claim in the answer that traces to neither the research
+    # bundle nor the profile/JD. Best-effort code check; the human reviews the
+    # answer before it is filled (runbook step 4). Prompt-only grounding is not
+    # enough on its own -- an off-prompt/hallucinated fact would otherwise reach
+    # the user unflagged.
+    try:
+        job_text = " ".join(
+            str(job.get(k) or "") for k in ("title", "company", "description")
+        ) if isinstance(job, dict) else ""
+        unsupported = check_grounding(answer, research, profile_text or "", job_text
+                                      ).unsupported_company_claims
+    except Exception:
+        unsupported = []
+    return {"answer": answer, "flags": flags, "unsupported_company_claims": unsupported}

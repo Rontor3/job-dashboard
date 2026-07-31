@@ -38,6 +38,26 @@ def test_empty_research_no_fabricated_company_specifics():
     assert "FAKEPROD" not in out["answer"]
 
 
+def test_post_hoc_grounding_flags_fabricated_company_figure():
+    # A hallucinated "$900M" absent from research/profile/JD must be flagged,
+    # even though the prompt told the model not to invent it (defense in depth).
+    out = draft_screening_answer(
+        JOB, "Why us?", "I build ML systems.",
+        ResearchBundle([Fact("Acme is a fraud startup.", "http://a")], [], False),
+        llm=lambda p: "I admire that Acme raised $900M last year.",
+    )
+    assert any("$900M" in c for c in out["unsupported_company_claims"])
+
+
+def test_grounded_answer_has_no_unsupported_claims():
+    out = draft_screening_answer(
+        JOB, "Why us?", "I build ML systems.",
+        ResearchBundle([Fact("Acme cut fraud losses 40%.", "http://a")], [], False),
+        llm=lambda p: "I'm drawn to how Acme cut fraud losses 40%.",
+    )
+    assert out["unsupported_company_claims"] == []
+
+
 def _ollama_is_up() -> bool:
     try:
         import requests
