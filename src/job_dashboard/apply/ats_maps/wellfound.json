@@ -1,0 +1,22 @@
+{
+  "full_name": ["Name", "Full Name", "First Name", "Last Name", "Your name"],
+  "email": ["Email", "Email Address"],
+  "phone": ["Phone", "Phone Number", "Mobile"],
+  "location": ["Location", "Current Location", "Where are you based?", "Based in", "City"],
+  "linkedin": ["LinkedIn", "LinkedIn URL", "LinkedIn Profile"],
+  "github": ["GitHub", "GitHub URL", "Portfolio", "Personal Website", "Website"],
+  "resume": ["Resume", "Resume/CV", "Upload Resume", "Attach Resume", "CV"],
+  "cover_letter": [
+    "What interests you about working at",
+    "Why do you want to work",
+    "Note to the team",
+    "Note to hiring manager",
+    "Add a note",
+    "Message to the team",
+    "Message",
+    "Cover Letter",
+    "Tell them why you're a great fit",
+    "Your pitch",
+    "Why are you a good fit"
+  ]
+}
