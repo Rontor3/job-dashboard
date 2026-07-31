@@ -1,0 +1,10 @@
+{
+  "full_name": ["Full name", "Name"],
+  "email": ["Email"],
+  "phone": ["Phone"],
+  "location": ["Current location", "Location"],
+  "linkedin": ["LinkedIn URL", "LinkedIn"],
+  "github": ["GitHub URL", "GitHub", "Twitter URL", "Website"],
+  "resume": ["Resume/CV", "Resume"],
+  "cover_letter": ["Cover Letter", "Additional Information"]
+}
