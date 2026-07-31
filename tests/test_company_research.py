@@ -80,7 +80,7 @@ def test_ranking_prefers_monetary_facts_over_social_noise():
     assert "$600M" in b.facts[0].text or "200%" in b.facts[0].text
 
 
-def test_queries_target_technical_work_and_dont_echo_company():
+def test_queries_target_technical_work_and_role_achievements():
     captured = []
 
     def fake_search(query, api_key=None):
@@ -88,14 +88,29 @@ def test_queries_target_technical_work_and_dont_echo_company():
         return []
 
     company_research(
-        "Notion", "Engineer", "Notion is a collaborative workspace tool.",
+        "Notion", "Software Engineer", "Notion is a collaborative workspace tool.",
         search=fake_search, fetch=lambda u, api_key=None: [], api_key="k",
     )
     blob = " ".join(captured).lower()
     # queries aim at concrete engineering/technical work
-    assert "engineering" in blob and ("machine learning" in blob or "platform" in blob)
-    # no query degenerates into "{company} {company}"
-    assert all(q.lower() != "notion notion" for q in captured)
+    assert "engineering" in blob and "machine learning" in blob
+    # a role-tied achievements query uses the full role title
+    assert "notion software engineer achievements case study" in blob
+
+
+def test_role_achievements_query_handles_missing_role():
+    captured = []
+
+    def fake_search(query, api_key=None):
+        captured.append(query)
+        return []
+
+    company_research(
+        "Notion", "", "jd",
+        search=fake_search, fetch=lambda u, api_key=None: [], api_key="k",
+    )
+    # no empty role -> no double space; falls back to "{company} achievements case study"
+    assert "notion achievements case study" in [q.lower() for q in captured]
 
 
 def test_ranking_prefers_official_company_domain_over_third_party_blog():

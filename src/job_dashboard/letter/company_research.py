@@ -63,51 +63,30 @@ class ResearchBundle:
 # Query building
 # --------------------------------------------------------------------------
 
-_ROLE_KEYWORD_STOPWORDS = {
-    "the", "and", "for", "with", "you", "our", "are", "will", "have", "has",
-    "this", "that", "your", "role", "job", "team", "work", "years", "year",
-    "experience", "strong", "ability", "skills", "using", "who", "what",
-    "all", "any", "can", "must", "we", "to", "of", "in", "on", "a", "an",
-    "is", "as", "or", "at", "be", "by", "it", "from", "responsible",
-}
 _TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.#]{2,}")
-
-
-def _first_salient_role_keyword(jd_text: str, role: str, company: str = "") -> str:
-    """First non-stopword token from ``jd_text`` (falling back to ``role``).
-
-    Deliberately crude -- plain regex tokenization + a small stopword list,
-    no NLP -- good enough to seed a role-relevant search query. Tokens that
-    are part of the company name are skipped so the third query doesn't
-    degenerate into "{company} {company}" (which just repeats query one).
-    """
-    company_tokens = {m.lower() for m in _TOKEN_RE.findall(company or "")}
-    for source in (jd_text, role):
-        if not source:
-            continue
-        for match in _TOKEN_RE.findall(source):
-            word = match.lower()
-            if word in _ROLE_KEYWORD_STOPWORDS or word in company_tokens:
-                continue
-            return word
-    return "team"
 
 
 def _build_queries(company: str, role: str, jd_text: str) -> list[str]:
     """Queries aimed at CONCRETE technical/business work, not marketing.
 
     We deliberately target engineering blogs, ML/data-platform write-ups,
-    recent launches/announcements, and a role-tied angle -- these carry the
-    "built X with Y to solve Z" detail a candidate actually cares about, and
-    steer away from storefront/marketing pages (e.g. a retailer's shop).
+    recent launches/announcements, and a role-tied ACHIEVEMENTS angle -- these
+    carry the "built X with Y to solve Z" detail a candidate actually cares
+    about, and steer away from storefront/marketing pages. ``jd_text`` is part
+    of the signature for future query tuning but is not needed by the current
+    company/role-only set.
     """
-    keyword = _first_salient_role_keyword(jd_text, role, company)
+    role_str = role.strip() if isinstance(role, str) else ""
+    role_achievements = (
+        f"{company} {role_str} achievements case study"
+        if role_str else f"{company} achievements case study"
+    )
     return [
         f"{company} AI ML achievements results case study",
         f"{company} engineering blog how we built",
         f"{company} machine learning data platform infrastructure",
         f"{company} launches announces 2026",
-        f"{company} {keyword}",
+        role_achievements,
     ]
 
 
