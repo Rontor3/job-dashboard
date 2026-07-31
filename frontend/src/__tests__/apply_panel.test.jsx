@@ -3,26 +3,38 @@ import { vi, test, expect, beforeEach } from "vitest";
 import ApplyPanel from "../components/ApplyPanel.jsx";
 
 const PACKAGE_WITH_LETTER = {
-  profile: { name: "Jamie Rivera", email: "jamie@example.com" },
-  resume: { id: "r-1", filename: "jamie-resume.pdf" },
-  cover_letter: { id: "cl-1", pdf_url: "https://example.com/cl.pdf" },
-  job: { id: 1, title: "ML Engineer" },
+  profile: {
+    full_name: "Jamie Rivera", email: "jamie@example.com", phone: null,
+    location: null, linkedin_url: null, github_url: null, portfolio_url: null,
+    work_authorization: null, years_experience: null,
+    willing_to_relocate: null, notice_period: null, salary_expectation: null,
+    updated_at: "2026-07-01T00:00:00+00:00",
+  },
+  resume: {
+    id: 1, job_id: 1, pdf_path: "/data/resumes/1/jamie-resume.pdf",
+    blocks_used: [], ats_score: 0.8, ats_report: {}, created_at: "2026-07-01T00:00:00+00:00",
+  },
+  cover_letter: {
+    id: 7, job_id: 1, pdf_path: "/data/cover_letters/1/cl.pdf",
+    body: "Dear hiring manager...", company_facts_used: [], created_at: "2026-07-01T00:00:00+00:00",
+  },
+  job: { id: 1, title: "ML Engineer", company: "Acme", job_url: "https://example.com/job/1" },
   ats_hint: "greenhouse",
 };
 
 const PACKAGE_NO_LETTER = {
-  profile: { name: "Jamie Rivera", email: "jamie@example.com" },
-  resume: { id: "r-1", filename: "jamie-resume.pdf" },
+  profile: { ...PACKAGE_WITH_LETTER.profile },
+  resume: { ...PACKAGE_WITH_LETTER.resume },
   cover_letter: null,
-  job: { id: 1, title: "ML Engineer" },
+  job: { id: 1, title: "ML Engineer", company: "Acme", job_url: "https://example.com/job/1" },
   ats_hint: "greenhouse",
 };
 
 const PACKAGE_NO_PROFILE = {
   profile: {},
-  resume: { id: "r-1", filename: "jamie-resume.pdf" },
+  resume: { ...PACKAGE_WITH_LETTER.resume },
   cover_letter: null,
-  job: { id: 1, title: "ML Engineer" },
+  job: { id: 1, title: "ML Engineer", company: "Acme", job_url: "https://example.com/job/1" },
   ats_hint: null,
 };
 
@@ -49,9 +61,10 @@ beforeEach(() => {
   global.fetch = mockFetch();
 });
 
-test("renders package: resume shown and cover-letter toggle present but off by default", async () => {
+test("renders package: profile full_name, resume shown, cover-letter toggle present but off by default", async () => {
   render(<ApplyPanel jobId={1} />);
   await waitFor(() => expect(screen.getByText(/jamie-resume\.pdf/)).toBeDefined());
+  expect(screen.getByText(/Jamie Rivera/)).toBeDefined();
   const checkbox = screen.getByRole("checkbox");
   expect(checkbox.checked).toBe(false);
 });
@@ -102,7 +115,7 @@ test("toggling cover letter on then Prepare sends the cover_letter_id", async ()
   fireEvent.click(screen.getByText(/Prepare application/));
   await waitFor(() => expect(screen.getByText(/Mark as applied/)).toBeDefined());
   expect(onSave).toHaveBeenCalledWith(
-    expect.objectContaining({ status: "prepared", cover_letter_id: "cl-1" })
+    expect.objectContaining({ status: "prepared", cover_letter_id: 7 })
   );
 });
 

@@ -6,6 +6,15 @@ const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14p
 const SAFETY_TEXT =
   "The agent fills the form in your Chrome and stops at Submit — you review and send it. It never submits, logs in, or solves CAPTCHAs.";
 
+function resumeLabel(resume) {
+  if (!resume) return null;
+  if (resume.pdf_path) {
+    const parts = String(resume.pdf_path).split(/[\\/]/);
+    return parts[parts.length - 1];
+  }
+  return `Resume #${resume.id}`;
+}
+
 function SafetyBanner() {
   return (
     <div
@@ -110,7 +119,7 @@ export default function ApplyPanel({ jobId }) {
 
   if ((stage === "ready" || stage === "preparing") && pkg) {
     const profile = pkg.profile;
-    const hasProfile = profile && (profile.name || profile.email);
+    const hasProfile = profile && (profile.full_name || profile.email);
     const resume = pkg.resume;
     const coverLetter = pkg.cover_letter;
 
@@ -127,7 +136,7 @@ export default function ApplyPanel({ jobId }) {
         </div>
         {hasProfile ? (
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 14 }}>
-            {profile.name || "—"} · {profile.email || "—"}
+            {profile.full_name || "—"} · {profile.email || "—"}
           </div>
         ) : (
           <div style={{ fontSize: 12, color: "var(--ink-faint)", fontStyle: "italic", marginBottom: 14 }}>
@@ -140,7 +149,7 @@ export default function ApplyPanel({ jobId }) {
         </div>
         {resume ? (
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 14 }}>
-            {resume.filename || resume.title || `Resume #${resume.id}`}
+            {resumeLabel(resume)}
           </div>
         ) : (
           <div style={{ fontSize: 12, color: "var(--ink-faint)", fontStyle: "italic", marginBottom: 14 }}>
