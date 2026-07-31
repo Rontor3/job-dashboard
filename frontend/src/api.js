@@ -61,3 +61,21 @@ export const selectCompanyResources = (id, sourceUrls) =>
   })
     .then(json)
     .then((d) => d.resources || []);
+
+export const fetchApplicationProfile = () =>
+  fetch(`/api/application-profile`).then(json);
+export const saveApplicationProfile = (fields) =>
+  fetch(`/api/application-profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields),
+  }).then(json);
+export const fetchApplicationPackage = (id) =>
+  fetch(`/api/jobs/${id}/application-package`).then(json);
+export const saveApplication = (id, body) =>
+  fetch(`/api/jobs/${id}/application`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(json);
+export const fetchApplication = (id) => fetch(`/api/jobs/${id}/application`).then(json);
