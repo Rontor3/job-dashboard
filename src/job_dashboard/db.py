@@ -215,23 +215,34 @@ def _ensure_company_resources_table(conn):
             title TEXT,
             summary TEXT,
             selected INTEGER NOT NULL DEFAULT 0,
+            rank INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             UNIQUE (company_key, source_url)
         )
     """)
+    # Idempotent add for tables created before `rank` existed.
+    try:
+        conn.execute("ALTER TABLE company_resources ADD COLUMN rank INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # column already present
 
 
 def upsert_company_resources(conn, company_key, resources):
+    # Empty company_key would pool every unnamed-company job into one shared
+    # bucket (cross-job leak) -- refuse to store for a company we can't key.
+    if not company_key:
+        return 0
     now = datetime.now(timezone.utc).isoformat()
     n = 0
-    for r in resources:
+    for rank, r in enumerate(resources):
         conn.execute(
             """INSERT INTO company_resources
-                   (company_key, source_url, title, summary, selected, created_at)
-               VALUES (?, ?, ?, ?, 0, ?)
+                   (company_key, source_url, title, summary, selected, rank, created_at)
+               VALUES (?, ?, ?, ?, 0, ?, ?)
                ON CONFLICT(company_key, source_url)
-               DO UPDATE SET title=excluded.title, summary=excluded.summary""",
-            (company_key, r["source_url"], r.get("title"), r.get("summary"), now),
+               DO UPDATE SET title=excluded.title, summary=excluded.summary,
+                             rank=excluded.rank""",
+            (company_key, r["source_url"], r.get("title"), r.get("summary"), rank, now),
         )
         n += 1
     conn.commit()
@@ -239,11 +250,16 @@ def upsert_company_resources(conn, company_key, resources):
 
 
 def _resource_rows(conn, company_key, selected_only=False):
+    if not company_key:
+        return []
     q = ("SELECT id, company_key, source_url, title, summary, selected, created_at "
          "FROM company_resources WHERE company_key = ?")
     if selected_only:
         q += " AND selected = 1"
-    q += " ORDER BY created_at DESC, id DESC"
+    # Rank ASC = best-first (the order resources_from_bundle produced), so the
+    # draft's no-pick "top-2" fallback and the UI card list both surface the
+    # strongest sources first -- NOT reverse-insertion order.
+    q += " ORDER BY rank ASC, id ASC"
     keys = ("id", "company_key", "source_url", "title", "summary", "selected", "created_at")
     out = []
     for row in conn.execute(q, (company_key,)).fetchall():
@@ -262,6 +278,8 @@ def selected_resources_for(conn, company_key):
 
 
 def set_selected_resources(conn, company_key, source_urls):
+    if not company_key:
+        return
     conn.execute("UPDATE company_resources SET selected = 0 WHERE company_key = ?",
                  (company_key,))
     existing = {r["source_url"] for r in company_resources_for(conn, company_key)}

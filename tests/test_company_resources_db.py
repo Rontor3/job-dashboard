@@ -17,6 +17,38 @@ def test_company_key_normalizes_variants_together():
     assert company_key("Acme Inc") == company_key("Acme")
 
 
+def test_list_returns_rank_order_so_top_2_is_the_best(tmp_path):
+    # Regression: the no-pick draft fallback takes company_resources_for(...)[:2];
+    # it must return the BEST-ranked (insertion order), not reverse.
+    c = _conn(tmp_path)
+    ck = company_key("Acme")
+    upsert_company_resources(c, ck, [
+        _r("https://a.com/best", s="best"),
+        _r("https://a.com/second", s="second"),
+        _r("https://a.com/worst", s="worst"),
+    ])
+    rows = company_resources_for(c, ck)
+    assert [r["summary"] for r in rows[:2]] == ["best", "second"]
+
+
+def test_regather_updates_rank_order(tmp_path):
+    c = _conn(tmp_path)
+    ck = company_key("Acme")
+    upsert_company_resources(c, ck, [_r("https://a.com/x", s="x"), _r("https://a.com/y", s="y")])
+    # a later gather ranks y first
+    upsert_company_resources(c, ck, [_r("https://a.com/y", s="y"), _r("https://a.com/x", s="x")])
+    assert company_resources_for(c, ck)[0]["source_url"] == "https://a.com/y"
+
+
+def test_empty_company_key_is_never_a_shared_bucket(tmp_path):
+    # Blank company must not pool unrelated jobs into one "" bucket.
+    c = _conn(tmp_path)
+    assert upsert_company_resources(c, "", [_r("https://a.com/1")]) == 0
+    assert company_resources_for(c, "") == []
+    set_selected_resources(c, "", ["https://a.com/1"])  # no-op, no raise
+    assert selected_resources_for(c, "") == []
+
+
 def test_upsert_then_list_roundtrip(tmp_path):
     c = _conn(tmp_path)
     ck = company_key("Acme")
