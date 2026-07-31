@@ -127,3 +127,98 @@ test("empty company_facts_used renders muted general note", async () => {
     ).toBeDefined()
   );
 });
+
+const RESOURCES = {
+  company: "Acme",
+  resources: [
+    {
+      source_url: "https://acme.com/acs",
+      title: "acme.com",
+      summary: "Account Confidence Score, an AI/ML fraud score.",
+      selected: false,
+    },
+    {
+      source_url: "https://blog.acme.com/mesh",
+      title: "blog.acme.com",
+      summary: "Built a data mesh.",
+      selected: false,
+    },
+  ],
+};
+
+const RESOURCES_3 = {
+  company: "Acme",
+  resources: [
+    { source_url: "https://a.com/1", title: "a.com", summary: "Fact one.", selected: false },
+    { source_url: "https://a.com/2", title: "a.com", summary: "Fact two.", selected: false },
+    { source_url: "https://a.com/3", title: "a.com", summary: "Fact three.", selected: false },
+  ],
+};
+
+test("gathers and renders company resource cards with source links", async () => {
+  global.fetch = vi.fn((url) => {
+    if (String(url).includes("/company-research"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(RESOURCES) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resources: [] }) });
+  });
+  render(<CoverLetterPanel jobId={1} />);
+  fireEvent.click(screen.getByText(/Find company research/));
+  await waitFor(() => expect(screen.getByText(/Account Confidence Score/)).toBeDefined());
+  const link = screen.getByRole("link", { name: "acme.com" });
+  expect(link.href).toContain("acme.com/acs");
+  expect(link.target).toBe("_blank");
+  expect(link.getAttribute("rel")).toContain("noopener");
+});
+
+test("selecting more than two sources is prevented", async () => {
+  global.fetch = vi.fn((url, opts) => {
+    if (String(url).includes("/company-research"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(RESOURCES_3) });
+    if (String(url).includes("/company-resources/select"))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ resources: RESOURCES_3.resources }),
+      });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ resources: [] }) });
+  });
+  render(<CoverLetterPanel jobId={1} />);
+  fireEvent.click(screen.getByText(/Find company research/));
+  await waitFor(() => expect(screen.getByText(/Fact one/)).toBeDefined());
+
+  const checkboxes = screen.getAllByRole("checkbox");
+  expect(checkboxes.length).toBe(3);
+  fireEvent.click(checkboxes[0]);
+  fireEvent.click(checkboxes[1]);
+  fireEvent.click(checkboxes[2]);
+
+  await waitFor(() =>
+    expect(screen.getByText(/pick up to 2/i)).toBeDefined()
+  );
+
+  const selectCalls = global.fetch.mock.calls.filter(([url]) =>
+    String(url).includes("/company-resources/select")
+  );
+  expect(selectCalls.length).toBeGreaterThan(0);
+  selectCalls.forEach(([, opts]) => {
+    const body = JSON.parse(opts.body);
+    expect(body.source_urls.length).toBeLessThanOrEqual(2);
+  });
+
+  // the 3rd checkbox never got checked
+  expect(checkboxes[0].checked).toBe(true);
+  expect(checkboxes[1].checked).toBe(true);
+  expect(checkboxes[2].checked).toBe(false);
+});
+
+test("no send/apply/email control exists in the research step", async () => {
+  global.fetch = vi.fn(() =>
+    Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(RESOURCES) })
+  );
+  render(<CoverLetterPanel jobId={1} />);
+  fireEvent.click(screen.getByText(/Find company research/));
+  await waitFor(() => screen.getByText(/data mesh/));
+  expect(screen.queryByText(/send/i)).toBeNull();
+  expect(screen.queryByText(/apply/i)).toBeNull();
+  expect(screen.queryByText(/email/i)).toBeNull();
+});

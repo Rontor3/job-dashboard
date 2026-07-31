@@ -44,3 +44,20 @@ export const generateCoverLetter = (id, body) =>
   }).then(json);
 export const fetchCoverLetters = (id) =>
   fetch(`/api/jobs/${id}/cover-letters`).then(json).then((d) => d.cover_letters || []);
+
+export const gatherCompanyResources = (id) =>
+  fetch(`/api/jobs/${id}/company-research`, { method: "POST" })
+    .then(json)
+    .then((d) => d.resources || []);
+export const fetchCompanyResources = (id) =>
+  fetch(`/api/jobs/${id}/company-resources`)
+    .then(json)
+    .then((d) => d.resources || []);
+export const selectCompanyResources = (id, sourceUrls) =>
+  fetch(`/api/jobs/${id}/company-resources/select`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source_urls: sourceUrls }),
+  })
+    .then(json)
+    .then((d) => d.resources || []);
