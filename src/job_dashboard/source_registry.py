@@ -74,5 +74,12 @@ def job_sources():
     return fetchers
 
 
+# Wellfound is an ON-DEMAND BROWSER source, deliberately NOT in job_sources():
+# it has no public API and gates its GraphQL feed behind login + bot protection,
+# so it can't run in the unattended refresh. Instead the candidate's logged-in
+# browser feed is read and passed to sources.wellfound_source.wellfound_jobs_from_raw
+# (see docs/wellfound-ingest-runbook.md), which yields the same JobListing shape.
+
+
 def company_sources():
     return [lambda: fetch_funded_startups()]
