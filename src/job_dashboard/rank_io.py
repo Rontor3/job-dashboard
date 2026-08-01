@@ -5,10 +5,29 @@ evaluation; `record` writes one agent evaluation back. Keeping this as a CLI
 means the /rank command shells out instead of embedding SQL in a skill file.
 """
 import argparse
+import copy
 import json
 import sys
 
-from job_dashboard.db import init_db, record_llm_evaluation, top_unranked_jobs
+from job_dashboard.db import init_db, job_detail, record_llm_evaluation, top_unranked_jobs
+from job_dashboard.match.eligibility import assess_eligibility, candidate_years_from_profile
+from job_dashboard.match.profile_text import compose_profile_text
+
+
+def apply_eligibility(job, payload, candidate_years):
+    """Return a copy of `payload` down-ranked to 'Weak Fit' if `job` fails
+    the eligibility bar (experience gap / region). Never mutates `payload`.
+    """
+    out = copy.deepcopy(payload)
+    result = assess_eligibility(job.get("description", ""), candidate_years)
+    if result.demote:
+        out["verdict"] = "Weak Fit"
+        flags = out.get("flags")
+        if not isinstance(flags, dict):
+            flags = {}
+        flags["eligibility"] = result.flags
+        out["flags"] = flags
+    return out
 
 
 def main(argv=None):
@@ -31,6 +50,13 @@ def main(argv=None):
             print(json.dumps(top_unranked_jobs(conn, args.limit), indent=2))
             return 0
         payload = json.loads(open(args.file).read())
+        detail = job_detail(conn, args.job_id)
+        if detail is not None:
+            try:
+                candidate_years = candidate_years_from_profile(compose_profile_text().text)
+            except Exception:
+                candidate_years = 2.0
+            payload = apply_eligibility(detail, payload, candidate_years)
         record_llm_evaluation(
             conn, args.job_id,
             llm_score=payload.get("llm_score"),
