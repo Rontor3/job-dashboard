@@ -14,14 +14,25 @@ from job_dashboard.match.eligibility import assess_eligibility, candidate_years_
 from job_dashboard.match.profile_text import compose_profile_text
 
 
+# Verdict order, worst-last; used to ensure eligibility only DOWN-ranks.
+_VERDICT_ORDER = ["Strong Fit", "Good Fit", "Moderate Fit", "Weak Fit", "Poor Fit"]
+
+
 def apply_eligibility(job, payload, candidate_years):
-    """Return a copy of `payload` down-ranked to 'Weak Fit' if `job` fails
-    the eligibility bar (experience gap / region). Never mutates `payload`.
+    """Return a copy of `payload` down-ranked to 'Weak Fit' if `job` fails the
+    eligibility bar (experience gap / region). DOWN-ranks only — a verdict that
+    is already worse than 'Weak Fit' (e.g. 'Poor Fit') is left untouched, never
+    raised. Never mutates `payload`.
     """
     out = copy.deepcopy(payload)
-    result = assess_eligibility(job.get("description", ""), candidate_years)
+    description = job.get("description", "") if isinstance(job, dict) else ""
+    result = assess_eligibility(description, candidate_years)
     if result.demote:
-        out["verdict"] = "Weak Fit"
+        current = out.get("verdict")
+        cur_i = _VERDICT_ORDER.index(current) if current in _VERDICT_ORDER else 0
+        weak_i = _VERDICT_ORDER.index("Weak Fit")
+        if cur_i < weak_i:                    # only cap things better than Weak
+            out["verdict"] = "Weak Fit"
         flags = out.get("flags")
         if not isinstance(flags, dict):
             flags = {}

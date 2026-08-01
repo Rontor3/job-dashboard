@@ -43,6 +43,25 @@ def test_region_present_ok():
     assert r.demote is False  # region present, no year gap
 
 
+def test_years_abbreviation_yrs_is_parsed():
+    assert parse_required_years("Requires 10+ yrs experience") == 10
+    assert parse_required_years("min 8 yr experience") == 8
+
+
+def test_years_ago_is_not_a_requirement():
+    # "10 years ago we founded…" must NOT read as a 10y requirement.
+    assert parse_required_years("10 years ago we founded this company") is None
+    assert assess_eligibility("10 years ago we started. Great ML role!",
+                              candidate_years=2).demote is False
+
+
+def test_region_word_boundary_no_indiana_falsematch():
+    # "Indiana, USA" does NOT accept India -> must demote.
+    r = assess_eligibility("Hires remotely in: Indiana, USA.",
+                           candidate_years=20, candidate_region="India")
+    assert r.demote is True
+
+
 def test_universal_region_does_not_demote():
     # "Everywhere"/"Worldwide"/"Global" mean all regions INCLUDE India -> keep.
     for word in ("Everywhere", "Worldwide", "Global", "Anywhere"):

@@ -9,7 +9,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-_YEARS_RE = re.compile(r"(\d+)\s*\+?\s*years?", re.IGNORECASE)
+_YEARS_RE = re.compile(r"(\d+)\s*\+?\s*(?:years?|yrs?)\b", re.IGNORECASE)
+# A bare "N years" only counts as a REQUIREMENT when it's in an experience
+# context — otherwise "10 years ago we founded…" would read as a 10y bar.
+_EXP_CUE = re.compile(r"experience|exp\b|work|industry|professional|background", re.IGNORECASE)
+_REQ_CUE = re.compile(r"requir|minimum|min\.|at least|\bof\b", re.IGNORECASE)
 # "Hires remotely in: <list>" / "accepts applications from <list>"
 _HIRES_IN_RE = re.compile(
     r"(?:hires remotely in|accepts? applications? from|open to candidates in)\s*[:\-]?\s*([^.\n]+)",
@@ -28,10 +32,24 @@ class EligibilityResult:
 
 
 def parse_required_years(text) -> float | None:
+    """Max stated years-of-experience REQUIREMENT, or None.
+
+    Counts a "N years/yrs" only when it reads as a requirement: it carries a
+    "+", or an experience cue follows it, or a requirement cue precedes it — and
+    it is not "N years ago". This avoids "10 years ago we founded" false hits.
+    """
     if not isinstance(text, str):
         return None
-    nums = [int(m) for m in _YEARS_RE.findall(text)]
-    return float(max(nums)) if nums else None
+    best = None
+    for m in _YEARS_RE.finditer(text):
+        after = text[m.end():m.end() + 30]
+        before = text[max(0, m.start() - 25):m.start()]
+        if after.lstrip().lower().startswith("ago"):
+            continue
+        if "+" in m.group(0) or _EXP_CUE.search(after) or _REQ_CUE.search(before):
+            n = int(m.group(1))
+            best = n if best is None else max(best, n)
+    return float(best) if best is not None else None
 
 
 def candidate_years_from_profile(profile_text, default: float = 2.0) -> float:
@@ -53,10 +71,13 @@ def assess_eligibility(description, candidate_years, candidate_region: str = "In
             flags.append(f"requires {req:.0f}y experience, profile has ~{cyears:.0f}y")
 
         region = (candidate_region or "").strip().lower()
+        region_re = re.compile(r"\b" + re.escape(region) + r"\b") if region else None
         for m in _HIRES_IN_RE.finditer(text):
             listed = m.group(1).lower()
             universal = any(u in listed for u in _UNIVERSAL_REGIONS)
-            if region and not universal and region not in listed:
+            # Word-boundary match so "India" doesn't match inside "Indiana".
+            present = bool(region_re and region_re.search(listed))
+            if region and not universal and not present:
                 demote = True
                 flags.append(f"may not accept applicants from {candidate_region}")
                 break
