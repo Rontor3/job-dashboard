@@ -43,5 +43,13 @@ def test_region_present_ok():
     assert r.demote is False  # region present, no year gap
 
 
+def test_universal_region_does_not_demote():
+    # "Everywhere"/"Worldwide"/"Global" mean all regions INCLUDE India -> keep.
+    for word in ("Everywhere", "Worldwide", "Global", "Anywhere"):
+        r = assess_eligibility(f"Remote. Hires remotely in: {word}.",
+                               candidate_years=2, candidate_region="India")
+        assert r.demote is False, word
+
+
 def test_never_raises_on_junk():
     assert assess_eligibility(None, candidate_years=None).demote is False

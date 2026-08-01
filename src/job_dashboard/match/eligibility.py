@@ -15,6 +15,10 @@ _HIRES_IN_RE = re.compile(
     r"(?:hires remotely in|accepts? applications? from|open to candidates in)\s*[:\-]?\s*([^.\n]+)",
     re.IGNORECASE,
 )
+# A listed region containing any of these means "all regions" -- it INCLUDES the
+# candidate's region, so it must NOT trip the region gate ("Remote: Everywhere").
+_UNIVERSAL_REGIONS = ("everywhere", "worldwide", "world wide", "global",
+                      "anywhere", "any location", "all locations")
 
 
 @dataclass
@@ -51,7 +55,8 @@ def assess_eligibility(description, candidate_years, candidate_region: str = "In
         region = (candidate_region or "").strip().lower()
         for m in _HIRES_IN_RE.finditer(text):
             listed = m.group(1).lower()
-            if region and region not in listed:
+            universal = any(u in listed for u in _UNIVERSAL_REGIONS)
+            if region and not universal and region not in listed:
                 demote = True
                 flags.append(f"may not accept applicants from {candidate_region}")
                 break
