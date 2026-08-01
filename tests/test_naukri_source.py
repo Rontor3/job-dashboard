@@ -102,3 +102,19 @@ def test_skips_jobs_missing_required_fields(tmp_path):
         client_factory=lambda sess: FakeClient([FakeJob(apply_link=None), FakeJob(title="")]),
     )
     assert jobs == []
+
+
+def test_coerces_dict_salary_and_location_to_text(tmp_path):
+    # Naukri's live API returns salary/location as nested dicts; they must be
+    # coerced to plain text so the DB bind never receives a dict.
+    sp = _write_session(tmp_path)
+    jobs = naukri_source.fetch_naukri_jobs(
+        "ml", session_path=sp,
+        client_factory=lambda sess: FakeClient([
+            FakeJob(salary={"label": "₹10L – ₹15L"}, location={"name": "Mumbai"})
+        ]),
+    )
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert j.salary_text == "₹10L – ₹15L" and not isinstance(j.salary_text, dict)
+    assert j.location == "Mumbai" and not isinstance(j.location, dict)

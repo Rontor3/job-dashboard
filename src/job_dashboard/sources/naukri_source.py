@@ -61,11 +61,11 @@ def fetch_naukri_jobs(search_term, session_path=DEFAULT_SESSION_PATH, client_fac
         description = getattr(r, "description", "") or ""
         if not str(description).strip():
             continue
-        title = getattr(r, "title", None)
-        company = getattr(r, "company", None)
+        title = _text(getattr(r, "title", None))
+        company = _text(getattr(r, "company", None))
         job_url = getattr(r, "apply_link", None)
         # Skip rows missing required non-null fields
-        if not title or not str(title).strip() or not company or not str(company).strip() or not job_url:
+        if not title or not company or not job_url:
             continue
         jobs.append(
             JobListing(
@@ -73,16 +73,36 @@ def fetch_naukri_jobs(search_term, session_path=DEFAULT_SESSION_PATH, client_fac
                 external_id=str(getattr(r, "job_id", "") or "") or None,
                 title=title,
                 company=company,
-                location=getattr(r, "location", None),
+                # Naukri's API returns some fields (salary, location) as nested
+                # dicts/lists; coerce to plain text so the DB bind never sees a dict.
+                location=_text(getattr(r, "location", None)),
                 description=description,
                 job_url=job_url,
                 job_type=None,
                 is_remote=False,
-                salary_text=(getattr(r, "salary", "") or None),
-                posted_date=(getattr(r, "posted_date", "") or None),
+                salary_text=_text(getattr(r, "salary", None)),
+                posted_date=_text(getattr(r, "posted_date", None)),
             )
         )
     return jobs
+
+
+def _text(v):
+    """Coerce a Naukri field to plain text (or None). Handles the nested
+    dict/list shapes their API returns for salary, location, etc."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v.strip() or None
+    if isinstance(v, dict):
+        for k in ("label", "text", "display", "value", "name"):
+            if v.get(k):
+                return str(v[k]).strip() or None
+        return None
+    if isinstance(v, (list, tuple)):
+        parts = [_text(x) for x in v]
+        return ", ".join(p for p in parts if p) or None
+    return str(v).strip() or None
 
 
 def _accepts_kw(client):
