@@ -27,6 +27,11 @@ SESSION_PATH = ROOT / "data" / "naukri_session.json"
 
 
 def main():
+    # Load .env so NAUKRI_USERNAME/PASSWORD are picked up whether this is run
+    # from a plain shell or via the tooling (the script itself never prints them).
+    from job_dashboard.env import load_env_file
+    load_env_file()
+
     user = os.getenv("NAUKRI_USERNAME")
     pw = os.getenv("NAUKRI_PASSWORD")
     if not user or not pw:
