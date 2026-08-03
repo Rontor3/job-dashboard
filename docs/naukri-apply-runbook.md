@@ -59,9 +59,10 @@ must succeed before proceeding to the chatbot.
      - `no_session`: the session is invalid or expired. Re-run `scripts/naukri_login.py`.
      - `upload_rejected`: Naukri rejected the file (format, size, or corruption).
        Inspect the resumé, re-export it, and try again.
-     - `verify_timeout`: Naukri did not confirm the upload in time (network
-       issue or Naukri slowness). Wait a moment, then retry `push_resume()`.
-     - Other exception: network error or Naukri API change. Consult the error log.
+     - Other exception (e.g., `RuntimeError`, `ConnectionError`): network error or
+       Naukri API change. Consult the error log.
+   - Note: if `ok=True` but the filename cannot be confirmed in Naukri's response,
+     `live_resume_name` is `None` — the upload succeeded regardless.
    - **Under no circumstance proceed to the chatbot if `ok=False`.** The job
      application will fail without a resumé.
 
@@ -79,8 +80,8 @@ Before the candidate enters the chatbot, pre-draft answers to common questions.
      - `draft`: a pre-written answer.
      - `source`: whether the answer came from the resumé, the profile, or was
        synthesized.
-2. **Reuse a cached bank** if the resumé and profile have not changed since the
-   last job. Banks are keyed by profile hash + resumé hash.
+2. **Rebuild the bank** when the profile or resumé changes; otherwise, the
+   existing bank can be reused.
 3. Store the bank in memory (or a `.json` file in the temp directory) so the
    candidate can access it during the chatbot.
 
@@ -99,8 +100,9 @@ candidate must approve each draft before it's sent.
         - `needs_user=False`: a draft answer was found in the bank. Show it to
           the candidate.
         - `needs_user=True`: the question is novel, or asks about a skill not on
-          the resumé, or is a personal-field question (`current_ctc`,
-          `reason_for_change`, etc.). The candidate must type it themselves.
+          the resumé, or is an UNSET personal field (`current_ctc`,
+          `reason_for_change`, etc. with no stored value). The candidate must
+          type it themselves. (SET personal fields auto-answer.)
    2. **If `needs_user=False`:**
       - Show the draft answer to the candidate. (Print it to the console or
         display it in the dashboard's Apply modal.)
@@ -154,6 +156,15 @@ as applied.
 2. The dashboard updates the job card: ✓ Applied.
 
 ## Notes and Warnings
+
+### Personal Facts Are Never Fuzzy-Matched
+
+The semantic similarity fallback (`resolve_answer`'s embedding-based matching)
+only reuses **skill answers** (derived from the resumé). Personal questions
+(CTC, notice period, location, etc.) that don't match the keyword rules will
+**always pause** and require the candidate to type them — they are never
+auto-filled via a loose cosine hit. This prevents wrong personal values from
+sneaking in.
 
 ### Session Expiry
 
