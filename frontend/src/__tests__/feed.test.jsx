@@ -61,3 +61,12 @@ test("source select sets filters.source", () => {
   const updater = setFilters.mock.calls[0][0];
   expect(updater({ sort: "embed" }).source).toBe("remotive");
 });
+
+test("shows + Track on untracked cards and calls onTrack without selecting", () => {
+  const onTrack = vi.fn(); const onSelect = vi.fn();
+  const jobs = [{ id: 1, title: "DS", company: "Acme", status: null }];
+  render(<Feed jobs={jobs} selectedId={null} onSelect={onSelect} onTrack={onTrack} />);
+  fireEvent.click(screen.getByRole("button", { name: /track/i }));
+  expect(onTrack).toHaveBeenCalledWith(1);
+  expect(onSelect).not.toHaveBeenCalled();
+});

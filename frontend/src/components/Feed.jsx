@@ -7,7 +7,7 @@ function monogram(company) {
 
 const PILL = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)" };
 
-export default function Feed({ jobs, selectedId, onSelect }) {
+export default function Feed({ jobs, selectedId, onSelect, onTrack }) {
   if (!jobs.length) {
     return (
       <div style={{ textAlign: "center", padding: "48px 0", color: "var(--ink-soft)" }}>
@@ -86,6 +86,14 @@ export default function Feed({ jobs, selectedId, onSelect }) {
               <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>Ranking…</span>
             )}
             <ScoreBadge value={j.embed_score} />
+            {["saved","applied","interviewing","offer","rejected"].includes(j.status) ? null : (
+              <button
+                onClick={(e) => { e.stopPropagation(); onTrack && onTrack(j.id); }}
+                style={{ ...PILL, background: "transparent", border: "1px solid var(--green)",
+                         color: "var(--green)", cursor: "pointer" }}>
+                + Track
+              </button>
+            )}
           </div>
         </li>
       ))}
