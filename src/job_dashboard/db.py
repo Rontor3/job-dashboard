@@ -318,7 +318,7 @@ _JOB_COLUMNS = ("id", "title", "company", "location", "job_url", "job_type",
                 "embed_score", "llm_score", "verdict")
 
 
-def query_jobs(conn, q=None, remote=None, job_type=None, source=None, status=None,
+def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=None, company_type=None, status=None,
                min_score=None, include_dismissed=False, sort="embed",
                limit=50, offset=0):
     where = ["j.duplicate_of IS NULL"]
@@ -336,6 +336,12 @@ def query_jobs(conn, q=None, remote=None, job_type=None, source=None, status=Non
     if source:
         where.append("j.source = ?")
         params.append(source)
+    if industry:
+        where.append("cc.industry = ?")
+        params.append(industry)
+    if company_type:
+        where.append("cc.company_type = ?")
+        params.append(company_type)
     if status:
         where.append("j.status = ?")
         params.append(status)
@@ -351,17 +357,21 @@ def query_jobs(conn, q=None, remote=None, job_type=None, source=None, status=Non
         "date": "j.posted_date IS NULL, j.posted_date DESC, j.id",
     }.get(sort, "m.embed_score IS NULL, m.embed_score DESC, j.id")
 
-    base = f"""FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
+    base = f"""FROM jobs j
+               LEFT JOIN match_scores m ON m.job_id = j.id
+               LEFT JOIN company_classifications cc
+                      ON cc.company_key = LOWER(TRIM(j.company))
                WHERE {' AND '.join(where)}"""
     total = conn.execute(f"SELECT COUNT(*) {base}", params).fetchone()[0]
     rows = conn.execute(
         f"""SELECT j.id, j.title, j.company, j.location, j.job_url, j.job_type,
                    j.is_remote, j.posted_date, j.source, j.status,
-                   m.embed_score, m.llm_score, m.verdict
+                   m.embed_score, m.llm_score, m.verdict,
+                   cc.industry, cc.company_type
             {base} ORDER BY {order} LIMIT ? OFFSET ?""",
         params + [limit, offset],
     ).fetchall()
-    return [dict(zip(_JOB_COLUMNS, row)) for row in rows], total
+    return [dict(zip(_JOB_COLUMNS + ("industry", "company_type"), row)) for row in rows], total
 
 
 def job_detail(conn, job_id):
@@ -369,14 +379,17 @@ def job_detail(conn, job_id):
         """SELECT j.id, j.title, j.company, j.location, j.job_url, j.job_type,
                   j.is_remote, j.posted_date, j.source, j.status,
                   m.embed_score, m.llm_score, m.verdict,
+                  cc.industry, cc.company_type,
                   j.description, m.strengths, m.gaps, m.flags
            FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
+           LEFT JOIN company_classifications cc
+                  ON cc.company_key = LOWER(TRIM(j.company))
            WHERE j.id = ?""",
         (job_id,),
     ).fetchone()
     if row is None:
         return None
-    detail = dict(zip(_JOB_COLUMNS + ("description", "strengths", "gaps", "flags"), row))
+    detail = dict(zip(_JOB_COLUMNS + ("industry", "company_type", "description", "strengths", "gaps", "flags"), row))
     detail["strengths"] = json.loads(detail["strengths"]) if detail["strengths"] else []
     detail["gaps"] = json.loads(detail["gaps"]) if detail["gaps"] else []
     detail["flags"] = json.loads(detail["flags"]) if detail["flags"] else {}
