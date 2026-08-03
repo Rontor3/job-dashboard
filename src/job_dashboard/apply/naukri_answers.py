@@ -114,9 +114,9 @@ def build_answer_bank(package, profile_text=None, resume_text="", llm=None, embe
 
     entries: list[BankEntry] = []
 
-    yrs = str(profile.get("years_experience") or "").strip()
-    if yrs:
-        entries.append(BankEntry("total_experience", "total years of work experience", yrs, "profile"))
+    yrs = profile.get("years_experience")
+    if yrs not in (None, ""):  # keep "0" (fresher) — 0 is falsy, so don't use `or`
+        entries.append(BankEntry("total_experience", "total years of work experience", str(yrs), "profile"))
 
     blob = f"{profile_text}\n{resume_text}".lower()
     resume_skills = [s for s in SKILL_VOCAB if _mentions(blob, s)]
@@ -171,13 +171,17 @@ def resolve_answer(question, bank, package=None, embedder=None):
             return AnswerResult(entry.text, entry.source, False)
         return AnswerResult("", "unanswered", True, "no_stored_value")
 
-    # 3. Semantic paraphrase fallback.
+    # 3. Semantic paraphrase fallback — ONLY over skill (résumé-derived) entries.
+    #    Personal facts are never fuzzy-matched: a personal question that misses
+    #    the keyword rules falls through to "exceptional" and pauses the
+    #    candidate, so a wrong CTC/notice value can never be auto-filled by a
+    #    loose cosine hit.
     if embedder is not None and bank:
         try:
             qv = embedder.encode(question)
             best, score = None, -1.0
             for e in bank:
-                if e.vector is None:
+                if e.source != "bank" or e.vector is None:
                     continue
                 c = cosine(qv, e.vector)
                 if c > score:

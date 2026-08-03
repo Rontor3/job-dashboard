@@ -76,3 +76,50 @@ def test_unmatched_question_is_exceptional():
     bank = _bank()
     r = na.resolve_answer("What is your favorite color?", bank, embedder=FakeEmbedder())
     assert r.needs_user and r.flag == "exceptional" and r.text == ""
+
+
+class MapEmbedder:
+    """Maps exact strings to preset vectors; unknown strings -> orthogonal.
+    Lets a test force the step-3 cosine path deterministically."""
+    def __init__(self, mapping):
+        self.mapping = mapping
+    def encode(self, text):
+        return self.mapping.get(text, [0.0, 0.0, 0.0, 1.0])
+
+
+def test_semantic_fallback_reuses_skill_entry_for_true_paraphrase():
+    # A paraphrase sharing NO skill word or keyword must still reuse the python
+    # bank answer via the cosine fallback (step 3) — the core reuse feature.
+    q = "Describe your serpent-scripting background."
+    emb = MapEmbedder({
+        "years of experience with python": [1.0, 0.0, 0.0, 0.0],
+        q: [1.0, 0.0, 0.0, 0.0],  # identical vector -> cosine 1.0 >= 0.60
+    })
+    pkg = {"profile": {}, "job": {"title": "Data Scientist"},
+           "resume": {"pdf_path": "/tmp/r.pdf"}}
+    bank = na.build_answer_bank(
+        pkg, profile_text="Python and SQL. 3 years experience.",
+        llm=lambda p: "3 years of hands-on Python.", embedder=emb)
+    r = na.resolve_answer(q, bank, embedder=emb)
+    assert r.source == "bank" and not r.needs_user and r.text  # reused, not paused
+
+
+def test_semantic_fallback_never_autofills_a_personal_fact():
+    # A personal question phrased outside the keyword list must NOT be fuzzy-
+    # matched to a stored personal value — it pauses instead (safety).
+    q = "Roughly what compensation are you on right now?"
+    emb = MapEmbedder({
+        "what is your current ctc salary": [1.0, 0.0, 0.0, 0.0],
+        q: [1.0, 0.0, 0.0, 0.0],  # would match IF personal entries were eligible
+    })
+    pkg = {"profile": {"current_ctc": "12 LPA"}, "job": {},
+           "resume": {"pdf_path": "/tmp/r.pdf"}}
+    bank = na.build_answer_bank(pkg, profile_text="", llm=lambda p: "x", embedder=emb)
+    r = na.resolve_answer(q, bank, embedder=emb)
+    assert r.needs_user and r.text == ""  # personal facts never fuzzy-guessed
+
+
+def test_zero_years_experience_is_kept_not_dropped():
+    bank = _bank(profile={"years_experience": 0})
+    entry = next((e for e in bank if e.intent == "total_experience"), None)
+    assert entry is not None and entry.text == "0"
