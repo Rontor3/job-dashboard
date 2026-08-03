@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { fetchJob, patchStatus } from "../api.js";
+import { cleanJd } from "../cleanJd.js";
 import { XIcon, ArrowUpRightIcon } from "./icons.jsx";
 import ResumePanel from "./ResumePanel.jsx";
 import CoverLetterPanel from "./CoverLetterPanel.jsx";
@@ -114,7 +115,7 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
       <ApplyPanel jobId={id} />
 
       <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 12, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-        {job.description}
+        {cleanJd(job.description)}
       </div>
 
       {job.cross_listings.length > 0 && (
