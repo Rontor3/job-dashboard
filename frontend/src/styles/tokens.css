@@ -16,3 +16,16 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --hover-shadow: 0 2px 8px rgba(74, 58, 30, 0.08);
 }
+
+:root[data-theme="dark"] {
+  --canvas:#1E2229; --card:#262B34; --hairline:#333A44;
+  --green:#7FD1B9; --green-mid:#5FB49C; --green-soft:#4E9683; --sage:#4E9683;
+  --green-tint:#2F3A34;
+  --gold:#C9922F; --gold-ink:#1E2229;
+  --peach:#2B313B; --peach-deep:#3F7266; --warm-band:#262B34; --warm-tint:#2B313B;
+  --warm-ink:#C9B48C;
+  --dupe-bg:#33272B; --dupe-ink:#E0A48F; --rejected-bar:#7A5648;
+  --ink:#E8EAED; --ink-soft:#A9B0BA; --ink-faint:#6B7280;
+  --ring-track:#2B313B;
+  --hover-shadow:0 2px 10px rgba(0,0,0,0.35);
+}
