@@ -37,6 +37,12 @@ SEARCH_TERMS = [
     # Domain-tilted (fraud/risk — candidate's Tata AIG edge)
     "fraud data scientist",
     "risk data scientist",
+    # Emerging titles (2026 market — user flagged 2026-08-04)
+    "forward deployed engineer",
+    "applied ai engineer",
+    "ai solutions engineer",
+    "machine learning scientist",
+    "genai engineer",
 ]
 
 # Geographic strategy (user constraint 2026-07-17, no US work visa):
