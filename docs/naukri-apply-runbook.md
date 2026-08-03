@@ -70,16 +70,17 @@ must succeed before proceeding to the chatbot.
 
 Before the candidate enters the chatbot, pre-draft answers to common questions.
 
-1. Call **`build_answer_bank(application_package)`** in the dashboard:
-   - `application_package` is the result of `assemble_application_package(conn, job_id)` —
-     it contains the job, the resumé text, the application profile, and any
-     research notes.
-   - The function runs the LLM through `draft_screening_answer(...)` to build a
-     bank of `BankEntry` objects, each with:
-     - `question`: the question pattern (e.g., *"Why do you want to join us?"*).
-     - `draft`: a pre-written answer.
-     - `source`: whether the answer came from the resumé, the profile, or was
-       synthesized.
+1. Call **`build_answer_bank(application_package, embedder=load_default_model())`** in the dashboard:
+   - Import the embedder: `from job_dashboard.match.embedder import load_default_model`.
+   - `application_package` is the result of `assemble_application_package(conn, job_id)`.
+   - The function extracts skills from the candidate's profile text (via
+     `compose_profile_text`) and uses the LLM through `draft_screening_answer(...)` to
+     build a bank of `BankEntry` objects, each with:
+     - `intent`: the question intent (e.g., `skill:python`, `current_ctc`, `total_experience`).
+     - `text`: a pre-written answer.
+     - `source`: whether the answer came from the profile (stored fields) or the bank (LLM-drafted).
+   - **Important:** the `embedder` parameter MUST be passed, or semantic paraphrase-reuse
+     will be silently OFF (entries won't have vectors, and cosine matching will fail in Step 5).
 2. **Rebuild the bank** when the profile or resumé changes; otherwise, the
    existing bank can be reused.
 3. Store the bank in memory (or a `.json` file in the temp directory) so the
@@ -94,9 +95,11 @@ candidate must approve each draft before it's sent.
 1. **Click "Apply"** on the Naukri job page. The chatbot opens.
 2. **For each question the chatbot asks:**
    1. **Resolve the answer** from the bank:
-      - Call **`resolve_answer(question, bank)`** in the dashboard.
-      - This function matches the chatbot's question against the bank using
-        cosine similarity on embeddings, and returns an `AnswerResult`:
+      - Call **`resolve_answer(question, bank, embedder=model)`** in the dashboard
+        (use the same model loaded in Step 4).
+      - This function first tries keyword matching (for personal fields), then
+        matches the question against the bank using cosine similarity on embeddings,
+        and returns an `AnswerResult`:
         - `needs_user=False`: a draft answer was found in the bank. Show it to
           the candidate.
         - `needs_user=True`: the question is novel, or asks about a skill not on
