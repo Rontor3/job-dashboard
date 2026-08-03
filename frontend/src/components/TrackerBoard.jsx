@@ -11,11 +11,11 @@ const STAGE_OPTS = ["saved", "applied", "interviewing", "offer", "rejected"];
 const PILL = { fontSize: 10, padding: "2px 8px", borderRadius: "var(--radius-pill)", background: "#F1EBE0", color: "var(--ink-soft)" };
 const CARD = { background: "var(--card)", border: "0.5px solid var(--hairline)", borderRadius: 10, padding: 8, marginBottom: 8 };
 
-export default function TrackerBoard({ onSelect }) {
+export default function TrackerBoard({ onSelect, refreshTick }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
   const load = useCallback(() => { fetchTracker().then(setBoard).catch((e) => setErr(String(e))); }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshTick]);
 
   const move = (id, status) => patchStatus(id, status).then(load);
 

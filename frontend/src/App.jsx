@@ -40,6 +40,7 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState(null);
+  const [trackerTick, setTrackerTick] = useState(0);
 
   const reload = useCallback(() => {
     Promise.all([fetchJobs(filters), fetchStats()])
@@ -50,6 +51,8 @@ export default function App() {
   }, [filters]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  const reloadAll = useCallback(() => { reload(); setTrackerTick((t) => t + 1); }, [reload]);
 
   const onTrack = (id) => patchStatus(id, "saved").then(reload);
 
@@ -74,7 +77,7 @@ export default function App() {
         </div>
         <div style={{ position: "relative", display: "flex", gap: 8, alignItems: "center" }}>
           <ThemeToggle />
-          <RefreshButton onDone={reload} />
+          <RefreshButton onDone={reloadAll} />
         </div>
       </header>
       {error && <div role="alert" style={{ color: "var(--dupe-ink)", background: "var(--dupe-bg)", borderRadius: 12, padding: "10px 14px", marginTop: 12 }}>{error}</div>}
@@ -89,10 +92,10 @@ export default function App() {
         ) : (
           <div>
             <Overview stats={stats} />
-            <TrackerBoard onSelect={setSelectedId} />
+            <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} />
           </div>
         )}
-        {selectedId && <JobDetail id={selectedId} onStatusChange={() => reload()} onClose={() => setSelectedId(null)} />}
+        {selectedId && <JobDetail id={selectedId} onStatusChange={() => reloadAll()} onClose={() => setSelectedId(null)} />}
       </main>
     </div>
   );
