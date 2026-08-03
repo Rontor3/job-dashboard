@@ -27,7 +27,25 @@ def test_llm_raise_is_caught_returns_other():
     assert (ind, typ, method) == ("Other", "Other", "other")
 
 
-def test_longer_dict_key_wins_over_short_substring():
-    # "ust" must not hijack a company that merely contains it; longer keys first.
-    ind, typ, _ = cc.classify_company("Thermo Fisher Scientific", llm=lambda p: "x")
-    assert ind == "Life Sciences & Scientific"
+def test_dict_hit_on_compound_name_prefix():
+    # "jpmorgan" prefix must still hit inside "JPMorganChase".
+    ind, typ, method = cc.classify_company("JPMorganChase", llm=lambda p: "x")
+    assert ind == "BFSI" and method == "dict"
+
+
+def test_short_key_no_midword_false_hit():
+    # "ust"/"exl" must NOT match inside unrelated names — those fall through to LLM.
+    ind, _, method = cc.classify_company(
+        "Reliance Industries Ltd",
+        llm=lambda p: "Industry: Energy & Utilities\nCompany-type: Product")
+    assert method == "llm" and ind == "Energy & Utilities"  # not dict-matched via "ust"
+    # but the real company UST still hits the dictionary
+    ind2, _, m2 = cc.classify_company("UST Global", llm=lambda p: "x")
+    assert m2 == "dict" and ind2 == "Consulting & IT Services"
+
+
+def test_non_string_company_never_raises():
+    ind, typ, method = cc.classify_company(
+        float("nan"), llm=lambda p: "Industry: BFSI\nCompany-type: Product")
+    assert isinstance(ind, str) and isinstance(typ, str) and isinstance(method, str)
+    assert cc.classify_company(None) == ("Other", "Other", "other")
