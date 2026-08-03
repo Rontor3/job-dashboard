@@ -7,6 +7,7 @@ facts come from the stored profile and are NEVER sent to the LLM. Never raises.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from job_dashboard.apply.screening import draft_screening_answer
@@ -63,9 +64,15 @@ class BankEntry:
     vector: object = None
 
 
+def _mentions(text, skill):
+    """Whole-word (not substring) match, so short skills like 'r'/'ai'/'ml'
+    don't false-match inside words ('notice pe[r]iod', 'cu[r]rent')."""
+    return re.search(r"\b" + re.escape(skill) + r"\b", text) is not None
+
+
 def _skill_token(ql):
     for s in SKILL_VOCAB:
-        if s in ql:
+        if _mentions(ql, s):
             return s
     return None
 
@@ -112,7 +119,7 @@ def build_answer_bank(package, profile_text=None, resume_text="", llm=None, embe
         entries.append(BankEntry("total_experience", "total years of work experience", yrs, "profile"))
 
     blob = f"{profile_text}\n{resume_text}".lower()
-    resume_skills = [s for s in SKILL_VOCAB if s in blob]
+    resume_skills = [s for s in SKILL_VOCAB if _mentions(blob, s)]
     for s in resume_skills:
         if llm is None:
             continue
