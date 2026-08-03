@@ -40,8 +40,8 @@ _PERSONAL_KEYWORDS = [
     ("willing_to_relocate", ("relocat",)),
     ("reason_for_change", ("reason for change", "reason for leaving", "reason for switch",
                             "why do you want to change", "why are you looking")),
-    ("location", ("current location", "your location", "where are you located",
-                   "current city", "based out of")),
+    ("location", ("current location", "your location", "located", "which city",
+                   "current city", "your city", "based out of", "based in")),
     ("total_experience", ("total experience", "years of experience", "work experience",
                            "overall experience", "how many years")),
 ]
@@ -121,11 +121,14 @@ def build_answer_bank(package, profile_text=None, resume_text="", llm=None, embe
     blob = f"{profile_text}\n{resume_text}".lower()
     resume_skills = [s for s in SKILL_VOCAB if _mentions(blob, s)]
     for s in resume_skills:
-        if llm is None:
-            continue
-        ans = _draft_skill_answer(s, job, profile_text, resume_text, llm)
+        ans = _draft_skill_answer(s, job, profile_text, resume_text, llm) if llm is not None else None
         if ans:
             entries.append(BankEntry(f"skill:{s}", f"years of experience with {s}", ans, "bank"))
+        else:
+            # On the résumé, but no grounded draft (LLM down or the grounder
+            # rejected it). Keep a marker so resolve pauses with the ACCURATE
+            # reason ("skill_no_answer") instead of mislabelling it as not-on-résumé.
+            entries.append(BankEntry(f"skill:{s}", f"years of experience with {s}", "", "skill_undrafted"))
 
     for intent, key, phrasing in _PERSONAL:
         val = profile.get(key)
@@ -159,8 +162,10 @@ def resolve_answer(question, bank, package=None, embedder=None):
     token = _skill_token(ql)
     if token:
         entry = _find(bank, f"skill:{token}")
-        if entry:
+        if entry and entry.source == "bank" and entry.text:
             return AnswerResult(entry.text, "bank", False)
+        if entry:  # on the résumé, but no grounded draft was built — pause, don't mislabel
+            return AnswerResult("", "unanswered", True, "skill_no_answer")
         return AnswerResult("", "unanswered", True, "skill_not_on_resume")
 
     # 2. Keyword intents (personal + total experience).

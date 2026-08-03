@@ -123,3 +123,23 @@ def test_zero_years_experience_is_kept_not_dropped():
     bank = _bank(profile={"years_experience": 0})
     entry = next((e for e in bank if e.intent == "total_experience"), None)
     assert entry is not None and entry.text == "0"
+
+
+def test_resume_skill_without_draft_pauses_as_skill_no_answer():
+    # Python is on the résumé but the LLM produced no groundable draft (returns "").
+    # It must pause with the ACCURATE flag, distinct from a skill not on the résumé.
+    bank = _bank(profile={}, llm=lambda p: "")
+    entry = next((e for e in bank if e.intent == "skill:python"), None)
+    assert entry is not None and entry.source == "skill_undrafted" and entry.text == ""
+    r = na.resolve_answer("What is your proficiency in Python?", bank, embedder=FakeEmbedder())
+    assert r.needs_user and r.flag == "skill_no_answer" and r.text == ""
+    r2 = na.resolve_answer("Are you proficient in Java?", bank, embedder=FakeEmbedder())
+    assert r2.needs_user and r2.flag == "skill_not_on_resume"  # genuinely absent -> distinct flag
+
+
+def test_location_currently_located_phrasing_auto_answers():
+    # "currently located" broke the old keyword match and personal facts aren't
+    # fuzzy-matched, so it used to pause; broadened keywords now auto-answer it.
+    bank = _bank(profile={"location": "Mumbai, India"})
+    r = na.resolve_answer("Where are you currently located?", bank, embedder=FakeEmbedder())
+    assert not r.needs_user and r.source == "profile" and r.text == "Mumbai, India"
