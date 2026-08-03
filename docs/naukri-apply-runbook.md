@@ -163,11 +163,11 @@ as applied.
 ### Personal Facts Are Never Fuzzy-Matched
 
 The semantic similarity fallback (`resolve_answer`'s embedding-based matching)
-only reuses **skill answers** (derived from the resumé). Personal questions
-(CTC, notice period, location, etc.) that don't match the keyword rules will
-**always pause** and require the candidate to type them — they are never
-auto-filled via a loose cosine hit. This prevents wrong personal values from
-sneaking in.
+only reuses **skill answers** (derived from the candidate's profile text via
+`compose_profile_text`). Personal questions (CTC, notice period, location, etc.)
+that don't match the keyword rules will **always pause** and require the candidate
+to type them — they are never auto-filled via a loose cosine hit. This prevents
+wrong personal values from sneaking in.
 
 ### Session Expiry
 
