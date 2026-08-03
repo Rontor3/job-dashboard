@@ -327,10 +327,28 @@ def test_llm_raise_is_caught_returns_other():
     assert (ind, typ, method) == ("Other", "Other", "other")
 
 
-def test_longer_dict_key_wins_over_short_substring():
-    # "ust" must not hijack a company that merely contains it; longer keys first.
-    ind, typ, _ = cc.classify_company("Thermo Fisher Scientific", llm=lambda p: "x")
-    assert ind == "Life Sciences & Scientific"
+def test_dict_hit_on_compound_name_prefix():
+    # "jpmorgan" prefix must still hit inside "JPMorganChase".
+    ind, typ, method = cc.classify_company("JPMorganChase", llm=lambda p: "x")
+    assert ind == "BFSI" and method == "dict"
+
+
+def test_short_key_no_midword_false_hit():
+    # "ust"/"exl" must NOT match inside unrelated names — those fall through to LLM.
+    ind, _, method = cc.classify_company(
+        "Reliance Industries Ltd",
+        llm=lambda p: "Industry: Energy & Utilities\nCompany-type: Product")
+    assert method == "llm" and ind == "Energy & Utilities"  # not dict-matched via "ust"
+    # but the real company UST still hits the dictionary
+    ind2, _, m2 = cc.classify_company("UST Global", llm=lambda p: "x")
+    assert m2 == "dict" and ind2 == "Consulting & IT Services"
+
+
+def test_non_string_company_never_raises():
+    ind, typ, method = cc.classify_company(
+        float("nan"), llm=lambda p: "Industry: BFSI\nCompany-type: Product")
+    assert isinstance(ind, str) and isinstance(typ, str) and isinstance(method, str)
+    assert cc.classify_company(None) == ("Other", "Other", "other")
 ```
 
 - [ ] **Step 2: Run to verify fail**
@@ -342,9 +360,12 @@ Expected: FAIL (module missing).
 
 ```python
 """Hybrid per-company classifier: dictionary first, LLM fallback, vocab-constrained.
-Never raises — any LLM failure / off-vocab output degrades to Other.
+Never raises — any failure (non-string input, LLM error, off-vocab output)
+degrades to Other.
 """
 from __future__ import annotations
+
+import re
 
 INDUSTRIES = (
     "BFSI", "Insurance", "Fintech", "Consulting & IT Services",
@@ -362,8 +383,9 @@ COMPANY_TYPES = (
     "Staffing/Agency", "AI Lab/Research", "Other",
 )
 
-# Substring key (lower) -> (industry, company_type). Keep specific/longer keys
-# first; matching iterates in this order and takes the first hit.
+# Key (lower) -> (industry, company_type). Matched at a LEADING word boundary
+# (`\bkey`), so a prefix like "jpmorgan" still hits "jpmorganchase" but a short
+# key like "ust"/"exl" never false-matches mid-word ("industries", "flexlink").
 COMPANY_DICT = {
     "tata consultancy": ("Consulting & IT Services", "Services/Consultancy"),
     "accenture": ("Consulting & IT Services", "Services/Consultancy"),
@@ -411,7 +433,9 @@ _LLM_PROMPT = (
 
 def _dict_lookup(company_key):
     for key, pair in COMPANY_DICT.items():
-        if key in company_key:
+        # Leading word boundary: matches "ust" in "ust global" but not in
+        # "industries"; matches the "jpmorgan" prefix of "jpmorganchase".
+        if re.search(r"\b" + re.escape(key), company_key):
             return pair
     return None
 
@@ -430,19 +454,22 @@ def _parse_llm(text):
 
 
 def classify_company(company, sample_title="", sample_desc="", llm=None):
-    key = (company or "").strip().lower()
-    if not key:
-        return ("Other", "Other", "other")
-    hit = _dict_lookup(key)
-    if hit:
-        return (hit[0], hit[1], "dict")
+    # Whole body guarded: non-string input, dict-lookup, and the LLM branch all
+    # degrade to Other rather than raising.
     try:
+        key = str(company or "").strip().lower()
+        if not key:
+            return ("Other", "Other", "other")
+        hit = _dict_lookup(key)
+        if hit:
+            return (hit[0], hit[1], "dict")
         if llm is None:
             from job_dashboard.letter.draft import make_default_llm
             llm = make_default_llm()
         prompt = _LLM_PROMPT.format(
             industries=", ".join(INDUSTRIES), types=", ".join(COMPANY_TYPES),
-            company=company, title=(sample_title or "")[:120], desc=(sample_desc or "")[:400])
+            company=str(company), title=str(sample_title or "")[:120],
+            desc=str(sample_desc or "")[:400])
         out = llm(prompt)
         industry, ctype = _parse_llm(out if isinstance(out, str) else "")
         return (industry, ctype, "llm")
@@ -453,7 +480,7 @@ def classify_company(company, sample_title="", sample_desc="", llm=None):
 - [ ] **Step 4: Run to verify pass**
 
 Run: `pytest tests/test_classify_company.py -v`
-Expected: PASS (5).
+Expected: PASS (7).
 
 - [ ] **Step 5: Commit**
 
