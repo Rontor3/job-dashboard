@@ -22,6 +22,13 @@ def run_pipeline(conn, job_sources, company_sources,
     _stage("deduping")
     duplicates_marked = mark_duplicates(conn)
 
+    classified = 0
+    try:
+        from job_dashboard.classify.run import classify_unclassified
+        classified = classify_unclassified(conn).get("total", 0)
+    except Exception:
+        classified = 0
+
     embed_scored = 0
     embed_skipped = None
     try:
@@ -39,6 +46,7 @@ def run_pipeline(conn, job_sources, company_sources,
         "ingest": ingest_result,
         "duplicates_marked": duplicates_marked,
         "suspected_duplicates": suspected_duplicates(conn),
+        "companies_classified": classified,
         "embed_scored": embed_scored,
         "embed_skipped": embed_skipped,
     }

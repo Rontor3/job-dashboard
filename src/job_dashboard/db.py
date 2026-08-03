@@ -155,6 +155,15 @@ def distinct_classification_values(conn):
     return {"industries": inds, "company_types": types}
 
 
+def get_sample_job_for_company(conn, company_key):
+    """One representative (title, description, display_company) for a company key."""
+    row = conn.execute(
+        """SELECT title, description, company FROM jobs
+           WHERE LOWER(TRIM(company)) = ? AND duplicate_of IS NULL
+           ORDER BY id LIMIT 1""", (company_key,)).fetchone()
+    return (row[0], row[1], row[2]) if row else ("", "", company_key)
+
+
 def job_exists(conn, job_url):
     row = conn.execute("SELECT 1 FROM jobs WHERE job_url = ?", (job_url,)).fetchone()
     return row is not None
