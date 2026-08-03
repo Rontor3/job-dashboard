@@ -44,3 +44,30 @@ def test_application_roundtrip_cover_letter_optional(tmp_path):
 
 def test_get_application_unknown_job_is_none(tmp_path):
     assert get_application(_conn(tmp_path), 999) is None
+
+
+def test_profile_roundtrips_naukri_ctc_and_reason(tmp_path):
+    import sqlite3
+    from job_dashboard.apply.store import (
+        ensure_application_tables, save_application_profile, get_application_profile)
+    conn = sqlite3.connect(str(tmp_path / "t.db"))
+    ensure_application_tables(conn)
+    save_application_profile(conn, {
+        "full_name": "Rakshit Singh",
+        "current_ctc": "12 LPA",
+        "reason_for_change": "Seeking deeper ML ownership",
+    })
+    p = get_application_profile(conn)
+    assert p["current_ctc"] == "12 LPA"
+    assert p["reason_for_change"] == "Seeking deeper ML ownership"
+
+
+def test_add_column_guard_is_idempotent_on_existing_db(tmp_path):
+    import sqlite3
+    from job_dashboard.apply.store import ensure_application_tables
+    db = tmp_path / "t.db"
+    conn = sqlite3.connect(str(db))
+    ensure_application_tables(conn)
+    ensure_application_tables(conn)  # second call must not raise
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(application_profile)")}
+    assert {"current_ctc", "reason_for_change"} <= cols

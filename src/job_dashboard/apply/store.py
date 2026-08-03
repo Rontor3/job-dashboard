@@ -11,6 +11,7 @@ _PROFILE_COLS = (
     "full_name", "email", "phone", "location", "linkedin_url", "github_url",
     "portfolio_url", "work_authorization", "years_experience",
     "willing_to_relocate", "notice_period", "salary_expectation",
+    "current_ctc", "reason_for_change",
 )
 
 
@@ -22,7 +23,8 @@ def ensure_application_tables(conn):
             linkedin_url TEXT, github_url TEXT, portfolio_url TEXT,
             work_authorization TEXT, years_experience TEXT,
             willing_to_relocate INTEGER, notice_period TEXT,
-            salary_expectation TEXT, updated_at TEXT
+            salary_expectation TEXT, current_ctc TEXT, reason_for_change TEXT,
+            updated_at TEXT
         )
     """)
     conn.execute("""
@@ -35,6 +37,10 @@ def ensure_application_tables(conn):
             applied_at TEXT, created_at TEXT NOT NULL
         )
     """)
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(application_profile)")}
+    for col in ("current_ctc", "reason_for_change"):
+        if col not in existing:
+            conn.execute(f"ALTER TABLE application_profile ADD COLUMN {col} TEXT")
 
 
 def get_application_profile(conn):
