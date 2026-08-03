@@ -83,6 +83,7 @@ def init_db(path):
     _ensure_resumes_table(conn)
     _ensure_cover_letters_table(conn)
     _ensure_company_resources_table(conn)
+    _ensure_company_classifications_table(conn)
     from job_dashboard.apply.store import ensure_application_tables
     ensure_application_tables(conn)
     conn.commit()
@@ -99,6 +100,59 @@ def _ensure_status_column(conn):
     cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
     if "status" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN status TEXT")
+
+
+def _ensure_company_classifications_table(conn):
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS company_classifications (
+               company_key  TEXT PRIMARY KEY,
+               industry     TEXT NOT NULL,
+               company_type TEXT NOT NULL,
+               method       TEXT NOT NULL,
+               updated_at   TEXT NOT NULL
+           )"""
+    )
+
+
+def upsert_company_classification(conn, company_key, industry, company_type, method):
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO company_classifications
+               (company_key, industry, company_type, method, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(company_key) DO UPDATE SET
+               industry=excluded.industry, company_type=excluded.company_type,
+               method=excluded.method, updated_at=excluded.updated_at""",
+        (company_key, industry, company_type, method, now),
+    )
+    conn.commit()
+
+
+def get_company_classification(conn, company_key):
+    row = conn.execute(
+        "SELECT company_key, industry, company_type, method, updated_at "
+        "FROM company_classifications WHERE company_key = ?", (company_key,)).fetchone()
+    if row is None:
+        return None
+    return dict(zip(("company_key", "industry", "company_type", "method", "updated_at"), row))
+
+
+def unclassified_companies(conn):
+    rows = conn.execute(
+        """SELECT DISTINCT LOWER(TRIM(j.company)) k
+           FROM jobs j
+           WHERE j.duplicate_of IS NULL AND j.company IS NOT NULL AND TRIM(j.company) != ''
+             AND LOWER(TRIM(j.company)) NOT IN (SELECT company_key FROM company_classifications)
+           ORDER BY k""").fetchall()
+    return [r[0] for r in rows]
+
+
+def distinct_classification_values(conn):
+    inds = [r[0] for r in conn.execute(
+        "SELECT DISTINCT industry FROM company_classifications ORDER BY industry")]
+    types = [r[0] for r in conn.execute(
+        "SELECT DISTINCT company_type FROM company_classifications ORDER BY company_type")]
+    return {"industries": inds, "company_types": types}
 
 
 def job_exists(conn, job_url):
