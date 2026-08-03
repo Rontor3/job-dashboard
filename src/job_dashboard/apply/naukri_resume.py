@@ -2,9 +2,12 @@
 
 The ONLY module that imports NopeRi write code (update_resume). NopeRi's
 apply / questionnaire / auto-apply-agent modules are never imported here.
-Pushes the tailored résumé to the Naukri profile, then read-back-verifies it is
-live before the browser step is allowed to apply (Naukri processes uploads
-asynchronously — applying too early sends the old file). Never raises.
+Pushes the tailored résumé to the Naukri profile before the browser step
+applies (Naukri processes uploads asynchronously, so we pause briefly to let it
+settle). NopeRi exposes no live-résumé read-back, so "verify" means: a 2xx from
+update_resume is the accept signal, and the response body is scanned best-effort
+for the pushed filename — a match confirms it, a miss still returns ok (accepted,
+name unconfirmable). Never hard-fails on an unconfirmable name. Never raises.
 """
 import json
 import logging
@@ -47,17 +50,18 @@ def _status_ok(status):
         return False
 
 
-def _live_name(client):
-    """Best-effort read of the résumé name Naukri currently reports live."""
-    for attr in ("current_resume_name", "fetch_resume_name"):
-        fn = getattr(client, attr, None)
-        if callable(fn):
-            return fn()
-    return None
+def _body_mentions(body, needle):
+    """Best-effort: does the update response echo the pushed filename?"""
+    if not needle:
+        return False
+    try:
+        return needle in json.dumps(body, default=str).lower()
+    except Exception:
+        return False
 
 
 def push_resume(pdf_path, session_path=DEFAULT_SESSION_PATH, verify=True,
-                client_factory=None, poll=(5, 2)):
+                client_factory=None, settle_seconds=2.0):
     session_path = Path(session_path)
     if not session_path.exists():
         return PushResult(False, error="no_session")
@@ -75,15 +79,14 @@ def push_resume(pdf_path, session_path=DEFAULT_SESSION_PATH, verify=True,
         if not verify:
             return PushResult(True)
 
-        want = os.path.basename(str(pdf_path)).lower()
-        attempts, delay = poll
-        for _ in range(max(1, int(attempts))):
-            live = _live_name(client)
-            if live and os.path.basename(str(live)).lower() == want:
-                return PushResult(True, live_resume_name=live)
-            if delay:
-                time.sleep(delay)
-        return PushResult(False, error="verify_timeout")
+        # Let Naukri process the async upload, then best-effort confirm the
+        # filename from the update response body. No live read-back exists.
+        if settle_seconds:
+            time.sleep(settle_seconds)
+        basename = os.path.basename(str(pdf_path))
+        body = getattr(result, "raw_response", None)
+        live = basename if _body_mentions(body, basename.lower()) else None
+        return PushResult(True, live_resume_name=live)
     except Exception as exc:  # blocked, token expired, API shape change, etc.
         logger.warning("Naukri résumé push failed: %s", type(exc).__name__)
         return PushResult(False, error=type(exc).__name__)
