@@ -412,6 +412,25 @@ def job_detail(conn, job_id):
     return detail
 
 
+def tracker_jobs(conn):
+    rows = conn.execute(
+        """SELECT j.id, j.title, j.company, j.location, j.source, j.status,
+                  m.embed_score, m.llm_score, m.verdict, cc.industry, cc.company_type
+           FROM jobs j
+           LEFT JOIN match_scores m ON m.job_id = j.id
+           LEFT JOIN company_classifications cc ON cc.company_key = LOWER(TRIM(j.company))
+           WHERE j.duplicate_of IS NULL
+             AND j.status IN ('saved','applied','interviewing','offer','rejected')
+           ORDER BY j.id DESC""").fetchall()
+    keys = ("id","title","company","location","source","status","embed_score",
+            "llm_score","verdict","industry","company_type")
+    buckets = {"saved": [], "applied": [], "interviewing": [], "offer": [], "archived": []}
+    for r in rows:
+        d = dict(zip(keys, r))
+        buckets["archived" if d["status"] == "rejected" else d["status"]].append(d)
+    return buckets
+
+
 def dashboard_stats(conn):
     def one(sql, *params):
         return conn.execute(sql, params).fetchone()[0]
@@ -430,4 +449,15 @@ def dashboard_stats(conn):
             """SELECT COUNT(*) FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
                WHERE j.duplicate_of IS NULL AND m.llm_score IS NULL"""
         ),
+        "verdict_counts": {
+            r[0]: r[1] for r in conn.execute(
+                """SELECT m.verdict, COUNT(*) FROM jobs j JOIN match_scores m ON m.job_id = j.id
+                   WHERE j.duplicate_of IS NULL AND m.verdict IS NOT NULL GROUP BY m.verdict""")
+        },
+        "top_industries": [
+            {"industry": r[0], "count": r[1]} for r in conn.execute(
+                """SELECT cc.industry, COUNT(*) n FROM jobs j
+                   JOIN company_classifications cc ON cc.company_key = LOWER(TRIM(j.company))
+                   WHERE j.duplicate_of IS NULL GROUP BY cc.industry ORDER BY n DESC LIMIT 6""")
+        ],
     }

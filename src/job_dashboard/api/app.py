@@ -11,7 +11,7 @@ from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
     dashboard_stats, distinct_classification_values, init_db, job_detail, query_jobs,
-    set_job_status, suspected_duplicates,
+    set_job_status, suspected_duplicates, tracker_jobs,
 )
 
 DEFAULT_DB = "data/jobs.db"
@@ -123,6 +123,11 @@ def create_app(
     def stats():
         with db() as conn:
             return dashboard_stats(conn)
+
+    @app.get("/api/tracker")
+    def tracker():
+        with db() as conn:
+            return tracker_jobs(conn)
 
     @app.get("/api/classifications")
     def classifications():
