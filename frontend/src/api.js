@@ -17,6 +17,7 @@ export const patchStatus = (id, status) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   }).then(json);
+export const fetchTracker = () => fetch("/api/tracker").then(json);
 export const fetchDuplicates = () => fetch("/api/duplicates").then(json);
 export const fetchStats = () => fetch("/api/stats").then(json);
 export const startRefresh = () => fetch("/api/refresh", { method: "POST" }).then(json);
