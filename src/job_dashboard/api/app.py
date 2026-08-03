@@ -10,8 +10,8 @@ from job_dashboard.api.letter_routes import build_letter_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
-    dashboard_stats, init_db, job_detail, query_jobs, set_job_status,
-    suspected_duplicates,
+    dashboard_stats, distinct_classification_values, init_db, job_detail, query_jobs,
+    set_job_status, suspected_duplicates,
 )
 
 DEFAULT_DB = "data/jobs.db"
@@ -81,12 +81,14 @@ def create_app(
 
     @app.get("/api/jobs")
     def list_jobs(q: str = None, remote: bool = None, job_type: str = None,
-                  source: str = None, status: str = None, min_score: float = None,
+                  source: str = None, industry: str = None, company_type: str = None,
+                  status: str = None, min_score: float = None,
                   include_dismissed: bool = False, sort: str = "embed",
                   limit: int = 50, offset: int = 0):
         with db() as conn:
             jobs, total = query_jobs(
                 conn, q=q, remote=remote, job_type=job_type, source=source,
+                industry=industry, company_type=company_type,
                 status=status, min_score=min_score,
                 include_dismissed=include_dismissed, sort=sort,
                 limit=limit, offset=offset,
@@ -121,6 +123,11 @@ def create_app(
     def stats():
         with db() as conn:
             return dashboard_stats(conn)
+
+    @app.get("/api/classifications")
+    def classifications():
+        with db() as conn:
+            return distinct_classification_values(conn)
 
     state = RefreshState()
     runner = pipeline_runner or default_pipeline_runner
