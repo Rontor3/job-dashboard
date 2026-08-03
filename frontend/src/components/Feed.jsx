@@ -52,6 +52,20 @@ export default function Feed({ jobs, selectedId, onSelect }) {
               <div className="meta" style={{ color: "var(--ink-soft)" }}>
                 {j.company} · {j.location || "—"} · {j.posted_date || ""} · {j.source}
               </div>
+              {(j.industry || j.company_type) ? (
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  {j.industry && (
+                    <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>{j.industry}</span>
+                  )}
+                  {j.company_type && (
+                    <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>{j.company_type}</span>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-faint)" }}>Unclassified</span>
+                </div>
+              )}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

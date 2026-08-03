@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { CheckIcon } from "./icons.jsx";
 
 const ACTIVE_CHIP = { background: "var(--green)", color: "#FFFFFF" };
@@ -12,6 +12,15 @@ const CHIPS = [
 const SOURCES = ["", "remotive", "remoteok", "weworkremotely", "himalayas", "jobspy:linkedin", "jobspy:indeed"];
 
 export default function FilterBar({ filters, setFilters }) {
+  const [classifications, setClassifications] = useState({ industries: [], company_types: [] });
+
+  useEffect(() => {
+    fetch("/api/classifications")
+      .then((r) => r.json())
+      .then((d) => setClassifications({ industries: d.industries || [], company_types: d.company_types || [] }))
+      .catch(() => {});
+  }, []);
+
   const toggle = (key, value = true) =>
     setFilters((f) => {
       const next = { ...f };
@@ -101,6 +110,50 @@ export default function FilterBar({ filters, setFilters }) {
         >
           {SOURCES.map((s) => (
             <option key={s} value={s}>{s === "" ? "all sources" : s}</option>
+          ))}
+        </select>
+      </label>
+      <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 6, alignItems: "center" }}>
+        Industry
+        <select
+          aria-label="Filter by industry"
+          value={filters.industry ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            setFilters((f) => {
+              const next = { ...f };
+              if (!value) delete next.industry;
+              else next.industry = value;
+              return next;
+            });
+          }}
+          style={{ border: "1px solid var(--hairline)", background: "var(--card)", color: "var(--ink-soft)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
+        >
+          <option value="">All industries</option>
+          {classifications.industries.map((i) => (
+            <option key={i} value={i}>{i}</option>
+          ))}
+        </select>
+      </label>
+      <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 6, alignItems: "center" }}>
+        Company-type
+        <select
+          aria-label="Filter by company type"
+          value={filters.company_type ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            setFilters((f) => {
+              const next = { ...f };
+              if (!value) delete next.company_type;
+              else next.company_type = value;
+              return next;
+            });
+          }}
+          style={{ border: "1px solid var(--hairline)", background: "var(--card)", color: "var(--ink-soft)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
+        >
+          <option value="">All types</option>
+          {classifications.company_types.map((t) => (
+            <option key={t} value={t}>{t}</option>
           ))}
         </select>
       </label>
