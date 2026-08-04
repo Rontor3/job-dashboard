@@ -268,3 +268,26 @@ def test_generate_without_layout_still_works(tmp_path, monkeypatch):
     assert result["resume_id"] == 8
     assert captured["block_ids"] == ["header-contact", "summary-main"]
     assert captured["layout"] is None
+
+
+def test_generate_with_unknown_layout_segment_id_returns_422(tmp_path):
+    """A `layout` entry referencing a segment_id that doesn't exist must
+    surface as a 422 (bad user input), not a bare 500. Exercises the real
+    (non-monkeypatched) generate_resume/`_resolve_layout` path — the
+    ValueError it raises happens in step (a), before any LaTeX rendering,
+    so no fake render_pdf/ats_check/fit_to_page is needed here."""
+    db_path = tmp_path / "t.db"
+    job_id = _seed_job(db_path)
+
+    app = create_app(db_path=str(db_path))
+    tc = TestClient(app)
+
+    body = {
+        "block_ids": [],
+        "accepted_rephrasings": [],
+        "layout": [{"segment_id": "does-not-exist"}],
+    }
+    resp = tc.post(f"/api/jobs/{job_id}/resume/generate", json=body)
+
+    assert resp.status_code == 422
+    assert "does-not-exist" in resp.json()["detail"]

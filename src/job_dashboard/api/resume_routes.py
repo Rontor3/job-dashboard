@@ -183,6 +183,11 @@ def build_resume_router(
                         detail="install MacTeX — lualatex not found",
                     )
                 raise
+            except ValueError as exc:
+                # Bad user input (e.g. a `layout` entry referencing an
+                # unknown segment_id — see engine._resolve_layout) -> 422,
+                # not a 500. Same convention as app.py's patch_status.
+                raise HTTPException(status_code=422, detail=str(exc))
 
             # Convert ats_report to dict if it's a dataclass
             ats_report_dict = result["ats_report"]
