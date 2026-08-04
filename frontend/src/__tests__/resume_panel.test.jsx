@@ -3,41 +3,48 @@ import { vi, test, expect, beforeEach } from "vitest";
 import ResumePanel from "../components/ResumePanel.jsx";
 
 const SEGMENTS = [
-  { id: "exp", title: "Experience" },
-  { id: "edu", title: "Education" },
-  { id: "skills", title: "Skills" },
+  {
+    id: "exp1",
+    kind: "experience",
+    title: "Senior Engineer @ Acme",
+    tags: [],
+    bullets: ["Built scalable systems", "Led a team of 5"],
+  },
+  {
+    id: "skills1",
+    kind: "skills",
+    title: "Technical Skills",
+    tags: [],
+    bullets: ["Python, Go, Kubernetes"],
+  },
+  {
+    id: "proj1",
+    kind: "project",
+    title: "Side Project",
+    tags: [],
+    bullets: ["Built a thing"],
+  },
+  {
+    id: "edu1",
+    kind: "education",
+    title: "Education",
+    tags: [],
+    bullets: ["BS Computer Science"],
+  },
 ];
 
 const SUGGESTION = {
-  block_ids: ["exp", "skills"],
+  block_ids: ["exp1", "skills1", "proj1"],
   rationale: "Strong match",
-  rephrasings: [
-    {
-      block_id: "exp",
-      original_text: "built ML models",
-      proposed_text: "architected and deployed production ML systems",
-      jd_keyword: "architected",
-      confidence: "equivalent",
-      needs_interview_prep: false,
-    },
-    {
-      block_id: "skills",
-      original_text: "Python",
-      proposed_text: "Python 3.10+",
-      jd_keyword: "python",
-      confidence: "exact-synonym",
-      needs_interview_prep: false,
-    },
-    {
-      block_id: "exp",
-      original_text: "led a team",
-      proposed_text: "orchestrated cross-functional initiatives",
-      jd_keyword: "leadership",
-      confidence: "transferable",
-      needs_interview_prep: true,
-    },
+  rephrasings: [],
+  gaps: [],
+};
+
+const ALTERNATIVES = {
+  alternatives: [
+    ["**Architected** scalable systems for 1M users"],
+    ["Owned platform reliability across 3 teams"],
   ],
-  gaps: [{ jd_keyword: "Kubernetes" }, { jd_keyword: "Docker" }],
 };
 
 const GENERATED = {
@@ -47,20 +54,9 @@ const GENERATED = {
     ats_score: 87,
     missing_keywords: ["k8s", "distributed-systems"],
   },
-  blocks_used: ["exp", "skills"],
+  blocks_used: ["exp1", "skills1", "proj1"],
   cut_lines: [],
-  interview_prep: [
-    {
-      block_id: "exp",
-      jd_keyword: "leadership",
-      proposed_text: "orchestrated cross-functional initiatives",
-    },
-    {
-      block_id: "skills",
-      jd_keyword: "python",
-      proposed_text: "Python 3.10+",
-    },
-  ],
+  interview_prep: [],
 };
 
 beforeEach(() => {
@@ -70,6 +66,12 @@ beforeEach(() => {
         ok: true,
         status: 200,
         json: () => Promise.resolve({ segments: SEGMENTS }),
+      });
+    if (String(url).includes("/resume/regenerate-block"))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(ALTERNATIVES),
       });
     if (String(url).includes("/resume/suggest"))
       return Promise.resolve({
@@ -87,72 +89,101 @@ beforeEach(() => {
   });
 });
 
+async function openEditor() {
+  render(<ResumePanel jobId={1} />);
+  fireEvent.click(screen.getByText(/Tailor resume/));
+  // Title appears twice (block card + live preview), so use getAllByText.
+  await waitFor(() =>
+    expect(screen.getAllByText("Senior Engineer @ Acme").length).toBeGreaterThan(0)
+  );
+}
+
 test("renders 'Tailor resume' button in idle state", () => {
   render(<ResumePanel jobId={1} />);
   expect(screen.getByText(/Tailor resume/)).toBeDefined();
 });
 
-test("suggests resume and renders suggested blocks", async () => {
+test("shows analyzing message in suggesting stage", () => {
   render(<ResumePanel jobId={1} />);
   fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => expect(screen.getByText("Resume blocks")).toBeDefined());
-  expect(screen.getByText("Experience")).toBeDefined();
+  expect(screen.getByText(/Analyzing job description/)).toBeDefined();
+});
+
+test("editor renders skills/experience/project blocks from mocked segments", async () => {
+  await openEditor();
   expect(screen.getByText("Skills")).toBeDefined();
+  expect(screen.getByText("Experience")).toBeDefined();
+  expect(screen.getByText("Projects")).toBeDefined();
+  // Titles appear twice each (block card + live preview).
+  expect(screen.getAllByText("Senior Engineer @ Acme").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Technical Skills").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Side Project").length).toBeGreaterThan(0);
+  // Non-editable kind (education) is not part of the block editor
+  expect(screen.queryByText("Education")).toBeNull();
 });
 
-test("suggested blocks are pre-checked", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => expect(screen.getByText("Resume blocks")).toBeDefined());
-  const checkboxes = screen.getAllByRole("checkbox");
-  // First checkbox is Experience (in suggested list)
-  expect(checkboxes[0].checked).toBe(true);
-  // Second checkbox is Skills (in suggested list)
-  expect(checkboxes[1].checked).toBe(true);
-  // Third checkbox would be for rephrasings, not in blocks
-});
+test("regenerate shows alternatives and keeps Original", async () => {
+  await openEditor();
+  // Render order follows kind grouping: Skills, Experience, Projects.
+  const regenBtn = screen.getAllByText("Regenerate", { selector: "button" })[0]; // Skills block
+  fireEvent.click(regenBtn);
 
-test("renders rephrasings with confidence tags", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
+  await waitFor(() => expect(screen.getByText("Alternative 1")).toBeDefined());
+  expect(screen.getByText("Alternative 2")).toBeDefined();
+  expect(screen.getByText("Original")).toBeDefined();
+
+  // Picking an alternative updates the active bullets shown in the block
+  fireEvent.click(screen.getByText("Alternative 1"));
   await waitFor(() =>
-    expect(screen.getByText("Keyword suggestions")).toBeDefined()
+    expect(screen.getAllByText(/Architected/).length).toBeGreaterThan(0)
   );
-  expect(screen.getByText(/architected and deployed/)).toBeDefined();
-  expect(screen.getByText("equivalent")).toBeDefined();
-  expect(screen.getByText("exact-synonym")).toBeDefined();
 });
 
-test("renders gap chips with amber styling", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => expect(screen.getByText("Gaps")).toBeDefined());
-  expect(screen.getByText(/Kubernetes/)).toBeDefined();
-  expect(screen.getByText(/Docker/)).toBeDefined();
+test("edit updates the preview", async () => {
+  await openEditor();
+  // Render order follows kind grouping: Skills, Experience, Projects.
+  const editButtons = screen.getAllByText("Edit", { selector: "button" });
+  fireEvent.click(editButtons[1]); // Experience block's Edit
+
+  const bulletsField = screen.getByLabelText("Block bullets");
+  fireEvent.change(bulletsField, { target: { value: "A brand new bullet point" } });
+  fireEvent.click(screen.getByText("Save", { selector: "button" }));
+
+  await waitFor(() =>
+    expect(screen.getAllByText(/A brand new bullet point/).length).toBeGreaterThan(0)
+  );
+  // Preview section reflects the update too
+  expect(screen.getByText("Preview")).toBeDefined();
 });
 
-test("toggling blocks updates checkedBlocks", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
-  const checkboxes = screen.getAllByRole("checkbox");
-  const expCheckbox = checkboxes[0]; // Experience is first
-  fireEvent.click(expCheckbox);
-  expect(expCheckbox.checked).toBe(false);
-  fireEvent.click(expCheckbox);
-  expect(expCheckbox.checked).toBe(true);
+test("add creates a blank block in edit mode", async () => {
+  await openEditor();
+  fireEvent.click(screen.getByText("+ add project"));
+
+  const titleField = screen.getByLabelText("Block title");
+  expect(titleField.value).toBe("");
+  fireEvent.change(titleField, { target: { value: "New Project" } });
+  const bulletsField = screen.getByLabelText("Block bullets");
+  fireEvent.change(bulletsField, { target: { value: "Shipped a new feature" } });
+  fireEvent.click(screen.getByText("Save", { selector: "button" }));
+
+  await waitFor(() =>
+    expect(screen.getAllByText("New Project").length).toBeGreaterThan(0)
+  );
+  expect(screen.getAllByText(/Shipped a new feature/).length).toBeGreaterThan(0);
 });
 
-test("generate calls generateResume with blockIds and acceptedRephrasings", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
+test("delete removes a block", async () => {
+  await openEditor();
+  // Render order follows kind grouping: Skills, Experience, Projects.
+  const deleteButtons = screen.getAllByText("Delete", { selector: "button" });
+  fireEvent.click(deleteButtons[1]); // deletes the Experience block
 
-  // Accept first rephrasing by clicking the first rephrasings checkbox (after block checkboxes)
-  const allCheckboxes = screen.getAllByRole("checkbox");
-  // allCheckboxes[0] and [1] are block checkboxes, [2] onwards are rephrasing checkboxes
-  fireEvent.click(allCheckboxes[2]); // first rephrasing checkbox (rep-0)
+  await waitFor(() => expect(screen.queryByText("Senior Engineer @ Acme")).toBeNull());
+});
 
+test("generate POSTs a body containing layout", async () => {
+  await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
   await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
 
@@ -161,114 +192,62 @@ test("generate calls generateResume with blockIds and acceptedRephrasings", asyn
   );
   expect(generateCall).toBeDefined();
   const body = JSON.parse(generateCall[1].body);
-  expect(body.block_ids).toContain("exp");
-  expect(body.block_ids).toContain("skills");
-  expect(body.accepted_rephrasings).toBeDefined();
-  expect(body.accepted_rephrasings).toHaveLength(1);
-  // Assert specific rephrasing content: the first one (equivalent, "architected") should be accepted
-  expect(body.accepted_rephrasings[0]).toMatchObject({
-    block_id: "exp",
-    jd_keyword: "architected",
-    proposed_text: "architected and deployed production ML systems",
-    confidence: "equivalent",
+  expect(body.layout).toBeDefined();
+  expect(Array.isArray(body.layout)).toBe(true);
+  expect(body.layout.length).toBe(3);
+  // Untouched segment blocks generate as {segment_id}
+  expect(body.layout).toContainEqual({ segment_id: "exp1" });
+  expect(body.layout).toContainEqual({ segment_id: "skills1" });
+  expect(body.layout).toContainEqual({ segment_id: "proj1" });
+});
+
+test("edited block sends kind/title/bullets in layout instead of segment_id", async () => {
+  await openEditor();
+  // Render order follows kind grouping: Skills, Experience, Projects.
+  const editButtons = screen.getAllByText("Edit", { selector: "button" });
+  fireEvent.click(editButtons[1]); // Experience
+  fireEvent.change(screen.getByLabelText("Block bullets"), {
+    target: { value: "Edited bullet one" },
   });
-  // Assert the second rephrasing (exact-synonym, "python") is NOT accepted since we only clicked the first
-  expect(
-    body.accepted_rephrasings.some((r) => r.jd_keyword === "python")
-  ).toBe(false);
+  fireEvent.click(screen.getByText("Save", { selector: "button" }));
+  await waitFor(() => expect(screen.getAllByText(/Edited bullet one/).length).toBeGreaterThan(0));
+
+  fireEvent.click(screen.getByText(/Generate tailored resume/));
+  await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
+
+  const generateCall = global.fetch.mock.calls.find(([url]) =>
+    String(url).includes("/resume/generate")
+  );
+  const body = JSON.parse(generateCall[1].body);
+  expect(body.layout).toContainEqual({
+    kind: "experience",
+    title: "Senior Engineer @ Acme",
+    bullets: ["Edited bullet one"],
+  });
 });
 
 test("after generate, renders pdf link", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
+  await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
   await waitFor(() => expect(screen.getByText(/Download tailored resume/)).toBeDefined());
   const link = screen.getByRole("link", { name: /Download tailored resume/ });
   expect(link.href).toBe(GENERATED.pdf_url);
 });
 
-test("after generate, renders ATS score", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
+test("after generate, renders ATS score and missing keywords", async () => {
+  await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
   await waitFor(() => expect(screen.getByText("87%")).toBeDefined());
   expect(screen.getByText(/ATS Score/)).toBeDefined();
-});
-
-test("after generate, renders missing keywords", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
-  fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText("k8s")).toBeDefined());
+  expect(screen.getByText("k8s")).toBeDefined();
   expect(screen.getByText("distributed-systems")).toBeDefined();
 });
 
-test("after generate, renders interview prep list", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
-  fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() =>
-    expect(
-      screen.getByText(/orchestrated cross-functional initiatives/),
-    ).toBeDefined()
-  );
-  expect(screen.getByText(/leadership/)).toBeDefined();
-  expect(screen.getByText(/python/)).toBeDefined();
-});
-
 test("Start over button goes back to idle", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
+  await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
   await waitFor(() => expect(screen.getByText(/Start over/)).toBeDefined());
   fireEvent.click(screen.getByText(/Start over/));
   await waitFor(() => expect(screen.queryByText(/ATS Score/)).toBeNull());
   expect(screen.getByText(/Tailor resume/)).toBeDefined();
-});
-
-test("transferable confidence rephrasing shows 'verify in interview' label", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() =>
-    expect(screen.getByText("Keyword suggestions")).toBeDefined()
-  );
-  // Assert that "verify in interview" label renders for transferable confidence
-  expect(screen.getByText(/verify in interview/)).toBeDefined();
-});
-
-test("accepts transferable rephrasing and verifies interview_prep in generated output", async () => {
-  render(<ResumePanel jobId={1} />);
-  fireEvent.click(screen.getByText(/Tailor resume/));
-  await waitFor(() => screen.getByText("Resume blocks"));
-
-  // Accept the transferable rephrasing (the third one, jd_keyword "leadership")
-  const allCheckboxes = screen.getAllByRole("checkbox");
-  // allCheckboxes[0] and [1] are block checkboxes, [2], [3], [4] are rephrasing checkboxes
-  fireEvent.click(allCheckboxes[4]); // third rephrasing checkbox (transferable one)
-
-  fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
-
-  // Verify the accepted_rephrasings contains the full transferable rephrasing object
-  const generateCall = global.fetch.mock.calls.find(([url]) =>
-    String(url).includes("/resume/generate")
-  );
-  const body = JSON.parse(generateCall[1].body);
-  expect(body.accepted_rephrasings).toHaveLength(1);
-  expect(body.accepted_rephrasings[0]).toMatchObject({
-    block_id: "exp",
-    jd_keyword: "leadership",
-    proposed_text: "orchestrated cross-functional initiatives",
-    confidence: "transferable",
-  });
-
-  // Verify interview_prep renders after generate
-  expect(screen.getByText(/Interview prep/)).toBeDefined();
-  expect(screen.getByText(/orchestrated cross-functional initiatives/)).toBeDefined();
-  expect(screen.getByText(/python/)).toBeDefined();
 });

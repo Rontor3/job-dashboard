@@ -27,11 +27,23 @@ export const fetchSegments = () =>
   fetch("/api/resume/segments").then(json).then((d) => d.segments || []);
 export const suggestResume = (id) =>
   fetch(`/api/jobs/${id}/resume/suggest`, { method: "POST" }).then(json);
-export const generateResume = (id, blockIds, acceptedRephrasings) =>
-  fetch(`/api/jobs/${id}/resume/generate`, {
+export const generateResume = (id, blockIds, acceptedRephrasings, layout) => {
+  const body = {
+    block_ids: blockIds || [],
+    accepted_rephrasings: acceptedRephrasings || [],
+  };
+  if (layout) body.layout = layout;
+  return fetch(`/api/jobs/${id}/resume/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ block_ids: blockIds, accepted_rephrasings: acceptedRephrasings }),
+    body: JSON.stringify(body),
+  }).then(json);
+};
+export const regenerateBlock = (id, body) =>
+  fetch(`/api/jobs/${id}/resume/regenerate-block`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
   }).then(json);
 export const fetchResumes = (id) => fetch(`/api/jobs/${id}/resumes`).then(json);
 
