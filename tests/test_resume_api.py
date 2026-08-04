@@ -100,6 +100,8 @@ def test_get_segments(client_with_fake_engine):
         assert "title" in seg
         assert "tags" in seg
         assert "exclusive_group" in seg
+        assert "bullets" in seg
+        assert isinstance(seg["bullets"], list)
 
 
 def test_suggest_blocks_success(client_with_fake_engine):

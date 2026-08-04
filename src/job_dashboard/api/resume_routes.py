@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from job_dashboard.db import get_resume, init_db, job_detail, resumes_for_job
 from job_dashboard.match.profile_text import compose_profile_text
 from job_dashboard.resume.ats import ats_check
+from job_dashboard.resume.custom_block import segment_bullets
 from job_dashboard.resume.engine import generate_resume, suggest_blocks
 from job_dashboard.resume.fit import fit_to_page
 from job_dashboard.resume.keyword_map import (
@@ -57,7 +58,7 @@ def build_resume_router(
 
     @router.get("/api/resume/segments")
     def list_segments():
-        """Return block manifest (id, kind, title, tags, exclusive_group)."""
+        """Return block manifest (id, kind, title, tags, exclusive_group, bullets)."""
         segments = load_segments()
         return {
             "segments": [
@@ -67,6 +68,7 @@ def build_resume_router(
                     "title": s.title,
                     "tags": s.tags,
                     "exclusive_group": s.exclusive_group,
+                    "bullets": segment_bullets(s.text),
                 }
                 for s in segments
             ]
