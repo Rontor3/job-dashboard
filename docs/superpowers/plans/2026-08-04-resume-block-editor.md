@@ -138,6 +138,15 @@ def test_unsupported_number_becomes_placeholder():
 def test_llm_failure_returns_empty_never_raises():
     def boom(p): raise RuntimeError("ollama down")
     assert regenerate_block("experience", "DS", ["x"], "jd", "prof", llm=boom) == []
+
+
+def test_unit_blind_number_not_grounded_by_different_unit():
+    # A "$20 stipend" in the source must NOT legitimize a fabricated "20%".
+    fake = lambda p: "1. Cut costs by 20% through automation"
+    alts = regenerate_block("experience", "DS", ["Received a $20 stipend"], "jd",
+                            "worked on cost projects", llm=fake, n=1)
+    flat = " ".join(alts[0]) if alts else ""
+    assert "20%" not in flat and "[add number]" in flat
 ```
 
 - [ ] **Step 2:** run → FAIL.
@@ -147,14 +156,21 @@ def test_llm_failure_returns_empty_never_raises():
 ```python
 import re
 
+# A number token INCLUDING its unit/context (leading currency, trailing % or
+# scale word) — so "20%" and "$20" are DIFFERENT tokens and one can't ground the
+# other. Grounding is unit-aware, not just bare-digit.
+_NUM_RE = re.compile(r"(?:[₹$€£]\s*)?\d[\d.,]*\s*(?:%|x|k|m|bn|cr|lpa|lakh|lakhs|million|billion)?", re.I)
+
+def _norm(tok):
+    return re.sub(r"[,\s]+", "", tok).lower().rstrip(".")
+
 def _supported_numbers(text):
-    return set(re.findall(r"\d[\d.,]*", text or ""))
+    return {_norm(m) for m in _NUM_RE.findall(text or "") if any(c.isdigit() for c in m)}
 
 def _ground_bullet(b, allowed):
     def repl(m):
-        return m.group(0) if m.group(0).replace(",", "") in allowed or m.group(0) in allowed else "[add number]"
-    # replace standalone numbers (incl % / currency-adjacent) not in allowed
-    return re.sub(r"\d[\d.,]*", repl, b)
+        return m.group(0) if _norm(m.group(0)) in allowed else "[add number]"
+    return _NUM_RE.sub(repl, b)
 
 def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2):
     try:
