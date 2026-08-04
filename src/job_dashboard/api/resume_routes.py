@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from job_dashboard.db import get_resume, init_db, job_detail, resumes_for_job
+from job_dashboard.match.profile_text import compose_profile_text
 from job_dashboard.resume.ats import ats_check
 from job_dashboard.resume.engine import generate_resume, suggest_blocks
 from job_dashboard.resume.fit import fit_to_page
@@ -19,13 +20,22 @@ from job_dashboard.resume.keyword_map import (
     GapKeyword, Rephrasing, extract_keywords, simple_deep_rank,
 )
 from job_dashboard.resume.render import render_pdf
-from job_dashboard.resume.resume_llm import extract_jd_keywords, make_ollama_llm
+from job_dashboard.resume.resume_llm import (
+    extract_jd_keywords, make_ollama_llm, regenerate_block,
+)
 from job_dashboard.resume.segments import load_segments
 
 
 class ResumeGenerateRequest(BaseModel):
     block_ids: list[str]
     accepted_rephrasings: list[dict] = []
+    layout: list[dict] | None = None
+
+
+class RegenerateBlockRequest(BaseModel):
+    kind: str
+    title: str
+    bullets: list[str]
 
 
 def build_resume_router(
@@ -164,6 +174,7 @@ def build_resume_router(
                         ats_check=ats_check,
                         fit_to_page=fit_to_page,
                         out_dir=out_dir,
+                        layout=body.layout,
                     )
             except RuntimeError as e:
                 if "lualatex not found" in str(e):
@@ -199,6 +210,35 @@ def build_resume_router(
                     )
                 raise
             return result
+
+    @router.post("/api/jobs/{job_id}/resume/regenerate-block")
+    def regenerate_resume_block(job_id: int, body: RegenerateBlockRequest):
+        """Regenerate alternative phrasings for one resume block. Never
+        500s on LLM issues — ``regenerate_block`` already returns ``[]``
+        safely on any failure (unreachable Ollama, malformed output, etc)."""
+        with db() as conn:
+            detail = job_detail(conn, job_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="job not found")
+
+        if resume_engine is None:
+            jd_text = detail["description"]
+            try:
+                profile_text = compose_profile_text().text
+            except Exception:
+                # Missing/empty candidate profile file -> regenerate with no
+                # profile context rather than 500ing; regenerate_block
+                # tolerates "" (same seam as letter_routes/apply_routes).
+                profile_text = ""
+            alternatives = regenerate_block(
+                body.kind, body.title, body.bullets, jd_text, profile_text,
+            )
+        else:
+            alternatives = resume_engine.regenerate_block(
+                job_id, body.kind, body.title, body.bullets
+            )
+
+        return {"alternatives": alternatives}
 
     @router.get("/api/jobs/{job_id}/resumes")
     def list_job_resumes(job_id: int):
