@@ -32,4 +32,7 @@ def test_feed_filters_by_industry(tmp_path):
 def test_classifications_endpoint(tmp_path):
     client = _app(tmp_path)
     r = client.get("/api/classifications")
-    assert r.json() == {"industries": ["BFSI"], "company_types": ["Product"]}
+    body = r.json()
+    assert body["industries"] == ["BFSI"]
+    assert body["company_types"] == ["Product"]
+    assert "sources" in body  # sources added for the dynamic Source filter
