@@ -297,3 +297,46 @@ def make_ollama_llm(
         return proposals
 
     return llm
+
+
+def _supported_numbers(text):
+    import re
+    return set(re.findall(r"\d[\d.,]*", text or ""))
+
+
+def _ground_bullet(b, allowed):
+    import re
+    def repl(m):
+        return m.group(0) if m.group(0).replace(",", "") in allowed or m.group(0) in allowed else "[add number]"
+    # replace standalone numbers (incl % / currency-adjacent) not in allowed
+    return re.sub(r"\d[\d.,]*", repl, b)
+
+
+def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2):
+    try:
+        import re
+        if llm is None:
+            from job_dashboard.letter.draft import make_default_llm
+            llm = make_default_llm()
+        prompt = (
+            f"Rewrite this resume block as {n} punchy alternatives tailored to the JD. "
+            "Each alternative: 1-3 bullets, **bold** key terms, keep only numbers that "
+            "already appear in the source; do NOT invent metrics.\n\n"
+            f"BLOCK ({kind}) {title}:\n" + "\n".join(f"- {b}" for b in bullets) +
+            f"\n\nJD:\n{(jd_text or '')[:1500]}\n\nCANDIDATE FACTS:\n{(profile_text or '')[:1200]}\n\n"
+            "Reply as:\n1. <bullet> / <bullet>\n2. <bullet> / <bullet>")
+        out = llm(prompt)
+        allowed = _supported_numbers(" ".join(bullets or []) + " " + (profile_text or ""))
+        alts = []
+        for line in re.split(r"\n(?=\d+[.)])", out if isinstance(out, str) else ""):
+            line = re.sub(r"^\s*\d+[.)]\s*", "", line).strip()
+            if not line:
+                continue
+            parts = [_ground_bullet(p.strip(), allowed) for p in re.split(r"\s*/\s*|\n", line) if p.strip()]
+            if parts:
+                alts.append(parts[:3])
+            if len(alts) >= n:
+                break
+        return alts
+    except Exception:
+        return []
