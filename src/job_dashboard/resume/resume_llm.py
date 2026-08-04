@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Callable
 
 from job_dashboard.resume.keyword_map import LlmProposal, extract_keywords
@@ -299,22 +300,28 @@ def make_ollama_llm(
     return llm
 
 
+# A number token INCLUDING its unit/context (leading currency, trailing % or
+# scale word) — so "20%" and "$20" are DIFFERENT tokens and one can't ground the
+# other. Grounding is unit-aware, not just bare-digit.
+_NUM_RE = re.compile(r"(?:[₹$€£]\s*)?\d[\d.,]*\s*(?:%|x|k|m|bn|cr|lpa|lakh|lakhs|million|billion)?", re.I)
+
+
+def _norm(tok):
+    return re.sub(r"[,\s]+", "", tok).lower().rstrip(".")
+
+
 def _supported_numbers(text):
-    import re
-    return set(re.findall(r"\d[\d.,]*", text or ""))
+    return {_norm(m) for m in _NUM_RE.findall(text or "") if any(c.isdigit() for c in m)}
 
 
 def _ground_bullet(b, allowed):
-    import re
     def repl(m):
-        return m.group(0) if m.group(0).replace(",", "") in allowed or m.group(0) in allowed else "[add number]"
-    # replace standalone numbers (incl % / currency-adjacent) not in allowed
-    return re.sub(r"\d[\d.,]*", repl, b)
+        return m.group(0) if _norm(m.group(0)) in allowed else "[add number]"
+    return _NUM_RE.sub(repl, b)
 
 
 def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2):
     try:
-        import re
         if llm is None:
             from job_dashboard.letter.draft import make_default_llm
             llm = make_default_llm()
