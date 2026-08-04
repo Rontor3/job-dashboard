@@ -85,7 +85,7 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack }) {
             ) : (
               <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>Ranking…</span>
             )}
-            <ScoreBadge value={j.embed_score} />
+            <ScoreBadge value={j.llm_score != null ? j.llm_score / 100 : j.embed_score} />
             {["saved","applied","interviewing","offer","rejected"].includes(j.status) ? null : (
               <button
                 onClick={(e) => { e.stopPropagation(); onTrack && onTrack(j.id); }}
