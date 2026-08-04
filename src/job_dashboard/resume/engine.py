@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from job_dashboard import db
+from job_dashboard.resume.custom_block import block_to_tex
 from job_dashboard.resume.keyword_map import (
     DeepRankFn,
     GapKeyword,
@@ -174,6 +175,57 @@ def _drop_conflicting_block_ids(block_ids: list[str], segments: list[Segment]) -
     return kept
 
 
+def _drop_conflicting_segments(blocks: list[Segment]) -> list[Segment]:
+    """Like ``_drop_conflicting_block_ids`` but operates directly on an
+    already-resolved ``Segment`` list (used by the ``layout`` path, where
+    custom blocks have no place in the segment library to look up by id):
+    the first occurrence (in ``blocks`` order) of each exclusive_group
+    wins, later ones sharing the group are dropped."""
+    seen_groups: set[str] = set()
+    kept: list[Segment] = []
+    for seg in blocks:
+        if seg.exclusive_group is not None:
+            if seg.exclusive_group in seen_groups:
+                continue
+            seen_groups.add(seg.exclusive_group)
+        kept.append(seg)
+    return kept
+
+
+def _resolve_layout(
+    layout: list[dict], segments: list[Segment], seg_by_id: dict[str, Segment]
+) -> list[Segment]:
+    """Build the ordered block list for the ``layout`` composition path:
+    fixed segments (header-contact, summary-main, education-*) present in
+    ``segments`` are prepended, then each layout entry is resolved to
+    either the existing Segment named by ``segment_id`` or a brand-new
+    custom Segment built from ``kind``/``title``/``bullets`` via
+    ``block_to_tex``."""
+    fixed_blocks: list[Segment] = []
+    if "header-contact" in seg_by_id:
+        fixed_blocks.append(seg_by_id["header-contact"])
+    if "summary-main" in seg_by_id:
+        fixed_blocks.append(seg_by_id["summary-main"])
+    fixed_blocks.extend(s for s in segments if s.id.startswith("education"))
+
+    mapped_blocks: list[Segment] = []
+    for i, entry in enumerate(layout):
+        if "segment_id" in entry:
+            sid = entry["segment_id"]
+            if sid not in seg_by_id:
+                raise ValueError(f"unknown segment_id: {sid!r}")
+            mapped_blocks.append(seg_by_id[sid])
+        else:
+            kind, title, bullets = entry["kind"], entry["title"], entry.get("bullets")
+            mapped_blocks.append(
+                Segment(
+                    id=f"custom-{i}", kind=kind, title=title, tags=[],
+                    tex_path=None, text=block_to_tex(kind, title, bullets),
+                )
+            )
+    return fixed_blocks + mapped_blocks
+
+
 def _drop_exclusive_group_losers(
     segments: list[Segment], scores: dict[str, float]
 ) -> list[Segment]:
@@ -259,6 +311,7 @@ def generate_resume(
     ats_check: Callable,
     fit_to_page: Callable,
     out_dir,
+    layout: list[dict] | None = None,
 ) -> dict:
     """Generate and save a tailored resume PDF. Steps run in this order:
     (a) enforce exclusive_group on block_ids, (b) apply accepted
@@ -266,13 +319,28 @@ def generate_resume(
     kind-aware compose), (d) kind-aware compose of the final surviving
     blocks, (e) render FINAL pdf, (f) ats_check the FINAL pdf,
     (g) db.save_resume.
+
+    When ``layout`` is given (an ordered list of ``{"segment_id": id}`` /
+    ``{"kind", "title", "bullets"}`` entries) it drives composition
+    INSTEAD of ``block_ids``: fixed segments (header-contact, summary-main,
+    education-*) present in ``segments`` are prepended, then each layout
+    entry is resolved to a real Segment (by id) or a new custom Segment
+    (via ``block_to_tex``) — see ``_resolve_layout``. The rest of the
+    pipeline, (b) through (g), is unchanged; rephrasings only apply to
+    real segments since custom blocks' synthetic ``custom-N`` ids never
+    match an accepted rephrasing's ``block_id``. The ``block_ids`` path
+    (the ``else`` below) is untouched.
     """
     out_dir = Path(out_dir)
     seg_by_id = {s.id: s for s in segments}
 
     # (a) exclusive_group enforcement on the caller-supplied selection.
-    kept_ids = _drop_conflicting_block_ids(block_ids, segments)
-    ordered_blocks = [seg_by_id[bid] for bid in kept_ids]
+    if layout is not None:
+        ordered_blocks = _resolve_layout(layout, segments, seg_by_id)
+        ordered_blocks = _drop_conflicting_segments(ordered_blocks)
+    else:
+        kept_ids = _drop_conflicting_block_ids(block_ids, segments)
+        ordered_blocks = [seg_by_id[bid] for bid in kept_ids]
 
     # (b) apply accepted rephrasings to block text.
     ordered_blocks = _apply_rephrasings(ordered_blocks, accepted_rephrasings)
