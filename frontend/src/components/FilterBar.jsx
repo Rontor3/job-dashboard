@@ -80,6 +80,28 @@ export default function FilterBar({ filters, setFilters }) {
         </select>
       </label>
       <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 6, alignItems: "center" }}>
+        Fit
+        <select
+          aria-label="Filter by fit"
+          value={filters.verdict ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            setFilters((f) => {
+              const next = { ...f };
+              if (!value) delete next.verdict;
+              else next.verdict = value;
+              return next;
+            });
+          }}
+          style={{ border: "1px solid var(--hairline)", background: "var(--card)", color: "var(--ink-soft)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
+        >
+          <option value="">all fits</option>
+          {["Strong Fit", "Good Fit", "Moderate Fit", "Weak Fit", "Poor Fit"].map((v) => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
+      </label>
+      <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 6, alignItems: "center" }}>
         Min score
         <input
           type="range"

@@ -336,10 +336,13 @@ _JOB_COLUMNS = ("id", "title", "company", "location", "job_url", "job_type",
 
 
 def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=None, company_type=None, status=None,
-               min_score=None, include_dismissed=False, sort="embed",
+               verdict=None, min_score=None, include_dismissed=False, sort="embed",
                limit=50, offset=0):
     where = ["j.duplicate_of IS NULL"]
     params = []
+    if verdict:
+        where.append("m.verdict = ?")
+        params.append(verdict)
     if q:
         where.append("(LOWER(j.title) LIKE ? OR LOWER(j.company) LIKE ?)")
         needle = f"%{q.lower()}%"
