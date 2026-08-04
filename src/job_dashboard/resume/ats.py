@@ -22,21 +22,54 @@ EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # a phone number from stray page numbers or dates.
 PHONE_RE = re.compile(r"(?:\+?\d[\d\-.\s()]{6,}\d)")
 
-# v1 salient-keyword tokenizer: lowercase words, drop stopwords + short
-# (<3 char) tokens. Deliberately simple — real keyword ranking is deferred
-# to a later deep-rank pass; this just measures raw JD/resume term overlap.
-STOPWORDS = {
-    "the", "and", "for", "with", "you", "your", "our", "are", "will",
-    "have", "has", "this", "that", "from", "who", "can", "job", "role",
-    "work", "team", "years", "year", "experience", "ability", "strong",
-    "using", "into", "about", "such", "than", "they", "them", "their",
-    "not", "all", "any", "able", "well", "including", "etc", "per",
-    "plus", "must", "should", "would", "could", "may", "also", "new",
-    "one", "two", "more", "most", "other", "some", "each", "which",
-    "what", "when", "where", "how", "why", "then", "there", "here",
-    "you'll", "we're", "we'll", "in", "is", "of", "to", "on", "as",
-    "an", "be", "or", "at", "by", "it", "we",
-}
+# ATS keyword matching works on real skills / tools / technologies — NOT
+# generic English. We match the JD and resume against a curated skills
+# vocabulary and report which JD skills the resume is missing. This mirrors
+# how real ATS keyword filters behave (they scan for role-relevant terms),
+# instead of the old "every non-stopword word is a keyword" noise.
+SKILL_VOCAB = (
+    # multi-word first (matched independently, but grouped for readability)
+    "machine learning", "deep learning", "natural language processing",
+    "computer vision", "reinforcement learning", "time series",
+    "large language models", "generative ai", "retrieval augmented generation",
+    "prompt engineering", "feature engineering", "a/b testing",
+    "predictive modeling", "statistical modeling", "causal inference",
+    "data pipeline", "data pipelines", "data warehouse", "data warehousing",
+    "vector database", "model deployment", "distributed systems",
+    "power bi", "google cloud", "rest api", "ci/cd", "unit testing",
+    "recommendation systems", "anomaly detection", "data analysis",
+    "fine-tuning", "fine tuning",
+    # languages
+    "python", "sql", "scala", "java", "c++", "c#", "golang", "rust", "julia",
+    "sas", "matlab", "bash", "javascript", "typescript", "ruby", "kotlin", "r",
+    # ml / data libs & frameworks
+    "tensorflow", "pytorch", "keras", "scikit-learn", "sklearn", "pandas",
+    "numpy", "scipy", "xgboost", "lightgbm", "catboost", "spark", "pyspark",
+    "hadoop", "hive", "dask", "huggingface", "transformers", "langchain",
+    "spacy", "nltk", "opencv", "flask", "django", "fastapi",
+    # genai / mlops / cloud
+    "llm", "genai", "rag", "embeddings", "mlops", "aws", "azure", "gcp",
+    "sagemaker", "databricks", "docker", "kubernetes", "k8s", "kubeflow",
+    "mlflow", "airflow", "terraform", "snowflake", "redshift", "bigquery",
+    # data stores & eng
+    "etl", "elt", "kafka", "dbt", "nosql", "mongodb", "postgresql", "postgres",
+    "mysql", "redis", "elasticsearch", "cassandra",
+    # bi / viz / other
+    "tableau", "looker", "matplotlib", "seaborn", "plotly", "excel", "git",
+    "microservices", "agile", "linux", "gpu", "cuda", "api",
+)
+
+
+def _skills_in(text: str) -> set[str]:
+    """Skills from the vocabulary that appear in ``text`` (bounded by
+    non-alphanumeric chars, so 'python' doesn't hit 'pythonic' and 'c++'/'ci/cd'
+    match despite punctuation)."""
+    low = (text or "").lower()
+    found = set()
+    for skill in SKILL_VOCAB:
+        if re.search(r"(?:^|[^a-z0-9+#/])" + re.escape(skill) + r"(?:[^a-z0-9+#/]|$)", low):
+            found.add(skill)
+    return found
 
 # Known section headers scanned for scramble-detection. This check is
 # order-agnostic — Skills-first / Summary-first resumes are valid layouts,
@@ -84,11 +117,6 @@ def _default_extract(pdf_path: Path) -> str:
     return result.stdout
 
 
-def _tokenize(text: str) -> set[str]:
-    words = re.findall(r"[A-Za-z][A-Za-z+#-]*", text.lower())
-    return {w for w in words if len(w) >= 3 and w not in STOPWORDS}
-
-
 def _contact_ok(text: str) -> bool:
     return bool(EMAIL_RE.search(text)) and bool(PHONE_RE.search(text))
 
@@ -127,13 +155,15 @@ def _reading_order_ok(text: str) -> bool:
 
 
 def _keyword_coverage(jd_text: str, resume_text: str) -> tuple[float, list[str]]:
-    salient = _tokenize(jd_text)
-    if not salient:
+    """Coverage of the JD's *skills* by the resume. Missing = real skills the JD
+    asks for that the resume doesn't mention (not generic English words)."""
+    jd_skills = _skills_in(jd_text)
+    if not jd_skills:
         return 1.0, []
-    resume_tokens = _tokenize(resume_text)
-    missing = salient - resume_tokens
-    coverage = (len(salient) - len(missing)) / len(salient)
-    return coverage, sorted(missing)[:20]
+    resume_skills = _skills_in(resume_text)
+    missing = jd_skills - resume_skills
+    coverage = (len(jd_skills) - len(missing)) / len(jd_skills)
+    return coverage, sorted(missing)[:15]
 
 
 def _garbled_warning(text: str) -> str | None:
