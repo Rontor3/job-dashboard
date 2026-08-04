@@ -155,6 +155,14 @@ def distinct_classification_values(conn):
     return {"industries": inds, "company_types": types}
 
 
+def distinct_sources(conn):
+    """Sources actually present in the (canonical) feed — for the Source filter."""
+    return [r[0] for r in conn.execute(
+        """SELECT DISTINCT source FROM jobs
+           WHERE duplicate_of IS NULL AND source IS NOT NULL AND source != ''
+           ORDER BY source""")]
+
+
 def get_sample_job_for_company(conn, company_key):
     """One representative (title, description, display_company) for a company key."""
     row = conn.execute(

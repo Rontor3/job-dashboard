@@ -131,8 +131,11 @@ def create_app(
 
     @app.get("/api/classifications")
     def classifications():
+        from job_dashboard.db import distinct_sources
         with db() as conn:
-            return distinct_classification_values(conn)
+            vals = distinct_classification_values(conn)
+            vals["sources"] = distinct_sources(conn)
+            return vals
 
     state = RefreshState()
     runner = pipeline_runner or default_pipeline_runner

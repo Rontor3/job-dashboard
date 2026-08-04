@@ -9,17 +9,25 @@ const CHIPS = [
   { key: "status", label: "Saved", value: "saved", on: ACTIVE_CHIP },
 ];
 
-const SOURCES = ["", "remotive", "remoteok", "weworkremotely", "himalayas", "jobspy:linkedin", "jobspy:indeed"];
+// Fallback only — the real list comes from /api/classifications (distinct
+// sources actually present in the feed, so naukri/wellfound show up too).
+const FALLBACK_SOURCES = ["remotive", "remoteok", "himalayas", "jobspy:linkedin", "jobspy:indeed"];
 
 export default function FilterBar({ filters, setFilters }) {
-  const [classifications, setClassifications] = useState({ industries: [], company_types: [] });
+  const [classifications, setClassifications] = useState({ industries: [], company_types: [], sources: [] });
 
   useEffect(() => {
     fetch("/api/classifications")
       .then((r) => r.json())
-      .then((d) => setClassifications({ industries: d.industries || [], company_types: d.company_types || [] }))
+      .then((d) => setClassifications({
+        industries: d.industries || [],
+        company_types: d.company_types || [],
+        sources: d.sources || [],
+      }))
       .catch(() => {});
   }, []);
+
+  const sourceOptions = ["", ...(classifications.sources.length ? classifications.sources : FALLBACK_SOURCES)];
 
   const toggle = (key, value = true) =>
     setFilters((f) => {
@@ -108,7 +116,7 @@ export default function FilterBar({ filters, setFilters }) {
           }}
           style={{ border: "1px solid var(--hairline)", background: "var(--card)", color: "var(--ink-soft)", borderRadius: 8, padding: "4px 8px", fontSize: 12 }}
         >
-          {SOURCES.map((s) => (
+          {sourceOptions.map((s) => (
             <option key={s} value={s}>{s === "" ? "all sources" : s}</option>
           ))}
         </select>
