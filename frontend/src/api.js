@@ -92,3 +92,13 @@ export const saveApplication = (id, body) =>
     body: JSON.stringify(body),
   }).then(json);
 export const fetchApplication = (id) => fetch(`/api/jobs/${id}/application`).then(json);
+
+export const hiringPosts = () =>
+  fetch("/api/hiring/posts").then((r) => r.json());
+export const refreshHiring = () =>
+  fetch("/api/hiring/refresh", { method: "POST" }).then(async (r) => {
+    if (!r.ok) throw new Error((await r.json()).detail || "refresh failed");
+    return r.json();
+  });
+export const dismissHiring = (id) =>
+  fetch(`/api/hiring/posts/${id}/dismiss`, { method: "POST" }).then((r) => r.json());
