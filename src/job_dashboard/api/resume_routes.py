@@ -28,7 +28,7 @@ from job_dashboard.resume.segments import load_segments
 
 
 class ResumeGenerateRequest(BaseModel):
-    block_ids: list[str]
+    block_ids: list[str] = []  # optional: a layout-only request needs no block_ids
     accepted_rephrasings: list[dict] = []
     layout: list[dict] | None = None
 
