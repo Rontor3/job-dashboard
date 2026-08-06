@@ -32,6 +32,16 @@ def test_list_orders_by_fit_and_filters_window(tmp_path):
     assert [r["url"] for r in rows] == ["u2", "u1"]  # u3 filtered out, sorted by fit
 
 
+def test_dismissed_survives_reupsert(tmp_path):
+    # A re-fetched post the user already dismissed must stay hidden.
+    conn = init_db(str(tmp_path / "t.db"))
+    now = datetime.now(timezone.utc).isoformat()
+    upsert_hiring_post(conn, _post("https://li/posts/1", 0.5, now))
+    dismiss_hiring_post(conn, hiring_posts(conn, within_hours=24)[0]["id"])
+    upsert_hiring_post(conn, _post("https://li/posts/1", 0.9, now))  # same url, re-fetched
+    assert hiring_posts(conn, within_hours=24) == []  # still hidden
+
+
 def test_dismiss_hides_post(tmp_path):
     conn = init_db(str(tmp_path / "t.db"))
     now = datetime.now(timezone.utc).isoformat()
