@@ -29,13 +29,19 @@ These cookies authenticate the browser without login automation. They expire rou
 
 When you click **Refresh** on the Hiring Signals tab:
 
-1. A real Chrome browser window opens (not headless)
-2. The browser sends a `GET` request to LinkedIn's `linkedin.com/voyager` endpoint with your cookies
+1. A real Chrome window opens. The Refresh flow runs **headful** (a visible
+   window) so it looks like a normal browser and clears LinkedIn's bot check —
+   raw HTTP does not work, which is why we drive a real browser. (Only the
+   automated `tests/test_hiring_live.py` runs headless.)
+2. The browser loads `linkedin.com`, injects your `li_at`/`JSESSIONID` cookies,
+   and reloads so it is logged in as you (no password, no login automation).
 3. For each keyword (e.g., "hiring ML engineer"), the browser:
-   - Searches LinkedIn's hiring signals API
-   - Scrapes post HTML using BeautifulSoup
-   - Extracts: URL, poster name, headline, text, posted timestamp
-4. Posts are deduplicated by URL and stored in the database with a 24-hour window
+   - Navigates the **content-search** page with the **past-24h** filter
+   - Scrolls a few times with randomized human-paced delays to load posts
+   - Scrapes the rendered post HTML with BeautifulSoup — URL, poster name,
+     headline, text, posted timestamp
+4. Posts are deduplicated by URL, ranked against your profile, and stored with a
+   24-hour window
 5. The browser window closes
 
 Total time: ~2–3 minutes for a full refresh across all keywords.
