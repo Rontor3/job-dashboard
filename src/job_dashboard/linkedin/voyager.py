@@ -8,7 +8,9 @@ never touch the network.
 from __future__ import annotations
 
 import json
+import re
 import ssl
+import urllib.parse
 import urllib.request
 
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -73,3 +75,48 @@ class VoyagerClient:
 
     def me(self):
         return self._get_json(f"{self.BASE}/voyager/api/me")
+
+    _QID_RE = re.compile(r"voyagerSearchDashClusters\.[0-9a-f]{6,}")
+
+    def _get_text(self, url):
+        status, body = self._fetch(url, self.headers)
+        if status in (301, 302, 401, 403):
+            raise LinkedInAuthError(
+                "LinkedIn cookie expired — re-paste li_at/JSESSIONID from your browser"
+            )
+        if status == 429:
+            raise LinkedInRateLimit("LinkedIn rate-limited the request — try again later")
+        if status != 200:
+            raise RuntimeError(f"LinkedIn returned HTTP {status}")
+        return body
+
+    def resolve_search_query_id(self):
+        if getattr(self, "_query_id", None):
+            return self._query_id
+        page = self._get_text(
+            f"{self.BASE}/search/results/content/"
+            "?keywords=hiring&origin=FACETED_SEARCH"
+        )
+        m = self._QID_RE.search(page)
+        if not m:
+            raise RuntimeError(
+                "could not resolve search queryId — LinkedIn markup changed"
+            )
+        self._query_id = m.group(0)
+        return self._query_id
+
+    def search_posts(self, keyword, *, date_posted="past-24h", count=20):
+        query_id = self.resolve_search_query_id()
+        kw = urllib.parse.quote(keyword)
+        variables = (
+            f"(start:0,origin:FACETED_SEARCH,query:(keywords:{kw},"
+            "flagshipSearchIntent:SEARCH_SRP,"
+            "queryParameters:List("
+            "(key:resultType,value:List(CONTENT)),"
+            f"(key:datePosted,value:List({date_posted}))"
+            "),includeFiltersInResponse:false))"
+        )
+        url = (f"{self.BASE}/voyager/api/graphql"
+               f"?variables={variables}&queryId={query_id}")
+        data = self._get_json(url)
+        return list(data.get("included") or [])
