@@ -27,6 +27,20 @@ def test_parses_one_valid_card():
     assert "5h" in (p["posted_at"] or "")
 
 
+def test_relative_fallback_url_is_made_absolute():
+    # A card with no data-urn but a relative permalink href must yield an
+    # absolute URL so the "View on LinkedIn" link isn't broken.
+    html = """
+    <div data-view-name="feed-full-update">
+      <span class="update-components-actor__title"><span>Sam Roe</span></span>
+      <a href="/feed/update/urn:li:activity:999/">permalink</a>
+      <div class="update-components-text">Hiring a data scientist</div>
+    </div>"""
+    posts = parse_posts_html(html)
+    assert len(posts) == 1
+    assert posts[0]["url"].startswith("https://www.linkedin.com/feed/update/")
+
+
 def test_garbage_html_returns_empty_never_raises():
     assert parse_posts_html("") == []
     assert parse_posts_html("<html><body>nothing</body></html>") == []

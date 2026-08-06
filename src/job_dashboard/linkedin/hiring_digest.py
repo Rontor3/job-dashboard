@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 
 from job_dashboard.db import upsert_hiring_post
+from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.match.embedder import cosine
 
 KEYWORDS = [
@@ -61,7 +62,17 @@ def run_digest(conn, fetcher, keywords, profile_text, *,
     for kw in keywords:
         if on_progress:
             on_progress(kw)
-        for d in (fetcher.search_posts(kw) or []):
+        try:
+            found = fetcher.search_posts(kw) or []
+        except LinkedInAuthError:
+            # Expired cookies won't recover mid-run — abort so the API can
+            # surface the re-paste message.
+            raise
+        except Exception:  # noqa: BLE001
+            # A transient per-keyword browser error must not discard the posts
+            # already gathered from other keywords — skip this keyword.
+            continue
+        for d in found:
             post = to_hiring_post(d, kw)
             if post is None or post.url in by_url:
                 continue

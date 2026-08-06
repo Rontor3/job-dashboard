@@ -37,6 +37,38 @@ def test_rank_post_cosine_range():
     assert 0.0 <= rank_post("post", m.encode(["profile"])[0], m) <= 1.0
 
 
+def test_run_digest_skips_flaky_keyword_but_keeps_others(tmp_path):
+    # A transient per-keyword browser error must not discard posts already
+    # gathered from other keywords.
+    conn = init_db(str(tmp_path / "t.db"))
+
+    class FlakyFetcher:
+        def search_posts(self, keyword, **kw):
+            if keyword == "boom":
+                raise RuntimeError("transient WebDriverException")
+            return [DICT_OK]
+
+    out = run_digest(conn, FlakyFetcher(), ["hiring ML engineer", "boom"],
+                     "profile text", embed_model=FakeModel(),
+                     fetched_at="2026-08-06T00:00:00+00:00")
+    assert len(hiring_posts(conn, within_hours=24)) == 1   # good keyword survived
+    assert isinstance(out, list)
+
+
+def test_run_digest_aborts_on_auth_error(tmp_path):
+    from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
+    import pytest
+    conn = init_db(str(tmp_path / "t.db"))
+
+    class DeadFetcher:
+        def search_posts(self, keyword, **kw):
+            raise LinkedInAuthError("expired")
+
+    with pytest.raises(LinkedInAuthError):
+        run_digest(conn, DeadFetcher(), ["hiring ML engineer"], "p",
+                   embed_model=FakeModel(), fetched_at="2026-08-06T00:00:00+00:00")
+
+
 def test_run_digest_dedups_and_stores(tmp_path):
     conn = init_db(str(tmp_path / "t.db"))
     f = FakeFetcher()

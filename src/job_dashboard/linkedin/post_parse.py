@@ -6,6 +6,8 @@ rendered HTML). Never raises; a card missing url or text is skipped.
 """
 from __future__ import annotations
 
+import urllib.parse
+
 from bs4 import BeautifulSoup
 
 _CARD_SELECTOR = "div[data-view-name='feed-full-update'], div.feed-shared-update-v2"
@@ -21,7 +23,10 @@ def _post_url(card):
         # canonical permalink form
         return f"https://www.linkedin.com/feed/update/{urn}/"
     a = card.select_one("a[href*='/feed/update/'], a[href*='/posts/']")
-    return a.get("href") if a and a.get("href") else None
+    href = a.get("href") if a and a.get("href") else None
+    # A relative href (/feed/update/...) would otherwise resolve against the
+    # dashboard origin in the "View on LinkedIn" link — make it absolute.
+    return urllib.parse.urljoin("https://www.linkedin.com", href) if href else None
 
 
 def _one(card) -> dict | None:
