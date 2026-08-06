@@ -18,6 +18,19 @@ from job_dashboard.env import load_env_file
 # request handler (company_research reads it lazily at call time).
 load_env_file()
 
-from job_dashboard.api.app import app  # noqa: E402  (import after env load, intentional)
+import os  # noqa: E402  (import after env load, intentional)
+
+from job_dashboard.api.app import create_app  # noqa: E402
+from job_dashboard.linkedin.browser_fetch import LinkedInBrowserFetcher  # noqa: E402
+from job_dashboard.match.embedder import load_default_model  # noqa: E402
+
+_li, _js = os.getenv("LINKEDIN_LI_AT"), os.getenv("LINKEDIN_JSESSIONID")
+_fetcher = LinkedInBrowserFetcher(_li, _js) if _li and _js else None
+try:
+    _model = load_default_model()
+except Exception:
+    _model = None
+
+app = create_app(hiring_fetcher=_fetcher, embed_model=_model)
 
 __all__ = ["app"]

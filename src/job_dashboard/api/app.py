@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from job_dashboard.api.apply_routes import build_apply_router
+from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
@@ -24,7 +25,7 @@ class StatusPatch(BaseModel):
 def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
-    screening_engine=None,
+    screening_engine=None, hiring_fetcher=None, embed_model=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -70,6 +71,7 @@ def create_app(
         build_resume_router(db_path, resume_engine, resume_llm, jd_keyword_extractor)
     )
     app.include_router(build_letter_router(db_path, letter_engine))
+    app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model))
 
     @contextmanager
     def db():
