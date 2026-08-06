@@ -48,13 +48,15 @@ def _one(card) -> dict | None:
 
 
 def parse_posts_html(html: str) -> list[dict]:
+    # Whole body guarded so the "never raise" invariant holds even for a
+    # pathological tree (e.g. a RecursionError during .select()).
     try:
         soup = BeautifulSoup(html or "", "html.parser")
+        out = []
+        for card in soup.select(_CARD_SELECTOR):
+            post = _one(card)
+            if post is not None:
+                out.append(post)
+        return out
     except Exception:  # noqa: BLE001
         return []
-    out = []
-    for card in soup.select(_CARD_SELECTOR):
-        post = _one(card)
-        if post is not None:
-            out.append(post)
-    return out
