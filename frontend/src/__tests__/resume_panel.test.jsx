@@ -226,6 +226,33 @@ test("edited block sends kind/title/bullets in layout instead of segment_id", as
   });
 });
 
+test("edited skills segment drops manifest title (label lives in bullets)", async () => {
+  await openEditor();
+  // Render order follows kind grouping: Skills, Experience, Projects.
+  const editButtons = screen.getAllByText("Edit", { selector: "button" });
+  fireEvent.click(editButtons[0]); // Skills
+  fireEvent.change(screen.getByLabelText("Block bullets"), {
+    target: { value: "**Python**, Go, Rust" },
+  });
+  fireEvent.click(screen.getByText("Save", { selector: "button" }));
+  await waitFor(() => expect(screen.getAllByText(/Go, Rust/).length).toBeGreaterThan(0));
+
+  fireEvent.click(screen.getByText(/Generate tailored resume/));
+  await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
+
+  const generateCall = global.fetch.mock.calls.find(([url]) =>
+    String(url).includes("/resume/generate")
+  );
+  const body = JSON.parse(generateCall[1].body);
+  // title is "" so block_to_tex won't prepend the manifest heading a second
+  // time on top of the **label** the bullets already carry.
+  expect(body.layout).toContainEqual({
+    kind: "skills",
+    title: "",
+    bullets: ["**Python**, Go, Rust"],
+  });
+});
+
 test("after generate, renders pdf link", async () => {
   await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));

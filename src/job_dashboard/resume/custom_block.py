@@ -10,11 +10,31 @@ _ESC = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$",
 
 _UNESCAPE = {v: k for k, v in _ESC.items()}
 
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+
 
 def escape_tex(s) -> str:
     out = []
     for ch in str(s or ""):
         out.append(_ESC.get(ch, ch))
+    return "".join(out)
+
+
+def _tex_inline(s) -> str:
+    """Escape LaTeX specials while converting ``**bold**`` markdown to
+    ``\\textbf{...}``. Bullet bodies pass through here so the impact-styled
+    ``**term**`` markup from regenerate — and the ``**label**`` a segment
+    bullet carries — render as real bold in the PDF instead of literal
+    asterisks. The ``\\textbf{}`` wrapper is emitted directly (not escaped);
+    only the surrounding/inner text is escaped. Never raises."""
+    s = str(s or "")
+    out = []
+    pos = 0
+    for m in _BOLD_RE.finditer(s):
+        out.append(escape_tex(s[pos:m.start()]))
+        out.append(rf"\textbf{{{escape_tex(m.group(1))}}}")
+        pos = m.end()
+    out.append(escape_tex(s[pos:]))
     return "".join(out)
 
 
@@ -32,16 +52,16 @@ def block_to_tex(kind, title, bullets) -> str:
     lead = escape_tex(title) if title else ""
     lines = []
     if k in ("project", "skills") and lead:
-        first = escape_tex(items[0])
+        first = _tex_inline(items[0])
         if k == "skills":
-            body = ", ".join(escape_tex(b) for b in items)
+            body = ", ".join(_tex_inline(b) for b in items)
             return rf"\item \textbf{{{lead}}}: {body}"
         lines.append(rf"\item \textbf{{{lead}}}: {first}")
         rest = items[1:]
     else:
         rest = items
     for b in rest:
-        lines.append(rf"\item {escape_tex(b)}")
+        lines.append(rf"\item {_tex_inline(b)}")
     return "\n".join(lines)
 
 
@@ -70,16 +90,19 @@ def segment_bullets(text: str) -> list[str]:
             # Match \textbf{...}: first, then \textbf{...}
             match = re.match(r"^\\textbf\{([^}]*)\}:\s*(.*)", part)
             if match:
-                # Keep both the title and the rest
+                # Keep the label as **bold** markdown so it round-trips: the
+                # editor renders it bold, and block_to_tex converts it back to
+                # \textbf{} on an edit (instead of the manifest title being
+                # prepended a second time — the double-heading bug).
                 title = match.group(1).strip()
                 rest = match.group(2).strip()
-                part = f"{title}: {rest}" if rest else title
+                part = f"**{title}**: {rest}" if rest else f"**{title}**"
             else:
                 match = re.match(r"^\\textbf\{([^}]*)\}\s*(.*)", part)
                 if match:
                     title = match.group(1).strip()
                     rest = match.group(2).strip()
-                    part = f"{title} {rest}" if rest else title
+                    part = f"**{title}** {rest}" if rest else f"**{title}**"
 
             # Unescape LaTeX codes
             # Order matters: process longer escapes first

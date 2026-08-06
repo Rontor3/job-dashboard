@@ -172,13 +172,26 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
     });
   };
 
+  // Emit blocks grouped by kind (Skills → Experience → Projects) so the
+  // generated PDF's section order matches what the editor displays, not the
+  // relevance-score order the suggestion arrived in.
   const buildLayout = () =>
-    blocks.map((b) => {
-      if (b.source === "segment" && b.active === 0) {
-        return { segment_id: b.segment_id };
-      }
-      return { kind: b.kind, title: b.title, bullets: activeBulletsOf(b) };
-    });
+    KIND_ORDER.flatMap((kind) =>
+      blocks
+        .filter((b) => b.kind === kind)
+        .map((b) => {
+          if (b.source === "segment" && b.active === 0) {
+            return { segment_id: b.segment_id };
+          }
+          // A skills/project segment block carries its bold résumé label
+          // inside the bullets (**label**); sending the manifest title too
+          // would double the heading. Custom (added) and experience blocks
+          // keep their title.
+          const dropTitle =
+            b.source === "segment" && (b.kind === "skills" || b.kind === "project");
+          return { kind: b.kind, title: dropTitle ? "" : b.title, bullets: activeBulletsOf(b) };
+        })
+    );
 
   const handleGenerateClick = () => {
     if (blocks.length === 0) {

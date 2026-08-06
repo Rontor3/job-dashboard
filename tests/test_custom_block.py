@@ -18,6 +18,27 @@ def test_project_and_skills_lead_with_bold_title():
     assert r"\textbf{GenAI / LLM}" in skills and "RAG" in skills
 
 
+def test_block_to_tex_converts_markdown_bold():
+    """**bold** markup (from regenerate) becomes \\textbf{}, not literal *."""
+    tex = block_to_tex("experience", "DS", ["**Architected** fraud models: 30% recall"])
+    assert r"\textbf{Architected}" in tex
+    assert "**" not in tex
+    assert r"30\%" in tex  # numbers still escaped alongside the bold
+
+
+def test_block_to_tex_bold_inside_skills_body():
+    tex = block_to_tex("skills", "GenAI", ["**RAG**, LoRA"])
+    assert r"\textbf{GenAI}" in tex and r"\textbf{RAG}" in tex
+    assert "**" not in tex
+
+
+def test_segment_bullets_label_is_markdown_bold():
+    """The folded \\textbf{} label round-trips as **bold** so an edited block
+    keeps its heading bold without doubling it."""
+    bullets = segment_bullets(r"\item \textbf{GenAI / LLM}: RAG, LoRA")
+    assert bullets[0].startswith("**GenAI / LLM**")
+
+
 def test_never_raises_on_odd_input():
     assert isinstance(block_to_tex("experience", None, [None, "", "ok"]), str)
     assert block_to_tex("skills", "x", []) == "" or "\\item" not in block_to_tex("skills", "x", [])
