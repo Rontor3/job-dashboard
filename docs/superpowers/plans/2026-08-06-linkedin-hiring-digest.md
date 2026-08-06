@@ -4,556 +4,420 @@
 
 **Goal:** A daily digest of individual LinkedIn "who's hiring" posts for the candidate's target roles, in a separate "Hiring Signals" tab, limited to the last 24 hours and ranked against the candidate's profile.
 
-**Architecture:** A cookie-authenticated Voyager client (`linkedin/voyager.py`) auto-resolves LinkedIn's rotating search `queryId` at runtime and runs a content search per keyword with the past-24h filter. An orchestrator (`linkedin/hiring_digest.py`) parses, dedups, ranks (reusing `match/embedder.py`), and stores posts in a new `hiring_posts` table. A `/api/hiring/*` router (injectable client, like `resume_engine`) serves a new React "Hiring Signals" tab.
+**Architecture:** Raw-HTTP against LinkedIn is bot-walled (Cloudflare JS challenge), so a **Selenium-driven real Chrome** — authenticated with the candidate's own `li_at`/`JSESSIONID` cookies — loads each keyword's content-search page (past-24h), scrolls with human-paced random delays, and hands the rendered HTML to a pure BeautifulSoup parser. An orchestrator dedups, ranks (reusing `match/embedder.py`), and stores posts in a `hiring_posts` table. A `/api/hiring/*` router (injectable fetcher) serves a new React "Hiring Signals" tab.
 
-**Tech Stack:** Python 3.11, FastAPI, sqlite3, pytest; urllib (stdlib) for HTTP; sentence-transformers (existing); React + Vite + Vitest.
+**Tech Stack:** Python 3.11, FastAPI, sqlite3, pytest; **Selenium 4 + BeautifulSoup** for fetching/parsing; sentence-transformers (existing); React + Vite + Vitest.
 
 ## Global Constraints
 
 - Python 3.11, pytest; React/Vite/Vitest; every file under 500 lines.
-- Cookies (`LINKEDIN_LI_AT`, `LINKEDIN_JSESSIONID`) live in `.env` only — never logged, never committed, never sent anywhere except `www.linkedin.com`.
-- **Read-only, low-volume, no login automation, no writes to LinkedIn.**
-- **queryId is auto-resolved at runtime — never hardcoded.**
-- Cookie header: `li_at=<LI_AT>; JSESSIONID="<JSESSIONID>"` (quotes). csrf-token header: `<JSESSIONID>` **without** surrounding quotes (`env.py` strips them on load).
+- New deps: `selenium`, `beautifulsoup4` in `requirements.txt`; Chrome installed (Selenium 4 auto-manages the driver). `selenium` is imported **lazily** inside the default driver factory (like `embedder.load_default_model` lazily imports sentence-transformers), so importing/testing the modules needs neither Selenium nor a browser.
+- Cookies (`LINKEDIN_LI_AT`, `LINKEDIN_JSESSIONID`) live in `.env` only — never logged, never committed. `env.py` strips surrounding quotes on load.
+- **Read-only, human-paced, low-volume, no login automation, no writes to LinkedIn.** Randomized delays between actions; a few gentle scrolls; one search per keyword per manual refresh.
+- **All Selenium is behind an injectable `driver_factory`, and delays behind an injectable `sleep`**, so the whole suite runs with no browser and no network. Live paths are `skipif not os.getenv("LINKEDIN_LI_AT")`-guarded and run sparingly.
 - Pure functions take timestamps as inputs (`fetched_at`) — no hidden clock calls in engine logic.
-- All network access goes through an injectable `opener`/client seam so tests never hit the network. Live tests are guarded `skipif not os.getenv("LINKEDIN_LI_AT")`.
 - Reuse existing seams: `match/embedder.py` (`load_default_model`, `cosine`), `match/profile_text.py` (`compose_profile_text`), `env.py`, the ui-v2 `activeTab` tab shell, the `build_*_router(db_path, engine=None)` injected-engine API pattern.
+- Commits must NOT contain a `Co-Authored-By` trailer (repo rule).
 
 ---
 
-### Task 1: `hiring_posts` table + CRUD
+### Task 1: `hiring_posts` table + CRUD  ✅ DONE (commit 5c6c349)
+
+Implemented as `db_hiring.py` (`_ensure_hiring_posts_table`, `upsert_hiring_post`, `hiring_posts(within_hours=24)`, `dismiss_hiring_post`), re-exported from `db.py`. Dedup on `url`, 24h window on `fetched_at`, `dismissed` preserved across re-upsert. Tests in `tests/test_hiring_db.py` (4 pass). **No action needed** — later tasks import these from `job_dashboard.db`.
+
+---
+
+### Task 2: `post_parse.py` — rendered-HTML → post dicts (pure)
 
 **Files:**
-- Modify: `src/job_dashboard/db.py` (add `_ensure_hiring_posts_table`, call it in `init_db`, add CRUD)
-- Test: `tests/test_hiring_db.py`
+- Create: `src/job_dashboard/linkedin/post_parse.py`
+- Test: `tests/test_post_parse.py`
 
 **Interfaces:**
-- Consumes: `init_db(path)` (existing), `datetime`/`timezone` (already imported in db.py).
-- Produces:
-  - `upsert_hiring_post(conn, post: dict) -> None` — `post` has keys `url, poster_name, poster_headline, text, posted_at, keyword, fit_score, fetched_at`; dedup on `url` (ON CONFLICT updates fit_score/fetched_at/text, preserves `dismissed`).
-  - `hiring_posts(conn, within_hours: int = 24) -> list[dict]` — non-dismissed rows whose `fetched_at` is within `within_hours`, ordered `fit_score DESC`.
-  - `dismiss_hiring_post(conn, post_id: int) -> None`.
+- Consumes: `beautifulsoup4` only.
+- Produces: `parse_posts_html(html: str) -> list[dict]` — each dict `{url, poster_name, poster_headline, text, posted_at}`. Never raises; skips any card missing `url` or `text`.
+
+**Note on selectors:** LinkedIn's rendered markup is confirmed against real HTML in Task 3's live step. Implement against the structure in the fixture below; if Task 3 finds the real DOM differs, adjust selectors here and update the fixture. Invariant regardless: `parse_posts_html` never raises and drops cards missing url/text.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# tests/test_hiring_db.py
-from datetime import datetime, timezone, timedelta
-from job_dashboard.db import (
-    init_db, upsert_hiring_post, hiring_posts, dismiss_hiring_post,
-)
+# tests/test_post_parse.py
+from job_dashboard.linkedin.post_parse import parse_posts_html
+
+# Minimal shape mirroring a rendered content-search result card.
+FIXTURE = """
+<div data-view-name="feed-full-update" data-urn="urn:li:activity:12345">
+  <a class="update-components-actor__meta-link" href="https://www.linkedin.com/in/jane">
+    <span class="update-components-actor__title"><span>Jane Doe</span></span>
+    <span class="update-components-actor__description">Engineering Manager @ Acme</span>
+    <span class="update-components-actor__sub-description">5h • Edited</span>
+  </a>
+  <div class="update-components-text">We're hiring an ML Engineer! DM me.</div>
+</div>
+<div data-view-name="feed-full-update" data-urn="urn:li:activity:67890">
+  <div class="update-components-text">No actor/url here — should be skipped</div>
+</div>
+"""
 
 
-def _post(url, fit, fetched_at, **kw):
-    base = dict(url=url, poster_name="Jane Doe", poster_headline="Hiring Manager",
-               text="We are hiring an ML Engineer!", posted_at="2026-08-06",
-               keyword="hiring ML engineer", fit_score=fit, fetched_at=fetched_at)
-    base.update(kw)
-    return base
+def test_parses_one_valid_card():
+    posts = parse_posts_html(FIXTURE)
+    assert len(posts) == 1                      # second card missing url/name skipped
+    p = posts[0]
+    assert p["poster_name"] == "Jane Doe"
+    assert "ML Engineer" in p["text"]
+    assert p["url"].endswith("/activity:12345") or "12345" in p["url"]
+    assert "Acme" in p["poster_headline"]
+    assert "5h" in (p["posted_at"] or "")
 
 
-def test_upsert_dedups_on_url(tmp_path):
-    conn = init_db(str(tmp_path / "t.db"))
-    now = datetime.now(timezone.utc).isoformat()
-    upsert_hiring_post(conn, _post("https://li/posts/1", 0.5, now))
-    upsert_hiring_post(conn, _post("https://li/posts/1", 0.9, now))  # same url
-    rows = hiring_posts(conn, within_hours=24)
-    assert len(rows) == 1 and rows[0]["fit_score"] == 0.9
-
-
-def test_list_orders_by_fit_and_filters_window(tmp_path):
-    conn = init_db(str(tmp_path / "t.db"))
-    now = datetime.now(timezone.utc)
-    upsert_hiring_post(conn, _post("u1", 0.3, now.isoformat()))
-    upsert_hiring_post(conn, _post("u2", 0.8, now.isoformat()))
-    old = (now - timedelta(hours=48)).isoformat()
-    upsert_hiring_post(conn, _post("u3", 0.99, old))  # outside 24h window
-    rows = hiring_posts(conn, within_hours=24)
-    assert [r["url"] for r in rows] == ["u2", "u1"]  # u3 filtered out, sorted by fit
-
-
-def test_dismiss_hides_post(tmp_path):
-    conn = init_db(str(tmp_path / "t.db"))
-    now = datetime.now(timezone.utc).isoformat()
-    upsert_hiring_post(conn, _post("u1", 0.5, now))
-    pid = hiring_posts(conn, within_hours=24)[0]["id"]
-    dismiss_hiring_post(conn, pid)
-    assert hiring_posts(conn, within_hours=24) == []
+def test_garbage_html_returns_empty_never_raises():
+    assert parse_posts_html("") == []
+    assert parse_posts_html("<html><body>nothing</body></html>") == []
+    assert parse_posts_html("<div data-view-name='feed-full-update'></div>") == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `python3 -m pytest tests/test_hiring_db.py -v`
-Expected: FAIL with ImportError (functions not defined).
-
-- [ ] **Step 3: Add the table + CRUD to `db.py`**
-
-In `init_db`, next to `_ensure_company_classifications_table(conn)`, add `_ensure_hiring_posts_table(conn)`. Then add:
-
-```python
-def _ensure_hiring_posts_table(conn):
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS hiring_posts (
-               id               INTEGER PRIMARY KEY AUTOINCREMENT,
-               url              TEXT UNIQUE NOT NULL,
-               poster_name      TEXT,
-               poster_headline  TEXT,
-               text             TEXT,
-               posted_at        TEXT,
-               keyword          TEXT,
-               fit_score        REAL NOT NULL DEFAULT 0,
-               fetched_at       TEXT NOT NULL,
-               dismissed        INTEGER NOT NULL DEFAULT 0
-           )"""
-    )
-
-
-_HIRING_COLS = ("id", "url", "poster_name", "poster_headline", "text",
-                "posted_at", "keyword", "fit_score", "fetched_at", "dismissed")
-
-
-def upsert_hiring_post(conn, post):
-    conn.execute(
-        """INSERT INTO hiring_posts
-               (url, poster_name, poster_headline, text, posted_at,
-                keyword, fit_score, fetched_at)
-           VALUES (:url, :poster_name, :poster_headline, :text, :posted_at,
-                   :keyword, :fit_score, :fetched_at)
-           ON CONFLICT(url) DO UPDATE SET
-               text=excluded.text, fit_score=excluded.fit_score,
-               fetched_at=excluded.fetched_at, keyword=excluded.keyword""",
-        post,
-    )
-    conn.commit()
-
-
-def hiring_posts(conn, within_hours=24):
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=within_hours)).isoformat()
-    rows = conn.execute(
-        f"""SELECT {', '.join(_HIRING_COLS)} FROM hiring_posts
-            WHERE dismissed = 0 AND fetched_at >= ?
-            ORDER BY fit_score DESC, id DESC""",
-        (cutoff,),
-    ).fetchall()
-    return [dict(zip(_HIRING_COLS, r)) for r in rows]
-
-
-def dismiss_hiring_post(conn, post_id):
-    conn.execute("UPDATE hiring_posts SET dismissed = 1 WHERE id = ?", (post_id,))
-    conn.commit()
-```
-
-Ensure `from datetime import datetime, timezone, timedelta` — add `timedelta` if not already imported at the top of `db.py`.
-
-- [ ] **Step 4: Run tests to verify they pass**
-
-Run: `python3 -m pytest tests/test_hiring_db.py -v`
-Expected: 3 PASS.
-
-- [ ] **Step 5: Run the full backend suite (no regressions)**
-
-Run: `python3 -m pytest -q`
-Expected: all prior tests still pass.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/job_dashboard/db.py tests/test_hiring_db.py
-git commit -m "feat(db): hiring_posts table + CRUD (dedup on url, 24h window)"
-```
-
----
-
-### Task 2: Voyager client core (auth + headers)
-
-**Files:**
-- Create: `src/job_dashboard/linkedin/__init__.py` (empty)
-- Create: `src/job_dashboard/linkedin/voyager.py`
-- Test: `tests/test_voyager_client.py`
-
-**Interfaces:**
-- Consumes: nothing from earlier tasks.
-- Produces:
-  - `class LinkedInAuthError(RuntimeError)`
-  - `class LinkedInRateLimit(RuntimeError)`
-  - `VoyagerClient(li_at, jsessionid, *, fetch=None)` where `fetch(url, headers) -> (status:int, body:str)`; default uses urllib. Attributes: `.headers` (dict).
-  - `VoyagerClient.me() -> dict` (raises `LinkedInAuthError` on 302/401).
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-# tests/test_voyager_client.py
-import json
-import pytest
-from job_dashboard.linkedin.voyager import (
-    VoyagerClient, LinkedInAuthError,
-)
-
-
-def fake_fetch(responses):
-    """responses: list of (status, body); returns a fetch() recording calls."""
-    calls = []
-    def _fetch(url, headers):
-        calls.append((url, headers))
-        status, body = responses.pop(0)
-        return status, body
-    _fetch.calls = calls
-    return _fetch
-
-
-def test_csrf_token_is_jsessionid_without_quotes():
-    c = VoyagerClient("LIAT", 'ajax:99', fetch=lambda u, h: (200, "{}"))
-    assert c.headers["csrf-token"] == "ajax:99"
-    assert 'JSESSIONID="ajax:99"' in c.headers["Cookie"]
-    assert "li_at=LIAT" in c.headers["Cookie"]
-
-
-def test_me_returns_json_on_200():
-    body = json.dumps({"included": [{"firstName": "Rakshit", "lastName": "Singh"}]})
-    c = VoyagerClient("x", "ajax:1", fetch=fake_fetch([(200, body)]))
-    assert c.me()["included"][0]["firstName"] == "Rakshit"
-
-
-def test_me_raises_auth_error_on_302():
-    c = VoyagerClient("x", "ajax:1", fetch=fake_fetch([(302, "")]))
-    with pytest.raises(LinkedInAuthError):
-        c.me()
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `python3 -m pytest tests/test_voyager_client.py -v`
+Run: `python3 -m pytest tests/test_post_parse.py -v`
 Expected: FAIL (module not found).
 
-- [ ] **Step 3: Write `linkedin/voyager.py`**
+- [ ] **Step 3: Write `linkedin/post_parse.py`**
 
 ```python
-"""Cookie-authenticated LinkedIn Voyager client (read-only).
+"""Parse a rendered LinkedIn content-search page into post dicts.
 
-Uses the candidate's own browser session cookies (li_at, JSESSIONID) from .env
-to call LinkedIn's internal Voyager API. No writes, no login automation. Never
-logs cookie values. All HTTP goes through an injectable ``fetch`` seam so tests
-never touch the network.
+Pure BeautifulSoup — no browser, no network. This is where LinkedIn markup
+changes are absorbed (Task 3's live step verifies the selectors against real
+rendered HTML). Never raises; a card missing url or text is skipped.
 """
 from __future__ import annotations
 
-import json
-import ssl
-import urllib.request
+from bs4 import BeautifulSoup
 
-_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
-
-try:  # macOS python often lacks a usable default CA bundle
-    import certifi
-    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
-except Exception:  # noqa: BLE001
-    _SSL_CTX = ssl.create_default_context()
+_CARD_SELECTOR = "div[data-view-name='feed-full-update'], div.feed-shared-update-v2"
 
 
-class LinkedInAuthError(RuntimeError):
-    """Cookies missing/expired — the caller should tell the user to re-paste."""
+def _text(node):
+    return node.get_text(" ", strip=True) if node else ""
 
 
-class LinkedInRateLimit(RuntimeError):
-    """LinkedIn returned 429 — back off and try later."""
+def _post_url(card):
+    urn = card.get("data-urn") or ""
+    if "activity" in urn:
+        # canonical permalink form
+        return f"https://www.linkedin.com/feed/update/{urn}/"
+    a = card.select_one("a[href*='/feed/update/'], a[href*='/posts/']")
+    return a.get("href") if a and a.get("href") else None
 
 
-def _urllib_fetch(url, headers):
-    req = urllib.request.Request(url, headers=headers)
+def _one(card) -> dict | None:
     try:
-        with urllib.request.urlopen(req, timeout=30, context=_SSL_CTX) as r:
-            return r.status, r.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")
-
-
-class VoyagerClient:
-    BASE = "https://www.linkedin.com"
-
-    def __init__(self, li_at, jsessionid, *, fetch=None):
-        # env.py strips the surrounding quotes on load, so jsessionid is the
-        # bare ``ajax:...`` value here. csrf-token wants it bare; the Cookie
-        # header wants it re-quoted.
-        csrf = jsessionid.strip().strip('"')
-        self._fetch = fetch or _urllib_fetch
-        self.headers = {
-            "User-Agent": _UA,
-            "Accept": "application/vnd.linkedin.normalized+json+2.1",
-            "x-restli-protocol-version": "2.0.0",
-            "x-li-lang": "en_US",
-            "csrf-token": csrf,
-            "Cookie": f'li_at={li_at}; JSESSIONID="{csrf}"',
+        text = _text(card.select_one(
+            ".update-components-text, .feed-shared-inline-show-more-text, "
+            ".update-components-update-v2__commentary"))
+        name = _text(card.select_one(
+            ".update-components-actor__title, .update-components-actor__name"))
+        url = _post_url(card)
+        if not text or not name or not url:
+            return None
+        return {
+            "url": url,
+            "poster_name": name,
+            "poster_headline": _text(card.select_one(
+                ".update-components-actor__description")),
+            "text": text,
+            "posted_at": _text(card.select_one(
+                ".update-components-actor__sub-description")) or None,
         }
+    except Exception:  # noqa: BLE001 — parsing must never crash the digest
+        return None
 
-    def _get_json(self, url):
-        status, body = self._fetch(url, self.headers)
-        if status in (301, 302, 401, 403):
-            raise LinkedInAuthError(
-                "LinkedIn cookie expired — re-paste li_at/JSESSIONID from your browser"
-            )
-        if status == 429:
-            raise LinkedInRateLimit("LinkedIn rate-limited the request — try again later")
-        if status != 200:
-            raise RuntimeError(f"LinkedIn returned HTTP {status}")
-        try:
-            return json.loads(body)
-        except ValueError:
-            return {}
 
-    def me(self):
-        return self._get_json(f"{self.BASE}/voyager/api/me")
+def parse_posts_html(html: str) -> list[dict]:
+    try:
+        soup = BeautifulSoup(html or "", "html.parser")
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for card in soup.select(_CARD_SELECTOR):
+        post = _one(card)
+        if post is not None:
+            out.append(post)
+    return out
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `python3 -m pytest tests/test_voyager_client.py -v`
-Expected: 3 PASS.
+Run: `python3 -m pytest tests/test_post_parse.py -v`
+Expected: 2 PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/job_dashboard/linkedin/__init__.py src/job_dashboard/linkedin/voyager.py tests/test_voyager_client.py
-git commit -m "feat(linkedin): Voyager client core (cookie auth headers, me(), typed errors)"
+git add src/job_dashboard/linkedin/post_parse.py tests/test_post_parse.py
+git commit -m "feat(linkedin): parse rendered search HTML into post dicts (pure, never-raise)"
 ```
 
 ---
 
-### Task 3: queryId auto-resolve + `search_posts`
+### Task 3: `browser_fetch.py` — Selenium fetcher
 
 **Files:**
-- Modify: `src/job_dashboard/linkedin/voyager.py`
-- Test: `tests/test_voyager_search.py`
+- Create: `src/job_dashboard/linkedin/browser_fetch.py`
+- Test: `tests/test_browser_fetch.py`
 
 **Interfaces:**
-- Consumes: `VoyagerClient`, `LinkedInAuthError`, `LinkedInRateLimit` (Task 2).
+- Consumes: `parse_posts_html` (Task 2); `selenium` (lazy, only in the default driver factory).
 - Produces:
-  - `VoyagerClient.resolve_search_query_id() -> str` — fetches the authenticated content-search page, regex-extracts the current `voyagerSearchDashClusters.<hash>` id, caches on the instance. Raises `LinkedInAuthError` on redirect, `RuntimeError("could not resolve search queryId")` if none found.
-  - `VoyagerClient.search_posts(keyword, *, date_posted="past-24h", count=20) -> list[dict]` — returns the raw included objects from the GraphQL search response (unfiltered; parsing is Task 4).
+  - `class LinkedInAuthError(RuntimeError)`
+  - `class LinkedInBrowserFetcher(li_at, jsessionid, *, driver_factory=None, headless=False, max_scrolls=3, sleep=None)` with `.search_posts(keyword, *, date_posted="past-24h") -> list[dict]`.
 
-**⚠ Live-verification required:** this hits an undocumented, versioned endpoint. After the unit tests pass, the implementer MUST run one real search with the candidate's cookie (`.env` present) to confirm the regex + GraphQL variable encoding match live reality, and adjust the extraction (regex, `included` shape) if needed. Keep live requests to ≤3.
-
-- [ ] **Step 1: Write the failing test (network-free, fixtures)**
+- [ ] **Step 1: Write the failing test (fake driver — no browser)**
 
 ```python
-# tests/test_voyager_search.py
-import json
+# tests/test_browser_fetch.py
 import pytest
-from job_dashboard.linkedin.voyager import (
-    VoyagerClient, LinkedInAuthError, LinkedInRateLimit,
+from job_dashboard.linkedin.browser_fetch import (
+    LinkedInBrowserFetcher, LinkedInAuthError,
 )
 
-
-def seq_fetch(responses):
-    def _fetch(url, headers):
-        return responses.pop(0)
-    return _fetch
-
-
-PAGE_WITH_ID = (
-    '<html>...<script>queryId&quot;:&quot;voyagerSearchDashClusters.'
-    'abc123def456&quot;...</script></html>'
-)
+CARD = """
+<div data-view-name="feed-full-update" data-urn="urn:li:activity:1">
+  <span class="update-components-actor__title"><span>Jane Doe</span></span>
+  <span class="update-components-actor__description">EM @ Acme</span>
+  <div class="update-components-text">Hiring an ML Engineer!</div>
+</div>"""
 
 
-def test_resolve_query_id_extracts_from_page():
-    c = VoyagerClient("x", "ajax:1", fetch=seq_fetch([(200, PAGE_WITH_ID)]))
-    assert c.resolve_search_query_id() == "voyagerSearchDashClusters.abc123def456"
+class FakeDriver:
+    def __init__(self, page_source, current_url="https://www.linkedin.com/search/results/content/"):
+        self.page_source = page_source
+        self.current_url = current_url
+        self.calls = []
+    def get(self, url): self.calls.append(("get", url))
+    def add_cookie(self, c): self.calls.append(("cookie", c["name"]))
+    def execute_script(self, *a, **k): self.calls.append(("scroll",))
+    def quit(self): self.calls.append(("quit",))
 
 
-def test_resolve_query_id_auth_error_on_redirect():
-    c = VoyagerClient("x", "ajax:1", fetch=seq_fetch([(302, "")]))
+def _fetcher(driver):
+    return LinkedInBrowserFetcher(
+        "LIAT", "ajax:1",
+        driver_factory=lambda: driver,
+        sleep=lambda *_: None,          # no real delays in tests
+        max_scrolls=2,
+    )
+
+
+def test_search_returns_parsed_posts_and_injects_cookies():
+    d = FakeDriver(CARD)
+    posts = _fetcher(d).search_posts("hiring ML engineer")
+    assert len(posts) == 1 and posts[0]["poster_name"] == "Jane Doe"
+    # cookies injected and driver cleaned up
+    assert ("cookie", "li_at") in d.calls and ("cookie", "JSESSIONID") in d.calls
+    assert ("quit",) in d.calls
+
+
+def test_login_redirect_raises_auth_error():
+    d = FakeDriver("<html>Sign in</html>", current_url="https://www.linkedin.com/login")
     with pytest.raises(LinkedInAuthError):
-        c.resolve_search_query_id()
+        _fetcher(d).search_posts("hiring ML engineer")
+    assert ("quit",) in d.calls           # still cleaned up on error
 
 
-def test_search_posts_returns_included_objects():
-    search_body = json.dumps({"data": {}, "included": [
-        {"$type": "com.linkedin.voyager.dash.search.SearchFeedUpdate", "x": 1},
-        {"$type": "other", "y": 2},
-    ]})
-    # first response resolves the queryId, second is the search result
-    c = VoyagerClient("x", "ajax:1", fetch=seq_fetch([
-        (200, PAGE_WITH_ID), (200, search_body),
-    ]))
-    out = c.search_posts("hiring ML engineer")
-    assert isinstance(out, list) and len(out) == 2
-
-
-def test_search_posts_rate_limit():
-    c = VoyagerClient("x", "ajax:1", fetch=seq_fetch([(200, PAGE_WITH_ID), (429, "")]))
-    with pytest.raises(LinkedInRateLimit):
-        c.search_posts("hiring ML engineer")
+def test_driver_always_quit_even_if_parse_empty():
+    d = FakeDriver("<html>no cards</html>")
+    assert _fetcher(d).search_posts("x") == []
+    assert ("quit",) in d.calls
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `python3 -m pytest tests/test_voyager_search.py -v`
-Expected: FAIL (methods not defined).
+Run: `python3 -m pytest tests/test_browser_fetch.py -v`
+Expected: FAIL (module not found).
 
-- [ ] **Step 3: Add the methods to `voyager.py`**
-
-Add `import re` and `import urllib.parse` at the top. Add to `VoyagerClient`:
+- [ ] **Step 3: Write `linkedin/browser_fetch.py`**
 
 ```python
-    _QID_RE = re.compile(r"voyagerSearchDashClusters\.[0-9a-f]{6,}")
+"""Selenium-driven LinkedIn content-search fetcher (read-only).
 
-    def _get_text(self, url):
-        status, body = self._fetch(url, self.headers)
-        if status in (301, 302, 401, 403):
-            raise LinkedInAuthError(
-                "LinkedIn cookie expired — re-paste li_at/JSESSIONID from your browser"
-            )
-        if status == 429:
-            raise LinkedInRateLimit("LinkedIn rate-limited the request — try again later")
-        if status != 200:
-            raise RuntimeError(f"LinkedIn returned HTTP {status}")
-        return body
+Raw HTTP to LinkedIn is Cloudflare-bot-walled; a real Chrome executes the JS
+challenge and loads normally. We authenticate with the candidate's own cookies
+(no password, no login automation), navigate the content-search page per
+keyword, scroll with human-paced random delays, and parse the rendered HTML.
+Selenium is imported lazily so the module imports/tests without a browser.
+Never logs cookie values.
+"""
+from __future__ import annotations
 
-    def resolve_search_query_id(self):
-        if getattr(self, "_query_id", None):
-            return self._query_id
-        page = self._get_text(
-            f"{self.BASE}/search/results/content/"
-            "?keywords=hiring&origin=FACETED_SEARCH"
-        )
-        m = self._QID_RE.search(page)
-        if not m:
-            raise RuntimeError(
-                "could not resolve search queryId — LinkedIn markup changed"
-            )
-        self._query_id = m.group(0)
-        return self._query_id
+import random
+import time
+import urllib.parse
 
-    def search_posts(self, keyword, *, date_posted="past-24h", count=20):
-        query_id = self.resolve_search_query_id()
-        kw = urllib.parse.quote(keyword)
-        variables = (
-            f"(start:0,origin:FACETED_SEARCH,query:(keywords:{kw},"
-            "flagshipSearchIntent:SEARCH_SRP,"
-            "queryParameters:List("
-            "(key:resultType,value:List(CONTENT)),"
-            f"(key:datePosted,value:List({date_posted}))"
-            "),includeFiltersInResponse:false))"
-        )
-        url = (f"{self.BASE}/voyager/api/graphql"
-               f"?variables={variables}&queryId={query_id}")
-        data = self._get_json(url)
-        return list(data.get("included") or [])
+from job_dashboard.linkedin.post_parse import parse_posts_html
+
+_LOGIN_MARKERS = ("/login", "/authwall", "/checkpoint", "/uas/login")
+
+
+class LinkedInAuthError(RuntimeError):
+    """Cookies missing/expired — session landed on a login/authwall page."""
+
+
+def _default_driver_factory(headless: bool):
+    def factory():
+        from selenium import webdriver  # lazy: no selenium needed for unit tests
+        opts = webdriver.ChromeOptions()
+        if headless:
+            opts.add_argument("--headless=new")
+        opts.add_argument("--disable-blink-features=AutomationControlled")
+        opts.add_argument("--window-size=1280,900")
+        opts.add_argument(
+            "--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+        return webdriver.Chrome(options=opts)
+    return factory
+
+
+class LinkedInBrowserFetcher:
+    def __init__(self, li_at, jsessionid, *, driver_factory=None, headless=False,
+                 max_scrolls=3, sleep=None):
+        self._li_at = li_at
+        self._jsessionid = str(jsessionid).strip().strip('"')
+        self._driver_factory = driver_factory or _default_driver_factory(headless)
+        self._max_scrolls = max_scrolls
+        self._sleep = sleep or (lambda: time.sleep(random.uniform(2.0, 5.0)))
+
+    def _nap(self):
+        # tolerate both no-arg and value styles of injected sleep
+        try:
+            self._sleep()
+        except TypeError:
+            self._sleep(0)
+
+    def search_posts(self, keyword, *, date_posted="past-24h"):
+        driver = self._driver_factory()
+        try:
+            driver.get("https://www.linkedin.com")
+            for name, value in (("li_at", self._li_at),
+                                ("JSESSIONID", f'"{self._jsessionid}"')):
+                driver.add_cookie({"name": name, "value": value,
+                                   "domain": ".linkedin.com"})
+            self._nap()
+            kw = urllib.parse.quote(keyword)
+            driver.get(
+                "https://www.linkedin.com/search/results/content/"
+                f"?keywords={kw}&datePosted=%22{date_posted}%22&origin=FACETED_SEARCH")
+            self._nap()
+            if any(m in (driver.current_url or "") for m in _LOGIN_MARKERS):
+                raise LinkedInAuthError(
+                    "LinkedIn session expired — re-paste li_at/JSESSIONID from your browser")
+            for _ in range(self._max_scrolls):
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                self._nap()
+            return parse_posts_html(driver.page_source)
+        finally:
+            try:
+                driver.quit()
+            except Exception:  # noqa: BLE001
+                pass
 ```
 
 - [ ] **Step 4: Run unit tests to verify they pass**
 
-Run: `python3 -m pytest tests/test_voyager_search.py -v`
-Expected: 4 PASS.
+Run: `python3 -m pytest tests/test_browser_fetch.py -v`
+Expected: 3 PASS.
 
-- [ ] **Step 5: Live verification (cookie required)**
+- [ ] **Step 5: Live verification (Chrome + cookie required; run SPARINGLY)**
 
-Run a one-off from the repo root (needs `.env` with valid cookies):
+Only if Chrome + `selenium` are installed and `.env` has cookies. This opens a real browser window.
 
 ```bash
 python3 -c "
 import os, sys; sys.path.insert(0,'src')
 from job_dashboard.env import load_env_file; load_env_file('.env')
-from job_dashboard.linkedin.voyager import VoyagerClient
-c = VoyagerClient(os.environ['LINKEDIN_LI_AT'], os.environ['LINKEDIN_JSESSIONID'])
-print('queryId:', c.resolve_search_query_id())
-posts = c.search_posts('hiring ML engineer')
-print('raw included objects:', len(posts))
+from job_dashboard.linkedin.browser_fetch import LinkedInBrowserFetcher
+f = LinkedInBrowserFetcher(os.environ['LINKEDIN_LI_AT'], os.environ['LINKEDIN_JSESSIONID'])
+posts = f.search_posts('hiring ML engineer')
+print('posts parsed:', len(posts))
+if posts: print({k: (v[:60] if isinstance(v,str) else v) for k,v in posts[0].items()})
 "
 ```
-Expected: prints a `voyagerSearchDashClusters.<hash>` id and a non-negative count. **If it errors**, inspect the real response shape and adjust the regex / `variables` encoding / `included` handling until it returns objects, keeping to ≤3 live calls. Record what the real post objects look like (their `$type` and where commentary/actor live) in the commit message — Task 4 parsing depends on it.
+Expected: opens Chrome, lands logged-in on the search page, prints a post count and a sample. **If 0 posts but no error**, the selectors don't match the live DOM — inspect the rendered card markup, fix the selectors in `post_parse.py`, update its fixture/test, and re-run **once**. Do NOT loop many live runs. Record the real card structure in the report.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/job_dashboard/linkedin/voyager.py tests/test_voyager_search.py
-git commit -m "feat(linkedin): auto-resolve search queryId + content search_posts (live-verified)"
+git add src/job_dashboard/linkedin/browser_fetch.py tests/test_browser_fetch.py
+git commit -m "feat(linkedin): Selenium content-search fetcher (cookie auth, human-paced, injectable driver)"
 ```
 
 ---
 
-### Task 4: Digest orchestration (parse, rank, run)
+### Task 4: Digest orchestration (normalize, rank, run)
 
 **Files:**
 - Create: `src/job_dashboard/linkedin/hiring_digest.py`
 - Test: `tests/test_hiring_digest.py`
 
 **Interfaces:**
-- Consumes: `upsert_hiring_post` (Task 1); `VoyagerClient.search_posts` (Task 3); `cosine` from `match/embedder.py`.
-- Produces:
-  - `KEYWORDS: list[str]` (the 6 search phrases).
-  - `@dataclass HiringPost` with fields `url, poster_name, poster_headline, text, posted_at, keyword, fit_score`.
-  - `parse_post(raw: dict, keyword: str) -> HiringPost | None` — never raises.
-  - `rank_post(text: str, profile_vec, model) -> float`.
-  - `run_digest(conn, client, keywords, profile_text, *, embed_model=None, fetched_at, on_progress=None) -> list[HiringPost]`.
-
-**Note on `parse_post`:** the exact `raw` shape comes from Task 3's live verification. Implement against the documented shape below; if Task 3's commit recorded a different actual shape, adjust the field lookups and update the fixture in Step 1 to match the real objects. The invariant that MUST hold regardless: `parse_post` never raises and returns `None` when required fields are absent.
+- Consumes: `upsert_hiring_post` (from `job_dashboard.db`, Task 1); a fetcher with `.search_posts(keyword) -> list[dict]` (Task 3); `cosine` from `match/embedder.py`.
+- Produces: `KEYWORDS: list[str]`; `@dataclass HiringPost`; `to_hiring_post(d, keyword) -> HiringPost | None`; `rank_post(text, profile_vec, model) -> float`; `run_digest(conn, fetcher, keywords, profile_text, *, embed_model=None, fetched_at, on_progress=None) -> list[HiringPost]`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # tests/test_hiring_digest.py
 from job_dashboard.linkedin.hiring_digest import (
-    KEYWORDS, HiringPost, parse_post, rank_post, run_digest,
+    KEYWORDS, HiringPost, to_hiring_post, rank_post, run_digest,
 )
 from job_dashboard.db import init_db, hiring_posts
 
-
-RAW_OK = {
-    "actor": {"name": {"text": "Jane Doe"}, "description": {"text": "Eng Manager @ Acme"}},
-    "commentary": {"text": {"text": "We're hiring an ML Engineer! DM me."}},
-    "socialContent": {"shareUrl": "https://www.linkedin.com/posts/jane_1"},
-    "actorNavigationContext": {},
-}
+DICT_OK = {"url": "https://li/1", "poster_name": "Jane Doe",
+           "poster_headline": "EM @ Acme", "text": "Hiring an ML Engineer!",
+           "posted_at": "5h"}
 
 
 class FakeModel:
-    """encode([t]) -> [[len-based vec]] so cosine is deterministic in tests."""
     def encode(self, texts):
         return [[float(len(t)), 1.0] for t in texts]
 
 
-def test_keywords_are_role_specific():
+class FakeFetcher:
+    def __init__(self): self.seen = []
+    def search_posts(self, keyword, **kw):
+        self.seen.append(keyword)
+        return [DICT_OK]
+
+
+def test_keywords_role_specific():
     assert "hiring ML engineer" in KEYWORDS
-    assert all("machine learning" != k for k in KEYWORDS)  # no generic noise term
+    assert all(k != "machine learning" for k in KEYWORDS)
 
 
-def test_parse_post_ok():
-    p = parse_post(RAW_OK, "hiring ML engineer")
-    assert isinstance(p, HiringPost)
-    assert p.poster_name == "Jane Doe"
-    assert "ML Engineer" in p.text
-    assert p.url == "https://www.linkedin.com/posts/jane_1"
+def test_to_hiring_post_ok_and_bad():
+    p = to_hiring_post(DICT_OK, "hiring ML engineer")
+    assert isinstance(p, HiringPost) and p.url == "https://li/1"
+    assert to_hiring_post({"text": "no url"}, "k") is None
+    assert to_hiring_post({}, "k") is None
 
 
-def test_parse_post_missing_fields_returns_none():
-    assert parse_post({}, "k") is None
-    assert parse_post({"commentary": {}}, "k") is None  # no url
-
-
-def test_rank_post_is_cosine():
-    model = FakeModel()
-    pv = model.encode(["profile text"])[0]
-    score = rank_post("some post", pv, model)
-    assert 0.0 <= score <= 1.0
+def test_rank_post_cosine_range():
+    m = FakeModel()
+    assert 0.0 <= rank_post("post", m.encode(["profile"])[0], m) <= 1.0
 
 
 def test_run_digest_dedups_and_stores(tmp_path):
     conn = init_db(str(tmp_path / "t.db"))
-
-    class FakeClient:
-        def search_posts(self, keyword, **kw):
-            # same post surfaced by two keywords -> must dedup on url
-            return [RAW_OK]
-
-    posts = run_digest(conn, FakeClient(), ["hiring ML engineer", "hiring data scientist"],
-                       "profile text", embed_model=FakeModel(),
-                       fetched_at="2026-08-06T00:00:00+00:00")
+    f = FakeFetcher()
+    out = run_digest(conn, f, ["hiring ML engineer", "hiring data scientist"],
+                     "profile text", embed_model=FakeModel(),
+                     fetched_at="2026-08-06T00:00:00+00:00")
     stored = hiring_posts(conn, within_hours=24)
-    assert len(stored) == 1                       # deduped
-    assert stored[0]["poster_name"] == "Jane Doe"
-    assert isinstance(posts, list)
+    assert len(stored) == 1                       # same url from 2 keywords deduped
+    assert f.seen == ["hiring ML engineer", "hiring data scientist"]
+    assert isinstance(out, list)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -564,11 +428,9 @@ Expected: FAIL (module not found).
 - [ ] **Step 3: Write `linkedin/hiring_digest.py`**
 
 ```python
-"""Orchestrate the LinkedIn hiring-post digest: search -> parse -> rank -> store.
-
-Ranking reuses the profile embedding (match/embedder.cosine). Pure functions
-take ``fetched_at`` as input rather than reading the clock, matching the rest of
-the codebase.
+"""Orchestrate the LinkedIn hiring-post digest: fetch -> normalize -> rank ->
+store. Ranking reuses the profile embedding (match/embedder.cosine). Pure
+functions take ``fetched_at`` as input rather than reading the clock.
 """
 from __future__ import annotations
 
@@ -598,46 +460,30 @@ class HiringPost:
     fit_score: float = 0.0
 
 
-def _dig(d, *path):
-    cur = d
-    for key in path:
-        if not isinstance(cur, dict):
-            return None
-        cur = cur.get(key)
-    return cur
-
-
-def parse_post(raw, keyword):
-    """Map a raw Voyager search object to a HiringPost. Never raises."""
+def to_hiring_post(d, keyword):
+    """Normalize a fetched post dict into a HiringPost. Never raises."""
     try:
-        url = _dig(raw, "socialContent", "shareUrl") or _dig(raw, "shareUrl")
-        text = _dig(raw, "commentary", "text", "text") or _dig(raw, "commentary", "text")
-        name = _dig(raw, "actor", "name", "text")
+        url, text, name = d.get("url"), d.get("text"), d.get("poster_name")
         if not url or not text or not name:
             return None
         return HiringPost(
-            url=str(url),
-            poster_name=str(name),
-            poster_headline=str(_dig(raw, "actor", "description", "text") or ""),
-            text=str(text),
-            posted_at=_dig(raw, "actor", "subDescription", "text"),
-            keyword=keyword,
+            url=str(url), poster_name=str(name),
+            poster_headline=str(d.get("poster_headline") or ""),
+            text=str(text), posted_at=d.get("posted_at"), keyword=keyword,
         )
-    except Exception:  # noqa: BLE001 — parsing must never crash the digest
+    except Exception:  # noqa: BLE001
         return None
 
 
 def rank_post(text, profile_vec, model):
     try:
-        vec = model.encode([text])[0]
-        return float(cosine(profile_vec, vec))
+        return float(cosine(profile_vec, model.encode([text])[0]))
     except Exception:  # noqa: BLE001
         return 0.0
 
 
-def run_digest(conn, client, keywords, profile_text, *,
+def run_digest(conn, fetcher, keywords, profile_text, *,
                embed_model=None, fetched_at, on_progress=None):
-    """Search each keyword, parse+dedup+rank posts, store them. Returns ranked list."""
     model = embed_model
     profile_vec = model.encode([profile_text])[0] if model else None
 
@@ -645,8 +491,8 @@ def run_digest(conn, client, keywords, profile_text, *,
     for kw in keywords:
         if on_progress:
             on_progress(kw)
-        for raw in (client.search_posts(kw) or []):
-            post = parse_post(raw, kw)
+        for d in (fetcher.search_posts(kw) or []):
+            post = to_hiring_post(d, kw)
             if post is None or post.url in by_url:
                 continue
             if profile_vec is not None:
@@ -664,13 +510,13 @@ def run_digest(conn, client, keywords, profile_text, *,
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python3 -m pytest tests/test_hiring_digest.py -v`
-Expected: 5 PASS.
+Expected: 4 PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/job_dashboard/linkedin/hiring_digest.py tests/test_hiring_digest.py
-git commit -m "feat(linkedin): digest orchestration (parse/rank/dedup/store, KEYWORDS)"
+git commit -m "feat(linkedin): digest orchestration (normalize/rank/dedup/store, KEYWORDS)"
 ```
 
 ---
@@ -679,12 +525,12 @@ git commit -m "feat(linkedin): digest orchestration (parse/rank/dedup/store, KEY
 
 **Files:**
 - Create: `src/job_dashboard/api/hiring_routes.py`
-- Modify: `src/job_dashboard/api/app.py` (build + include the router)
+- Modify: `src/job_dashboard/api/app.py` (build + include), `src/job_dashboard/api/serve.py` (build the real fetcher from env)
 - Test: `tests/test_hiring_api.py`
 
 **Interfaces:**
-- Consumes: `run_digest`, `KEYWORDS` (Task 4); `hiring_posts`, `dismiss_hiring_post`, `init_db` (Task 1); `compose_profile_text` (`match/profile_text.py`); `VoyagerClient`, `LinkedInAuthError`, `LinkedInRateLimit` (Tasks 2-3); `load_default_model` (`match/embedder.py`).
-- Produces: `build_hiring_router(db_path, hiring_client=None, embed_model=None) -> APIRouter`.
+- Consumes: `run_digest`, `KEYWORDS` (Task 4); `hiring_posts`, `dismiss_hiring_post`, `init_db` (Task 1); `compose_profile_text` (`match/profile_text.py`); `LinkedInAuthError`, `LinkedInBrowserFetcher` (Task 3); `load_default_model` (`match/embedder.py`).
+- Produces: `build_hiring_router(db_path, hiring_fetcher=None, embed_model=None) -> APIRouter`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -693,85 +539,78 @@ git commit -m "feat(linkedin): digest orchestration (parse/rank/dedup/store, KEY
 from fastapi.testclient import TestClient
 from job_dashboard.api.app import create_app
 
-
-RAW_OK = {
-    "actor": {"name": {"text": "Jane Doe"}, "description": {"text": "EM @ Acme"}},
-    "commentary": {"text": {"text": "Hiring an ML Engineer!"}},
-    "socialContent": {"shareUrl": "https://li/posts/jane_1"},
-}
+DICT_OK = {"url": "https://li/1", "poster_name": "Jane Doe",
+           "poster_headline": "EM @ Acme", "text": "Hiring an ML Engineer!",
+           "posted_at": "5h"}
 
 
-class FakeClient:
-    def search_posts(self, keyword, **kw):
-        return [RAW_OK]
+class FakeFetcher:
+    def search_posts(self, keyword, **kw): return [DICT_OK]
 
 
 class FakeModel:
-    def encode(self, texts):
-        return [[float(len(t)), 1.0] for t in texts]
+    def encode(self, texts): return [[float(len(t)), 1.0] for t in texts]
 
 
-def _client(tmp_path):
+def _client(tmp_path, fetcher=None):
     db = str(tmp_path / "t.db")
-    app = create_app(db_path=db, hiring_client=FakeClient(), embed_model=FakeModel())
+    app = create_app(db_path=db, hiring_fetcher=fetcher or FakeFetcher(),
+                     embed_model=FakeModel())
     return TestClient(app)
 
 
 def test_refresh_then_list(tmp_path):
-    client = _client(tmp_path)
-    r = client.post("/api/hiring/refresh")
+    c = _client(tmp_path)
+    r = c.post("/api/hiring/refresh")
     assert r.status_code == 200 and r.json()["ranked"] >= 1
-    posts = client.get("/api/hiring/posts").json()["posts"]
-    assert posts[0]["poster_name"] == "Jane Doe"
-    assert posts[0]["url"] == "https://li/posts/jane_1"
+    posts = c.get("/api/hiring/posts").json()["posts"]
+    assert posts[0]["poster_name"] == "Jane Doe" and posts[0]["url"] == "https://li/1"
 
 
 def test_dismiss(tmp_path):
-    client = _client(tmp_path)
-    client.post("/api/hiring/refresh")
-    pid = client.get("/api/hiring/posts").json()["posts"][0]["id"]
-    assert client.post(f"/api/hiring/posts/{pid}/dismiss").status_code == 200
-    assert client.get("/api/hiring/posts").json()["posts"] == []
+    c = _client(tmp_path)
+    c.post("/api/hiring/refresh")
+    pid = c.get("/api/hiring/posts").json()["posts"][0]["id"]
+    assert c.post(f"/api/hiring/posts/{pid}/dismiss").status_code == 200
+    assert c.get("/api/hiring/posts").json()["posts"] == []
 
 
 def test_refresh_auth_error_returns_503(tmp_path):
-    from job_dashboard.linkedin.voyager import LinkedInAuthError
+    from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 
     class Dead:
         def search_posts(self, keyword, **kw):
-            raise LinkedInAuthError("expired")
+            raise LinkedInAuthError("LinkedIn session expired — re-paste ...")
 
-    db = str(tmp_path / "t.db")
-    app = create_app(db_path=db, hiring_client=Dead(), embed_model=FakeModel())
-    r = TestClient(app).post("/api/hiring/refresh")
+    c = _client(tmp_path, fetcher=Dead())
+    r = c.post("/api/hiring/refresh")
     assert r.status_code == 503 and "re-paste" in r.json()["detail"].lower()
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python3 -m pytest tests/test_hiring_api.py -v`
-Expected: FAIL (`create_app` has no `hiring_client` kwarg / route 404).
+Expected: FAIL (`create_app` has no `hiring_fetcher` kwarg / 404).
 
 - [ ] **Step 3: Write `api/hiring_routes.py`**
 
 ```python
-"""Hiring-digest API: refresh (search LinkedIn), list, dismiss. Kept in its own
-router to respect the 500-line cap; ``create_app`` includes it."""
+"""Hiring-digest API: refresh (Selenium search), list, dismiss. Own router to
+respect the 500-line cap; ``create_app`` includes it."""
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from job_dashboard.db import (
     init_db, hiring_posts as db_hiring_posts, dismiss_hiring_post,
 )
 from job_dashboard.linkedin.hiring_digest import KEYWORDS, run_digest
-from job_dashboard.linkedin.voyager import LinkedInAuthError, LinkedInRateLimit
+from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.match.profile_text import compose_profile_text
 
 
-def build_hiring_router(db_path, hiring_client=None, embed_model=None) -> APIRouter:
+def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None) -> APIRouter:
     router = APIRouter()
 
     @contextmanager
@@ -784,9 +623,9 @@ def build_hiring_router(db_path, hiring_client=None, embed_model=None) -> APIRou
 
     @router.post("/api/hiring/refresh")
     def refresh():
-        if hiring_client is None:
+        if hiring_fetcher is None:
             raise HTTPException(status_code=503,
-                                detail="LinkedIn client not configured — set cookies in .env")
+                                detail="LinkedIn fetcher not configured — set cookies in .env")
         try:
             profile_text = compose_profile_text().text
         except Exception:
@@ -794,14 +633,15 @@ def build_hiring_router(db_path, hiring_client=None, embed_model=None) -> APIRou
         try:
             with db() as conn:
                 ranked = run_digest(
-                    conn, hiring_client, KEYWORDS, profile_text,
+                    conn, hiring_fetcher, KEYWORDS, profile_text,
                     embed_model=embed_model,
                     fetched_at=datetime.now(timezone.utc).isoformat(),
                 )
         except LinkedInAuthError as e:
             raise HTTPException(status_code=503, detail=str(e))
-        except LinkedInRateLimit as e:
-            raise HTTPException(status_code=503, detail=str(e))
+        except Exception as e:  # browser/driver failure → clear 503, not a 500
+            raise HTTPException(status_code=503,
+                                detail=f"LinkedIn fetch failed: {e}")
         return {"ranked": len(ranked), "fetched": len(ranked)}
 
     @router.get("/api/hiring/posts")
@@ -818,30 +658,26 @@ def build_hiring_router(db_path, hiring_client=None, embed_model=None) -> APIRou
     return router
 ```
 
-- [ ] **Step 4: Wire it into `create_app`**
+- [ ] **Step 4: Wire into `create_app` and `serve.py`**
 
-In `src/job_dashboard/api/app.py`: import `build_hiring_router`; add `hiring_client=None, embed_model=None` params to `create_app`; near the other `include_router` calls add:
-
+`api/app.py`: import `build_hiring_router`; add `hiring_fetcher=None, embed_model=None` params to `create_app`; near the other `include_router` calls add:
 ```python
-    app.include_router(build_hiring_router(db_path, hiring_client, embed_model))
+    app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model))
 ```
 
-Then, so the real server gets a live client, in the server entry (`api/serve.py`, where `.env` is loaded) build the default client and pass it to `create_app`:
-
+`api/serve.py` (where `.env` is loaded): build the real fetcher + model and pass them in (adapt to the existing `create_app(...)` call — add only these two kwargs):
 ```python
     import os
-    from job_dashboard.linkedin.voyager import VoyagerClient
+    from job_dashboard.linkedin.browser_fetch import LinkedInBrowserFetcher
     from job_dashboard.match.embedder import load_default_model
-    li_at, jsess = os.getenv("LINKEDIN_LI_AT"), os.getenv("LINKEDIN_JSESSIONID")
-    hiring_client = VoyagerClient(li_at, jsess) if li_at and jsess else None
-    # embed_model is lazy/optional; load_default_model() may be heavy — load if available
+    _li, _js = os.getenv("LINKEDIN_LI_AT"), os.getenv("LINKEDIN_JSESSIONID")
+    hiring_fetcher = LinkedInBrowserFetcher(_li, _js) if _li and _js else None
     try:
         embed_model = load_default_model()
     except Exception:
         embed_model = None
-    app = create_app(db_path=..., hiring_client=hiring_client, embed_model=embed_model)
+    # ... create_app(db_path=..., hiring_fetcher=hiring_fetcher, embed_model=embed_model)
 ```
-(Adapt to the exact existing `serve.py` call — only add the two kwargs; do not change unrelated wiring.)
 
 - [ ] **Step 5: Run tests + full suite**
 
@@ -852,7 +688,7 @@ Expected: new tests PASS; no regressions.
 
 ```bash
 git add src/job_dashboard/api/hiring_routes.py src/job_dashboard/api/app.py src/job_dashboard/api/serve.py tests/test_hiring_api.py
-git commit -m "feat(api): /api/hiring refresh/list/dismiss (injectable client, auth error -> 503)"
+git commit -m "feat(api): /api/hiring refresh/list/dismiss (injectable fetcher, auth error -> 503)"
 ```
 
 ---
@@ -890,23 +726,21 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import HiringSignals from "../components/HiringSignals.jsx";
 
-const POSTS = {
-  posts: [
-    { id: 1, url: "https://li/posts/1", poster_name: "Jane Doe",
-      poster_headline: "EM @ Acme", text: "Hiring an ML Engineer!",
-      posted_at: "5h", keyword: "hiring ML engineer", fit_score: 0.82 },
-  ],
-};
+const POSTS = { posts: [
+  { id: 1, url: "https://li/1", poster_name: "Jane Doe", poster_headline: "EM @ Acme",
+    text: "Hiring an ML Engineer!", posted_at: "5h", keyword: "hiring ML engineer",
+    fit_score: 0.82 },
+]};
 
 beforeEach(() => {
-  global.fetch = vi.fn((url, opts) => {
+  global.fetch = vi.fn((url) => {
     if (String(url).includes("/refresh")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ ranked: 1 }) });
     if (String(url).includes("/dismiss")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) });
     return Promise.resolve({ ok: true, json: () => Promise.resolve(POSTS) });
   });
 });
 
-test("lists posts and shows poster + fit", async () => {
+test("lists posts with poster and blurb", async () => {
   render(<HiringSignals />);
   await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
   expect(screen.getByText(/Hiring an ML Engineer/)).toBeInTheDocument();
@@ -916,8 +750,7 @@ test("refresh triggers POST /refresh", async () => {
   render(<HiringSignals />);
   fireEvent.click(screen.getByText(/Refresh/i));
   await waitFor(() =>
-    expect(global.fetch.mock.calls.some(([u]) => String(u).includes("/refresh"))).toBe(true)
-  );
+    expect(global.fetch.mock.calls.some(([u]) => String(u).includes("/refresh"))).toBe(true));
 });
 
 test("dismiss removes the card", async () => {
@@ -1015,7 +848,7 @@ Import `HiringSignals`. Add a third `TabButton`:
 ```jsx
 <TabButton active={activeTab === "hiring"} onClick={() => setActiveTab("hiring")} label="Hiring Signals" />
 ```
-Extend the render branch (convert the two-way ternary to handle three tabs), e.g.:
+Extend the render branch to three tabs:
 ```jsx
 {activeTab === "hiring" ? (
   <HiringSignals />
@@ -1040,16 +873,23 @@ git commit -m "feat(ui): Hiring Signals tab (refresh/list/dismiss, fit badge, 24
 
 ---
 
-### Task 7: Runbook + live e2e + finish
+### Task 7: Deps + runbook + live e2e + finish
 
 **Files:**
+- Modify: `requirements.txt` (add `selenium`, `beautifulsoup4`)
 - Create: `docs/linkedin-hiring-runbook.md`
 - Test: `tests/test_hiring_live.py`
 
-**Interfaces:**
-- Consumes: everything above.
+- [ ] **Step 1: Add dependencies**
 
-- [ ] **Step 1: Write the guarded live e2e test**
+Append to `requirements.txt`:
+```
+selenium
+beautifulsoup4
+```
+Run: `pip3 install selenium beautifulsoup4` (and confirm Chrome is installed).
+
+- [ ] **Step 2: Write the guarded live e2e test**
 
 ```python
 # tests/test_hiring_live.py
@@ -1062,43 +902,43 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_live_search_returns_list():
-    from job_dashboard.linkedin.voyager import VoyagerClient
-    c = VoyagerClient(os.environ["LINKEDIN_LI_AT"], os.environ["LINKEDIN_JSESSIONID"])
-    assert c.me().get("included") is not None
-    posts = c.search_posts("hiring ML engineer")
-    assert isinstance(posts, list)  # >=0; real content varies day to day
+    from job_dashboard.linkedin.browser_fetch import LinkedInBrowserFetcher
+    f = LinkedInBrowserFetcher(os.environ["LINKEDIN_LI_AT"],
+                               os.environ["LINKEDIN_JSESSIONID"], headless=True)
+    posts = f.search_posts("hiring ML engineer")
+    assert isinstance(posts, list)   # >=0; content varies day to day
 ```
 
-- [ ] **Step 2: Run it with the cookie loaded**
+- [ ] **Step 3: Run it (opens a browser; run once)**
 
 ```bash
-python3 -c "import sys;sys.path.insert(0,'src');from job_dashboard.env import load_env_file;load_env_file('.env')" \
-  && LINKEDIN_LI_AT=$(python3 -c "import sys,os;sys.path.insert(0,'src');from job_dashboard.env import load_env_file;load_env_file('.env');print(os.environ['LINKEDIN_LI_AT'])") \
-     LINKEDIN_JSESSIONID=$(python3 -c "import sys,os;sys.path.insert(0,'src');from job_dashboard.env import load_env_file;load_env_file('.env');print(os.environ['LINKEDIN_JSESSIONID'])") \
-     python3 -m pytest tests/test_hiring_live.py -v
+LINKEDIN_LI_AT=$(python3 -c "import sys,os;sys.path.insert(0,'src');from job_dashboard.env import load_env_file;load_env_file('.env');print(os.environ.get('LINKEDIN_LI_AT',''))") \
+LINKEDIN_JSESSIONID=$(python3 -c "import sys,os;sys.path.insert(0,'src');from job_dashboard.env import load_env_file;load_env_file('.env');print(os.environ.get('LINKEDIN_JSESSIONID',''))") \
+python3 -m pytest tests/test_hiring_live.py -v
 ```
-Expected: PASS (or SKIP if cookie absent). Keep to a single run.
+Expected: PASS (or SKIP if no cookie / Selenium not installed). Run once — don't hammer LinkedIn.
 
-- [ ] **Step 3: Write `docs/linkedin-hiring-runbook.md`**
+- [ ] **Step 4: Write `docs/linkedin-hiring-runbook.md`**
 
-Document: (a) how to extract `li_at` + `JSESSIONID` from the browser (DevTools → Application → Cookies → linkedin.com; `JSESSIONID` includes the `ajax:` quotes); (b) the `.env` var names; (c) that it's read-only, personal, low-volume, and LinkedIn ToS discourages scraping — use responsibly; (d) cookies expire (~monthly) → the tab shows "session expired — re-paste"; (e) how to use: open the Hiring Signals tab, click Refresh. Keep under 120 lines.
+Document (under ~120 lines): (a) extract `li_at`+`JSESSIONID` from the browser (DevTools → Application → Cookies → linkedin.com); (b) `.env` var names; (c) install: `pip3 install selenium beautifulsoup4` + Chrome required; (d) how it works — a real Chrome window opens during Refresh, searches each keyword, closes; (e) it's **read-only, personal, human-paced, low-volume**; LinkedIn ToS discourages scraping — use responsibly, don't run unattended/24-7; over-use can soft-flag the session (clears itself); (f) cookies expire (~monthly) → the tab shows "session expired — re-paste"; (g) usage: open the Hiring Signals tab → Refresh (takes a couple minutes across all keywords).
 
-- [ ] **Step 4: Full suites + live dashboard smoke**
+- [ ] **Step 5: Full suites + dashboard smoke**
 
 Run: `python3 -m pytest -q` and (from `frontend/`) `npx vitest run`.
 Then start the server, open the Hiring Signals tab, click Refresh, confirm posts render (or a clear empty/expired state). Screenshot for the user.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add docs/linkedin-hiring-runbook.md tests/test_hiring_live.py
-git commit -m "docs+test: LinkedIn hiring runbook + guarded live e2e"
+git add requirements.txt docs/linkedin-hiring-runbook.md tests/test_hiring_live.py
+git commit -m "docs+deps: Selenium/bs4 deps + LinkedIn hiring runbook + guarded live e2e"
 ```
 
 ---
 
 ## Self-Review
 
-- **Spec coverage:** individual posts (Tasks 3-4) ✓; separate tab (Task 6) ✓; 24h window (Tasks 1,3) ✓; cookie auth + csrf rule (Task 2) ✓; auto-resolved queryId (Task 3) ✓; profile ranking (Task 4) ✓; dedup by url (Tasks 1,4) ✓; refresh/list/dismiss API (Task 5) ✓; expiry→clear message (Tasks 2,5,6) ✓; runbook + live e2e (Task 7) ✓; read-only/low-volume (Global Constraints) ✓.
-- **Type consistency:** `HiringPost` fields match the `hiring_posts` columns and the `upsert_hiring_post` dict keys (`url, poster_name, poster_headline, text, posted_at, keyword, fit_score` + `fetched_at` added in `run_digest`). `search_posts` return (list of raw dicts) feeds `parse_post`. `build_hiring_router(db_path, hiring_client, embed_model)` matches the `create_app` kwargs and the test's `create_app(...)` call.
-- **External-shape risk:** the raw post object shape (Task 4 `parse_post`) and the GraphQL variable encoding (Task 3) are confirmed by Task 3's live-verification step; the fixtures are adjusted to the real shape there, and `parse_post`'s never-raise invariant makes downstream robust regardless.
+- **Spec coverage:** real-browser fetch beating the bot wall (Tasks 2-3) ✓; separate tab (Task 6) ✓; 24h window (Tasks 1,3) ✓; cookie auth via Selenium, no login automation (Task 3) ✓; profile ranking (Task 4) ✓; dedup by url (Tasks 1,4) ✓; refresh/list/dismiss API (Task 5) ✓; expiry→clear message (Tasks 3,5,6) ✓; deps + runbook + live e2e (Task 7) ✓; human-paced/low-volume + injectable driver so tests need no browser (Global Constraints) ✓.
+- **Type consistency:** `parse_posts_html` returns `list[dict]{url,poster_name,poster_headline,text,posted_at}` → consumed by `LinkedInBrowserFetcher.search_posts` → `to_hiring_post` maps the same keys to `HiringPost` → `asdict(post) + fetched_at` matches `upsert_hiring_post`'s expected keys (from Task 1). `build_hiring_router(db_path, hiring_fetcher, embed_model)` matches the `create_app` kwargs and the test's `create_app(...)` call. The fetcher's `.search_posts(keyword)` interface is identical in Task 3 (produces), Task 4 (`run_digest` consumes), and Task 5 (fake fetcher).
+- **External-shape risk:** the live DOM selectors (`post_parse.py`) are verified in Task 3's live step and the fixtures adjusted to real rendered HTML; `parse_posts_html`/`to_hiring_post` never-raise invariants keep the pipeline robust regardless.
+- **Superseded:** the earlier Voyager HTTP client (old Tasks 2-3) is removed — raw HTTP is Cloudflare-bot-walled; ledger records the finding.

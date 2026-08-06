@@ -27,57 +27,81 @@ authenticate to LinkedIn's Voyager API (`GET /voyager/api/me` → 200).
 
 ## Data source & the cookie model
 
-LinkedIn exposes no official API for feed posts. We use the **unofficial
-Voyager API** (the same internal API the LinkedIn web app calls), authenticated
-with the candidate's own browser session cookies:
+LinkedIn exposes no official API for feed posts. We originally tried the
+unofficial **Voyager JSON API** with the candidate's session cookies, and it
+authenticated (`/voyager/api/me` → 200) — but LinkedIn fronts scripted HTTP
+with a **Cloudflare JavaScript bot-challenge** (`__cf_bm`): raw `urllib`/
+`requests` clients get 302-looped on both the HTML search pages *and* the search
+JSON endpoints, and repeated attempts soft-flag the session. A headless-plain-
+HTTP client is therefore **not viable** for search. (Auth-layer proof and the
+302 findings are recorded in the plan's ledger.)
+
+Instead we drive a **real Chrome browser via Selenium**, which executes the JS
+challenge like any human browser and sails past the bot wall. The candidate's
+own browser session cookies authenticate it:
 
 - `LINKEDIN_LI_AT` — the session token (~150–200 chars; **not** `ajax:`-prefixed)
 - `LINKEDIN_JSESSIONID` — the CSRF cookie (~25 chars, **`ajax:`-prefixed**)
 
-Both live in `.env` only (already git-ignored). Request construction:
-- **Cookie header:** `li_at=<LI_AT>; JSESSIONID="<JSESSIONID>"` (quotes required)
-- **csrf-token header:** `<JSESSIONID>` **without** surrounding quotes
-  (`env.py` already strips quotes on load)
+Both live in `.env` only (already git-ignored). The fetcher opens Chrome, visits
+`linkedin.com`, injects the two cookies, and reloads to land logged-in — **no
+password, no login automation** (the cookies do the auth).
 
-**Volume is deliberately tiny** — one search per keyword, once per manual
-refresh — to stay a well-behaved client. ToS discourages scraping; this is a
-personal, low-volume, read-only digest and the caveats are documented in the
-runbook.
+**Human-mimicry / low-volume discipline** (from the reference approach): one
+search per keyword per manual refresh, **randomized delays** (2–5 s) between
+actions, a few gentle scrolls to load posts, a hard **rate cap** (~2–3 posts/min
+of activity), and **never run unattended 24/7**. ToS discourages scraping; this
+is a personal, read-only, low-volume digest and the caveats live in the runbook.
 
 ## Architecture
 
 ```
-.env cookies ─▶ voyager.py (auth + auto-resolve queryId + content search)
-                     │  per keyword, datePosted = past-24h
+.env cookies ─▶ browser_fetch.py  (real Chrome via Selenium: inject cookies →
+                     │             navigate search → scroll w/ random delays →
+                     │             page_source) ── per keyword, "past-24h"
                      ▼
-             hiring_digest.py  ─ parse → normalize → dedup(url) → rank(profile) → store
+              post_parse.py  (BeautifulSoup: rendered DOM → post dicts)
+                     ▼
+             hiring_digest.py  ─ dict → HiringPost → dedup(url) → rank(profile) → store
                      ▼
              hiring_posts table ─▶ /api/hiring/* ─▶ "Hiring Signals" tab
 ```
 
-### `linkedin/voyager.py` — authenticated client
+### `linkedin/post_parse.py` — rendered-HTML parser (pure, testable)
 
 ```python
-class LinkedInAuthError(RuntimeError): ...   # cookie missing/expired → clear message
-
-class VoyagerClient:
-    def __init__(self, li_at: str, jsessionid: str, *, opener=None): ...
-    def me(self) -> dict: ...                          # auth probe (used by tests/health)
-    def resolve_search_query_id(self) -> str: ...      # AUTO-resolve current queryId
-    def search_posts(self, keyword: str, *, date_posted="past-24h",
-                     count=20) -> list[dict]: ...       # raw post objects
+def parse_posts_html(html: str) -> list[dict]:
+    """BeautifulSoup over a rendered search-results page → list of post dicts
+    {url, poster_name, poster_headline, text, posted_at}. Never raises; skips
+    cards missing url/text. Selectors target the feed post cards
+    (e.g. div[data-view-name='feed-full-update']) with defensive fallbacks."""
 ```
 
-- **Auto-resolves the current search `queryId` at runtime** (parse it from the
-  authenticated search page / bootstrap payload) and caches it for the run. No
-  hardcoded id — this self-heals when LinkedIn rotates the id, because the
-  candidate cannot fetch it manually each time.
-- A 302/401 response (unauthenticated) → raise `LinkedInAuthError(
-  "LinkedIn cookie expired — re-paste li_at/JSESSIONID from your browser")`
-  rather than returning empty silently.
-- A 429 → raise a clear rate-limit error (caller surfaces "try again later").
-- **Never logs cookie values.** Injectable `opener` seam so tests never hit
-  the network.
+Pure function → unit-tested with a fixture HTML snippet, no browser needed. This
+is where LinkedIn markup changes are absorbed.
+
+### `linkedin/browser_fetch.py` — Selenium fetcher
+
+```python
+class LinkedInAuthError(RuntimeError): ...  # cookies missing/expired / logged out
+
+class LinkedInBrowserFetcher:
+    def __init__(self, li_at: str, jsessionid: str, *, driver_factory=None,
+                 headless: bool = False, max_scrolls: int = 3, sleep=None): ...
+    def search_posts(self, keyword: str, *, date_posted="past-24h") -> list[dict]:
+        """Open Chrome, inject cookies, load the content-search URL for keyword,
+        scroll with randomized delays, return parse_posts_html(page_source)."""
+```
+
+- Launches a real Chrome (Selenium 4 auto-manages the driver). `driver_factory`
+  is injectable so tests pass a **fake driver** returning canned `page_source`
+  — no real browser in unit tests.
+- Injects the two cookies (visit `linkedin.com`, `add_cookie`, reload). If the
+  page lands on a login/authwall → raise `LinkedInAuthError("LinkedIn session
+  expired — re-paste li_at/JSESSIONID from your browser")`.
+- Randomized `sleep` (default `time.sleep(random 2–5 s)`, injectable to a no-op
+  in tests) between navigation and scrolls; closes the driver in a `finally`.
+- **Never logs cookie values.**
 
 ### `linkedin/hiring_digest.py` — orchestration
 
@@ -88,14 +112,16 @@ class HiringPost:
     text: str; posted_at: str | None; keyword: str
     fit_score: float
 
-def parse_post(raw: dict, keyword: str) -> HiringPost | None   # never raises → None on odd shape
-def rank_post(post: HiringPost, profile_vec, model) -> float   # cosine vs profile
-def run_digest(conn, client, keywords, profile_text, *,
-               embed_model=None, on_progress=None) -> list[HiringPost]
+def to_hiring_post(d: dict, keyword: str) -> HiringPost | None  # never raises → None on odd shape
+def rank_post(text: str, profile_vec, model) -> float          # cosine vs profile
+def run_digest(conn, fetcher, keywords, profile_text, *,
+               embed_model=None, fetched_at, on_progress=None) -> list[HiringPost]
 ```
 
-- For each keyword: `search_posts` → `parse_post` (drop unparseable) → keep only
-  posts inside the **24-hour** window → **dedup by post URL** → rank.
+- For each keyword: `fetcher.search_posts(kw)` → `to_hiring_post` (drop dicts
+  missing url/text) → **dedup by post URL** → rank → store. The 24-hour freshness
+  is enforced at fetch time (the `past-24h` search filter) and on read
+  (`hiring_posts(within_hours=24)`).
 - **Ranking reuses `match/embedder.py`** (`load_default_model`, `cosine`) and
   `match/profile_text.py`: embed each post's text, cosine vs the profile vector,
   store as `fit_score`. Pure-embedding for v1 (fast, no per-post LLM); an LLM
@@ -134,9 +160,9 @@ CRUD in `db.py`: `upsert_hiring_post`, `hiring_posts(conn, within_hours=24)`,
 
 ### API — `api/hiring_routes.py` (its own router, <500 lines)
 
-- `POST /api/hiring/refresh` → runs `run_digest`, returns `{fetched, new, ranked}`.
-  Injectable client (like `resume_engine`) so tests use a fake, never the network.
-  Cookie/expiry/rate-limit errors → 503 with the clear message.
+- `POST /api/hiring/refresh` → runs `run_digest`, returns `{ranked, fetched}`.
+  Injectable `hiring_fetcher` (like `resume_engine`) so tests use a fake, never a
+  real browser. `LinkedInAuthError` → 503 with the re-paste message.
 - `GET /api/hiring/posts?within_hours=24` → ranked list for the tab.
 - `POST /api/hiring/posts/{id}/dismiss` → hide a post.
 
@@ -159,27 +185,29 @@ CRUD in `db.py`: `upsert_hiring_post`, `hiring_posts(conn, within_hours=24)`,
 
 ## Error handling
 
-- Missing/expired cookie → `LinkedInAuthError` → API 503 with re-paste guidance.
-- queryId auto-resolve fails → clear error surfaced, no crash.
-- Rate-limited (429) → clear "try again later".
-- `parse_post` never raises → returns `None`, the post is skipped.
-- All LinkedIn network access is read-only and low-volume.
+- Missing/expired cookie (login/authwall) → `LinkedInAuthError` → API 503 with
+  re-paste guidance.
+- `parse_posts_html` / `to_hiring_post` never raise → a bad card is skipped.
+- Selenium/driver failure (Chrome not installed, driver error) → surfaced as a
+  clear 503 ("couldn't launch the browser"), never a silent empty result.
+- The browser driver is always closed in a `finally`.
+- All LinkedIn access is read-only, human-paced, and low-volume.
 
 ## Testing
 
-Backend (pytest, network-free via injected `opener`/client):
-- Header construction: csrf-token equals JSESSIONID sans quotes; Cookie header
-  formats both cookies with `li_at=…; JSESSIONID="…"`.
-- `resolve_search_query_id` extracts the id from a fixture page; missing id →
-  clear error.
-- `search_posts`: 302 → `LinkedInAuthError`; 429 → rate-limit error.
-- `parse_post`: fixture raw → `HiringPost`; odd/missing fields → `None` (never raises).
-- 24-hour window filtering and **dedup by url**.
-- `rank_post`: monotonic with cosine (a fake embed model).
-- `db.py` CRUD round-trips; `/api/hiring/*` with a fake client (refresh count,
-  list ordering by fit_score, dismiss).
-- Live e2e: `skipif not os.getenv("LINKEDIN_LI_AT")` — real search returns ≥0
-  parseable posts.
+Backend (pytest, **no real browser** via injected `driver_factory` / fetcher):
+- `parse_posts_html`: a fixture rendered-HTML snippet → the expected post dicts;
+  a card missing url/text is skipped; garbage html → `[]` (never raises).
+- `LinkedInBrowserFetcher.search_posts` with a **fake driver** (canned
+  `page_source`, records `get`/`add_cookie` calls, injectable no-op `sleep`):
+  returns parsed dicts; a login-page `page_source` → `LinkedInAuthError`.
+- `to_hiring_post`: dict → `HiringPost`; missing fields → `None` (never raises).
+- **dedup by url**; `rank_post` monotonic with cosine (a fake embed model);
+  `run_digest` with a fake fetcher stores + dedups.
+- `db.py` CRUD round-trips; `/api/hiring/*` with a fake fetcher (refresh count,
+  list ordering by fit_score, dismiss, auth error → 503).
+- Live e2e: `skipif not os.getenv("LINKEDIN_LI_AT")` — a real single-keyword
+  search returns a list (≥0) without raising. Run sparingly.
 
 Frontend (Vitest):
 - Tab renders; Refresh posts to `/api/hiring/refresh` then lists posts.
@@ -189,10 +217,13 @@ Frontend (Vitest):
 ## Global constraints
 
 - Python 3.11, pytest; React/Vite/Vitest; files under 500 lines.
+- New deps: `selenium`, `beautifulsoup4` (added to `requirements.txt`); Chrome
+  must be installed (Selenium 4 auto-manages the driver).
 - **Cookies live in `.env` only** — never logged, never committed, never sent
   anywhere except LinkedIn itself.
-- **Read-only, low-volume, no login automation, no writes to LinkedIn.**
-- **queryId is auto-resolved at runtime** — never hardcoded.
+- **Read-only, human-paced, low-volume, no login automation, no writes.**
+- Selenium is fully behind an **injectable `driver_factory`** so the whole suite
+  runs with no browser and no network; live paths are `skipif`-guarded.
 - Engine takes `fetched_at`/timestamps as inputs (no hidden clock calls in
   pure functions), mirroring the existing codebase seams.
 - Reuse existing seams: `match/embedder.py`, `match/profile_text.py`, `env.py`,
