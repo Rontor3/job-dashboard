@@ -4,10 +4,9 @@ from job_dashboard.linkedin.browser_fetch import (
 )
 
 CARD = """
-<div data-view-name="feed-full-update" data-urn="urn:li:activity:1">
-  <span class="update-components-actor__title"><span>Jane Doe</span></span>
-  <span class="update-components-actor__description">EM @ Acme</span>
-  <div class="update-components-text">Hiring an ML Engineer!</div>
+<div role="listitem">
+  <a href="https://www.linkedin.com/in/jane-doe/"><img alt="View Jane Doe’s profile"></a>
+  <p>Feed post Jane Doe • 3rd+ EM at Acme 4h • Connect Hiring an ML Engineer! Apply now.</p>
 </div>"""
 
 
