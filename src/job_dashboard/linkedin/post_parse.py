@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import urllib.parse
 
 from bs4 import BeautifulSoup
 
@@ -37,6 +38,32 @@ def _poster_name(card) -> str:
     # "'s profile" marker (any apostrophe variant) and keep the name before it.
     name = re.split(r"[’'`ʼ’]s\s+profile", name)[0]
     return name.strip().rstrip(",").replace(", hiring", "").strip(" ,")
+
+
+def _apply_link(card) -> str | None:
+    """The actual job/apply link embedded in the post, best-first: LinkedIn job
+    posting > external link behind LinkedIn's safety redirect > any external
+    anchor > lnkd.in/URL in the body text. Tracking query params are stripped."""
+    # 1. LinkedIn job posting permalink
+    a = card.select_one('a[href*="/jobs/view/"]')
+    if a and a.get("href"):
+        return a["href"].split("?")[0]
+    # 2. external link wrapped in LinkedIn's /safety/go/?url=<encoded>
+    for a in card.select('a[href*="/safety/go/"]'):
+        m = re.search(r"[?&]url=([^&]+)", a.get("href", ""))
+        if m:
+            return urllib.parse.unquote(m.group(1))
+    # 3. any plain external (non-linkedin) anchor
+    for a in card.select("a[href]"):
+        h = a.get("href", "")
+        if h.startswith("http") and "linkedin.com" not in h:
+            return h.split("?")[0]
+    # 4. a bare lnkd.in / http URL sitting in the post text
+    m = re.search(r"https?://\S+|lnkd\.in/\S+", card.get_text(" ", strip=True))
+    if m:
+        u = m.group(0).rstrip(".,)")
+        return u if u.startswith("http") else "https://" + u
+    return None
 
 
 def _one(card) -> dict | None:
@@ -71,11 +98,13 @@ def _one(card) -> dict | None:
             headline = headline.replace(tm.group(0), " ")
         headline = re.sub(r"\s+", " ", headline).strip(" •·|-+,")
 
-        # No post permalink exists in the DOM → link to the hiring person; a
-        # short body hash keeps two different posts by one person distinct.
+        # Prefer the actual job/apply link embedded in the post; else fall back
+        # to the hiring person's profile (uniquified by a body hash so two posts
+        # by one person don't dedup to one).
         digest = hashlib.sha1(body[:200].encode("utf-8", "replace")).hexdigest()[:10]
+        url = _apply_link(card) or f"{profile}#{digest}"
         return {
-            "url": f"{profile}#{digest}",
+            "url": url,
             "poster_name": name,
             "poster_headline": headline,
             "text": body,

@@ -39,9 +39,9 @@ When you click **Refresh** on the Hiring Signals tab:
    - Navigates the **content-search** page with the **past-24h** filter
    - Scrolls a few times with randomized human-paced delays to load posts
    - Scrapes the rendered post HTML with BeautifulSoup — poster name,
-     headline, hiring text, posted timestamp, and a link to the **poster's
-     profile** (LinkedIn's search DOM has no post permalink, so each card links
-     to the hiring person — who you'd contact anyway)
+     headline, hiring text, posted timestamp, and the **job/apply link** found
+     in the post (the LinkedIn `jobs/view` posting, or an external `lnkd.in`
+     apply link; falls back to the poster's profile when a post has no link)
 4. Posts are deduplicated by URL, ranked against your profile, and stored with a
    24-hour window
 5. The browser window closes

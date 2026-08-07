@@ -62,7 +62,7 @@ export default function HiringSignals() {
           <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "8px 0" }}>{p.text}</div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-faint)" }}>
             <span>{p.keyword} · {p.posted_at || "recent"}</span>
-            <a href={p.url} target="_blank" rel="noreferrer" style={{ color: "var(--green)" }}>View on LinkedIn ↗</a>
+            <a href={p.url} target="_blank" rel="noreferrer" style={{ color: "var(--green)" }}>View job ↗</a>
           </div>
         </div>
       ))}
