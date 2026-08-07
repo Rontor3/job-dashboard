@@ -25,7 +25,12 @@ from job_dashboard.linkedin.browser_fetch import LinkedInBrowserFetcher  # noqa:
 from job_dashboard.match.embedder import load_default_model  # noqa: E402
 
 _li, _js = os.getenv("LINKEDIN_LI_AT"), os.getenv("LINKEDIN_JSESSIONID")
-_fetcher = LinkedInBrowserFetcher(_li, _js) if _li and _js else None
+# headless=True so Refresh runs behind the scenes — no Chrome window steals
+# focus. undetected-chromedriver's stealth still returns real posts headless
+# (verified). Set LINKEDIN_HEADLESS=0 to watch the browser for debugging.
+_headless = os.getenv("LINKEDIN_HEADLESS", "1") != "0"
+_fetcher = (LinkedInBrowserFetcher(_li, _js, headless=_headless)
+            if _li and _js else None)
 try:
     _model = load_default_model()
 except Exception:
