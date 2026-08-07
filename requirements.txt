@@ -17,3 +17,5 @@ curl_cffi>=0.7
 pycryptodome>=3.20
 selenium
 beautifulsoup4
+undetected-chromedriver
+certifi

@@ -44,6 +44,19 @@ When you click **Refresh** on the Hiring Signals tab:
    24-hour window
 5. The browser window closes
 
+The default driver is **undetected-chromedriver** (installed via requirements),
+which hides the automation fingerprints LinkedIn's bot detection checks for; it
+falls back to plain Selenium if unavailable.
+
+### If Refresh returns 0 posts
+
+Auth/stealth/navigation can all be working and LinkedIn can still return an
+**empty page** when the session is temporarily **soft-flagged** — usually after
+a burst of automated requests in a short window. This clears on its own; wait a
+few hours (ideally browse LinkedIn normally in the meantime) and hit Refresh
+again. Running the digest sparingly (a few times a day, not in a tight loop) is
+what keeps the session healthy.
+
 Total time: ~2–3 minutes for a full refresh across all keywords.
 
 ## Step 4: Constraints & ToS

@@ -1,7 +1,13 @@
+from datetime import datetime, timezone
+
 from job_dashboard.linkedin.hiring_digest import (
     KEYWORDS, HiringPost, to_hiring_post, rank_post, run_digest,
 )
 from job_dashboard.db import init_db, hiring_posts
+
+# Stamp posts at "now" — hiring_posts(within_hours=24) filters on fetched_at, so
+# a hardcoded past date would fall out of the window as wall-clock time advances.
+NOW = datetime.now(timezone.utc).isoformat()
 
 DICT_OK = {"url": "https://li/1", "poster_name": "Jane Doe",
            "poster_headline": "EM @ Acme", "text": "Hiring an ML Engineer!",
@@ -50,7 +56,7 @@ def test_run_digest_skips_flaky_keyword_but_keeps_others(tmp_path):
 
     out = run_digest(conn, FlakyFetcher(), ["hiring ML engineer", "boom"],
                      "profile text", embed_model=FakeModel(),
-                     fetched_at="2026-08-06T00:00:00+00:00")
+                     fetched_at=NOW)
     assert len(hiring_posts(conn, within_hours=24)) == 1   # good keyword survived
     assert isinstance(out, list)
 
@@ -66,7 +72,7 @@ def test_run_digest_aborts_on_auth_error(tmp_path):
 
     with pytest.raises(LinkedInAuthError):
         run_digest(conn, DeadFetcher(), ["hiring ML engineer"], "p",
-                   embed_model=FakeModel(), fetched_at="2026-08-06T00:00:00+00:00")
+                   embed_model=FakeModel(), fetched_at=NOW)
 
 
 def test_run_digest_dedups_and_stores(tmp_path):
@@ -74,7 +80,7 @@ def test_run_digest_dedups_and_stores(tmp_path):
     f = FakeFetcher()
     out = run_digest(conn, f, ["hiring ML engineer", "hiring data scientist"],
                      "profile text", embed_model=FakeModel(),
-                     fetched_at="2026-08-06T00:00:00+00:00")
+                     fetched_at=NOW)
     stored = hiring_posts(conn, within_hours=24)
     assert len(stored) == 1                       # same url from 2 keywords deduped
     assert f.seen == ["hiring ML engineer", "hiring data scientist"]
