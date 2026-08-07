@@ -57,7 +57,7 @@ def _default_driver_factory(headless: bool):
 
 class LinkedInBrowserFetcher:
     def __init__(self, li_at, jsessionid, *, driver_factory=None, headless=False,
-                 max_scrolls=3, sleep=None):
+                 max_scrolls=5, sleep=None):
         self._li_at = li_at
         self._jsessionid = str(jsessionid).strip().strip('"')
         self._driver_factory = driver_factory or _default_driver_factory(headless)
