@@ -92,6 +92,7 @@ def init_db(path):
     _ensure_company_classifications_table(conn)
     _ensure_hiring_posts_table(conn)
     _ensure_status_updated_at_column(conn)
+    _ensure_expired_column(conn)
     from job_dashboard.apply.store import ensure_application_tables
     ensure_application_tables(conn)
     conn.commit()
@@ -335,6 +336,36 @@ def _ensure_status_updated_at_column(conn):
         conn.execute("ALTER TABLE jobs ADD COLUMN status_updated_at TEXT")
 
 
+def _ensure_expired_column(conn):
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
+    if "expired" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN expired INTEGER NOT NULL DEFAULT 0")
+    if "expired_reason" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN expired_reason TEXT")
+
+
+def mark_job_expired(conn, job_id, reason):
+    """Soft-hide a job (closed/stale/bad-fit). Reversible — never deletes."""
+    conn.execute("UPDATE jobs SET expired = 1, expired_reason = ? WHERE id = ?",
+                 (reason, job_id))
+    conn.commit()
+
+
+def sweep_candidates(conn):
+    """Jobs eligible for the expiry sweep: canonical, not already expired, and
+    not tracked (a saved/applied job is the candidate's, hands off)."""
+    rows = conn.execute(
+        """SELECT j.id, j.source, j.job_url, j.title, j.posted_date, j.fetched_at,
+                  m.llm_score, m.verdict
+           FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
+           WHERE j.duplicate_of IS NULL AND COALESCE(j.expired, 0) = 0
+             AND (j.status IS NULL OR j.status = 'dismissed')
+           ORDER BY j.id""").fetchall()
+    keys = ("id", "source", "job_url", "title", "posted_date", "fetched_at",
+            "llm_score", "verdict")
+    return [dict(zip(keys, r)) for r in rows]
+
+
 def set_job_status(conn, job_id, status):
     if status is not None and status not in VALID_STATUSES:
         raise ValueError(f"status must be one of {sorted(VALID_STATUSES)} or None, got {status!r}")
@@ -384,6 +415,10 @@ def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=N
         params.append(status)
     elif not include_dismissed:
         where.append("(j.status IS NULL OR j.status != 'dismissed')")
+    # Auto-hidden (expired / bad-fit) jobs drop out of the feed unless the
+    # candidate flips "show dismissed" to review them.
+    if not include_dismissed:
+        where.append("COALESCE(j.expired, 0) = 0")
     if min_score is not None:
         where.append("m.embed_score >= ?")
         params.append(min_score)
