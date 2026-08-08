@@ -102,7 +102,7 @@ export default function FilterBar({ filters, setFilters }) {
         </select>
       </label>
       <label style={{ fontSize: 12, color: "var(--ink-faint)", display: "flex", gap: 6, alignItems: "center" }}>
-        Min score
+        {filters.sort === "llm" ? "Min LLM" : "Min score"}
         <input
           type="range"
           aria-label="Minimum match score"
