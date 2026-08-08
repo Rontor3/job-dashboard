@@ -51,9 +51,11 @@ export default function TrackerBoard({ onSelect, refreshTick }) {
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--green)", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
               <span>{c.label}</span><span>{(board[c.key] || []).length}</span>
             </div>
-            {(board[c.key] || []).length === 0
-              ? <div style={{ fontSize: 10, color: "var(--ink-faint)" }}>—</div>
-              : board[c.key].map(Card)}
+            <div style={{ maxHeight: "64vh", overflowY: "auto" }}>
+              {(board[c.key] || []).length === 0
+                ? <div style={{ fontSize: 10, color: "var(--ink-faint)" }}>—</div>
+                : board[c.key].map(Card)}
+            </div>
           </div>
         ))}
       </div>

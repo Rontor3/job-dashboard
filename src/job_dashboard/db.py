@@ -91,6 +91,7 @@ def init_db(path):
     _ensure_company_resources_table(conn)
     _ensure_company_classifications_table(conn)
     _ensure_hiring_posts_table(conn)
+    _ensure_status_updated_at_column(conn)
     from job_dashboard.apply.store import ensure_application_tables
     ensure_application_tables(conn)
     conn.commit()
@@ -328,10 +329,19 @@ def suspected_duplicates(conn):
     return [dict(zip(keys, row)) for row in rows]
 
 
+def _ensure_status_updated_at_column(conn):
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
+    if "status_updated_at" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN status_updated_at TEXT")
+
+
 def set_job_status(conn, job_id, status):
     if status is not None and status not in VALID_STATUSES:
         raise ValueError(f"status must be one of {sorted(VALID_STATUSES)} or None, got {status!r}")
-    cur = conn.execute("UPDATE jobs SET status = ? WHERE id = ?", (status, job_id))
+    now = datetime.now(timezone.utc).isoformat()
+    cur = conn.execute(
+        "UPDATE jobs SET status = ?, status_updated_at = ? WHERE id = ?",
+        (status, now, job_id))
     conn.commit()
     if cur.rowcount == 0:
         raise KeyError(f"no job with id {job_id}")
@@ -439,7 +449,7 @@ def tracker_jobs(conn):
            LEFT JOIN company_classifications cc ON cc.company_key = LOWER(TRIM(j.company))
            WHERE j.duplicate_of IS NULL
              AND j.status IN ('saved','applied','interviewing','offer','rejected')
-           ORDER BY j.id DESC""").fetchall()
+           ORDER BY j.status_updated_at IS NULL, j.status_updated_at DESC, j.id DESC""").fetchall()
     keys = ("id","title","company","location","source","status","embed_score",
             "llm_score","verdict","industry","company_type")
     buckets = {"saved": [], "applied": [], "interviewing": [], "offer": [], "archived": []}

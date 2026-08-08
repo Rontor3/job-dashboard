@@ -29,7 +29,9 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
     patchStatus(id, status).then(() => onStatusChange(status)).catch((e) => setError(String(e)));
 
   return (
-    <div style={{ background: "var(--card)", border: "0.5px solid var(--hairline)", borderRadius: "var(--radius-card)", padding: "18px 20px", marginTop: 14, animation: "rowIn var(--dur-enter) var(--ease-out) both" }}>
+    <>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,16,10,0.28)", zIndex: 49 }} />
+    <div style={{ position: "fixed", top: 0, right: 0, height: "100vh", width: "min(560px, 94vw)", overflowY: "auto", background: "var(--card)", borderLeft: "0.5px solid var(--hairline)", boxShadow: "-8px 0 32px rgba(0,0,0,0.14)", padding: "18px 20px", zIndex: 50, animation: "rowIn var(--dur-enter) var(--ease-out) both" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 500 }}>{job.title}</div>
@@ -110,19 +112,20 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
         );
       })()}
 
-      <ResumePanel jobId={id} />
-      <CoverLetterPanel jobId={id} />
-      <ApplyPanel jobId={id} />
-
-      <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 12, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+      <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "14px 0", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
         {cleanJd(job.description)}
       </div>
 
       {job.cross_listings.length > 0 && (
-        <div style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 10 }}>
+        <div style={{ fontSize: 11, color: "var(--ink-faint)", marginBottom: 14 }}>
           Also posted on: {job.cross_listings.map((c) => c.source).join(", ")}
         </div>
       )}
+
+      <ResumePanel jobId={id} />
+      <CoverLetterPanel jobId={id} />
+      <ApplyPanel jobId={id} />
     </div>
+    </>
   );
 }
