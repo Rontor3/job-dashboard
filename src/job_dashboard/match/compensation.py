@@ -52,16 +52,26 @@ def parse_ctc_lpa(salary_text):
     if not amt_vals:
         return None
 
+    is_inr = ("₹" in raw) or ("inr" in t) or bool(re.search(r"\brs\.?\b", t))
+    # Any other stated currency (CAD/EUR/GBP/AUD/SGD/£/€…) is a foreign salary we
+    # can't confidently convert — treat as unknown (keep the job) rather than
+    # mis-reading the figure as rupees.
+    is_other = (bool(re.search(r"\b(cad|eur|gbp|aud|sgd|chf|aed|jpy|nzd)\b", t))
+                or ("£" in raw) or ("€" in raw))
+
     hi = max(amt_vals)
     if is_usd:
         annual = hi * (12 if monthly else 1)
         lpa = annual * USD_TO_INR / 1e5
         return lpa if lpa >= 3 else None   # <3 LPA from USD ⇒ hourly/junk, skip
-    if monthly:
-        return hi * 12 / 1e5
-    if hi >= 100000:                       # a 6+ digit annual rupee figure
-        return hi / 1e5
-    return None                            # small bare ₹ number → ambiguous, skip
+    if is_other:
+        return None
+    if is_inr:
+        if monthly:
+            return hi * 12 / 1e5
+        if hi >= 100000:                   # a 6+ digit annual rupee figure
+            return hi / 1e5
+    return None                            # no INR marker / small ₹ → ambiguous, skip
 
 
 def find_ctc_lpa_in_jd(description):

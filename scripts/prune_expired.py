@@ -58,6 +58,8 @@ def main():
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--llm-gate", type=int, default=50)
     ap.add_argument("--max-age-days", type=int, default=45)
+    ap.add_argument("--min-ctc-lpa", type=float, default=25,
+                    help="hide roles whose stated annual CTC is below this (LPA)")
     args = ap.parse_args()
 
     load_env_file(".env")
@@ -74,7 +76,7 @@ def main():
 
     try:
         counts = sweep(conn, browser_check=browser_check, llm_gate=args.llm_gate,
-                       max_age_days=args.max_age_days,
+                       max_age_days=args.max_age_days, min_ctc_lpa=args.min_ctc_lpa,
                        on_progress=lambda j: None)
     finally:
         if close:

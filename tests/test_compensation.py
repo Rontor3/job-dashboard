@@ -22,6 +22,10 @@ def test_parse_ctc_reasonable(text, expected):
     "$90 - $150 /hour",   # hourly → unknown
     "70-90 USD",          # junk (≈0.07 LPA) → unknown
     "₹30,000 – ₹35,000",  # bare small ₹ (monthly? stipend?) → ambiguous
+    "137000-187000 CAD",  # foreign currency → don't misread as rupees
+    "€85000",
+    "£70000",
+    "2500000 P.A.",       # no currency marker at all → ambiguous
     "Not disclosed",
     "",
     None,
