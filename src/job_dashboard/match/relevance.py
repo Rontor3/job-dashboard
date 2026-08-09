@@ -35,3 +35,28 @@ def nuisance_match(title):
         if pat.search(t):
             return term
     return None
+
+
+# POSITIVE relevance gate for keyword-blind dump sources (remoteok fetches its
+# whole board; remotive's search is loose). Only titles in the ML/AI/DS family
+# pass — everything else ("Sales Jedi", "Quality Engineer", "Nurse") is dropped
+# at ingest. Kept broad enough not to miss real target roles.
+_TARGET_RE = re.compile(
+    r"\b("
+    r"machine learning|ml engineer|ml scientist|ml ops|mlops|"
+    r"a\.?i\.? engineer|ai/ml|ml/ai|artificial intelligence|"
+    r"data scientist|data science|data engineer|deep learning|neural network|"
+    r"nlp|natural language|llm|large language model|generative ai|genai|"
+    r"applied scientist|research scientist|computer vision|"
+    r"recommendation system|ml platform|ai platform|ml infrastructure"
+    r")\b",
+    re.IGNORECASE,
+)
+# bare "ai"/"ml" as standalone tokens (e.g. "AI Engineer", "ML Lead")
+_TARGET_TOKEN_RE = re.compile(r"(?:^|[\s\-/(])(ai|ml)(?:[\s\-/)]|$)", re.IGNORECASE)
+
+
+def is_target_role(title):
+    """True if the title is in the candidate's ML/AI/DS target family."""
+    t = title or ""
+    return bool(_TARGET_RE.search(t) or _TARGET_TOKEN_RE.search(t))

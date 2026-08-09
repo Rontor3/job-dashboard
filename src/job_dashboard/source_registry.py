@@ -63,6 +63,12 @@ REGION_SEARCHES = [
 ]
 
 
+def _target_only(jobs):
+    """Keep only ML/AI/DS-titled jobs from a keyword-blind/loose source."""
+    from job_dashboard.match.relevance import is_target_role
+    return [j for j in (jobs or []) if is_target_role(getattr(j, "title", ""))]
+
+
 def job_sources():
     fetchers = []
     for term in SEARCH_TERMS:
@@ -72,10 +78,12 @@ def job_sources():
                     t, loc, s, country=c
                 )
             )
-        fetchers.append(lambda t=term: fetch_remotive_jobs(t))
+        fetchers.append(lambda t=term: _target_only(fetch_remotive_jobs(t)))
         fetchers.append(lambda t=term: fetch_himalayas_jobs(t))
         fetchers.append(lambda t=term: fetch_naukri_jobs(t))
-    fetchers.append(lambda: fetch_remoteok_jobs())
+    # remoteok has no keyword search — it returns its entire board — and
+    # remotive's search is loose, so both are gated to ML/AI/DS titles only.
+    fetchers.append(lambda: _target_only(fetch_remoteok_jobs()))
     fetchers.append(lambda: fetch_wwr_jobs())
     return fetchers
 
