@@ -356,13 +356,13 @@ def sweep_candidates(conn):
     not tracked (a saved/applied job is the candidate's, hands off)."""
     rows = conn.execute(
         """SELECT j.id, j.source, j.job_url, j.title, j.posted_date, j.fetched_at,
-                  m.llm_score, m.verdict
+                  j.salary_text, j.description, m.llm_score, m.verdict
            FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
            WHERE j.duplicate_of IS NULL AND COALESCE(j.expired, 0) = 0
              AND (j.status IS NULL OR j.status = 'dismissed')
            ORDER BY j.id""").fetchall()
     keys = ("id", "source", "job_url", "title", "posted_date", "fetched_at",
-            "llm_score", "verdict")
+            "salary_text", "description", "llm_score", "verdict")
     return [dict(zip(keys, r)) for r in rows]
 
 

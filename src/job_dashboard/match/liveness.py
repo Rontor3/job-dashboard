@@ -14,6 +14,7 @@ Naukri bot-wall plain HTTP, so those go through an injected ``browser_check``
 from __future__ import annotations
 
 from job_dashboard.db import mark_job_expired, sweep_candidates
+from job_dashboard.match.compensation import job_ctc_lpa
 from job_dashboard.match.freshness import job_age_days
 from job_dashboard.match.relevance import nuisance_match
 
@@ -76,14 +77,15 @@ def _default_fetch(url):
 
 
 def sweep(conn, *, http_fetch=None, browser_check=None, llm_gate=50,
-          max_age_days=45, now=None, on_progress=None):
+          max_age_days=45, min_ctc_lpa=25, now=None, on_progress=None):
     """Run the expiry sweep. Marks jobs expired; returns counts by reason.
 
     ``browser_check(url) -> bool|None`` checks a bot-walled URL with a real
     browser (open/closed/unknown); if omitted, LinkedIn/Naukri jobs are pruned
-    by age/bad-fit only, never wrongly closed.
+    by age/bad-fit only, never wrongly closed. ``min_ctc_lpa`` hides roles whose
+    STATED annual CTC is below the floor (jobs with no stated CTC are kept).
     """
-    counts = {"bad-fit": 0, "stale": 0, "closed": 0, "checked": 0}
+    counts = {"bad-fit": 0, "stale": 0, "low-ctc": 0, "closed": 0, "checked": 0}
     for job in sweep_candidates(conn):
         try:
             if on_progress:
@@ -93,6 +95,13 @@ def sweep(conn, *, http_fetch=None, browser_check=None, llm_gate=50,
                 mark_job_expired(conn, job["id"], "bad-fit")
                 counts["bad-fit"] += 1
                 continue
+
+            if min_ctc_lpa is not None:
+                ctc = job_ctc_lpa(job.get("salary_text"), job.get("description"))
+                if ctc is not None and ctc < min_ctc_lpa:
+                    mark_job_expired(conn, job["id"], "low-ctc")
+                    counts["low-ctc"] += 1
+                    continue
 
             age = job_age_days(job.get("posted_date"), job.get("fetched_at"), now=now)
             if age is not None and age > max_age_days:
