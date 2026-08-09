@@ -420,15 +420,12 @@ def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=N
     if not include_dismissed:
         where.append("COALESCE(j.expired, 0) = 0")
     if min_score is not None:
-        # The Min-score slider filters whichever score you're sorting by:
-        # LLM (0-100) when sort="llm", else the embed score (0-1). min_score is
-        # 0-1 from the slider, so scale to 0-100 for the LLM comparison.
-        if sort == "llm":
-            where.append("m.llm_score >= ?")
-            params.append(round(min_score * 100))
-        else:
-            where.append("m.embed_score >= ?")
-            params.append(min_score)
+        # Filter on the SAME number the feed card shows — the LLM score when
+        # present, else the embed score scaled to 0-100 (see Feed.jsx). The
+        # slider is 0-1, so scale to 0-100. This keeps "min 50" honest: nothing
+        # displaying below 50 slips through, on any sort.
+        where.append("COALESCE(m.llm_score, m.embed_score * 100) >= ?")
+        params.append(round(min_score * 100))
 
     order = {
         "embed": "m.embed_score IS NULL, m.embed_score DESC, j.id",
