@@ -295,7 +295,7 @@ def top_unranked_jobs(conn, limit=30):
         """SELECT j.id, j.title, j.company, j.location, j.job_url, j.description,
                   m.embed_score
            FROM jobs j JOIN match_scores m ON m.job_id = j.id
-           WHERE j.duplicate_of IS NULL AND m.llm_score IS NULL
+           WHERE j.duplicate_of IS NULL AND COALESCE(j.expired,0)=0 AND m.llm_score IS NULL
            ORDER BY m.embed_score DESC, j.id
            LIMIT ?""",
         (limit,),
@@ -502,7 +502,9 @@ def dashboard_stats(conn):
     def one(sql, *params):
         return conn.execute(sql, params).fetchone()[0]
 
-    canonical = "FROM jobs WHERE duplicate_of IS NULL"
+    # Mirror the feed: exclude duplicates AND auto-hidden (expired/bad-fit) jobs,
+    # so the header counts match what's actually shown.
+    canonical = "FROM jobs WHERE duplicate_of IS NULL AND COALESCE(expired, 0) = 0"
     return {
         "total": one(f"SELECT COUNT(*) {canonical}"),
         "new": one(f"SELECT COUNT(*) {canonical} AND status IS NULL"),
@@ -514,17 +516,17 @@ def dashboard_stats(conn):
         "dismissed": one(f"SELECT COUNT(*) {canonical} AND status = 'dismissed'"),
         "unranked": one(
             """SELECT COUNT(*) FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
-               WHERE j.duplicate_of IS NULL AND m.llm_score IS NULL"""
+               WHERE j.duplicate_of IS NULL AND COALESCE(j.expired,0)=0 AND m.llm_score IS NULL"""
         ),
         "verdict_counts": {
             r[0]: r[1] for r in conn.execute(
                 """SELECT m.verdict, COUNT(*) FROM jobs j JOIN match_scores m ON m.job_id = j.id
-                   WHERE j.duplicate_of IS NULL AND m.verdict IS NOT NULL GROUP BY m.verdict""")
+                   WHERE j.duplicate_of IS NULL AND COALESCE(j.expired,0)=0 AND m.verdict IS NOT NULL GROUP BY m.verdict""")
         },
         "top_industries": [
             {"industry": r[0], "count": r[1]} for r in conn.execute(
                 """SELECT cc.industry, COUNT(*) n FROM jobs j
                    JOIN company_classifications cc ON cc.company_key = LOWER(TRIM(j.company))
-                   WHERE j.duplicate_of IS NULL GROUP BY cc.industry ORDER BY n DESC LIMIT 6""")
+                   WHERE j.duplicate_of IS NULL AND COALESCE(j.expired,0)=0 GROUP BY cc.industry ORDER BY n DESC LIMIT 6""")
         ],
     }
