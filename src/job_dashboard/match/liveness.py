@@ -16,7 +16,10 @@ from __future__ import annotations
 from job_dashboard.db import mark_job_expired, sweep_candidates
 from job_dashboard.match.compensation import job_ctc_lpa
 from job_dashboard.match.freshness import job_age_days
-from job_dashboard.match.relevance import nuisance_match
+from job_dashboard.match.relevance import is_target_role, nuisance_match
+
+# Keyword-blind / loose-search sources whose off-target titles should be pruned.
+_DUMP_SOURCES = ("remoteok", "remotive")
 
 # Text that means "this posting is no longer open", lower-cased substring match.
 CLOSED_MARKERS = (
@@ -85,7 +88,8 @@ def sweep(conn, *, http_fetch=None, browser_check=None, llm_gate=50,
     by age/bad-fit only, never wrongly closed. ``min_ctc_lpa`` hides roles whose
     STATED annual CTC is below the floor (jobs with no stated CTC are kept).
     """
-    counts = {"bad-fit": 0, "stale": 0, "low-ctc": 0, "closed": 0, "checked": 0}
+    counts = {"bad-fit": 0, "off-target": 0, "stale": 0, "low-ctc": 0,
+              "closed": 0, "checked": 0}
     for job in sweep_candidates(conn):
         try:
             if on_progress:
@@ -94,6 +98,12 @@ def sweep(conn, *, http_fetch=None, browser_check=None, llm_gate=50,
             if is_bad_fit(job):
                 mark_job_expired(conn, job["id"], "bad-fit")
                 counts["bad-fit"] += 1
+                continue
+
+            # Board-dump sources (remoteok/remotive) — drop non-ML/AI/DS titles.
+            if job.get("source") in _DUMP_SOURCES and not is_target_role(job.get("title")):
+                mark_job_expired(conn, job["id"], "off-target")
+                counts["off-target"] += 1
                 continue
 
             if min_ctc_lpa is not None:
