@@ -102,3 +102,14 @@ export const refreshHiring = () =>
   });
 export const dismissHiring = (id) =>
   fetch(`/api/hiring/posts/${id}/dismiss`, { method: "POST" }).then((r) => r.json());
+
+export const savedBlocks = () =>
+  fetch("/api/resume/blocks").then((r) => r.json());
+export const saveBlock = (body) =>
+  fetch("/api/resume/blocks", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then((r) => r.json());
+export const deleteSavedBlock = (id) =>
+  fetch(`/api/resume/blocks/${id}`, { method: "DELETE" }).then((r) => r.json());

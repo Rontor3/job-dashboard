@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { regenerateBlock } from "../api.js";
+import React, { useEffect, useState } from "react";
+import { regenerateBlock, savedBlocks, saveBlock } from "../api.js";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 const SMALL_BTN = { ...BTN, fontSize: 11, padding: "4px 10px" };
@@ -54,6 +54,36 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
   const [regenFailedKeys, setRegenFailedKeys] = useState(new Set());
   const [dragKey, setDragKey] = useState(null);
   const [layoutError, setLayoutError] = useState(null);
+  const [savedKeys, setSavedKeys] = useState(new Set()); // block.key that are in the library
+
+  // Merge the user's saved library blocks in once, so they're available on every
+  // job. Skip any whose (kind+title) already appears among the suggested blocks.
+  useEffect(() => {
+    let cancelled = false;
+    savedBlocks()
+      .then((res) => {
+        if (cancelled) return;
+        setBlocks((prev) => {
+          const present = new Set(prev.map((b) => `${b.kind}::${b.title}`));
+          const extra = (res.blocks || [])
+            .filter((b) => KIND_ORDER.includes(b.kind) && !present.has(`${b.kind}::${b.title}`))
+            .map((b) => ({
+              key: `saved-${b.id}`, kind: b.kind, title: b.title,
+              segment_id: null, source: "saved", active: 0,
+              variants: [{ label: "Saved", bullets: b.bullets || [] }],
+            }));
+          return extra.length ? [...prev, ...extra] : prev;
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSaveToLibrary = (block) => {
+    saveBlock({ kind: block.kind, title: block.title, bullets: activeBulletsOf(block) })
+      .then(() => setSavedKeys((prev) => new Set(prev).add(block.key)))
+      .catch(() => {});
+  };
 
   const updateBlock = (key, updater) => {
     setBlocks((prev) => prev.map((b) => (b.key === key ? updater(b) : b)));
@@ -287,6 +317,11 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
                       </button>
                       <button onClick={() => startEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>
                         Edit
+                      </button>
+                      <button onClick={() => handleSaveToLibrary(block)}
+                        title="Save this block to your reusable library — it'll appear on every future résumé"
+                        style={{ ...SMALL_BTN, background: "var(--canvas)", color: savedKeys.has(block.key) ? "var(--green)" : "var(--ink-faint)" }}>
+                        {savedKeys.has(block.key) ? "✓ Saved" : "Save"}
                       </button>
                       <button onClick={() => deleteBlock(block.key)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--dupe-ink)" }}>
                         Delete

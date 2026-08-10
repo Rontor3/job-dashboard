@@ -11,7 +11,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from job_dashboard.db import get_resume, init_db, job_detail, resumes_for_job
+from job_dashboard.db import (
+    get_resume, init_db, job_detail, resumes_for_job,
+    save_resume_block, list_resume_blocks, delete_resume_block,
+)
 from job_dashboard.match.profile_text import compose_profile_text
 from job_dashboard.resume.ats import ats_check
 from job_dashboard.resume.custom_block import segment_bullets
@@ -34,6 +37,12 @@ class ResumeGenerateRequest(BaseModel):
 
 
 class RegenerateBlockRequest(BaseModel):
+    kind: str
+    title: str
+    bullets: list[str]
+
+
+class SaveBlockRequest(BaseModel):
     kind: str
     title: str
     bullets: list[str]
@@ -73,6 +82,30 @@ def build_resume_router(
                 for s in segments
             ]
         }
+
+    @router.get("/api/resume/blocks")
+    def get_saved_blocks():
+        """User-saved reusable blocks — merged into the editor on every job."""
+        with db() as conn:
+            return {"blocks": list_resume_blocks(conn)}
+
+    @router.post("/api/resume/blocks")
+    def save_block(body: SaveBlockRequest):
+        """Persist a block to the reusable library (upsert on kind+title)."""
+        if body.kind not in ("skills", "experience", "project"):
+            raise HTTPException(status_code=422, detail="kind must be skills/experience/project")
+        if not body.title.strip() or not body.bullets:
+            raise HTTPException(status_code=422, detail="title and bullets required")
+        with db() as conn:
+            block_id = save_resume_block(conn, body.kind, body.title.strip(), body.bullets)
+            return {"id": block_id, "kind": body.kind, "title": body.title.strip(),
+                    "bullets": body.bullets}
+
+    @router.delete("/api/resume/blocks/{block_id}")
+    def remove_saved_block(block_id: int):
+        with db() as conn:
+            delete_resume_block(conn, block_id)
+        return {"ok": True}
 
     @router.post("/api/jobs/{job_id}/resume/suggest")
     def suggest_resume(job_id: int):

@@ -69,6 +69,57 @@ def get_resume(conn, resume_id):
     return d
 
 
+def _ensure_resume_blocks_table(conn):
+    """User-saved reusable résumé blocks (Skills / Experience / Project) — added
+    once in the editor and available in every future tailoring session."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS resume_blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            title TEXT NOT NULL,
+            bullets TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(kind, title)
+        )
+    """)
+
+
+def save_resume_block(conn, kind, title, bullets):
+    """Save (or update) a reusable block. Returns its id."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO resume_blocks (kind, title, bullets, created_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(kind, title) DO UPDATE SET
+               bullets=excluded.bullets, created_at=excluded.created_at""",
+        (kind, title, json.dumps(list(bullets or [])), now),
+    )
+    conn.commit()
+    return conn.execute(
+        "SELECT id FROM resume_blocks WHERE kind=? AND title=?", (kind, title)
+    ).fetchone()[0]
+
+
+def list_resume_blocks(conn):
+    """All saved blocks, newest first, with bullets parsed."""
+    rows = conn.execute(
+        "SELECT id, kind, title, bullets FROM resume_blocks ORDER BY id DESC"
+    ).fetchall()
+    out = []
+    for rid, kind, title, bullets in rows:
+        try:
+            parsed = json.loads(bullets) if bullets else []
+        except (ValueError, TypeError):
+            parsed = []
+        out.append({"id": rid, "kind": kind, "title": title, "bullets": parsed})
+    return out
+
+
+def delete_resume_block(conn, block_id):
+    conn.execute("DELETE FROM resume_blocks WHERE id = ?", (block_id,))
+    conn.commit()
+
+
 def _ensure_cover_letters_table(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS cover_letters (
