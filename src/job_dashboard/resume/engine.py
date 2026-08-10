@@ -71,7 +71,14 @@ def _compose_kind_aware(blocks: list[Segment]) -> str:
     passthrough: list[Segment] = []
 
     for block in blocks:
-        if not _is_item_bearing(block) and block.kind != "summary":
+        # A block belongs to a \section if its kind names one, OR it is a
+        # bare \item block (custom kinds still need an enclosing itemize).
+        # Everything else (header/contact preamble) passes through as-is.
+        if (
+            block.kind not in _SECTION_TITLES
+            and block.kind != "summary"
+            and not _is_item_bearing(block)
+        ):
             passthrough.append(block)
             continue
         title = _section_title(block)
@@ -82,16 +89,27 @@ def _compose_kind_aware(blocks: list[Segment]) -> str:
 
     parts: list[str] = [b.text for b in passthrough]
     for title in ordered_sections:
-        members = section_blocks[title]
-        raw = [b for b in members if not _is_item_bearing(b)]
-        items = [b for b in members if _is_item_bearing(b)]
-
         section_lines = [f"\\section{{{title}}}"]
-        section_lines.extend(b.text for b in raw)
-        if items:
-            section_lines.append("\\begin{itemize}")
-            section_lines.extend(b.text for b in items)
-            section_lines.append("\\end{itemize}")
+        buf: list[str] = []
+
+        def flush():
+            if buf:
+                section_lines.append("\\begin{itemize}")
+                section_lines.extend(buf)
+                section_lines.append("\\end{itemize}")
+                buf.clear()
+
+        # Preserve block order within a section: consecutive bare-\item
+        # blocks (skills categories, projects) share one itemize; a
+        # self-contained block (an experience sub-heading + its own itemize,
+        # or a summary paragraph) flushes the buffer and is emitted as-is.
+        for block in section_blocks[title]:
+            if _is_item_bearing(block):
+                buf.append(block.text)
+            else:
+                flush()
+                section_lines.append(block.text)
+        flush()
         parts.append("\n".join(section_lines))
 
     return "\n\n".join(parts)

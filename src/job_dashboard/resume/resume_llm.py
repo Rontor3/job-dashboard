@@ -320,6 +320,58 @@ def _ground_bullet(b, allowed):
     return _NUM_RE.sub(repl, b)
 
 
+def _strip_unsupported_numbers(b, allowed):
+    """Drop (not placeholder) any number token not present in the user's
+    own source text. User chose "only use numbers I typed": an ungrounded
+    figure is removed and the surrounding whitespace collapsed."""
+    def repl(m):
+        return m.group(0) if _norm(m.group(0)) in allowed else ""
+    out = _NUM_RE.sub(repl, b)
+    out = re.sub(r"\s+([,.;:])", r"\1", out)      # tidy space left before punctuation
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
+def generate_bullets(heading, details, llm=None, n=3):
+    """Turn a heading + rough ``details`` notes into ``n`` plain resume
+    bullets via the local LLM. Foregrounds the concrete tech stack and uses
+    ONLY numbers that appear in ``details`` — any other figure the model
+    emits is stripped by ``_strip_unsupported_numbers`` (grounding, no
+    fabrication, no placeholder). Returns ``[]`` on empty input or any
+    failure; never raises."""
+    try:
+        if not (details and str(details).strip()):
+            return []
+        if llm is None:
+            from job_dashboard.letter.draft import make_default_llm
+            llm = make_default_llm()
+        prompt = (
+            f"Write exactly {n} concise, high-impact resume bullets for the item "
+            f'titled "{heading or "this work"}" using the notes below.\n'
+            "Rules:\n"
+            "- One line per bullet, starting with a strong past-tense verb.\n"
+            "- Foreground the concrete tech stack (languages, frameworks, tools, cloud).\n"
+            "- Use ONLY numbers that literally appear in the notes; never invent metrics.\n"
+            "- Plain bullets only: no 'Problem/Approach/Solution' labels, no markdown headings.\n\n"
+            f"NOTES:\n{str(details).strip()[:1500]}\n\n"
+            f"Reply with exactly {n} lines, each starting with '- '."
+        )
+        out = llm(prompt)
+        allowed = _supported_numbers(details)
+        bullets = []
+        for line in (out if isinstance(out, str) else "").splitlines():
+            line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
+            if not line:
+                continue
+            grounded = _strip_unsupported_numbers(line, allowed)
+            if grounded:
+                bullets.append(grounded)
+            if len(bullets) >= n:
+                break
+        return bullets
+    except Exception:
+        return []
+
+
 def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2):
     try:
         if llm is None:

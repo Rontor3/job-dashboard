@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { regenerateBlock, savedBlocks, saveBlock } from "../api.js";
+import { regenerateBlock, savedBlocks, saveBlock, generateBullets } from "../api.js";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 const SMALL_BTN = { ...BTN, fontSize: 11, padding: "4px 10px" };
@@ -55,6 +55,9 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
   const [dragKey, setDragKey] = useState(null);
   const [layoutError, setLayoutError] = useState(null);
   const [savedKeys, setSavedKeys] = useState(new Set()); // block.key that are in the library
+  const [editDetails, setEditDetails] = useState(""); // rough notes fed to the AI bullet writer
+  const [genBusy, setGenBusy] = useState(false);
+  const [genFailed, setGenFailed] = useState(false);
 
   // Merge the user's saved library blocks in once, so they're available on every
   // job. Skip any whose (kind+title) already appears among the suggested blocks.
@@ -130,6 +133,27 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
     setEditingKey(block.key);
     setEditTitle(block.title);
     setEditBullets(activeBulletsOf(block).join("\n"));
+    setEditDetails("");
+    setGenFailed(false);
+  };
+
+  // Rough notes -> 3 grounded bullets via the local LLM. Only numbers the
+  // user typed survive (server-side grounding); fills the bullets box, which
+  // the user can still tweak before Save. Never throws into the UI.
+  const handleGenerateBullets = () => {
+    if (!editDetails.trim()) return;
+    setGenBusy(true);
+    setGenFailed(false);
+    generateBullets({ heading: editTitle, details: editDetails })
+      .then((bullets) => {
+        if (bullets.length === 0) {
+          setGenFailed(true);
+          return;
+        }
+        setEditBullets(bullets.join("\n"));
+      })
+      .catch(() => setGenFailed(true))
+      .finally(() => setGenBusy(false));
   };
 
   const cancelEdit = (block) => {
@@ -281,14 +305,36 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
                     aria-label="Block title"
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
-                    placeholder="Title"
+                    placeholder={block.kind === "experience" ? "Heading (e.g. Health Fraud Pipeline)" : "Heading"}
                     style={{ width: "100%", fontSize: 12, marginBottom: 6, padding: 6, boxSizing: "border-box" }}
                   />
+                  <textarea
+                    aria-label="Details for AI"
+                    value={editDetails}
+                    onChange={(e) => setEditDetails(e.target.value)}
+                    placeholder="Details — rough notes, tech stack, any numbers. AI writes 3 bullets from this (keeps only numbers you type)."
+                    rows={3}
+                    style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box", background: "var(--canvas)" }}
+                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0" }}>
+                    <button
+                      onClick={handleGenerateBullets}
+                      disabled={genBusy || !editDetails.trim()}
+                      style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)", opacity: !editDetails.trim() ? 0.5 : 1 }}
+                    >
+                      {genBusy ? "Writing…" : "✨ Generate 3 bullets"}
+                    </button>
+                    {genFailed && (
+                      <span style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>
+                        couldn't generate — type bullets below
+                      </span>
+                    )}
+                  </div>
                   <textarea
                     aria-label="Block bullets"
                     value={editBullets}
                     onChange={(e) => setEditBullets(e.target.value)}
-                    placeholder="One bullet per line"
+                    placeholder="One bullet per line (or use Generate above)"
                     rows={4}
                     style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box" }}
                   />

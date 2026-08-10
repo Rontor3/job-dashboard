@@ -25,7 +25,7 @@ from job_dashboard.resume.keyword_map import (
 )
 from job_dashboard.resume.render import render_pdf
 from job_dashboard.resume.resume_llm import (
-    extract_jd_keywords, make_ollama_llm, regenerate_block,
+    extract_jd_keywords, generate_bullets, make_ollama_llm, regenerate_block,
 )
 from job_dashboard.resume.segments import load_segments
 
@@ -48,8 +48,15 @@ class SaveBlockRequest(BaseModel):
     bullets: list[str]
 
 
+class GenerateBulletsRequest(BaseModel):
+    heading: str = ""
+    details: str
+    n: int = 3
+
+
 def build_resume_router(
     db_path, resume_engine=None, resume_llm=None, jd_keyword_extractor=None,
+    bullet_llm=None,
 ) -> APIRouter:
     router = APIRouter()
     default_resume_llm = resume_llm if resume_llm is not None else make_ollama_llm()
@@ -106,6 +113,17 @@ def build_resume_router(
         with db() as conn:
             delete_resume_block(conn, block_id)
         return {"ok": True}
+
+    @router.post("/api/resume/bullets")
+    def make_bullets(body: GenerateBulletsRequest):
+        """Turn a heading + rough details into 3 grounded resume bullets.
+        Uses only numbers present in ``details`` (no fabrication). Never
+        500s on LLM issues — ``generate_bullets`` returns ``[]`` safely."""
+        if not body.details.strip():
+            raise HTTPException(status_code=422, detail="details required")
+        n = max(1, min(5, body.n))
+        bullets = generate_bullets(body.heading, body.details, llm=bullet_llm, n=n)
+        return {"bullets": bullets}
 
     @router.post("/api/jobs/{job_id}/resume/suggest")
     def suggest_resume(job_id: int):

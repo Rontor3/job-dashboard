@@ -45,6 +45,12 @@ export const regenerateBlock = (id, body) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }).then(json);
+export const generateBullets = (body) =>
+  fetch(`/api/resume/bullets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(json).then((d) => d.bullets || []);
 export const fetchResumes = (id) => fetch(`/api/jobs/${id}/resumes`).then(json);
 
 export const draftCoverLetter = (id) =>

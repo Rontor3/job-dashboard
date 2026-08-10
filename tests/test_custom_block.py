@@ -126,3 +126,21 @@ def test_segment_bullets_never_raises():
     segment_bullets(r"\item \textbf{\\\\\\}")
     segment_bullets(r"no items here")
     segment_bullets(r"\item" * 100)
+
+
+def test_experience_block_is_self_contained_subheading():
+    """An experience block renders as a bold sub-heading + its OWN itemize,
+    so several stack as nested sub-projects under one Experience section."""
+    tex = block_to_tex("experience", "Health Fraud Pipeline",
+                       ["Built fraud models on AWS Lambda", "30% higher recall"])
+    assert r"\textbf{Health Fraud Pipeline}" in tex
+    assert tex.count(r"\begin{itemize}") == 1 and tex.count(r"\end{itemize}") == 1
+    assert r"\item Built fraud models on AWS Lambda" in tex
+    # not a bare \item block anymore (won't be flattened into a shared itemize)
+    assert not tex.lstrip().startswith(r"\item")
+
+
+def test_experience_heading_only_when_no_bullets():
+    """A titled experience block with no bullets is a heading line only
+    (used for a role/company line above its sub-projects)."""
+    assert block_to_tex("experience", "Data Scientist · Tata AIG", []) == r"\textbf{Data Scientist · Tata AIG}"

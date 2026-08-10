@@ -43,13 +43,29 @@ def _clean_bullets(bullets):
 
 
 def block_to_tex(kind, title, bullets) -> str:
-    """Return \\item lines for a block. experience: one item per bullet.
-    project/skills: lead the first item with \\textbf{title}."""
+    """Return LaTeX for a block.
+
+    experience: a self-contained bold sub-heading (the title) followed by
+    its OWN ``itemize`` of bullets — so several experience blocks stack as
+    nested sub-projects under one ``\\section{Experience}`` (e.g. three
+    sub-projects under a Tata AIG role), matching the source résumé.
+    A titled experience block with no bullets renders as a heading only
+    (used for a role/company line). project/skills: lead the first item
+    with ``\\textbf{title}`` (unchanged)."""
     items = _clean_bullets(bullets)
-    if not items:
-        return ""
     k = (kind or "").lower()
     lead = escape_tex(title) if title else ""
+
+    if k == "experience":
+        head = rf"\textbf{{{lead}}}" if lead else ""
+        if not items:
+            return head
+        body = "\n".join(rf"\item {_tex_inline(b)}" for b in items)
+        itemize = "\\begin{itemize}\n" + body + "\n\\end{itemize}"
+        return f"{head}\n{itemize}" if head else itemize
+
+    if not items:
+        return ""
     lines = []
     if k in ("project", "skills") and lead:
         first = _tex_inline(items[0])
@@ -82,6 +98,20 @@ def segment_bullets(text: str) -> list[str]:
 
         for part in parts:
             # Strip leading/trailing whitespace
+            part = part.strip()
+            if not part:
+                continue
+
+            # Strip residual LaTeX *layout* (not prose) so it never leaks into
+            # the editor UI: environment delimiters (\begin/\end{itemize}),
+            # \hfill, and a BARE \textasciitilde (e.g. "\textasciitilde500" —
+            # the escaped "\textasciitilde{}" form is left for the unescape
+            # pass below). Done before \textbf/unescape handling. Deliberately
+            # narrow — only these known layout commands — so escaped user
+            # specials (\{, \_, \& …) still round-trip untouched.
+            part = re.sub(r"\\(?:begin|end)\{[^}]*\}", " ", part)
+            part = part.replace(r"\hfill", " ")
+            part = re.sub(r"\\textasciitilde(?!\{)", "~", part)
             part = part.strip()
             if not part:
                 continue
