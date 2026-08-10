@@ -321,7 +321,7 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
                       <button onClick={() => handleSaveToLibrary(block)}
                         title="Save this block to your reusable library — it'll appear on every future résumé"
                         style={{ ...SMALL_BTN, background: "var(--canvas)", color: savedKeys.has(block.key) ? "var(--green)" : "var(--ink-faint)" }}>
-                        {savedKeys.has(block.key) ? "✓ Saved" : "Save"}
+                        {savedKeys.has(block.key) ? "✓ In library" : "Save to library"}
                       </button>
                       <button onClick={() => deleteBlock(block.key)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--dupe-ink)" }}>
                         Delete
