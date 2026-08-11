@@ -424,8 +424,16 @@ def generate_bullets(heading, details, llm=None, n=3):
         return []
 
 
+# A real IMPACT metric: a number that carries a unit (%, currency, scale word,
+# man-hours, latency). The unit is REQUIRED — so bare years (2024), plain
+# counts (500 on its own) and lone decimals (0.6) are NOT matched/bolded.
 _METRIC_RE = re.compile(
-    r"(?<![\w*])((?:[₹$€£]\s*)?\d[\d.,]*\s*(?:%|x|k|m|bn|cr|lpa|lakh|lakhs|million|billion|hours?|hrs?)?)(?![\w*])",
+    r"(?<![\w*])("
+    r"[₹$€£]\s?\d[\d.,]*"                                   # currency: $20, ₹16
+    r"|\d[\d.,]*\s?%"                                        # percent: 30%
+    r"|\d[\d.,]*\s?(?:x|k|m|bn|cr|lpa|lakhs?|million|billion|"
+    r"man-?hours?|hours?|hrs?|seconds?|secs?|minutes?|mins?)\b"  # number + real unit
+    r")(?![\w*])",
     re.I,
 )
 
@@ -456,9 +464,12 @@ def highlight_bullets(bullets, llm=None):
             llm = make_default_llm()
         joined = "\n".join(items)
         prompt = (
-            "List the technical keywords, tools, frameworks, platforms and "
-            "impact metrics that appear in the text below, EXACTLY as written, "
-            "comma-separated. Only terms literally present — invent nothing.\n\n"
+            "List ONLY the concrete named technologies in the text below — tools, "
+            "libraries, frameworks, programming languages, cloud services, "
+            "databases, platforms — exactly as written, comma-separated.\n"
+            "Do NOT list: generic words (e.g. 'recall', 'model', 'pipeline', "
+            "'accuracy', 'F1 score'), metrics, numbers, years, job titles, or "
+            "company names. Only real product/technology names literally present.\n\n"
             f"{joined[:1500]}\n\nList:"
         )
         out = llm(prompt)
