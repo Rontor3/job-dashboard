@@ -331,6 +331,47 @@ def _strip_unsupported_numbers(b, allowed):
     return re.sub(r"\s{2,}", " ", out).strip()
 
 
+# The AI-tell words/phrases that trip content detectors and read as "written by
+# a bot". Swapped for plain equivalents (or removed) after generation.
+_AI_SWAPS = [
+    (re.compile(r"\bleverag(?:ed|ing|es|e)\b", re.I), "used"),
+    (re.compile(r"\butiliz(?:ed|ing|es|e)\b", re.I), "used"),
+    (re.compile(r"\bspearhead(?:ed|ing|s)?\b", re.I), "led"),
+    (re.compile(r"\borchestrat(?:ed|ing|es|e)\b", re.I), "ran"),
+    (re.compile(r"\bfacilitat(?:ed|ing|es|e)\b", re.I), "enabled"),
+    (re.compile(r"\bin order to\b", re.I), "to"),
+    (re.compile(r"\ba wide (?:range|variety) of\b", re.I), "several"),
+]
+# Filler words that add nothing and read as AI padding — deleted outright.
+_AI_FILLER = re.compile(
+    r"\b(?:successfully|seamlessly|robust|comprehensive|cutting[- ]edge|"
+    r"state[- ]of[- ]the[- ]art|innovative|significantly|effectively|"
+    r"efficiently|meticulously|various|numerous)\s+",
+    re.I,
+)
+
+
+def _natural_bullet(b):
+    """De-AI a bullet: swap tell-tale verbs for plain ones, drop filler,
+    replace em/en dashes with commas, tidy spacing. Deterministic and
+    conservative — meaning is preserved."""
+    b = b.replace("—", ", ").replace(" – ", ", ").replace(" -- ", ", ")
+    for pat, repl in _AI_SWAPS:
+        b = pat.sub(repl, b)
+    b = _AI_FILLER.sub("", b)
+    b = re.sub(r"^\s*[a-z]", lambda m: m.group(0).upper(), b)  # recapitalize if filler was first word
+    b = re.sub(r"\s+([,.;:])", r"\1", b)
+    return re.sub(r"\s{2,}", " ", b).strip()
+
+
+# One or two real bullets from the candidate's own résumé, used as a voice
+# anchor so generated lines match how THEY write, not generic AI phrasing.
+_VOICE_EXEMPLARS = (
+    "Built a dynamic mapper using AWS Lambda and DynamoDB for daily updated marking of historical fraud.\n"
+    "Backtested the strategy on the last 5 years and got 4% excess XIRR over the actual portfolio."
+)
+
+
 def generate_bullets(heading, details, llm=None, n=3):
     """Turn a heading + rough ``details`` notes into ``n`` plain resume
     bullets via the local LLM. Foregrounds the concrete tech stack and uses
@@ -345,15 +386,26 @@ def generate_bullets(heading, details, llm=None, n=3):
             from job_dashboard.letter.draft import make_default_llm
             llm = make_default_llm()
         prompt = (
-            f"Write exactly {n} concise, high-impact resume bullets for the item "
-            f'titled "{heading or "this work"}" using the notes below.\n'
+            f"You are writing {n} résumé bullet points for \"{heading or 'this work'}\" "
+            "from the rough notes below.\n\n"
+            "Write them the way a real engineer types their own résumé — plain, "
+            "specific, factual. They must NOT look AI-written (recruiters and AI "
+            "detectors reject that instantly).\n\n"
+            "Match this person's actual résumé voice:\n"
+            f"{_VOICE_EXEMPLARS}\n\n"
             "Rules:\n"
-            "- One line per bullet, starting with a strong past-tense verb.\n"
-            "- Foreground the concrete tech stack (languages, frameworks, tools, cloud).\n"
-            "- Use ONLY numbers that literally appear in the notes; never invent metrics.\n"
-            "- Plain bullets only: no 'Problem/Approach/Solution' labels, no markdown headings.\n\n"
+            "- Each bullet ONE line, about 10-20 words. Start with a plain past-tense "
+            "verb (Built, Wrote, Shipped, Cut, Automated, Designed, Deployed, Trained).\n"
+            "- Say the concrete thing done and the real tech used. Keep it dry and direct.\n"
+            "- Use ONLY numbers that appear in the notes. Never invent a metric.\n"
+            "- Do NOT start every bullet with the same word.\n"
+            "- BANNED (never use): leveraged, utilized, spearheaded, seamlessly, robust, "
+            "cutting-edge, state-of-the-art, comprehensive, innovative, streamline, "
+            "empower, facilitate, 'in order to', 'a wide range of', 'responsible for', "
+            "'successfully', 'various', em-dashes (—), and marketing adjectives.\n"
+            "- No labels, no headings, no preamble.\n\n"
             f"NOTES:\n{str(details).strip()[:1500]}\n\n"
-            f"Reply with exactly {n} lines, each starting with '- '."
+            f"Output exactly {n} lines, each starting with '- '."
         )
         out = llm(prompt)
         allowed = _supported_numbers(details)
@@ -362,7 +414,7 @@ def generate_bullets(heading, details, llm=None, n=3):
             line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
             if not line:
                 continue
-            grounded = _strip_unsupported_numbers(line, allowed)
+            grounded = _natural_bullet(_strip_unsupported_numbers(line, allowed))
             if grounded:
                 bullets.append(grounded)
             if len(bullets) >= n:
@@ -485,9 +537,16 @@ def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2)
             from job_dashboard.letter.draft import make_default_llm
             llm = make_default_llm()
         prompt = (
-            f"Rewrite this resume block as {n} punchy alternatives tailored to the JD. "
-            "Each alternative: 1-3 bullets, **bold** key terms, keep only numbers that "
-            "already appear in the source; do NOT invent metrics.\n\n"
+            f"Rewrite this résumé block as {n} alternatives, each tuned toward the JD.\n\n"
+            "Write like a real engineer typing their own résumé — plain and factual, "
+            "NOT AI-sounding (recruiters and AI detectors reject that instantly). "
+            "Match this person's voice:\n"
+            f"{_VOICE_EXEMPLARS}\n\n"
+            "Rules: 1-3 dry, specific bullets per alternative; **bold** the real tech "
+            "terms; keep ONLY numbers already in the source (never invent). "
+            "BANNED words: leveraged, utilized, spearheaded, seamlessly, robust, "
+            "cutting-edge, comprehensive, innovative, streamline, 'in order to', "
+            "'responsible for', 'successfully', em-dashes (—).\n\n"
             f"BLOCK ({kind}) {title}:\n" + "\n".join(f"- {b}" for b in bullets) +
             f"\n\nJD:\n{(jd_text or '')[:1500]}\n\nCANDIDATE FACTS:\n{(profile_text or '')[:1200]}\n\n"
             "Reply as:\n1. <bullet> / <bullet>\n2. <bullet> / <bullet>")
@@ -498,7 +557,7 @@ def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2)
             line = re.sub(r"^\s*\d+[.)]\s*", "", line).strip()
             if not line:
                 continue
-            parts = [_ground_bullet(p.strip(), allowed) for p in re.split(r"\s*/\s*|\n", line) if p.strip()]
+            parts = [_natural_bullet(_ground_bullet(p.strip(), allowed)) for p in re.split(r"\s*/\s*|\n", line) if p.strip()]
             if parts:
                 alts.append(parts[:3])
             if len(alts) >= n:

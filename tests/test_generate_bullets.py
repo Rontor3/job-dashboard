@@ -33,3 +33,20 @@ def test_llm_failure_never_raises():
 def test_caps_to_n_bullets():
     fake = lambda _p: "- a\n- b\n- c\n- d\n- e"
     assert len(generate_bullets("x", "notes", llm=fake, n=3)) == 3
+
+
+def test_strips_ai_tells_and_keeps_meaning():
+    # LLM emits classic AI phrasing; the cleaner must plain it out.
+    fake = lambda _p: (
+        "- Leveraged AWS Lambda to seamlessly build a robust fraud pipeline saving 500 hours\n"
+        "- Successfully utilized DynamoDB in order to store data\n"
+        "- Spearheaded a comprehensive rewrite — improving latency"
+    )
+    details = "aws lambda, dynamodb, fraud pipeline, saved 500 hours"
+    out = generate_bullets("Fraud", details, llm=fake, n=3)
+    joined = " ".join(out).lower()
+    for banned in ["leverag", "seamlessly", "robust", "successfully",
+                   "utiliz", "in order to", "spearhead", "comprehensive", "—"]:
+        assert banned not in joined, f"AI tell survived: {banned}"
+    # real content + number preserved
+    assert "aws lambda" in joined and "500" in joined
