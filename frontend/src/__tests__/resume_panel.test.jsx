@@ -175,9 +175,9 @@ test("add creates a blank block in edit mode", async () => {
 
 test("delete removes a block", async () => {
   await openEditor();
-  // Render order follows kind grouping: Skills, Experience, Projects.
+  // Render order follows kind grouping: Experience, Projects, Skills.
   const deleteButtons = screen.getAllByText("Delete", { selector: "button" });
-  fireEvent.click(deleteButtons[1]); // deletes the Experience block
+  fireEvent.click(deleteButtons[0]); // deletes the Experience block
 
   await waitFor(() => expect(screen.queryByText("Senior Engineer @ Acme")).toBeNull());
 });
@@ -203,9 +203,9 @@ test("generate POSTs a body containing layout", async () => {
 
 test("edited block sends kind/title/bullets in layout instead of segment_id", async () => {
   await openEditor();
-  // Render order follows kind grouping: Skills, Experience, Projects.
+  // Render order follows kind grouping: Experience, Projects, Skills.
   const editButtons = screen.getAllByText("Edit", { selector: "button" });
-  fireEvent.click(editButtons[1]); // Experience
+  fireEvent.click(editButtons[0]); // Experience
   fireEvent.change(screen.getByLabelText("Block bullets"), {
     target: { value: "Edited bullet one" },
   });
@@ -228,9 +228,9 @@ test("edited block sends kind/title/bullets in layout instead of segment_id", as
 
 test("edited skills segment drops manifest title (label lives in bullets)", async () => {
   await openEditor();
-  // Render order follows kind grouping: Skills, Experience, Projects.
+  // Render order follows kind grouping: Experience, Projects, Skills.
   const editButtons = screen.getAllByText("Edit", { selector: "button" });
-  fireEvent.click(editButtons[0]); // Skills
+  fireEvent.click(editButtons[2]); // Skills
   fireEvent.change(screen.getByLabelText("Block bullets"), {
     target: { value: "**Python**, Go, Rust" },
   });

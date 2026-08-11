@@ -4,7 +4,7 @@ import { regenerateBlock, savedBlocks, saveBlock, generateBullets } from "../api
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 const SMALL_BTN = { ...BTN, fontSize: 11, padding: "4px 10px" };
 
-const KIND_ORDER = ["skills", "experience", "project"];
+const KIND_ORDER = ["experience", "project", "skills"];
 const KIND_LABELS = { skills: "Skills", experience: "Experience", project: "Projects" };
 const ADD_LABELS = { skills: "+ add skill group", experience: "+ add role", project: "+ add project" };
 
@@ -350,8 +350,14 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
               ) : (
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>
-                      {block.title || "(untitled)"}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                      <span title="Drag to reorder" aria-hidden="true"
+                        style={{ cursor: "grab", color: "var(--ink-faint)", fontSize: 13, flexShrink: 0, userSelect: "none" }}>
+                        ⠿
+                      </span>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>
+                        {block.title || "(untitled)"}
+                      </div>
                     </div>
                     <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       <button
@@ -419,7 +425,7 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
           {blocks.length === 0 && (
             <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>No blocks selected</div>
           )}
-          {blocks.map((block) => (
+          {KIND_ORDER.flatMap((kind) => blocks.filter((b) => b.kind === kind)).map((block) => (
             <div key={block.key} style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: "var(--ink)" }}>{block.title || "(untitled)"}</div>
               <ul style={{ margin: "2px 0 0", paddingLeft: 16, fontSize: 11, color: "var(--ink-soft)" }}>

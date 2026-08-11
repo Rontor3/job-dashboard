@@ -78,37 +78,27 @@ segments:
     tags: [multi-agent, mcp, fastapi, anthropic-claude, docker, docker-compose, agentic, full-stack, travel]
     tex: project-roammate.tex
 
-  - id: project-fraud-pipeline
-    kind: experience-framing
-    title: "Project: Health Fraud Pipeline (Tata AIG)"
-    tags: [fraud-detection, machine-learning, aws-lambda, dynamodb, api-gateway, real-time, production-ml]
-    tex: project-fraud-pipeline.tex
-    exclusive_group: tata-aig
-
   - id: experience-tata-aig-full
     kind: experience
-    title: "Experience: Data Scientist, Tata AIG (full)"
-    tags: [tata-aig, data-scientist, fraud, aws, monte-carlo, send-time-optimization, production-ml]
+    title: "Tata AIG · Data Scientist — Health Fraud Pipeline"
+    tags: [tata-aig, data-scientist, fraud-detection, aws-lambda, dynamodb, api-gateway, production-ml]
     tex: experience-tata-aig-full.tex
-    exclusive_group: tata-aig
 
   - id: experience-tata-aig-etf
     kind: experience
-    title: "Experience: Tata AIG — ETF allocation model (framing)"
+    title: "Tata AIG · Optimization of Passive Equity Investments"
     tags: [quant, etf, monte-carlo, pe-pb, backtesting, xirr, finance]
     tex: experience-tata-aig-etf.tex
-    exclusive_group: tata-aig
 
   - id: experience-tata-aig-sto
     kind: experience
-    title: "Experience: Tata AIG — Send-Time Optimization (framing)"
+    title: "Tata AIG · Send Time Optimization (STO)"
     tags: [engagement, marketing-analytics, send-time-optimization, growth]
     tex: experience-tata-aig-sto.tex
-    exclusive_group: tata-aig
 
   - id: experience-oyo-intern
     kind: experience
-    title: "Experience: Data Science Intern, OYO"
+    title: "OYO · Data Science Intern (Internship)"
     tags: [oyo, internship, excel, app-script, google-analytics, seo, reporting]
     tex: experience-oyo-intern.tex
 

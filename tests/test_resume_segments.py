@@ -30,32 +30,18 @@ def test_real_segment_library_loads():
         assert s.text.strip() != ""
 
 
-def test_exclusive_group_loaded():
-    """Verify exclusive_group field is loaded correctly."""
-    segs = load_segments()
-
-    # Find Tata AIG segments
-    tata_aig_ids = [
-        "experience-tata-aig-full",
-        "experience-tata-aig-etf",
-        "experience-tata-aig-sto",
-        "project-fraud-pipeline",
-    ]
-
-    tata_aig_segs = {s.id: s for s in segs if s.id in tata_aig_ids}
-
-    # Verify all 4 Tata AIG segments have exclusive_group set to "tata-aig"
-    for seg_id in tata_aig_ids:
-        seg = tata_aig_segs[seg_id]
-        assert seg.exclusive_group == "tata-aig", (
-            f"{seg_id} should have exclusive_group='tata-aig', got {seg.exclusive_group}"
+def test_tata_aig_subprojects_cooccur():
+    """The three Tata AIG sub-projects (Health Fraud Pipeline, ETF
+    optimization, STO) are complementary parts of one role — NOT mutually
+    exclusive alternatives — so they carry no exclusive_group and all
+    appear together, each as its own editable sub-project block."""
+    segs = {s.id: s for s in load_segments()}
+    for seg_id in ("experience-tata-aig-full", "experience-tata-aig-etf",
+                   "experience-tata-aig-sto"):
+        assert segs[seg_id].exclusive_group is None, (
+            f"{seg_id} should co-occur (exclusive_group=None), "
+            f"got {segs[seg_id].exclusive_group}"
         )
-
-    # Verify a non-Tata AIG segment has exclusive_group=None
-    other_segs = {s.id: s for s in segs if s.id not in tata_aig_ids}
-    assert len(other_segs) > 0, "Should have segments without exclusive_group"
-
-    for seg in list(other_segs.values())[:3]:  # Check first 3
-        assert seg.exclusive_group is None, (
-            f"{seg.id} should have exclusive_group=None, got {seg.exclusive_group}"
-        )
+    # Each renders as a self-contained bold sub-heading + its own itemize.
+    assert r"\textbf{Health Fraud Pipeline}" in segs["experience-tata-aig-full"].text
+    assert r"\begin{itemize}" in segs["experience-tata-aig-etf"].text

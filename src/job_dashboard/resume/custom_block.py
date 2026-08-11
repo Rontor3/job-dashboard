@@ -92,6 +92,10 @@ def segment_bullets(text: str) -> list[str]:
         return []
 
     try:
+        # Convert EVERY \textbf{X} to **X** up front (not just a leading one),
+        # so multi-heading segments (a role line + sub-project sub-headings)
+        # display cleanly in the editor instead of leaking raw \textbf{...}.
+        text = re.sub(r"\\textbf\{([^}]*)\}", r"**\1**", str(text))
         # Split on \item
         parts = str(text).split(r"\item")
         bullets = []
@@ -146,6 +150,9 @@ def segment_bullets(text: str) -> list[str]:
             part = part.replace(r"\_", "_")
             part = part.replace(r"\{", "{")
             part = part.replace(r"\}", "}")
+
+            # LaTeX dash ligatures -> real Unicode dashes for clean display.
+            part = part.replace("---", "—").replace("--", "–")
 
             # Collapse whitespace
             part = " ".join(part.split())
