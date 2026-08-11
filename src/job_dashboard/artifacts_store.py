@@ -120,6 +120,70 @@ def delete_resume_block(conn, block_id):
     conn.commit()
 
 
+# Reserved name of the always-present auto-saved working résumé.
+WORKING_LAYOUT = "__working__"
+
+
+def _ensure_resume_layouts_table(conn):
+    """Persisted résumé layouts: the auto-saved working copy (name
+    ``__working__``) plus named versions. ``layout`` is the ordered block
+    list as JSON ([{kind,title,bullets,excluded,source,segment_id}, ...])."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS resume_layouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            layout TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(name)
+        )
+    """)
+
+
+def save_resume_layout(conn, name, layout):
+    """Upsert a layout by name (working copy or a named version). Returns id."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO resume_layouts (name, layout, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(name) DO UPDATE SET
+               layout=excluded.layout, updated_at=excluded.updated_at""",
+        (name, json.dumps(layout or []), now),
+    )
+    conn.commit()
+    return conn.execute(
+        "SELECT id FROM resume_layouts WHERE name=?", (name,)
+    ).fetchone()[0]
+
+
+def get_resume_layout(conn, name):
+    """Return {id, name, layout, updated_at} for a layout name, or None."""
+    row = conn.execute(
+        "SELECT id, name, layout, updated_at FROM resume_layouts WHERE name=?",
+        (name,),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        layout = json.loads(row[2]) if row[2] else []
+    except (ValueError, TypeError):
+        layout = []
+    return {"id": row[0], "name": row[1], "layout": layout, "updated_at": row[3]}
+
+
+def list_resume_layouts(conn):
+    """Named versions (excludes the working copy), newest first: id/name/updated_at."""
+    rows = conn.execute(
+        "SELECT id, name, updated_at FROM resume_layouts WHERE name != ? ORDER BY updated_at DESC",
+        (WORKING_LAYOUT,),
+    ).fetchall()
+    return [{"id": r[0], "name": r[1], "updated_at": r[2]} for r in rows]
+
+
+def delete_resume_layout(conn, name):
+    conn.execute("DELETE FROM resume_layouts WHERE name = ?", (name,))
+    conn.commit()
+
+
 def _ensure_cover_letters_table(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS cover_letters (

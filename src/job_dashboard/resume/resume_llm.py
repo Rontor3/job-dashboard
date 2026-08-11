@@ -372,6 +372,62 @@ def generate_bullets(heading, details, llm=None, n=3):
         return []
 
 
+_METRIC_RE = re.compile(
+    r"(?<![\w*])((?:[₹$€£]\s*)?\d[\d.,]*\s*(?:%|x|k|m|bn|cr|lpa|lakh|lakhs|million|billion|hours?|hrs?)?)(?![\w*])",
+    re.I,
+)
+
+
+def _bold_span(text, phrase):
+    """Bold the first occurrence of ``phrase`` (case-insensitive) that is not
+    already inside a ``**...**`` span. Returns text unchanged if not found."""
+    if not phrase or len(phrase) < 2:
+        return text
+    pat = re.compile(r"(?<!\*)" + re.escape(phrase) + r"(?!\*)", re.I)
+    return pat.sub(lambda m: f"**{m.group(0)}**", text, count=1)
+
+
+def highlight_bullets(bullets, llm=None):
+    """Return ``bullets`` with technical keywords and impact metrics wrapped in
+    ``**bold**`` — WITHOUT changing any wording or structure. The model only
+    NAMES phrases already present; the ``**`` are applied deterministically by
+    substring, so a bullet's words can never change. Numbers with a unit/%%
+    are bolded deterministically as a backstop. Returns [] / originals safely
+    on any failure; never raises."""
+    items = [str(b) for b in (bullets or []) if b and str(b).strip()]
+    if not items:
+        return []
+    phrases = []
+    try:
+        if llm is None:
+            from job_dashboard.letter.draft import make_default_llm
+            llm = make_default_llm()
+        joined = "\n".join(items)
+        prompt = (
+            "List the technical keywords, tools, frameworks, platforms and "
+            "impact metrics that appear in the text below, EXACTLY as written, "
+            "comma-separated. Only terms literally present — invent nothing.\n\n"
+            f"{joined[:1500]}\n\nList:"
+        )
+        out = llm(prompt)
+        phrases = [p.strip() for p in re.split(r"[,\n;]", out if isinstance(out, str) else "") if p.strip()]
+    except Exception:
+        phrases = []
+
+    out_items = []
+    for b in items:
+        low = b.lower()
+        result = _METRIC_RE.sub(
+            lambda m: f"**{m.group(1)}**" if any(c.isdigit() for c in m.group(1)) else m.group(0),
+            b,
+        )
+        for ph in phrases:
+            if 2 <= len(ph) <= 40 and ph.lower() in low:
+                result = _bold_span(result, ph)
+        out_items.append(result)
+    return out_items
+
+
 def _norm_skill(s):
     return re.sub(r"[^a-z0-9+.#]", "", str(s or "").lower())
 

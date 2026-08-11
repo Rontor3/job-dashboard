@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { fetchSegments, suggestResume, generateResume } from "../api.js";
+import { fetchSegments, suggestResume, generateResume, fetchLayouts } from "../api.js";
 import BlockEditor from "./BlockEditor.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
@@ -10,19 +10,37 @@ export default function ResumePanel({ jobId }) {
   const [suggestion, setSuggestion] = useState(null);
   const [generated, setGenerated] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [jdInfo, setJdInfo] = useState(null); // {gaps} after an explicit "Tailor to this JD"
+  const [jdBusy, setJdBusy] = useState(false);
 
+  // Opening the editor NO LONGER scans the JD (no LLM). It just loads the
+  // segment library + the saved working résumé + named versions. JD tailoring
+  // is opt-in via handleTailorToJd below.
   const handleSuggest = () => {
     setStage("suggesting");
     setError(null);
-    Promise.all([suggestResume(jobId), fetchSegments()])
-      .then(([sugg, segments]) => {
-        setSuggestion({ ...sugg, segments });
+    Promise.all([fetchSegments(), fetchLayouts()])
+      .then(([segments, layouts]) => {
+        setSuggestion({
+          segments,
+          working: layouts.working || null,
+          versions: layouts.versions || [],
+        });
         setStage("suggested");
       })
       .catch((e) => {
         setError(String(e));
         setStage("idle");
       });
+  };
+
+  // Explicit, on-demand JD analysis (the only place the JD-keyword LLM runs).
+  const handleTailorToJd = () => {
+    setJdBusy(true);
+    suggestResume(jobId)
+      .then((sugg) => setJdInfo({ gaps: sugg.gaps || [] }))
+      .catch(() => setJdInfo({ gaps: [] }))
+      .finally(() => setJdBusy(false));
   };
 
   const handleGenerateLayout = (layout) => {
@@ -53,7 +71,7 @@ export default function ResumePanel({ jobId }) {
   if (stage === "suggesting") {
     return (
       <div style={{ marginTop: 12, color: "var(--ink-soft)", fontSize: 12 }}>
-        Analyzing job description…
+        Loading your résumé…
       </div>
     );
   }
@@ -65,6 +83,28 @@ export default function ResumePanel({ jobId }) {
         {error && (
           <div style={{ color: "var(--dupe-ink)", fontSize: 12, marginTop: 12 }}>{error}</div>
         )}
+
+        {/* JD tailoring is opt-in — nothing scans the JD until you click here. */}
+        <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={handleTailorToJd}
+            disabled={jdBusy}
+            style={{ ...BTN, fontSize: 11, padding: "4px 12px", background: "var(--canvas)", color: "var(--green)", border: "0.5px solid var(--hairline)" }}
+          >
+            {jdBusy ? "Reading JD…" : "Tailor to this JD"}
+          </button>
+          {jdInfo && (
+            jdInfo.gaps.length > 0 ? (
+              <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>
+                JD gaps to address: {jdInfo.gaps.map((g) => (g.jd_keyword || g)).join(", ")}
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>
+                No obvious JD gaps.
+              </span>
+            )
+          )}
+        </div>
 
         {generated && (
           <div style={{ marginTop: 12, background: "var(--green-tint)", borderRadius: 12, padding: "12px 14px" }}>

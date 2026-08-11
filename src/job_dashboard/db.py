@@ -13,6 +13,12 @@ from job_dashboard.artifacts_store import (
     save_resume_block,
     list_resume_blocks,
     delete_resume_block,
+    _ensure_resume_layouts_table,
+    save_resume_layout,
+    get_resume_layout,
+    list_resume_layouts,
+    delete_resume_layout,
+    WORKING_LAYOUT,
     _ensure_cover_letters_table,
     save_cover_letter,
     cover_letters_for_job,
@@ -98,6 +104,7 @@ def init_db(path):
     _ensure_status_updated_at_column(conn)
     _ensure_expired_column(conn)
     _ensure_resume_blocks_table(conn)
+    _ensure_resume_layouts_table(conn)
     from job_dashboard.apply.store import ensure_application_tables
     ensure_application_tables(conn)
     conn.commit()

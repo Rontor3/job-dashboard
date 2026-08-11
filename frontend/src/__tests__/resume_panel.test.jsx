@@ -103,10 +103,10 @@ test("renders 'Tailor resume' button in idle state", () => {
   expect(screen.getByText(/Tailor resume/)).toBeDefined();
 });
 
-test("shows analyzing message in suggesting stage", () => {
+test("shows loading message in suggesting stage (no JD scan)", () => {
   render(<ResumePanel jobId={1} />);
   fireEvent.click(screen.getByText(/Tailor resume/));
-  expect(screen.getByText(/Analyzing job description/)).toBeDefined();
+  expect(screen.getByText(/Loading your résumé/)).toBeDefined();
 });
 
 test("editor renders skills/experience/project blocks from mocked segments", async () => {
@@ -122,10 +122,10 @@ test("editor renders skills/experience/project blocks from mocked segments", asy
   expect(screen.queryByText("Education")).toBeNull();
 });
 
-test("regenerate shows alternatives and keeps Original", async () => {
+test("rewrite shows alternatives and keeps Original", async () => {
   await openEditor();
-  // Render order follows kind grouping: Skills, Experience, Projects.
-  const regenBtn = screen.getAllByText("Regenerate", { selector: "button" })[0]; // Skills block
+  // Render order follows kind grouping: Experience, Projects, Skills.
+  const regenBtn = screen.getAllByText("Rewrite", { selector: "button" })[0];
   fireEvent.click(regenBtn);
 
   await waitFor(() => expect(screen.getByText("Alternative 1")).toBeDefined());

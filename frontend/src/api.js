@@ -57,6 +57,30 @@ export const suggestSkills = (body) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }).then(json).then((d) => d.skills || []);
+export const highlightBullets = (bullets) =>
+  fetch(`/api/resume/highlight`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bullets }),
+  }).then(json).then((d) => d.bullets || []);
+// Persisted résumé layouts: working copy + named versions.
+export const fetchLayouts = () => fetch(`/api/resume/layouts`).then(json);
+export const saveWorkingLayout = (blocks) =>
+  fetch(`/api/resume/layout`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blocks }),
+  }).then(json);
+export const saveVersion = (name, blocks) =>
+  fetch(`/api/resume/layouts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, blocks }),
+  }).then(json);
+export const loadVersion = (name) =>
+  fetch(`/api/resume/layouts/${encodeURIComponent(name)}`).then(json).then((d) => d.blocks || []);
+export const deleteVersion = (name) =>
+  fetch(`/api/resume/layouts/${encodeURIComponent(name)}`, { method: "DELETE" }).then(json);
 export const fetchResumes = (id) => fetch(`/api/jobs/${id}/resumes`).then(json);
 
 export const draftCoverLetter = (id) =>

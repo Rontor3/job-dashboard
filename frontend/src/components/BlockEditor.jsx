@@ -1,5 +1,8 @@
-import React, { useEffect, useState } from "react";
-import { regenerateBlock, savedBlocks, saveBlock, generateBullets, suggestSkills } from "../api.js";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  regenerateBlock, savedBlocks, saveBlock, generateBullets, suggestSkills,
+  highlightBullets, saveWorkingLayout, saveVersion, loadVersion, deleteVersion, fetchLayouts,
+} from "../api.js";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 const SMALL_BTN = { ...BTN, fontSize: 11, padding: "4px 10px" };
@@ -23,11 +26,41 @@ function segToBlock(seg) {
   };
 }
 
-// The default editor set is the candidate's REAL résumé: every segment flagged
-// default (not the opt-in `default: false` tailored groups), kept in manifest
-// order (résumé order), NOT relevance-score order. Opt-in segments are offered
-// separately via the "+ add" pickers.
+// Rebuild editor blocks from a persisted layout (working copy or a version).
+function blocksFromLayout(layout) {
+  return (layout || [])
+    .filter((b) => b && KIND_ORDER.includes(b.kind))
+    .map((b, i) => ({
+      key: b.segment_id || `saved-${b.kind}-${i}`,
+      kind: b.kind,
+      title: b.title || "",
+      segment_id: b.segment_id || null,
+      source: b.source || (b.segment_id ? "segment" : "custom"),
+      active: 0,
+      excluded: !!b.excluded,
+      variants: [{ label: "Saved", bullets: b.bullets || [] }],
+    }));
+}
+
+// Serialize the current blocks to a persistable layout.
+function layoutFromBlocks(blocks) {
+  return blocks.map((b) => ({
+    kind: b.kind,
+    title: b.title || "",
+    bullets: b.variants[b.active]?.bullets || [],
+    excluded: !!b.excluded,
+    source: b.source,
+    segment_id: b.segment_id || null,
+  }));
+}
+
+// The default editor set is the candidate's saved working résumé if one exists;
+// otherwise the real résumé segments (default:true) in manifest order — NOT
+// relevance-score order. Opt-in segments are offered via the "+ add" pickers.
 function buildInitialBlocks(suggestion) {
+  if (suggestion.working && suggestion.working.length) {
+    return blocksFromLayout(suggestion.working);
+  }
   return (suggestion.segments || [])
     .filter((seg) => KIND_ORDER.includes(seg.kind) && seg.default !== false)
     .map(segToBlock);
@@ -48,8 +81,11 @@ function renderBulletText(text) {
   );
 }
 
-export default function BlockEditor({ jobId, suggestion, generating, onGenerate, onCancel }) {
+export default function BlockEditor({ jobId, suggestion, generating, hasDraft, onGenerate, onCancel }) {
   const [blocks, setBlocks] = useState(() => buildInitialBlocks(suggestion));
+  const [versions, setVersions] = useState(suggestion.versions || []);
+  const [versionName, setVersionName] = useState("");
+  const [highlightingKey, setHighlightingKey] = useState(null);
   const [editingKey, setEditingKey] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [editBullets, setEditBullets] = useState("");
@@ -65,6 +101,54 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
   const [skillSug, setSkillSug] = useState([]);         // AI-suggested skills (chips)
   const [skillSugBusy, setSkillSugBusy] = useState(false);
   const [skillSugDone, setSkillSugDone] = useState(false);
+
+  // Auto-save the working résumé whenever blocks change (debounced), so edits,
+  // additions, order and exclusions persist across Generate and reopening.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
+    const t = setTimeout(() => {
+      saveWorkingLayout(layoutFromBlocks(blocks)).catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [blocks]);
+
+  const handleSaveVersion = () => {
+    const name = versionName.trim();
+    if (!name) return;
+    saveVersion(name, layoutFromBlocks(blocks))
+      .then(() => fetchLayouts())
+      .then((l) => setVersions(l.versions || []))
+      .catch(() => {});
+    setVersionName("");
+  };
+
+  const handleLoadVersion = (name) => {
+    if (!name) return;
+    loadVersion(name).then((layout) => setBlocks(blocksFromLayout(layout))).catch(() => {});
+  };
+
+  const handleDeleteVersion = (name) => {
+    deleteVersion(name)
+      .then(() => fetchLayouts())
+      .then((l) => setVersions(l.versions || []))
+      .catch(() => {});
+  };
+
+  // Bold technical keywords + metrics in a block WITHOUT rewriting it.
+  const handleHighlight = (block) => {
+    setHighlightingKey(block.key);
+    highlightBullets(activeBulletsOf(block))
+      .then((bulls) => {
+        if (!bulls || !bulls.length) return;
+        updateBlock(block.key, (b) => {
+          const variants = [...b.variants, { label: "Highlighted", bullets: bulls }];
+          return { ...b, variants, active: variants.length - 1 };
+        });
+      })
+      .catch(() => {})
+      .finally(() => setHighlightingKey(null));
+  };
 
   // Opt-in segments (default:false in the manifest) offered in the "+ add" pickers,
   // minus any already present in the editor.
@@ -336,6 +420,45 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
         <div style={{ color: "var(--dupe-ink)", fontSize: 12, marginBottom: 8 }}>{layoutError}</div>
       )}
 
+      {/* Versions — edits auto-save; save named variants and switch between them. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>Version:</span>
+        {versions.length > 0 && (
+          <>
+            <select
+              aria-label="Load résumé version"
+              onChange={(e) => { handleLoadVersion(e.target.value); e.target.value = ""; }}
+              defaultValue=""
+              style={{ fontSize: 11, padding: "3px 6px" }}
+            >
+              <option value="" disabled>Load a version…</option>
+              {versions.map((v) => (
+                <option key={v.name} value={v.name}>{v.name}</option>
+              ))}
+            </select>
+            {versions.map((v) => (
+              <button key={`del-${v.name}`} onClick={() => handleDeleteVersion(v.name)}
+                title={`Delete version "${v.name}"`}
+                style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink-faint)" }}>
+                ✕ {v.name}
+              </button>
+            ))}
+          </>
+        )}
+        <input
+          aria-label="New version name"
+          value={versionName}
+          onChange={(e) => setVersionName(e.target.value)}
+          placeholder="Name this version"
+          style={{ fontSize: 11, padding: "3px 6px", width: 130 }}
+        />
+        <button onClick={handleSaveVersion} disabled={!versionName.trim()}
+          style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)", opacity: versionName.trim() ? 1 : 0.5 }}>
+          Save version
+        </button>
+        <span style={{ fontSize: 10, color: "var(--ink-faint)", fontStyle: "italic" }}>edits auto-save</span>
+      </div>
+
       {groups.map((group) => (
         <div key={group.kind} style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -494,11 +617,20 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
                     </div>
                     <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       <button
-                        onClick={() => handleRegenerate(block)}
-                        disabled={regeneratingKey === block.key}
+                        onClick={() => handleHighlight(block)}
+                        disabled={highlightingKey === block.key}
+                        title="Bold the technical keywords + impact numbers, keeping your wording"
                         style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)" }}
                       >
-                        {regeneratingKey === block.key ? "Regenerating…" : "Regenerate"}
+                        {highlightingKey === block.key ? "Highlighting…" : "Highlight"}
+                      </button>
+                      <button
+                        onClick={() => handleRegenerate(block)}
+                        disabled={regeneratingKey === block.key}
+                        title="Rewrite into punchy alternatives (grounded — keeps your numbers)"
+                        style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}
+                      >
+                        {regeneratingKey === block.key ? "Rewriting…" : "Rewrite"}
                       </button>
                       <button onClick={() => startEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>
                         Edit

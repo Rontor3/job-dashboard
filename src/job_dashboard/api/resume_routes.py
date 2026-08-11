@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from job_dashboard.db import (
     get_resume, init_db, job_detail, resumes_for_job,
     save_resume_block, list_resume_blocks, delete_resume_block,
+    save_resume_layout, get_resume_layout, list_resume_layouts,
+    delete_resume_layout, WORKING_LAYOUT,
 )
 from job_dashboard.match.profile_text import compose_profile_text
 from job_dashboard.resume.ats import ats_check
@@ -25,8 +27,8 @@ from job_dashboard.resume.keyword_map import (
 )
 from job_dashboard.resume.render import render_pdf
 from job_dashboard.resume.resume_llm import (
-    extract_jd_keywords, generate_bullets, make_ollama_llm, regenerate_block,
-    suggest_skills,
+    extract_jd_keywords, generate_bullets, highlight_bullets, make_ollama_llm,
+    regenerate_block, suggest_skills,
 )
 from job_dashboard.resume.segments import load_segments
 
@@ -58,6 +60,15 @@ class GenerateBulletsRequest(BaseModel):
 class SuggestSkillsRequest(BaseModel):
     context: str          # the candidate's own experience + project text
     existing: list[str] = []  # skills already listed (to skip)
+
+
+class HighlightRequest(BaseModel):
+    bullets: list[str]
+
+
+class SaveLayoutRequest(BaseModel):
+    name: str = WORKING_LAYOUT  # default = the auto-saved working copy
+    blocks: list[dict] = []
 
 
 def build_resume_router(
@@ -141,6 +152,56 @@ def build_resume_router(
             return {"skills": []}
         skills = suggest_skills(body.context, body.existing, llm=bullet_llm)
         return {"skills": skills}
+
+    @router.post("/api/resume/highlight")
+    def highlight(body: HighlightRequest):
+        """Bold technical keywords + impact metrics in the given bullets
+        WITHOUT changing wording. Safe on any LLM issue."""
+        return {"bullets": highlight_bullets(body.bullets, llm=bullet_llm)}
+
+    # --- Persisted résumé layouts: auto-saved working copy + named versions ---
+
+    @router.get("/api/resume/layouts")
+    def get_layouts():
+        """The auto-saved working résumé plus the list of named versions."""
+        with db() as conn:
+            working = get_resume_layout(conn, WORKING_LAYOUT)
+            return {
+                "working": working["layout"] if working else None,
+                "versions": list_resume_layouts(conn),
+            }
+
+    @router.put("/api/resume/layout")
+    def put_working_layout(body: SaveLayoutRequest):
+        """Auto-save the working résumé (called as the user edits)."""
+        with db() as conn:
+            save_resume_layout(conn, WORKING_LAYOUT, body.blocks)
+        return {"ok": True}
+
+    @router.post("/api/resume/layouts")
+    def save_named_version(body: SaveLayoutRequest):
+        """Save the current blocks as a named version."""
+        name = body.name.strip()
+        if not name or name == WORKING_LAYOUT:
+            raise HTTPException(status_code=422, detail="a version name is required")
+        with db() as conn:
+            save_resume_layout(conn, name, body.blocks)
+        return {"ok": True, "name": name}
+
+    @router.get("/api/resume/layouts/{name}")
+    def load_layout(name: str):
+        """Load a named version's blocks."""
+        with db() as conn:
+            layout = get_resume_layout(conn, name)
+        if layout is None:
+            raise HTTPException(status_code=404, detail="version not found")
+        return {"name": layout["name"], "blocks": layout["layout"]}
+
+    @router.delete("/api/resume/layouts/{name}")
+    def remove_layout(name: str):
+        with db() as conn:
+            delete_resume_layout(conn, name)
+        return {"ok": True}
 
     @router.post("/api/jobs/{job_id}/resume/suggest")
     def suggest_resume(job_id: int):
