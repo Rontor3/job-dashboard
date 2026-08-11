@@ -18,41 +18,70 @@ segments:
     tags: [summary, data-scientist, fraud, genai, llm, rag, lora, mlops, ai-engineer, ml-engineer]
     tex: summary-main.tex
 
+  # --- Default skills: the candidate's real résumé Skills section, verbatim
+  # (Rakshit_Singh-4.pdf), three categories. These load into the editor by
+  # default. The tailored groups below (default: false) are opt-in adds.
+  - id: skills-programming-tech
+    kind: skills
+    title: "Programming & Technologies"
+    tags: [python, mcp, sql, pandas, numpy, sklearn, sagemaker, langchain]
+    tex: skills-programming-tech.tex
+
+  - id: skills-ml-datascience
+    kind: skills
+    title: "Machine Learning & Data Science"
+    tags: [predictive-modeling, deep-learning, nlp, generative-ai, shap, eda]
+    tex: skills-ml-datascience.tex
+
+  - id: skills-professional
+    kind: skills
+    title: "Professional Skills"
+    tags: [critical-thinking, collaboration, communication, problem-solving, deployment]
+    tex: skills-professional.tex
+
+  # --- Tailored skill groups (opt-in): not loaded by default; offered in the
+  # editor's "add skill group" picker for per-job emphasis.
   - id: skills-programming-ml
     kind: skills
     title: Programming & ML Skills
     tags: [python, pandas, numpy, scikit-learn, langchain, sql]
     tex: skills-programming-ml.tex
+    default: false
 
   - id: skills-genai-llm
     kind: skills
     title: GenAI / LLM Skills
     tags: [genai, llm, rag, lora, gemma, sentence-transformers, prompt-engineering, ollama, mcp]
     tex: skills-genai-llm.tex
+    default: false
 
   - id: skills-ml-general
     kind: skills
     title: Machine Learning Skills
     tags: [machine-learning, predictive-modeling, deep-learning, nlp, fraud-detection, anomaly-detection, shap, eda]
     tex: skills-ml-general.tex
+    default: false
 
   - id: skills-cloud-mlops
     kind: skills
     title: Cloud & MLOps Skills
     tags: [aws, lambda, api-gateway, dynamodb, sagemaker, mlops, real-time-serving, pipelines, deployment]
     tex: skills-cloud-mlops.tex
+    default: false
 
   - id: skills-quant-analytics
     kind: skills
     title: Quant & Analytics Skills
     tags: [quant, monte-carlo, backtesting, pe-pb, engagement, send-time-optimization]
     tex: skills-quant-analytics.tex
+    default: false
 
   - id: skills-web-apis
     kind: skills
     title: Web & APIs Skills
     tags: [javascript, html, css, rest-api, third-party-integration, fastapi]
     tex: skills-web-apis.tex
+    default: false
 
   - id: project-rag
     kind: project

@@ -51,6 +51,12 @@ export const generateBullets = (body) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   }).then(json).then((d) => d.bullets || []);
+export const suggestSkills = (body) =>
+  fetch(`/api/resume/suggest-skills`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).then(json).then((d) => d.skills || []);
 export const fetchResumes = (id) => fetch(`/api/jobs/${id}/resumes`).then(json);
 
 export const draftCoverLetter = (id) =>

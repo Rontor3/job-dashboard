@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { regenerateBlock, savedBlocks, saveBlock, generateBullets } from "../api.js";
+import { regenerateBlock, savedBlocks, saveBlock, generateBullets, suggestSkills } from "../api.js";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 const SMALL_BTN = { ...BTN, fontSize: 11, padding: "4px 10px" };
@@ -10,24 +10,27 @@ const ADD_LABELS = { skills: "+ add skill group", experience: "+ add role", proj
 
 let customBlockCounter = 0;
 
+function segToBlock(seg) {
+  return {
+    key: seg.id,
+    kind: seg.kind,
+    title: seg.title,
+    segment_id: seg.id,
+    source: "segment",
+    active: 0,
+    excluded: false,
+    variants: [{ label: "Original", bullets: seg.bullets || [] }],
+  };
+}
+
+// The default editor set is the candidate's REAL résumé: every segment flagged
+// default (not the opt-in `default: false` tailored groups), kept in manifest
+// order (résumé order), NOT relevance-score order. Opt-in segments are offered
+// separately via the "+ add" pickers.
 function buildInitialBlocks(suggestion) {
-  const segmentMap = {};
-  (suggestion.segments || []).forEach((seg) => {
-    segmentMap[seg.id] = seg;
-  });
-  const ids = suggestion.block_ids || [];
-  return ids
-    .map((id) => segmentMap[id])
-    .filter((seg) => seg && KIND_ORDER.includes(seg.kind))
-    .map((seg) => ({
-      key: seg.id,
-      kind: seg.kind,
-      title: seg.title,
-      segment_id: seg.id,
-      source: "segment",
-      active: 0,
-      variants: [{ label: "Original", bullets: seg.bullets || [] }],
-    }));
+  return (suggestion.segments || [])
+    .filter((seg) => KIND_ORDER.includes(seg.kind) && seg.default !== false)
+    .map(segToBlock);
 }
 
 function activeBulletsOf(block) {
@@ -58,6 +61,19 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
   const [editDetails, setEditDetails] = useState(""); // rough notes fed to the AI bullet writer
   const [genBusy, setGenBusy] = useState(false);
   const [genFailed, setGenFailed] = useState(false);
+  const [addMenuKind, setAddMenuKind] = useState(null); // which section's "add" picker is open
+  const [skillSug, setSkillSug] = useState([]);         // AI-suggested skills (chips)
+  const [skillSugBusy, setSkillSugBusy] = useState(false);
+  const [skillSugDone, setSkillSugDone] = useState(false);
+
+  // Opt-in segments (default:false in the manifest) offered in the "+ add" pickers,
+  // minus any already present in the editor.
+  const addableByKind = (kind) => {
+    const present = new Set(blocks.map((b) => b.segment_id).filter(Boolean));
+    return (suggestion.segments || []).filter(
+      (s) => s.kind === kind && s.default === false && !present.has(s.id)
+    );
+  };
 
   // Merge the user's saved library blocks in once, so they're available on every
   // job. Skip any whose (kind+title) already appears among the suggested blocks.
@@ -191,7 +207,59 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
     setEditingKey(key);
     setEditTitle("");
     setEditBullets("");
+    setEditDetails("");
+    setAddMenuKind(null);
   };
+
+  // Add an opt-in library segment (e.g. a tailored skill group) as a block.
+  const addSegmentBlock = (seg) => {
+    setBlocks((prev) => (prev.some((b) => b.segment_id === seg.id) ? prev : [...prev, segToBlock(seg)]));
+    setAddMenuKind(null);
+  };
+
+  // Ask the LLM for skills the candidate evidenced in their own experience +
+  // projects but hasn't listed. Grounded server-side (never invents).
+  const handleSuggestSkills = () => {
+    setSkillSugBusy(true);
+    setSkillSugDone(false);
+    const contextText = blocks
+      .filter((b) => (b.kind === "experience" || b.kind === "project") && !b.excluded)
+      .flatMap((b) => activeBulletsOf(b))
+      .join("\n");
+    const existing = blocks
+      .filter((b) => b.kind === "skills")
+      .flatMap((b) => activeBulletsOf(b))
+      .join(", ");
+    suggestSkills({ context: contextText, existing: existing ? [existing] : [] })
+      .then((skills) => setSkillSug(skills))
+      .catch(() => setSkillSug([]))
+      .finally(() => { setSkillSugBusy(false); setSkillSugDone(true); });
+  };
+
+  // Drop a suggested skill into an "Additional Skills" block (created on demand).
+  const addSuggestedSkill = (skill) => {
+    setSkillSug((prev) => prev.filter((s) => s !== skill));
+    setBlocks((prev) => {
+      const idx = prev.findIndex((b) => b.kind === "skills" && b.title === "Additional Skills");
+      if (idx >= 0) {
+        const b = prev[idx];
+        const bullets = [...activeBulletsOf(b)];
+        bullets[0] = bullets[0] ? `${bullets[0]}, ${skill}` : `**Additional**: ${skill}`;
+        const copy = [...prev];
+        copy[idx] = { ...b, variants: [{ label: "Original", bullets }], active: 0 };
+        return copy;
+      }
+      customBlockCounter += 1;
+      return [...prev, {
+        key: `custom-skills-${customBlockCounter}`, kind: "skills", title: "Additional Skills",
+        segment_id: null, source: "custom", active: 0, excluded: false,
+        variants: [{ label: "Original", bullets: [`**Additional**: ${skill}`] }],
+      }];
+    });
+  };
+
+  const toggleExcluded = (key) =>
+    updateBlock(key, (b) => ({ ...b, excluded: !b.excluded }));
 
   const deleteBlock = (key) => {
     setBlocks((prev) => prev.filter((b) => b.key !== key));
@@ -232,7 +300,7 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
   const buildLayout = () =>
     KIND_ORDER.flatMap((kind) =>
       blocks
-        .filter((b) => b.kind === kind)
+        .filter((b) => b.kind === kind && !b.excluded)
         .map((b) => {
           if (b.source === "segment" && b.active === 0) {
             return { segment_id: b.segment_id };
@@ -272,13 +340,69 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
         <div key={group.kind} style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <div style={{ fontSize: 12, fontWeight: 500, color: "var(--ink)" }}>{group.label}</div>
-            <button
-              onClick={() => addBlock(group.kind)}
-              style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)" }}
-            >
-              {ADD_LABELS[group.kind]}
-            </button>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {group.kind === "skills" && (
+                <button
+                  onClick={handleSuggestSkills}
+                  disabled={skillSugBusy}
+                  title="Suggest skills you used in your experience/projects but didn't list"
+                  style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)" }}
+                >
+                  {skillSugBusy ? "Scanning…" : "✨ Suggest skills"}
+                </button>
+              )}
+              <button
+                onClick={() =>
+                  group.kind === "skills" && addableByKind("skills").length
+                    ? setAddMenuKind(addMenuKind === group.kind ? null : group.kind)
+                    : addBlock(group.kind)
+                }
+                style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)" }}
+              >
+                {ADD_LABELS[group.kind]}
+                {group.kind === "skills" && addableByKind("skills").length ? " ▾" : ""}
+              </button>
+            </div>
           </div>
+
+          {addMenuKind === group.kind && (
+            <div style={{ border: "0.5px solid var(--hairline)", borderRadius: 8, padding: 6, marginBottom: 8, background: "var(--card)" }}>
+              {addableByKind(group.kind).map((seg) => (
+                <button key={seg.id} onClick={() => addSegmentBlock(seg)}
+                  style={{ ...SMALL_BTN, display: "block", width: "100%", textAlign: "left", background: "var(--canvas)", color: "var(--ink)", marginBottom: 4 }}>
+                  + {seg.title}
+                </button>
+              ))}
+              <button onClick={() => addBlock(group.kind)}
+                style={{ ...SMALL_BTN, display: "block", width: "100%", textAlign: "left", background: "var(--canvas)", color: "var(--ink-faint)" }}>
+                + Blank skill group
+              </button>
+            </div>
+          )}
+
+          {group.kind === "skills" && (skillSug.length > 0 || skillSugDone) && (
+            <div style={{ marginBottom: 8 }}>
+              {skillSug.length > 0 ? (
+                <>
+                  <div style={{ fontSize: 11, color: "var(--ink-faint)", marginBottom: 4 }}>
+                    From your experience/projects — click to add:
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {skillSug.map((s) => (
+                      <button key={s} onClick={() => addSuggestedSkill(s)}
+                        style={{ ...SMALL_BTN, border: "0.5px solid var(--hairline)", background: "var(--green-tint)", color: "var(--green)" }}>
+                        + {s}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>
+                  No unlisted skills found in your experience/projects.
+                </div>
+              )}
+            </div>
+          )}
 
           {group.items.length === 0 && (
             <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>No blocks</div>
@@ -297,6 +421,7 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
                 padding: 10,
                 marginBottom: 8,
                 background: "var(--card)",
+                opacity: block.excluded ? 0.45 : 1,
               }}
             >
               {editingKey === block.key ? (
@@ -351,11 +476,19 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={!block.excluded}
+                        onChange={() => toggleExcluded(block.key)}
+                        aria-label={`Include ${block.title || "block"} in resume`}
+                        title={block.excluded ? "Excluded from the résumé — check to include" : "Included — uncheck to leave out"}
+                        style={{ flexShrink: 0, cursor: "pointer", accentColor: "var(--green)" }}
+                      />
                       <span title="Drag to reorder" aria-hidden="true"
                         style={{ cursor: "grab", color: "var(--ink-faint)", fontSize: 13, flexShrink: 0, userSelect: "none" }}>
                         ⠿
                       </span>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ink)" }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ink)", textDecoration: block.excluded ? "line-through" : "none" }}>
                         {block.title || "(untitled)"}
                       </div>
                     </div>
@@ -425,7 +558,7 @@ export default function BlockEditor({ jobId, suggestion, generating, onGenerate,
           {blocks.length === 0 && (
             <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>No blocks selected</div>
           )}
-          {KIND_ORDER.flatMap((kind) => blocks.filter((b) => b.kind === kind)).map((block) => (
+          {KIND_ORDER.flatMap((kind) => blocks.filter((b) => b.kind === kind && !b.excluded)).map((block) => (
             <div key={block.key} style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: "var(--ink)" }}>{block.title || "(untitled)"}</div>
               <ul style={{ margin: "2px 0 0", paddingLeft: 16, fontSize: 11, color: "var(--ink-soft)" }}>

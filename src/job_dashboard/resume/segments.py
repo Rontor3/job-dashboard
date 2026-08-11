@@ -26,6 +26,7 @@ class Segment:
     tex_path: Path
     text: str
     exclusive_group: str | None = None
+    default: bool = True  # False = opt-in block, offered in an "add" picker, not loaded by default
 
 
 def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
@@ -53,6 +54,7 @@ def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
                 tex_path=tex_path,
                 text=text,
                 exclusive_group=entry.get("exclusive_group"),
+                default=entry.get("default", True),
             )
         )
     return segments

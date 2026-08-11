@@ -5,7 +5,8 @@
       "name": "dashboard",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "uvicorn", "job_dashboard.api.serve:app", "--port", "8000"],
-      "port": 8000
+      "port": 8000,
+      "autoPort": false
     },
     {
       "name": "frontend-dev",

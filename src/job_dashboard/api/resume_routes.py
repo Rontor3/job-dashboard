@@ -26,6 +26,7 @@ from job_dashboard.resume.keyword_map import (
 from job_dashboard.resume.render import render_pdf
 from job_dashboard.resume.resume_llm import (
     extract_jd_keywords, generate_bullets, make_ollama_llm, regenerate_block,
+    suggest_skills,
 )
 from job_dashboard.resume.segments import load_segments
 
@@ -52,6 +53,11 @@ class GenerateBulletsRequest(BaseModel):
     heading: str = ""
     details: str
     n: int = 3
+
+
+class SuggestSkillsRequest(BaseModel):
+    context: str          # the candidate's own experience + project text
+    existing: list[str] = []  # skills already listed (to skip)
 
 
 def build_resume_router(
@@ -84,6 +90,7 @@ def build_resume_router(
                     "title": s.title,
                     "tags": s.tags,
                     "exclusive_group": s.exclusive_group,
+                    "default": s.default,
                     "bullets": segment_bullets(s.text),
                 }
                 for s in segments
@@ -124,6 +131,16 @@ def build_resume_router(
         n = max(1, min(5, body.n))
         bullets = generate_bullets(body.heading, body.details, llm=bullet_llm, n=n)
         return {"bullets": bullets}
+
+    @router.post("/api/resume/suggest-skills")
+    def suggest_missing_skills(body: SuggestSkillsRequest):
+        """Suggest skills the candidate demonstrably used in their own
+        experience/projects but hasn't listed. Grounded (never invents);
+        returns [] safely on any LLM issue."""
+        if not body.context.strip():
+            return {"skills": []}
+        skills = suggest_skills(body.context, body.existing, llm=bullet_llm)
+        return {"skills": skills}
 
     @router.post("/api/jobs/{job_id}/resume/suggest")
     def suggest_resume(job_id: int):

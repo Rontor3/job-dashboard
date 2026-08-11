@@ -5,10 +5,11 @@ import BlockEditor from "./BlockEditor.jsx";
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 
 export default function ResumePanel({ jobId }) {
-  const [stage, setStage] = useState("idle"); // idle, suggesting, suggested, generating, generated
+  const [stage, setStage] = useState("idle"); // idle, suggesting, suggested
   const [error, setError] = useState(null);
   const [suggestion, setSuggestion] = useState(null);
   const [generated, setGenerated] = useState(null);
+  const [generating, setGenerating] = useState(false);
 
   const handleSuggest = () => {
     setStage("suggesting");
@@ -25,17 +26,15 @@ export default function ResumePanel({ jobId }) {
   };
 
   const handleGenerateLayout = (layout) => {
-    setStage("generating");
+    setGenerating(true);
     setError(null);
+    // Stay on the editor stage so BlockEditor stays mounted (its block edits,
+    // exclusions and order are preserved). The rendered draft appears above it,
+    // and the user can keep adding/removing/editing then re-render.
     generateResume(jobId, [], [], layout)
-      .then((result) => {
-        setGenerated(result);
-        setStage("generated");
-      })
-      .catch((e) => {
-        setError(String(e));
-        setStage("suggested");
-      });
+      .then((result) => setGenerated(result))
+      .catch((e) => setError(String(e)))
+      .finally(() => setGenerating(false));
   };
 
   if (stage === "idle") {
@@ -59,137 +58,50 @@ export default function ResumePanel({ jobId }) {
     );
   }
 
-  if ((stage === "suggested" || stage === "generating") && suggestion) {
+  if (stage === "suggested" && suggestion) {
+    const ats = generated && generated.ats_report;
     return (
       <div>
         {error && (
           <div style={{ color: "var(--dupe-ink)", fontSize: 12, marginTop: 12 }}>{error}</div>
         )}
+
+        {generated && (
+          <div style={{ marginTop: 12, background: "var(--green-tint)", borderRadius: 12, padding: "12px 14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: "var(--green)" }}>
+                Tailored draft ready{ats ? ` · ATS ${ats.ats_score}%` : ""}
+              </div>
+              {generated.pdf_url && (
+                <a href={generated.pdf_url} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 12, color: "var(--green)", textDecoration: "none", padding: "4px 12px", background: "#FFFFFF", borderRadius: "var(--radius-pill)", fontWeight: 500 }}>
+                  Open PDF ↗
+                </a>
+              )}
+            </div>
+            {ats && ats.missing_keywords && ats.missing_keywords.length > 0 && (
+              <div style={{ fontSize: 11, color: "var(--green-mid)", marginTop: 6 }}>
+                Missing keywords: {ats.missing_keywords.join(", ")}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: "var(--green-mid)", marginTop: 6, fontStyle: "italic" }}>
+              Add, remove (uncheck) or edit blocks below, then re-render.
+            </div>
+          </div>
+        )}
+
         <BlockEditor
           jobId={jobId}
           suggestion={suggestion}
-          generating={stage === "generating"}
+          generating={generating}
+          hasDraft={!!generated}
           onGenerate={handleGenerateLayout}
-          onCancel={() => setStage("idle")}
+          onCancel={() => { setStage("idle"); setGenerated(null); }}
         />
-      </div>
-    );
-  }
-
-  if (stage === "generated" && generated) {
-    return (
-      <div style={{ marginTop: 12, borderTop: "0.5px solid var(--hairline)", paddingTop: 12 }}>
-        {error && (
-          <div style={{ color: "var(--dupe-ink)", fontSize: 12, marginBottom: 8 }}>{error}</div>
-        )}
-
-        {/* PDF link */}
-        {generated.pdf_url && (
-          <div style={{ marginBottom: 14 }}>
-            <a
-              href={generated.pdf_url}
-              target="_blank"
-              rel="noreferrer"
-              style={{
-                display: "inline-block",
-                fontSize: 12,
-                color: "var(--green)",
-                textDecoration: "none",
-                padding: "6px 12px",
-                background: "var(--green-tint)",
-                borderRadius: "var(--radius-pill)",
-                fontWeight: 500,
-              }}
-            >
-              Download tailored resume (PDF)
-            </a>
-          </div>
-        )}
-
-        {/* ATS score */}
-        {generated.ats_report && (
-          <div
-            style={{
-              background: "var(--green-tint)",
-              borderRadius: 12,
-              padding: "12px 14px",
-              marginBottom: 14,
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--green)", marginBottom: 4 }}>
-              ATS Score
-            </div>
-            <div style={{ fontSize: 24, fontWeight: 500, color: "var(--green)" }}>
-              {generated.ats_report.ats_score}%
-            </div>
-            {generated.ats_report.missing_keywords && generated.ats_report.missing_keywords.length > 0 && (
-              <div style={{ fontSize: 11, color: "var(--green-mid)", marginTop: 6 }}>
-                <div style={{ fontWeight: 500, marginBottom: 4 }}>Missing keywords:</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {generated.ats_report.missing_keywords.map((kw, idx) => (
-                    <span
-                      key={idx}
-                      style={{
-                        background: "#F0F8F5",
-                        color: "var(--green-mid)",
-                        borderRadius: "var(--radius-tag)",
-                        padding: "2px 8px",
-                      }}
-                    >
-                      {kw}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Interview prep */}
-        {generated.interview_prep && generated.interview_prep.length > 0 && (
-          <div
-            style={{
-              background: "var(--warm-tint)",
-              borderRadius: 12,
-              padding: "12px 14px",
-              marginBottom: 14,
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 500, color: "var(--warm-ink)", marginBottom: 6 }}>
-              Interview prep
-            </div>
-            <ul
-              style={{
-                margin: 0,
-                paddingLeft: 16,
-                fontSize: 12,
-                color: "var(--warm-ink)",
-                lineHeight: 1.6,
-              }}
-            >
-              {generated.interview_prep.map((prep, idx) => (
-                <li key={idx}>
-                  {prep.jd_keyword}: {prep.proposed_text}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Back button */}
-        <button
-          onClick={() => setStage("idle")}
-          style={{
-            ...BTN,
-            background: "var(--canvas)",
-            color: "var(--ink-faint)",
-          }}
-        >
-          Start over
-        </button>
       </div>
     );
   }
 
   return null;
 }
+

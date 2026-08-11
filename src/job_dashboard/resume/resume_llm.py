@@ -372,6 +372,57 @@ def generate_bullets(heading, details, llm=None, n=3):
         return []
 
 
+def _norm_skill(s):
+    return re.sub(r"[^a-z0-9+.#]", "", str(s or "").lower())
+
+
+def suggest_skills(context, existing=None, llm=None, max_n=12):
+    """Suggest concrete skills/tools the candidate demonstrably USED in their
+    own experience + project text (``context``) but hasn't yet listed in
+    ``existing``. Grounded: every suggestion must literally appear in
+    ``context`` — nothing is invented. Returns a deduped list (<= max_n) of
+    skill strings, or ``[]`` on empty input / any failure. Never raises."""
+    try:
+        if not (context and str(context).strip()):
+            return []
+        if llm is None:
+            from job_dashboard.letter.draft import make_default_llm
+            llm = make_default_llm()
+        ctx = str(context)
+        ctx_l = ctx.lower()
+        existing_norm = {_norm_skill(s) for s in (existing or [])}
+        prompt = (
+            "From the candidate's own experience and project text below, list the "
+            "concrete technical skills, tools, frameworks, languages, and platforms "
+            "they actually used. Only terms that literally appear in the text — do "
+            "NOT infer or add anything not written there.\n"
+            f"Already listed (skip these): {', '.join(existing or []) or '(none)'}\n\n"
+            f"TEXT:\n{ctx[:2500]}\n\n"
+            "Reply as a plain comma-separated list of skill terms, nothing else."
+        )
+        out = llm(prompt)
+        raw = re.split(r"[,\n;]", out if isinstance(out, str) else "")
+        seen, result = set(), []
+        for term in raw:
+            term = re.sub(r"^[\s\-*•\d.)]+", "", term).strip()
+            if not term or len(term) > 40:
+                continue
+            norm = _norm_skill(term)
+            # Grounding: keep only terms actually present in the candidate's
+            # text and not already listed / already suggested.
+            if not norm or norm in existing_norm or norm in seen:
+                continue
+            if term.lower() not in ctx_l:
+                continue
+            seen.add(norm)
+            result.append(term)
+            if len(result) >= max_n:
+                break
+        return result
+    except Exception:
+        return []
+
+
 def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2):
     try:
         if llm is None:

@@ -185,7 +185,7 @@ test("delete removes a block", async () => {
 test("generate POSTs a body containing layout", async () => {
   await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
+  await waitFor(() => expect(screen.getByText(/Tailored draft ready/)).toBeDefined());
 
   const generateCall = global.fetch.mock.calls.find(([url]) =>
     String(url).includes("/resume/generate")
@@ -213,7 +213,7 @@ test("edited block sends kind/title/bullets in layout instead of segment_id", as
   await waitFor(() => expect(screen.getAllByText(/Edited bullet one/).length).toBeGreaterThan(0));
 
   fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
+  await waitFor(() => expect(screen.getByText(/Tailored draft ready/)).toBeDefined());
 
   const generateCall = global.fetch.mock.calls.find(([url]) =>
     String(url).includes("/resume/generate")
@@ -238,7 +238,7 @@ test("edited skills segment drops manifest title (label lives in bullets)", asyn
   await waitFor(() => expect(screen.getAllByText(/Go, Rust/).length).toBeGreaterThan(0));
 
   fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText(/ATS Score/)).toBeDefined());
+  await waitFor(() => expect(screen.getByText(/Tailored draft ready/)).toBeDefined());
 
   const generateCall = global.fetch.mock.calls.find(([url]) =>
     String(url).includes("/resume/generate")
@@ -256,25 +256,25 @@ test("edited skills segment drops manifest title (label lives in bullets)", asyn
 test("after generate, renders pdf link", async () => {
   await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText(/Download tailored resume/)).toBeDefined());
-  const link = screen.getByRole("link", { name: /Download tailored resume/ });
+  await waitFor(() => expect(screen.getByText(/Open PDF/)).toBeDefined());
+  const link = screen.getByRole("link", { name: /Open PDF/ });
   expect(link.href).toBe(GENERATED.pdf_url);
 });
 
 test("after generate, renders ATS score and missing keywords", async () => {
   await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText("87%")).toBeDefined());
-  expect(screen.getByText(/ATS Score/)).toBeDefined();
-  expect(screen.getByText("k8s")).toBeDefined();
-  expect(screen.getByText("distributed-systems")).toBeDefined();
+  await waitFor(() => expect(screen.getByText(/ATS 87%/)).toBeDefined());
+  expect(screen.getByText(/Tailored draft ready/)).toBeDefined();
+  // Missing keywords render as one joined line above the editor.
+  expect(screen.getByText(/k8s, distributed-systems/)).toBeDefined();
 });
 
-test("Start over button goes back to idle", async () => {
+test("Cancel goes back to idle and clears the draft", async () => {
   await openEditor();
   fireEvent.click(screen.getByText(/Generate tailored resume/));
-  await waitFor(() => expect(screen.getByText(/Start over/)).toBeDefined());
-  fireEvent.click(screen.getByText(/Start over/));
-  await waitFor(() => expect(screen.queryByText(/ATS Score/)).toBeNull());
+  await waitFor(() => expect(screen.getByText(/Tailored draft ready/)).toBeDefined());
+  fireEvent.click(screen.getByText("Cancel", { selector: "button" }));
+  await waitFor(() => expect(screen.queryByText(/Tailored draft ready/)).toBeNull());
   expect(screen.getByText(/Tailor resume/)).toBeDefined();
 });
