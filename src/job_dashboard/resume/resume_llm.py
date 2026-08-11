@@ -438,6 +438,19 @@ _METRIC_RE = re.compile(
 )
 
 
+# Generic words the model sometimes returns as "keywords" — never bold these,
+# they aren't real technologies and clutter the résumé.
+_HL_STOP = {
+    "developed", "built", "constructed", "implemented", "designed", "created",
+    "used", "using", "developed a", "model", "models", "pipeline", "system",
+    "systems", "algorithm", "formula", "data", "api", "apis", "metrics",
+    "engagement metrics", "engagement", "translation", "agent", "queries",
+    "matching", "scoring", "reconciliation", "embeddings", "embedding",
+    "experience", "planning", "conversational", "adaptive", "recall",
+    "accuracy", "f1 score", "precision", "latency",
+}
+
+
 def _bold_span(text, phrase):
     """Bold the first occurrence of ``phrase`` (case-insensitive) that is not
     already inside a ``**...**`` span. Returns text unchanged if not found."""
@@ -485,7 +498,12 @@ def highlight_bullets(bullets, llm=None):
             b,
         )
         for ph in phrases:
-            if 2 <= len(ph) <= 40 and ph.lower() in low:
+            pl = ph.lower().strip()
+            if pl in _HL_STOP:
+                continue
+            if any(c.isdigit() for c in ph) and not any(c.isalpha() for c in ph):
+                continue  # a bare number is not a tech keyword
+            if 2 <= len(ph) <= 40 and pl in low:
                 result = _bold_span(result, ph)
         out_items.append(result)
     return out_items
@@ -553,8 +571,9 @@ def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2)
             "NOT AI-sounding (recruiters and AI detectors reject that instantly). "
             "Match this person's voice:\n"
             f"{_VOICE_EXEMPLARS}\n\n"
-            "Rules: 1-3 dry, specific bullets per alternative; **bold** the real tech "
-            "terms; keep ONLY numbers already in the source (never invent). "
+            "Rules: 1-3 dry, specific bullets per alternative; write PLAIN text with "
+            "NO markdown and NO ** bold (bolding is applied separately); keep ONLY "
+            "numbers already in the source (never invent). "
             "BANNED words: leveraged, utilized, spearheaded, seamlessly, robust, "
             "cutting-edge, comprehensive, innovative, streamline, 'in order to', "
             "'responsible for', 'successfully', em-dashes (—).\n\n"
@@ -568,7 +587,10 @@ def regenerate_block(kind, title, bullets, jd_text, profile_text, llm=None, n=2)
             line = re.sub(r"^\s*\d+[.)]\s*", "", line).strip()
             if not line:
                 continue
-            parts = [_natural_bullet(_ground_bullet(p.strip(), allowed)) for p in re.split(r"\s*/\s*|\n", line) if p.strip()]
+            # Strip any ** the model still inserted — Rewrite output is plain;
+            # bolding is only ever applied by the Highlight pass.
+            parts = [_natural_bullet(_ground_bullet(p.strip().replace("**", ""), allowed))
+                     for p in re.split(r"\s*/\s*|\n", line) if p.strip()]
             if parts:
                 alts.append(parts[:3])
             if len(alts) >= n:
