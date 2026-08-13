@@ -142,5 +142,15 @@ def test_experience_block_is_self_contained_subheading():
 
 def test_experience_heading_only_when_no_bullets():
     """A titled experience block with no bullets is a heading line only
-    (used for a role/company line above its sub-projects)."""
-    assert block_to_tex("experience", "Data Scientist · Tata AIG", []) == r"\textbf{Data Scientist · Tata AIG}"
+    (used for a role/company line above its sub-projects). Unicode punctuation
+    in the title (·) is escaped to a LaTeX-safe form so it doesn't mojibake."""
+    assert block_to_tex("experience", "Data Scientist · Tata AIG", []) == r"\textbf{Data Scientist $\cdot$ Tata AIG}"
+
+
+def test_experience_drops_pure_heading_bullet():
+    """A bullet that is only a bold heading (a sub-project name duplicated from
+    the title) is dropped so it doesn't render as a redundant heading."""
+    tex = block_to_tex("experience", "Tata AIG · STO",
+                       ["**Send Time Optimization**", "Lifted renewals by 2%"])
+    assert r"\item Lifted renewals by 2\%" in tex
+    assert "Send Time Optimization" not in tex.split("begin{itemize}")[1]  # not an item

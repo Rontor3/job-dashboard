@@ -10,13 +10,28 @@ _ESC = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$",
 
 _UNESCAPE = {v: k for k, v in _ESC.items()}
 
+# Unicode punctuation that a T1/lmodern lualatex run renders as mojibake
+# (e.g. "·" -> "ů", "—" spacing) — mapped to LaTeX-safe equivalents. Kept
+# OUT of _ESC so the segment_bullets round-trip (_UNESCAPE) is unaffected.
+_UNICODE = {
+    "·": r"$\cdot$", "•": r"$\cdot$",
+    "—": "---", "–": "--", "‑": "-", "−": "-",
+    "’": "'", "‘": "'", "“": "``", "”": "''",
+    "…": r"\ldots{}", " ": " ",
+}
+
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 
 
 def escape_tex(s) -> str:
     out = []
     for ch in str(s or ""):
-        out.append(_ESC.get(ch, ch))
+        if ch in _ESC:
+            out.append(_ESC[ch])
+        elif ch in _UNICODE:
+            out.append(_UNICODE[ch])
+        else:
+            out.append(ch)
     return "".join(out)
 
 
@@ -58,6 +73,10 @@ def block_to_tex(kind, title, bullets) -> str:
 
     if k == "experience":
         head = rf"\textbf{{{lead}}}" if lead else ""
+        # Drop bullets that are ONLY a bold heading (e.g. a sub-project name
+        # duplicated from the block title) — they render as redundant headings.
+        if lead:
+            items = [b for b in items if not re.fullmatch(r"\s*\*\*[^*]+\*\*\s*", b)]
         if not items:
             return head
         body = "\n".join(rf"\item {_tex_inline(b)}" for b in items)
