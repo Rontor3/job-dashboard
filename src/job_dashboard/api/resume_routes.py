@@ -102,6 +102,8 @@ def build_resume_router(
                     "tags": s.tags,
                     "exclusive_group": s.exclusive_group,
                     "default": s.default,
+                    "group": s.group,
+                    "role_header": s.role_header,
                     "bullets": segment_bullets(s.text),
                 }
                 for s in segments

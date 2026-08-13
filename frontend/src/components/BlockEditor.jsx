@@ -9,7 +9,7 @@ const SMALL_BTN = { ...BTN, fontSize: 11, padding: "4px 10px" };
 
 const KIND_ORDER = ["experience", "project", "skills"];
 const KIND_LABELS = { skills: "Skills", experience: "Experience", project: "Projects" };
-const ADD_LABELS = { skills: "+ add skill group", experience: "+ add role", project: "+ add project" };
+const ADD_LABELS = { skills: "+ add skill group", experience: "+ add company", project: "+ add project" };
 
 let customBlockCounter = 0;
 
@@ -22,6 +22,8 @@ function segToBlock(seg) {
     source: "segment",
     active: 0,
     excluded: false,
+    group: seg.group || null,           // company (experience nesting)
+    roleHeader: !!seg.role_header,       // company role/date header vs sub-project
     variants: [{ label: "Original", bullets: seg.bullets || [] }],
   };
 }
@@ -38,6 +40,8 @@ function blocksFromLayout(layout) {
       source: b.source || (b.segment_id ? "segment" : "custom"),
       active: 0,
       excluded: !!b.excluded,
+      group: b.group || null,
+      roleHeader: !!b.roleHeader,
       variants: [{ label: "Saved", bullets: b.bullets || [] }],
     }));
 }
@@ -51,6 +55,8 @@ function layoutFromBlocks(blocks) {
     excluded: !!b.excluded,
     source: b.source,
     segment_id: b.segment_id || null,
+    group: b.group || null,
+    roleHeader: !!b.roleHeader,
   }));
 }
 
@@ -345,6 +351,50 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
   const toggleExcluded = (key) =>
     updateBlock(key, (b) => ({ ...b, excluded: !b.excluded }));
 
+  // Group experience blocks into companies (by `group`), preserving order.
+  const companiesOf = (items) => {
+    const order = [], map = {};
+    items.forEach((b) => {
+      const g = b.group || "Experience";
+      if (!map[g]) { map[g] = []; order.push(g); }
+      map[g].push(b);
+    });
+    return order.map((name) => ({ name, blocks: map[name] }));
+  };
+
+  // "+ add company" — a new employer with its own role/date header block.
+  const addCompany = () => {
+    customBlockCounter += 1;
+    const key = `custom-exp-role-${customBlockCounter}`;
+    const co = `New company ${customBlockCounter}`;
+    setBlocks((prev) => [...prev, {
+      key, kind: "experience", title: "", segment_id: null, source: "custom",
+      active: 0, excluded: false, group: co, roleHeader: true,
+      variants: [{ label: "Original", bullets: [] }],
+    }]);
+    setEditingKey(key); setEditTitle(""); setEditBullets(""); setEditDetails(""); setGenFailed(false);
+  };
+
+  // "+ add role/project under <company>" — a sub-project under the SAME employer,
+  // inserted right after that company's existing blocks.
+  const addRoleUnder = (company) => {
+    customBlockCounter += 1;
+    const key = `custom-exp-${customBlockCounter}`;
+    const nb = {
+      key, kind: "experience", title: "", segment_id: null, source: "custom",
+      active: 0, excluded: false, group: company, roleHeader: false,
+      variants: [{ label: "Original", bullets: [] }],
+    };
+    setBlocks((prev) => {
+      let lastIdx = -1;
+      prev.forEach((b, i) => { if (b.kind === "experience" && (b.group || "Experience") === company) lastIdx = i; });
+      const copy = [...prev];
+      copy.splice(lastIdx >= 0 ? lastIdx + 1 : prev.length, 0, nb);
+      return copy;
+    });
+    setEditingKey(key); setEditTitle(""); setEditBullets(""); setEditDetails(""); setGenFailed(false);
+  };
+
   const deleteBlock = (key) => {
     setBlocks((prev) => prev.filter((b) => b.key !== key));
     clearRegenFailure(key);
@@ -414,6 +464,170 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
     items: blocks.filter((b) => b.kind === kind),
   }));
 
+  // One editable block card. Reused by the flat lists (skills/projects) and,
+  // for experience, nested inside each company card.
+  const renderBlock = (block) => (
+    <div
+      key={block.key}
+      draggable
+      onDragStart={(e) => handleDragStart(e, block)}
+      onDragOver={handleDragOver}
+      onDrop={(e) => handleDrop(e, block)}
+      style={{
+        border: "0.5px solid var(--hairline)",
+        borderRadius: 10,
+        padding: 10,
+        marginBottom: 8,
+        background: "var(--card)",
+        opacity: block.excluded ? 0.45 : 1,
+      }}
+    >
+      {editingKey === block.key ? (
+        <div>
+          <input
+            aria-label="Block title"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            placeholder={block.roleHeader ? "Role, Company — Dates (e.g. Data Scientist, Tata AIG — July 2023 – Present)" : block.kind === "experience" ? "Sub-project heading (e.g. Health Fraud Pipeline)" : "Heading"}
+            style={{ width: "100%", fontSize: 12, marginBottom: 6, padding: 6, boxSizing: "border-box" }}
+          />
+          {!block.roleHeader && (
+            <>
+              <textarea
+                aria-label="Details for AI"
+                value={editDetails}
+                onChange={(e) => setEditDetails(e.target.value)}
+                placeholder="Details — rough notes, tech stack, any numbers. AI writes 3 bullets from this (keeps only numbers you type)."
+                rows={3}
+                style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box", background: "var(--canvas)" }}
+              />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0" }}>
+                <button
+                  onClick={handleGenerateBullets}
+                  disabled={genBusy || !editDetails.trim()}
+                  style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)", opacity: !editDetails.trim() ? 0.5 : 1 }}
+                >
+                  {genBusy ? "Writing…" : "✨ Generate 3 bullets"}
+                </button>
+                {genFailed && (
+                  <span style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>
+                    couldn't generate — type bullets below
+                  </span>
+                )}
+              </div>
+              <textarea
+                aria-label="Block bullets"
+                value={editBullets}
+                onChange={(e) => setEditBullets(e.target.value)}
+                placeholder="One bullet per line (or use Generate above)"
+                rows={4}
+                style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box" }}
+              />
+            </>
+          )}
+          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            <button onClick={() => saveEdit(block)} style={{ ...SMALL_BTN, background: "var(--green)", color: "#FFFFFF" }}>
+              Save
+            </button>
+            <button onClick={() => cancelEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink-faint)" }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <input
+                type="checkbox"
+                checked={!block.excluded}
+                onChange={() => toggleExcluded(block.key)}
+                aria-label={`Include ${block.title || "block"} in resume`}
+                title={block.excluded ? "Excluded from the résumé — check to include" : "Included — uncheck to leave out"}
+                style={{ flexShrink: 0, cursor: "pointer", accentColor: "var(--green)" }}
+              />
+              <span title="Drag to reorder" aria-hidden="true"
+                style={{ cursor: "grab", color: "var(--ink-faint)", fontSize: 13, flexShrink: 0, userSelect: "none" }}>
+                ⠿
+              </span>
+              <div style={{ fontSize: 13, fontWeight: block.roleHeader ? 600 : 500, color: "var(--ink)", textDecoration: block.excluded ? "line-through" : "none" }}>
+                {block.title || "(untitled)"}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              {!block.roleHeader && (
+                <>
+                  <button
+                    onClick={() => handleHighlight(block)}
+                    disabled={highlightingKey === block.key}
+                    title="Bold the technical keywords + impact numbers, keeping your wording"
+                    style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)" }}
+                  >
+                    {highlightingKey === block.key ? "Highlighting…" : "Highlight"}
+                  </button>
+                  <button
+                    onClick={() => handleRegenerate(block)}
+                    disabled={regeneratingKey === block.key}
+                    title="Rewrite into punchy alternatives (grounded — keeps your numbers)"
+                    style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}
+                  >
+                    {regeneratingKey === block.key ? "Rewriting…" : "Rewrite"}
+                  </button>
+                </>
+              )}
+              <button onClick={() => startEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>
+                Edit
+              </button>
+              {!block.roleHeader && (
+                <button onClick={() => handleSaveToLibrary(block)}
+                  title="Save this block to your reusable library — it'll appear on every future résumé"
+                  style={{ ...SMALL_BTN, background: "var(--canvas)", color: savedKeys.has(block.key) ? "var(--green)" : "var(--ink-faint)" }}>
+                  {savedKeys.has(block.key) ? "✓ In library" : "Save to library"}
+                </button>
+              )}
+              <button onClick={() => deleteBlock(block.key)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--dupe-ink)" }}>
+                Delete
+              </button>
+            </div>
+          </div>
+
+          {activeBulletsOf(block).length > 0 && (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 12, color: "var(--ink-soft)" }}>
+              {activeBulletsOf(block).map((bullet, i) => (
+                <li key={i}>{renderBulletText(bullet)}</li>
+              ))}
+            </ul>
+          )}
+
+          {block.variants.length > 1 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+              {block.variants.map((variant, idx) => (
+                <button
+                  key={`${variant.label}-${idx}`}
+                  onClick={() => pickVariant(block, idx)}
+                  style={{
+                    ...SMALL_BTN,
+                    border: "0.5px solid var(--hairline)",
+                    background: block.active === idx ? "var(--green-tint)" : "var(--canvas)",
+                    color: block.active === idx ? "var(--green)" : "var(--ink-faint)",
+                  }}
+                >
+                  {variant.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {regenFailedKeys.has(block.key) && (
+            <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic", marginTop: 4 }}>
+              couldn't generate — keep editing
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div style={{ marginTop: 12, borderTop: "0.5px solid var(--hairline)", paddingTop: 12 }}>
       {layoutError && (
@@ -476,9 +690,11 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
               )}
               <button
                 onClick={() =>
-                  group.kind === "skills" && addableByKind("skills").length
-                    ? setAddMenuKind(addMenuKind === group.kind ? null : group.kind)
-                    : addBlock(group.kind)
+                  group.kind === "experience"
+                    ? addCompany()
+                    : group.kind === "skills" && addableByKind("skills").length
+                      ? setAddMenuKind(addMenuKind === group.kind ? null : group.kind)
+                      : addBlock(group.kind)
                 }
                 style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)" }}
               >
@@ -531,155 +747,20 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
             <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>No blocks</div>
           )}
 
-          {group.items.map((block) => (
-            <div
-              key={block.key}
-              draggable
-              onDragStart={(e) => handleDragStart(e, block)}
-              onDragOver={handleDragOver}
-              onDrop={(e) => handleDrop(e, block)}
-              style={{
-                border: "0.5px solid var(--hairline)",
-                borderRadius: 10,
-                padding: 10,
-                marginBottom: 8,
-                background: "var(--card)",
-                opacity: block.excluded ? 0.45 : 1,
-              }}
-            >
-              {editingKey === block.key ? (
-                <div>
-                  <input
-                    aria-label="Block title"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    placeholder={block.kind === "experience" ? "Heading (e.g. Health Fraud Pipeline)" : "Heading"}
-                    style={{ width: "100%", fontSize: 12, marginBottom: 6, padding: 6, boxSizing: "border-box" }}
-                  />
-                  <textarea
-                    aria-label="Details for AI"
-                    value={editDetails}
-                    onChange={(e) => setEditDetails(e.target.value)}
-                    placeholder="Details — rough notes, tech stack, any numbers. AI writes 3 bullets from this (keeps only numbers you type)."
-                    rows={3}
-                    style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box", background: "var(--canvas)" }}
-                  />
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0" }}>
-                    <button
-                      onClick={handleGenerateBullets}
-                      disabled={genBusy || !editDetails.trim()}
-                      style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)", opacity: !editDetails.trim() ? 0.5 : 1 }}
-                    >
-                      {genBusy ? "Writing…" : "✨ Generate 3 bullets"}
-                    </button>
-                    {genFailed && (
-                      <span style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>
-                        couldn't generate — type bullets below
-                      </span>
-                    )}
+          {group.kind === "experience"
+            ? companiesOf(group.items).map((co) => (
+                <div key={co.name} style={{ border: "0.5px solid var(--hairline)", borderRadius: 10, padding: 8, marginBottom: 10, background: "var(--canvas)" }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-faint)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    {co.name}
                   </div>
-                  <textarea
-                    aria-label="Block bullets"
-                    value={editBullets}
-                    onChange={(e) => setEditBullets(e.target.value)}
-                    placeholder="One bullet per line (or use Generate above)"
-                    rows={4}
-                    style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box" }}
-                  />
-                  <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                    <button onClick={() => saveEdit(block)} style={{ ...SMALL_BTN, background: "var(--green)", color: "#FFFFFF" }}>
-                      Save
-                    </button>
-                    <button onClick={() => cancelEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink-faint)" }}>
-                      Cancel
-                    </button>
-                  </div>
+                  {co.blocks.map(renderBlock)}
+                  <button onClick={() => addRoleUnder(co.name)}
+                    style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)", marginTop: 2 }}>
+                    + add role / project under {co.name}
+                  </button>
                 </div>
-              ) : (
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={!block.excluded}
-                        onChange={() => toggleExcluded(block.key)}
-                        aria-label={`Include ${block.title || "block"} in resume`}
-                        title={block.excluded ? "Excluded from the résumé — check to include" : "Included — uncheck to leave out"}
-                        style={{ flexShrink: 0, cursor: "pointer", accentColor: "var(--green)" }}
-                      />
-                      <span title="Drag to reorder" aria-hidden="true"
-                        style={{ cursor: "grab", color: "var(--ink-faint)", fontSize: 13, flexShrink: 0, userSelect: "none" }}>
-                        ⠿
-                      </span>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--ink)", textDecoration: block.excluded ? "line-through" : "none" }}>
-                        {block.title || "(untitled)"}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <button
-                        onClick={() => handleHighlight(block)}
-                        disabled={highlightingKey === block.key}
-                        title="Bold the technical keywords + impact numbers, keeping your wording"
-                        style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)" }}
-                      >
-                        {highlightingKey === block.key ? "Highlighting…" : "Highlight"}
-                      </button>
-                      <button
-                        onClick={() => handleRegenerate(block)}
-                        disabled={regeneratingKey === block.key}
-                        title="Rewrite into punchy alternatives (grounded — keeps your numbers)"
-                        style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}
-                      >
-                        {regeneratingKey === block.key ? "Rewriting…" : "Rewrite"}
-                      </button>
-                      <button onClick={() => startEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>
-                        Edit
-                      </button>
-                      <button onClick={() => handleSaveToLibrary(block)}
-                        title="Save this block to your reusable library — it'll appear on every future résumé"
-                        style={{ ...SMALL_BTN, background: "var(--canvas)", color: savedKeys.has(block.key) ? "var(--green)" : "var(--ink-faint)" }}>
-                        {savedKeys.has(block.key) ? "✓ In library" : "Save to library"}
-                      </button>
-                      <button onClick={() => deleteBlock(block.key)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--dupe-ink)" }}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-
-                  <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 12, color: "var(--ink-soft)" }}>
-                    {activeBulletsOf(block).map((bullet, i) => (
-                      <li key={i}>{renderBulletText(bullet)}</li>
-                    ))}
-                  </ul>
-
-                  {block.variants.length > 1 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                      {block.variants.map((variant, idx) => (
-                        <button
-                          key={`${variant.label}-${idx}`}
-                          onClick={() => pickVariant(block, idx)}
-                          style={{
-                            ...SMALL_BTN,
-                            border: "0.5px solid var(--hairline)",
-                            background: block.active === idx ? "var(--green-tint)" : "var(--canvas)",
-                            color: block.active === idx ? "var(--green)" : "var(--ink-faint)",
-                          }}
-                        >
-                          {variant.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {regenFailedKeys.has(block.key) && (
-                    <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic", marginTop: 4 }}>
-                      couldn't generate — keep editing
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+              ))
+            : group.items.map(renderBlock)}
         </div>
       ))}
 

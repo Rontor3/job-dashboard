@@ -27,6 +27,8 @@ class Segment:
     text: str
     exclusive_group: str | None = None
     default: bool = True  # False = opt-in block, offered in an "add" picker, not loaded by default
+    group: str | None = None      # company/employer an experience block belongs to (editor nesting)
+    role_header: bool = False     # True = this block is a company's role/date header, not a sub-project
 
 
 def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
@@ -55,6 +57,8 @@ def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
                 text=text,
                 exclusive_group=entry.get("exclusive_group"),
                 default=entry.get("default", True),
+                group=entry.get("group"),
+                role_header=entry.get("role_header", False),
             )
         )
     return segments

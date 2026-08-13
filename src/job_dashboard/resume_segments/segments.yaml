@@ -115,30 +115,37 @@ segments:
     title: "Data Scientist, Tata AIG — July 2023 – Present, Mumbai, India"
     tags: [tata-aig, data-scientist]
     tex: experience-tata-aig-role.tex
+    group: "Tata AIG"
+    role_header: true
 
   - id: experience-tata-aig-full
     kind: experience
     title: "Health Fraud Pipeline"
     tags: [tata-aig, fraud-detection, aws-lambda, dynamodb, api-gateway, production-ml]
     tex: experience-tata-aig-full.tex
+    group: "Tata AIG"
 
   - id: experience-tata-aig-etf
     kind: experience
     title: "Optimization of Passive Equity Investments"
     tags: [quant, etf, monte-carlo, pe-pb, backtesting, xirr, finance]
     tex: experience-tata-aig-etf.tex
+    group: "Tata AIG"
 
   - id: experience-tata-aig-sto
     kind: experience
     title: "Send Time Optimization (STO)"
     tags: [engagement, marketing-analytics, send-time-optimization, growth]
     tex: experience-tata-aig-sto.tex
+    group: "Tata AIG"
 
   - id: experience-oyo-intern
     kind: experience
     title: "Data Science Intern, OYO (Internship) — May 2022 – Jul 2022, Gurgaon, India"
     tags: [oyo, internship, excel, app-script, google-analytics, seo, reporting]
     tex: experience-oyo-intern.tex
+    group: "OYO"
+    role_header: true
 
   - id: education-btech
     kind: education

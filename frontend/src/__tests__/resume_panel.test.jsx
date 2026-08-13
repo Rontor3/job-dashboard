@@ -8,6 +8,7 @@ const SEGMENTS = [
     kind: "experience",
     title: "Senior Engineer @ Acme",
     tags: [],
+    group: "Acme",
     bullets: ["Built scalable systems", "Led a team of 5"],
   },
   {
