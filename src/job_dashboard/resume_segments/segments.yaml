@@ -107,27 +107,36 @@ segments:
     tags: [multi-agent, mcp, fastapi, anthropic-claude, docker, docker-compose, agentic, full-stack, travel]
     tex: project-roammate.tex
 
+  # Tata AIG: ONE role header, then its sub-projects as sub-headings beneath —
+  # matching the source résumé. The role/date line lives in the role block; the
+  # sub-project blocks carry just their heading + bullets.
+  - id: experience-tata-aig-role
+    kind: experience
+    title: "Data Scientist, Tata AIG — July 2023 – Present, Mumbai, India"
+    tags: [tata-aig, data-scientist]
+    tex: experience-tata-aig-role.tex
+
   - id: experience-tata-aig-full
     kind: experience
-    title: "Tata AIG · Data Scientist — Health Fraud Pipeline"
-    tags: [tata-aig, data-scientist, fraud-detection, aws-lambda, dynamodb, api-gateway, production-ml]
+    title: "Health Fraud Pipeline"
+    tags: [tata-aig, fraud-detection, aws-lambda, dynamodb, api-gateway, production-ml]
     tex: experience-tata-aig-full.tex
 
   - id: experience-tata-aig-etf
     kind: experience
-    title: "Tata AIG · Optimization of Passive Equity Investments"
+    title: "Optimization of Passive Equity Investments"
     tags: [quant, etf, monte-carlo, pe-pb, backtesting, xirr, finance]
     tex: experience-tata-aig-etf.tex
 
   - id: experience-tata-aig-sto
     kind: experience
-    title: "Tata AIG · Send Time Optimization (STO)"
+    title: "Send Time Optimization (STO)"
     tags: [engagement, marketing-analytics, send-time-optimization, growth]
     tex: experience-tata-aig-sto.tex
 
   - id: experience-oyo-intern
     kind: experience
-    title: "OYO · Data Science Intern (Internship)"
+    title: "Data Science Intern, OYO (Internship) — May 2022 – Jul 2022, Gurgaon, India"
     tags: [oyo, internship, excel, app-script, google-analytics, seo, reporting]
     tex: experience-oyo-intern.tex
 

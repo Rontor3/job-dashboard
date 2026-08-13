@@ -47,6 +47,10 @@ _SECTION_TITLES = {
     "education": "Education",
 }
 
+# Canonical résumé section order — Experience is the focus, Skills sit last.
+# Sections render in this order regardless of block/layout order.
+_SECTION_ORDER = {"Summary": 0, "Education": 1, "Experience": 2, "Projects": 3, "Skills": 4}
+
 
 def _is_item_bearing(block: Segment) -> bool:
     """True if this block's own text is a bare ``\\item`` (needs an
@@ -88,6 +92,7 @@ def _compose_kind_aware(blocks: list[Segment]) -> str:
         section_blocks[title].append(block)
 
     parts: list[str] = [b.text for b in passthrough]
+    ordered_sections.sort(key=lambda t: _SECTION_ORDER.get(t, 99))
     for title in ordered_sections:
         section_lines = [f"\\section{{{title}}}"]
         buf: list[str] = []
@@ -222,8 +227,8 @@ def _resolve_layout(
     fixed_blocks: list[Segment] = []
     if "header-contact" in seg_by_id:
         fixed_blocks.append(seg_by_id["header-contact"])
-    if "summary-main" in seg_by_id:
-        fixed_blocks.append(seg_by_id["summary-main"])
+    # No Summary section — the candidate's real résumé has none; Education is
+    # the only fixed section between the header and the ordered body.
     fixed_blocks.extend(s for s in segments if s.id.startswith("education"))
 
     mapped_blocks: list[Segment] = []

@@ -102,15 +102,15 @@ def test_generate_resume_layout_composes_real_segment_and_custom_block_in_order(
     assert r"\textbf{Programming}: Python, SQL" in tex
     assert r"\item \textbf{Rocket}: did x" in tex
 
-    # Order preserved: the real segment's content precedes the custom one.
-    assert tex.index("Programming") < tex.index("Rocket")
+    # Canonical section order: Projects render before Skills (Skills sit last),
+    # regardless of block order in the layout.
+    assert tex.index("Rocket") < tex.index("Programming")
 
     assert "skills-a" in result["blocks_used"]
     assert "custom-1" in result["blocks_used"]
-    # Fixed segments (header-contact, summary-main) present in `segments`
-    # are prepended automatically.
+    # The fixed header-contact segment is prepended automatically. (No Summary:
+    # the résumé has no Summary section.)
     assert "header-contact" in result["blocks_used"]
-    assert "summary-main" in result["blocks_used"]
 
 
 def test_generate_resume_layout_prepends_fixed_segments_only_if_present(tmp_path):

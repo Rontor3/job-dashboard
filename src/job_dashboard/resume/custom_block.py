@@ -115,8 +115,14 @@ def segment_bullets(text: str) -> list[str]:
         # so multi-heading segments (a role line + sub-project sub-headings)
         # display cleanly in the editor instead of leaking raw \textbf{...}.
         text = re.sub(r"\\textbf\{([^}]*)\}", r"**\1**", str(text))
-        # Split on \item
-        parts = str(text).split(r"\item")
+        # Everything before the FIRST \item is layout/structure — a role/company
+        # line and a section sub-heading — not an editable bullet. A segment with
+        # no \item at all is a pure heading and yields no bullets. This keeps the
+        # role line and sub-heading out of the block's bullet list (the block
+        # title carries them), so they never render twice.
+        if r"\item" not in text:
+            return []
+        parts = str(text).split(r"\item")[1:]
         bullets = []
 
         for part in parts:
