@@ -391,7 +391,9 @@ def build_resume_router(
 
     @router.get("/api/resumes/{resume_id}/pdf")
     def get_resume_pdf(resume_id: int):
-        """Serve a resume PDF."""
+        """Serve a resume PDF for INLINE viewing in the browser (not a forced
+        download) — ``content_disposition_type='inline'`` so 'Open PDF' just
+        shows it in a tab; the browser's own viewer still offers Download."""
         with db() as conn:
             resume = get_resume(conn, resume_id)
         if resume is None or not resume.get("pdf_path"):
@@ -401,6 +403,8 @@ def build_resume_router(
         if not pdf_path.exists():
             raise HTTPException(status_code=404, detail="PDF file not found")
 
-        return FileResponse(pdf_path, media_type="application/pdf")
+        return FileResponse(
+            pdf_path, media_type="application/pdf", content_disposition_type="inline"
+        )
 
     return router
