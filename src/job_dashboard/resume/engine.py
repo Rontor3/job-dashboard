@@ -386,6 +386,7 @@ def generate_resume(
 
     # (e) render the FINAL pdf.
     pdf_path = render_pdf(tex, out_dir)
+    page_count = _pdf_page_count(Path(pdf_path))
 
     # (f) ats_check runs LAST, against the exact FINAL rendered artifact.
     ats_report = ats_check(pdf_path, jd_text)
@@ -409,5 +410,6 @@ def generate_resume(
         "ats_report": ats_report,
         "blocks_used": blocks_used,
         "cut_lines": cut_texts,
+        "page_count": page_count,
         "interview_prep": interview_prep,
     }

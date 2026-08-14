@@ -111,6 +111,7 @@ export default function ResumePanel({ jobId }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: "var(--green)" }}>
                 Tailored draft ready{ats ? ` · ATS ${ats.ats_score}%` : ""}
+                {generated.page_count > 1 ? ` · ${generated.page_count} pages` : ""}
               </div>
               {generated.pdf_url && (
                 <a href={generated.pdf_url} target="_blank" rel="noreferrer"
@@ -125,7 +126,9 @@ export default function ResumePanel({ jobId }) {
               </div>
             )}
             <div style={{ fontSize: 11, color: "var(--green-mid)", marginTop: 6, fontStyle: "italic" }}>
-              Add, remove (uncheck) or edit blocks below, then re-render.
+              {generated.page_count > 1
+                ? `Runs to ${generated.page_count} pages — uncheck blocks below to fit one, then re-render.`
+                : "Add, remove (uncheck) or edit blocks below, then re-render."}
             </div>
           </div>
         )}

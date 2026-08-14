@@ -334,6 +334,7 @@ def build_resume_router(
                 "blocks_used": result["blocks_used"],
                 "cut_lines": result["cut_lines"],
                 "interview_prep": result["interview_prep"],
+                "page_count": result.get("page_count", 1),
             }
         else:
             try:
