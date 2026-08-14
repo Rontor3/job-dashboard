@@ -187,8 +187,9 @@ def test_ats_check_runs_last_against_final_rendered_pdf(tmp_path):
     )
 
     kinds = [c[0] for c in calls]
-    # fit happens, then render, then ats_check — in that order.
-    assert kinds.index("fit_to_page") < kinds.index("render")
+    # No auto-cut: all selected blocks are kept (fit_to_page is not applied so
+    # the candidate's content is never silently dropped). render, then ats_check.
+    assert "fit_to_page" not in kinds
     assert kinds.index("render") < kinds.index("ats_check")
 
     render_pdf_path = next(c[1] for c in calls if c[0] == "render")

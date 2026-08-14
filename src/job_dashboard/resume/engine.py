@@ -372,18 +372,13 @@ def generate_resume(
     # item-bearing block texts, so a cut never leaves a stray \item or
     # breaks the itemize a kept item still needs); fixed (header/summary)
     # blocks are never candidates for cutting.
-    fixed_blocks = [b for b in ordered_blocks if not _is_item_bearing(b)]
-    cuttable_blocks = [b for b in ordered_blocks if _is_item_bearing(b)]
-
-    jd_keywords = set(extract_keywords(jd_text))
-    overflows = _make_overflows(fixed_blocks, cuttable_blocks, render_pdf, out_dir / "_fit_probe")
-    fit_result = fit_to_page([b.text for b in cuttable_blocks], jd_keywords, overflows)
-    kept_texts = set(fit_result.kept)
-
-    final_blocks = [
-        b for b in ordered_blocks
-        if not _is_item_bearing(b) or b.text in kept_texts
-    ]
+    # Keep ALL selected blocks — never silently drop the candidate's content to
+    # force a single page. The user decides what appears via the editor's
+    # include/exclude checkboxes; a fuller résumé may simply run to two pages.
+    # (fit_to_page / _make_overflows remain available but are intentionally not
+    # applied here so no project/skill/role is dropped without the user's say.)
+    final_blocks = ordered_blocks
+    cut_texts: list[str] = []
 
     # (d) kind-aware compose of the final surviving blocks.
     body = _compose_kind_aware(final_blocks)
@@ -413,6 +408,6 @@ def generate_resume(
         "pdf_path": pdf_path,
         "ats_report": ats_report,
         "blocks_used": blocks_used,
-        "cut_lines": fit_result.cut,
+        "cut_lines": cut_texts,
         "interview_prep": interview_prep,
     }
