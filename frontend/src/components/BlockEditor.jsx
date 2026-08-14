@@ -753,31 +753,69 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
                 const items = co.blocks.filter((b) => !b.roleHeader);
                 return (
                   <div key={co.name} style={{ marginBottom: 14 }}>
-                    {/* Role/company SUB-HEADING — a bold heading line, not a card */}
+                    {/* Role/company SUB-HEADING — a bold heading line (not a card).
+                        A role can ALSO carry its own bullets (e.g. an internship
+                        with no sub-projects) — those render right under the heading. */}
                     {header && editingKey === header.key ? (
-                      <div style={{ marginBottom: 6 }}>
+                      <div style={{ marginBottom: 8 }}>
                         <input
                           aria-label="Role heading"
                           value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
                           placeholder="Role, Company — Dates (e.g. Data Scientist, Tata AIG — July 2023 – Present)"
-                          style={{ width: "100%", fontSize: 13, fontWeight: 600, padding: 6, boxSizing: "border-box" }}
+                          style={{ width: "100%", fontSize: 13, fontWeight: 600, padding: 6, boxSizing: "border-box", marginBottom: 6 }}
                         />
-                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                        <textarea
+                          aria-label="Details for AI"
+                          value={editDetails}
+                          onChange={(e) => setEditDetails(e.target.value)}
+                          placeholder="Details — rough notes. AI writes bullets (for a role with direct bullets, e.g. an internship)."
+                          rows={2}
+                          style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box", background: "var(--canvas)" }}
+                        />
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0" }}>
+                          <button onClick={handleGenerateBullets} disabled={genBusy || !editDetails.trim()}
+                            style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)", opacity: !editDetails.trim() ? 0.5 : 1 }}>
+                            {genBusy ? "Writing…" : "✨ Generate bullets"}
+                          </button>
+                        </div>
+                        <textarea
+                          aria-label="Block bullets"
+                          value={editBullets}
+                          onChange={(e) => setEditBullets(e.target.value)}
+                          placeholder="Bullets for this role (leave empty if it only has sub-projects below)"
+                          rows={3}
+                          style={{ width: "100%", fontSize: 12, padding: 6, boxSizing: "border-box" }}
+                        />
+                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                           <button onClick={() => saveEdit(header)} style={{ ...SMALL_BTN, background: "var(--green)", color: "#FFFFFF" }}>Save</button>
                           <button onClick={() => cancelEdit(header)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink-faint)" }}>Cancel</button>
                         </div>
                       </div>
-                    ) : (
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, borderBottom: "1px solid var(--hairline)", paddingBottom: 4, marginBottom: 8 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>{(header && header.title) || co.name}</div>
-                        {header && (
+                    ) : header ? (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, borderBottom: "1px solid var(--hairline)", paddingBottom: 4 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>{header.title || co.name}</div>
                           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                            {activeBulletsOf(header).length > 0 && (
+                              <button onClick={() => handleHighlight(header)} disabled={highlightingKey === header.key}
+                                title="Bold the technical keywords + impact numbers"
+                                style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)" }}>
+                                {highlightingKey === header.key ? "Highlighting…" : "Highlight"}
+                              </button>
+                            )}
                             <button onClick={() => startEdit(header)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>Edit</button>
                             <button onClick={() => deleteBlock(header.key)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--dupe-ink)" }}>Delete</button>
                           </div>
+                        </div>
+                        {activeBulletsOf(header).length > 0 && (
+                          <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 12, color: "var(--ink-soft)" }}>
+                            {activeBulletsOf(header).map((b, i) => <li key={i}>{renderBulletText(b)}</li>)}
+                          </ul>
                         )}
                       </div>
+                    ) : (
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)", borderBottom: "1px solid var(--hairline)", paddingBottom: 4, marginBottom: 8 }}>{co.name}</div>
                     )}
                     {/* Sub-projects — cards indented beneath the heading */}
                     <div style={{ marginLeft: 14 }}>
