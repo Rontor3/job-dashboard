@@ -748,18 +748,32 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
           )}
 
           {group.kind === "experience"
-            ? companiesOf(group.items).map((co) => (
-                <div key={co.name} style={{ border: "0.5px solid var(--hairline)", borderRadius: 10, padding: 8, marginBottom: 10, background: "var(--canvas)" }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-faint)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    {co.name}
+            ? companiesOf(group.items).map((co) => {
+                const header = co.blocks.find((b) => b.roleHeader);
+                const items = co.blocks.filter((b) => !b.roleHeader);
+                return (
+                  <div key={co.name} style={{ marginBottom: 14 }}>
+                    {/* Company banner — everything below belongs to this employer */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--green-tint)", borderRadius: "10px 10px 0 0", padding: "7px 10px", borderBottom: "2px solid var(--green)" }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--green)" }}>🏢 {co.name}</span>
+                    </div>
+                    {/* Boxed body: the role/date header, then the sub-projects indented under it */}
+                    <div style={{ border: "1px solid var(--green-tint)", borderTop: "none", borderRadius: "0 0 10px 10px", padding: 10 }}>
+                      {header && renderBlock(header)}
+                      <div style={{ borderLeft: "2px solid var(--hairline)", paddingLeft: 12, marginLeft: 4, marginTop: header ? 4 : 0 }}>
+                        <div style={{ fontSize: 10, color: "var(--ink-faint)", fontStyle: "italic", marginBottom: 4 }}>
+                          ↳ projects at {co.name}
+                        </div>
+                        {items.map(renderBlock)}
+                        <button onClick={() => addRoleUnder(co.name)}
+                          style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)", marginTop: 2 }}>
+                          + add project under {co.name}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  {co.blocks.map(renderBlock)}
-                  <button onClick={() => addRoleUnder(co.name)}
-                    style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)", marginTop: 2 }}>
-                    + add role / project under {co.name}
-                  </button>
-                </div>
-              ))
+                );
+              })
             : group.items.map(renderBlock)}
         </div>
       ))}
