@@ -753,23 +753,39 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
                 const items = co.blocks.filter((b) => !b.roleHeader);
                 return (
                   <div key={co.name} style={{ marginBottom: 14 }}>
-                    {/* Company banner — everything below belongs to this employer */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--green-tint)", borderRadius: "10px 10px 0 0", padding: "7px 10px", borderBottom: "2px solid var(--green)" }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--green)" }}>🏢 {co.name}</span>
-                    </div>
-                    {/* Boxed body: the role/date header, then the sub-projects indented under it */}
-                    <div style={{ border: "1px solid var(--green-tint)", borderTop: "none", borderRadius: "0 0 10px 10px", padding: 10 }}>
-                      {header && renderBlock(header)}
-                      <div style={{ borderLeft: "2px solid var(--hairline)", paddingLeft: 12, marginLeft: 4, marginTop: header ? 4 : 0 }}>
-                        <div style={{ fontSize: 10, color: "var(--ink-faint)", fontStyle: "italic", marginBottom: 4 }}>
-                          ↳ projects at {co.name}
+                    {/* Role/company SUB-HEADING — a bold heading line, not a card */}
+                    {header && editingKey === header.key ? (
+                      <div style={{ marginBottom: 6 }}>
+                        <input
+                          aria-label="Role heading"
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          placeholder="Role, Company — Dates (e.g. Data Scientist, Tata AIG — July 2023 – Present)"
+                          style={{ width: "100%", fontSize: 13, fontWeight: 600, padding: 6, boxSizing: "border-box" }}
+                        />
+                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                          <button onClick={() => saveEdit(header)} style={{ ...SMALL_BTN, background: "var(--green)", color: "#FFFFFF" }}>Save</button>
+                          <button onClick={() => cancelEdit(header)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink-faint)" }}>Cancel</button>
                         </div>
-                        {items.map(renderBlock)}
-                        <button onClick={() => addRoleUnder(co.name)}
-                          style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)", marginTop: 2 }}>
-                          + add project under {co.name}
-                        </button>
                       </div>
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, borderBottom: "1px solid var(--hairline)", paddingBottom: 4, marginBottom: 8 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink)" }}>{(header && header.title) || co.name}</div>
+                        {header && (
+                          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                            <button onClick={() => startEdit(header)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>Edit</button>
+                            <button onClick={() => deleteBlock(header.key)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--dupe-ink)" }}>Delete</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* Sub-projects — cards indented beneath the heading */}
+                    <div style={{ marginLeft: 14 }}>
+                      {items.map(renderBlock)}
+                      <button onClick={() => addRoleUnder(co.name)}
+                        style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--green)", marginTop: 2 }}>
+                        + add project under {co.name}
+                      </button>
                     </div>
                   </div>
                 );
