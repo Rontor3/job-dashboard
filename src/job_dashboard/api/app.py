@@ -95,6 +95,9 @@ def create_app(
                 include_dismissed=include_dismissed, sort=sort,
                 limit=limit, offset=offset,
             )
+        from job_dashboard.match.apply_type import classify_apply_type
+        for j in jobs:
+            j["apply_type"] = classify_apply_type(j.get("source"), j.get("job_url"))
         return {"jobs": jobs, "total": total}
 
     @app.get("/api/jobs/{job_id}")
@@ -103,6 +106,8 @@ def create_app(
             detail = job_detail(conn, job_id)
         if detail is None:
             raise HTTPException(status_code=404, detail="job not found")
+        from job_dashboard.match.apply_type import classify_apply_type
+        detail["apply_type"] = classify_apply_type(detail.get("source"), detail.get("job_url"))
         return detail
 
     @app.patch("/api/jobs/{job_id}/status")

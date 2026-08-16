@@ -49,8 +49,26 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack }) {
                   </span>
                 )}
               </div>
-              <div className="meta" style={{ color: "var(--ink-soft)" }}>
-                {j.company} · {j.location || "—"} · {j.posted_date || ""} · {j.source}
+              <div className="meta" style={{ color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span>{j.company} · {j.location || "—"} · {j.posted_date || ""} · {j.source}</span>
+                {j.apply_type && (
+                  <span
+                    title={
+                      j.apply_type.fill === "easy"
+                        ? "One-click auto-fill works well here (company ATS form)"
+                        : j.apply_type.fill === "maybe"
+                          ? "Auto-fill may work — LinkedIn Easy Apply (if logged in) or an external form"
+                          : "Likely manual — Naukri native/chatbot or unknown apply flow"
+                    }
+                    style={{
+                      fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: "var(--radius-pill)", whiteSpace: "nowrap",
+                      background: j.apply_type.fill === "easy" ? "var(--green-tint)" : j.apply_type.fill === "maybe" ? "#FBF0DC" : "#EFEAE1",
+                      color: j.apply_type.fill === "easy" ? "var(--green)" : j.apply_type.fill === "maybe" ? "#9A6B12" : "var(--ink-faint)",
+                    }}
+                  >
+                    {j.apply_type.fill === "easy" ? "⚡ " : j.apply_type.fill === "maybe" ? "◐ " : "○ "}{j.apply_type.label}
+                  </span>
+                )}
               </div>
               {(j.industry || j.company_type) ? (
                 <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
