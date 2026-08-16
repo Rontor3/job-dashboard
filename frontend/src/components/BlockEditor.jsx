@@ -87,7 +87,17 @@ function renderBulletText(text) {
   );
 }
 
-export default function BlockEditor({ jobId, suggestion, generating, hasDraft, onGenerate, onCancel }) {
+export default function BlockEditor({
+  jobId, suggestion, generating, hasDraft, onGenerate, onCancel,
+  // Standalone (Résumés tab) mode: no job/JD. Edits auto-save to `autoSaveName`
+  // (a named version, or the working draft), Rewrite (JD-based) is hidden, and
+  // the bottom button saves + opens the version's PDF instead of a job render.
+  autoSaveName = "__working__", standalone = false,
+}) {
+  const saveLayout = (layout) =>
+    !autoSaveName || autoSaveName === "__working__"
+      ? saveWorkingLayout(layout)
+      : saveVersion(autoSaveName, layout);
   const [blocks, setBlocks] = useState(() => buildInitialBlocks(suggestion));
   const [versions, setVersions] = useState(suggestion.versions || []);
   const [versionName, setVersionName] = useState("");
@@ -114,7 +124,7 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
     const t = setTimeout(() => {
-      saveWorkingLayout(layoutFromBlocks(blocks)).catch(() => {});
+      saveLayout(layoutFromBlocks(blocks)).catch(() => {});
     }, 600);
     return () => clearTimeout(t);
   }, [blocks]);
@@ -168,6 +178,7 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
   // Merge the user's saved library blocks in once, so they're available on every
   // job. Skip any whose (kind+title) already appears among the suggested blocks.
   useEffect(() => {
+    if (standalone) return undefined;  // keep a saved version faithful — no auto-appended library blocks
     let cancelled = false;
     savedBlocks()
       .then((res) => {
@@ -455,6 +466,14 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
       return;
     }
     setLayoutError(null);
+    if (standalone) {
+      // Flush the current blocks to this version, then let the parent open its
+      // freshly-rendered PDF (job-agnostic — no JD, no highlight).
+      saveLayout(layoutFromBlocks(blocks))
+        .then(() => onGenerate(autoSaveName))
+        .catch(() => onGenerate(autoSaveName));
+      return;
+    }
     onGenerate(buildLayout());
   };
 
@@ -565,14 +584,16 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
                   >
                     {highlightingKey === block.key ? "Highlighting…" : "Highlight"}
                   </button>
-                  <button
-                    onClick={() => handleRegenerate(block)}
-                    disabled={regeneratingKey === block.key}
-                    title="Rewrite into punchy alternatives (grounded — keeps your numbers)"
-                    style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}
-                  >
-                    {regeneratingKey === block.key ? "Rewriting…" : "Rewrite"}
-                  </button>
+                  {jobId && (
+                    <button
+                      onClick={() => handleRegenerate(block)}
+                      disabled={regeneratingKey === block.key}
+                      title="Rewrite into punchy alternatives (grounded — keeps your numbers)"
+                      style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}
+                    >
+                      {regeneratingKey === block.key ? "Rewriting…" : "Rewrite"}
+                    </button>
+                  )}
                 </>
               )}
               <button onClick={() => startEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>
@@ -858,7 +879,7 @@ export default function BlockEditor({ jobId, suggestion, generating, hasDraft, o
           disabled={generating}
           style={{ ...BTN, background: "var(--green)", color: "#FFFFFF" }}
         >
-          {generating ? "Generating…" : "Generate tailored resume"}
+          {generating ? "Generating…" : standalone ? "Save & open PDF ↗" : "Generate tailored resume"}
         </button>
         <button onClick={onCancel} style={{ ...BTN, background: "var(--canvas)", color: "var(--ink-faint)" }}>
           Cancel
