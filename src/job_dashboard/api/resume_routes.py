@@ -20,7 +20,7 @@ from job_dashboard.db import (
 from job_dashboard.match.profile_text import compose_profile_text
 from job_dashboard.resume.ats import ats_check
 from job_dashboard.resume.custom_block import segment_bullets
-from job_dashboard.resume.engine import generate_resume, suggest_blocks
+from job_dashboard.resume.engine import generate_resume, render_layout_pdf, suggest_blocks
 from job_dashboard.resume.fit import fit_to_page
 from job_dashboard.resume.keyword_map import (
     GapKeyword, Rephrasing, extract_keywords, simple_deep_rank,
@@ -69,6 +69,15 @@ class HighlightRequest(BaseModel):
 class SaveLayoutRequest(BaseModel):
     name: str = WORKING_LAYOUT  # default = the auto-saved working copy
     blocks: list[dict] = []
+
+
+def _layout_summary(layout):
+    """A lightweight, list-view summary of a saved layout: how many blocks
+    are included (excluded ones don't count) and their titles, so the
+    Résumés tab can show what changed without loading the whole layout."""
+    included = [b for b in (layout or []) if not b.get("excluded")]
+    titles = [b.get("title") for b in included if b.get("title")]
+    return {"block_count": len(included), "titles": titles}
 
 
 def build_resume_router(
@@ -165,13 +174,48 @@ def build_resume_router(
 
     @router.get("/api/resume/layouts")
     def get_layouts():
-        """The auto-saved working résumé plus the list of named versions."""
+        """The auto-saved working résumé plus the list of named versions,
+        each enriched with a lightweight summary (included-block count and
+        the titles of those blocks) for the Résumés library tab."""
         with db() as conn:
             working = get_resume_layout(conn, WORKING_LAYOUT)
+            versions = list_resume_layouts(conn)
+            for v in versions:
+                rec = get_resume_layout(conn, v["name"])
+                v["summary"] = _layout_summary(rec["layout"] if rec else [])
             return {
                 "working": working["layout"] if working else None,
-                "versions": list_resume_layouts(conn),
+                "versions": versions,
             }
+
+    @router.get("/api/resume/layouts/{name}/pdf")
+    def render_layout_route(name: str):
+        """Render a saved version (or the working draft, name ``__working__``
+        / ``working``) straight to a PDF and stream it inline — job-agnostic,
+        no JD required."""
+        real = WORKING_LAYOUT if name in ("working", "__working__") else name
+        with db() as conn:
+            rec = get_resume_layout(conn, real)
+        if rec is None:
+            raise HTTPException(status_code=404, detail="version not found")
+        out_dir = Path(db_path).parent / "resumes"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            result = render_layout_pdf(
+                rec["layout"], segments=load_segments(),
+                render_pdf=render_pdf, out_dir=out_dir,
+            )
+        except RuntimeError as e:
+            if "lualatex not found" in str(e):
+                raise HTTPException(status_code=503, detail="install MacTeX — lualatex not found")
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        stem = "working" if real == WORKING_LAYOUT else real
+        return FileResponse(
+            result["pdf_path"], media_type="application/pdf",
+            filename=f"{stem}-resume.pdf", content_disposition_type="inline",
+        )
 
     @router.put("/api/resume/layout")
     def put_working_layout(body: SaveLayoutRequest):

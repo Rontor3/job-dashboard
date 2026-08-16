@@ -322,6 +322,41 @@ def suggest_blocks(
     }
 
 
+def render_layout_pdf(
+    layout: list[dict],
+    *,
+    segments: list[Segment],
+    render_pdf: Callable[[str, Path], Path],
+    out_dir,
+) -> dict:
+    """Render a SAVED résumé layout straight to a PDF — job-agnostic: no JD,
+    no highlighting, no ATS check, no DB write. Composition mirrors the
+    ``layout`` path of ``generate_resume`` (fixed header/education prepended,
+    then each entry resolved by ``segment_id`` or built as a custom block via
+    ``_resolve_layout``) so a version's standalone PDF matches what the editor
+    produces for that same layout, minus JD tailoring. ``excluded`` entries
+    are dropped, and any ``segment_id`` that no longer exists is skipped rather
+    than raising (a saved version must never 500 because the library moved on).
+    Returns ``{"pdf_path", "page_count"}``."""
+    seg_by_id = {s.id: s for s in segments}
+    norm: list[dict] = []
+    for entry in layout or []:
+        if entry.get("excluded"):
+            continue
+        sid = entry.get("segment_id")
+        if sid and sid in seg_by_id:
+            norm.append({"segment_id": sid})
+        elif entry.get("kind") and entry.get("title"):
+            norm.append({
+                "kind": entry["kind"], "title": entry["title"],
+                "bullets": entry.get("bullets"),
+            })
+    ordered_blocks = _drop_conflicting_segments(_resolve_layout(norm, segments, seg_by_id))
+    tex = _build_tex(_compose_kind_aware(ordered_blocks))
+    pdf_path = render_pdf(tex, out_dir)
+    return {"pdf_path": str(pdf_path), "page_count": _pdf_page_count(Path(pdf_path))}
+
+
 def generate_resume(
     conn,
     job_id,

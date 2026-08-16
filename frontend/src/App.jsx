@@ -11,6 +11,7 @@ import TrackerBoard from "./components/TrackerBoard.jsx";
 import ThemeToggle from "./components/ThemeToggle.jsx";
 import HeaderScene from "./components/HeaderScene.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
+import ResumeLibrary from "./components/ResumeLibrary.jsx";
 
 function TabButton({ active, onClick, label }) {
   return (
@@ -76,6 +77,7 @@ export default function App() {
           <TabButton active={activeTab === "browse"} onClick={() => setActiveTab("browse")} label="Browse" />
           <TabButton active={activeTab === "tracker"} onClick={() => setActiveTab("tracker")} label="Tracker" />
           <TabButton active={activeTab === "hiring"} onClick={() => setActiveTab("hiring")} label="Hiring Signals" />
+          <TabButton active={activeTab === "resumes"} onClick={() => setActiveTab("resumes")} label="Résumés" />
         </div>
         <div style={{ position: "relative", display: "flex", gap: 8, alignItems: "center" }}>
           <ThemeToggle />
@@ -86,6 +88,8 @@ export default function App() {
       <main>
         {activeTab === "hiring" ? (
           <HiringSignals />
+        ) : activeTab === "resumes" ? (
+          <ResumeLibrary />
         ) : activeTab === "browse" ? (
           <div data-testid="feed-slot">
             <BrowseOverview stats={stats} onIndustry={(ind) => setFilters((f) => ({ ...f, industry: ind }))} />

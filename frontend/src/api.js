@@ -81,6 +81,9 @@ export const loadVersion = (name) =>
   fetch(`/api/resume/layouts/${encodeURIComponent(name)}`).then(json).then((d) => d.blocks || []);
 export const deleteVersion = (name) =>
   fetch(`/api/resume/layouts/${encodeURIComponent(name)}`, { method: "DELETE" }).then(json);
+// A saved version (or the working draft, name "__working__") rendered as an
+// inline PDF — job-agnostic, no JD needed.
+export const layoutPdfUrl = (name) => `/api/resume/layouts/${encodeURIComponent(name)}/pdf`;
 export const fetchResumes = (id) => fetch(`/api/jobs/${id}/resumes`).then(json);
 
 export const draftCoverLetter = (id) =>
