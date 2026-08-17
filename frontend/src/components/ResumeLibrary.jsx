@@ -12,6 +12,11 @@ const BTN = {
 };
 const OPEN = { ...BTN, background: "var(--green)", color: "#FFFFFF", textDecoration: "none" };
 const GHOST = { ...BTN, background: "var(--canvas)", color: "var(--ink)", border: "0.5px solid var(--hairline)" };
+const DANGER = { ...BTN, background: "transparent", color: "var(--dupe-ink)", border: "0.5px solid var(--hairline)" };
+const INPUT = {
+  fontSize: 13, padding: "6px 10px", border: "0.5px solid var(--hairline)",
+  borderRadius: 8, background: "var(--card)", color: "var(--ink)", minWidth: 180,
+};
 
 // A brand-new résumé starts from the candidate's base résumé — the default
 // segments in manifest order — in the persisted layout shape, so the editor
@@ -54,13 +59,19 @@ export default function ResumeLibrary() {
   const [segments, setSegments] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [editing, setEditing] = useState(null); // { name, label, blocks } | null
+  const [editing, setEditing] = useState(null);  // { name, label, blocks } | null
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [renaming, setRenaming] = useState(null); // { name, value } | null
+  const [confirmDel, setConfirmDel] = useState(null); // name | null
 
   const load = useCallback(() => {
     fetchLayouts().then(setData).catch((e) => setError(String(e)));
   }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { fetchSegments().then(setSegments).catch(() => setSegments([])); }, []);
+
+  const versionsList = (data && data.versions) || [];
 
   const openEditor = (name, label, blocks) => {
     setError(null);
@@ -72,43 +83,51 @@ export default function ResumeLibrary() {
       .catch((e) => setError(String(e)));
   };
 
-  const versionsList = (data && data.versions) || [];
-  const handleNew = () => {
-    if (!segments) return;
-    const raw = window.prompt("Name your new résumé (starts from your base résumé — edit it after):");
-    if (!raw || !raw.trim()) return;
-    const name = raw.trim();
+  const startNew = () => { setError(null); setNewName(""); setCreating(true); };
+  const createNew = () => {
+    const name = newName.trim();
+    if (!name || !segments) return;
     if (name === "__working__") { setError("That name is reserved — pick another."); return; }
     if (versionsList.some((v) => v.name === name)) { setError(`A version named “${name}” already exists.`); return; }
+    setBusy(true); setError(null);
     const seed = seedFromSegments(segments);
-    setBusy(true);
-    setError(null);
     saveVersion(name, seed)
-      .then(() => { load(); openEditor(name, name, seed); })
+      .then(() => { setCreating(false); setNewName(""); load(); openEditor(name, name, seed); })
       .catch((e) => setError(String(e)))
       .finally(() => setBusy(false));
   };
 
-  const handleDelete = (name) => {
-    if (!window.confirm(`Delete résumé version “${name}”? This can't be undone.`)) return;
-    setBusy(true);
-    deleteVersion(name).then(load).catch((e) => setError(String(e))).finally(() => setBusy(false));
-  };
-
-  const handleRename = (name) => {
-    const next = window.prompt(`Rename “${name}” to:`, name);
-    if (!next || !next.trim() || next.trim() === name) return;
-    setBusy(true);
-    loadVersion(name)
-      .then((blocks) => saveVersion(next.trim(), blocks))
-      .then(() => deleteVersion(name))
-      .then(load)
+  const doRename = () => {
+    if (!renaming) return;
+    const from = renaming.name;
+    const to = renaming.value.trim();
+    if (!to || to === from) { setRenaming(null); return; }
+    if (to === "__working__") { setError("That name is reserved — pick another."); return; }
+    if (versionsList.some((v) => v.name === to)) { setError(`A version named “${to}” already exists.`); return; }
+    setBusy(true); setError(null);
+    loadVersion(from)
+      .then((blocks) => saveVersion(to, blocks))
+      .then(() => deleteVersion(from))
+      .then(() => { setRenaming(null); load(); })
       .catch((e) => setError(String(e)))
       .finally(() => setBusy(false));
   };
 
-  if (error) return <div style={{ color: "var(--dupe-ink)", padding: 16 }}>{error}</div>;
-  if (!data) return <div style={{ color: "var(--ink-soft)", padding: 16 }}>Loading your résumés…</div>;
+  const doDelete = (name) => {
+    setBusy(true); setError(null);
+    deleteVersion(name)
+      .then(() => { setConfirmDel(null); load(); })
+      .catch((e) => setError(String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  if (!data) {
+    return (
+      <div style={{ padding: 16, color: error ? "var(--dupe-ink)" : "var(--ink-soft)" }}>
+        {error || "Loading your résumés…"}
+      </div>
+    );
+  }
 
   const versions = data.versions || [];
   const workingBlocks = (data.working || []).filter((b) => !b.excluded);
@@ -122,8 +141,8 @@ export default function ResumeLibrary() {
           <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>
             {versions.length} saved version{versions.length === 1 ? "" : "s"}
           </span>
-          {!editing && (
-            <button onClick={handleNew} disabled={busy || !segments}
+          {!editing && !creating && (
+            <button onClick={startNew} disabled={busy || !segments}
               title={segments ? "Create a new résumé from your base résumé" : "Loading…"}
               style={{ ...OPEN, cursor: busy || !segments ? "default" : "pointer", opacity: busy || !segments ? 0.6 : 1 }}>
               + New résumé
@@ -132,8 +151,36 @@ export default function ResumeLibrary() {
         </div>
       </div>
       <p style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 0 }}>
-        Every version you save in a job’s <b>Tailor résumé</b> editor is stored here in the dashboard. <b>Edit</b> any version, open it as a PDF, rename, or delete.
+        Every version you save in a job’s <b>Tailor résumé</b> editor is stored here in the dashboard. <b>+ New résumé</b> starts a fresh one from your base résumé. Edit any version, open it as a PDF, rename, or delete.
       </p>
+
+      {error && (
+        <div style={{ background: "var(--dupe-bg)", color: "var(--dupe-ink)", fontSize: 12, borderRadius: 10, padding: "8px 12px", marginBottom: 10 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Inline new-résumé form (no native prompt — works everywhere) */}
+      {!editing && creating && (
+        <div style={{ ...CARD, borderColor: "var(--green)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>New résumé:</span>
+          <input
+            autoFocus
+            aria-label="New résumé name"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") createNew(); if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
+            placeholder="Name it (e.g. ML-Engineer, FAANG, Fintech…)"
+            style={INPUT}
+          />
+          <button onClick={createNew} disabled={busy || !newName.trim() || !segments}
+            style={{ ...OPEN, opacity: busy || !newName.trim() || !segments ? 0.6 : 1 }}>
+            Create &amp; edit
+          </button>
+          <button onClick={() => { setCreating(false); setNewName(""); }} style={GHOST}>Cancel</button>
+          <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>Starts from your base résumé.</span>
+        </div>
+      )}
 
       {editing ? (
         <div style={CARD}>
@@ -187,30 +234,57 @@ export default function ResumeLibrary() {
 
           {versions.length === 0 ? (
             <div style={{ ...CARD, color: "var(--ink-soft)", fontSize: 13 }}>
-              No saved versions yet. In a job’s <b>Tailor résumé</b> editor, click <b>Save version</b> to keep a named copy here.
+              No saved versions yet. Click <b>+ New résumé</b> above, or in a job’s <b>Tailor résumé</b> editor click <b>Save version</b>.
             </div>
           ) : (
             versions.map((v) => {
               const s = v.summary || {};
               const n = s.block_count ?? 0;
+              const isRenaming = renaming && renaming.name === v.name;
               return (
                 <div key={v.id} style={CARD}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>{v.name}</div>
-                      <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }}>
-                        {n} block{n === 1 ? "" : "s"} · saved {fmtDate(v.updated_at)}
+                      {isRenaming ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <input
+                            autoFocus
+                            aria-label={`Rename ${v.name}`}
+                            value={renaming.value}
+                            onChange={(e) => setRenaming({ name: v.name, value: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === "Enter") doRename(); if (e.key === "Escape") setRenaming(null); }}
+                            style={INPUT}
+                          />
+                          <button onClick={doRename} disabled={busy} style={{ ...OPEN, opacity: busy ? 0.6 : 1 }}>Save</button>
+                          <button onClick={() => setRenaming(null)} style={GHOST}>Cancel</button>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>{v.name}</div>
+                          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }}>
+                            {n} block{n === 1 ? "" : "s"} · saved {fmtDate(v.updated_at)}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    {!isRenaming && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {confirmDel === v.name ? (
+                          <>
+                            <span style={{ fontSize: 12, color: "var(--dupe-ink)", alignSelf: "center" }}>Delete “{v.name}”?</span>
+                            <button onClick={() => doDelete(v.name)} disabled={busy} style={{ ...DANGER, opacity: busy ? 0.6 : 1 }}>Confirm delete</button>
+                            <button onClick={() => setConfirmDel(null)} style={GHOST}>Cancel</button>
+                          </>
+                        ) : (
+                          <>
+                            <button disabled={busy} onClick={() => handleEditVersion(v.name)} style={GHOST}>Edit</button>
+                            <a href={layoutPdfUrl(v.name)} target="_blank" rel="noreferrer" style={OPEN}>Open PDF ↗</a>
+                            <button disabled={busy} onClick={() => { setError(null); setRenaming({ name: v.name, value: v.name }); }} style={GHOST}>Rename</button>
+                            <button disabled={busy} onClick={() => { setError(null); setConfirmDel(v.name); }} style={DANGER}>Delete</button>
+                          </>
+                        )}
                       </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button disabled={busy} onClick={() => handleEditVersion(v.name)} style={GHOST}>Edit</button>
-                      <a href={layoutPdfUrl(v.name)} target="_blank" rel="noreferrer" style={OPEN}>Open PDF ↗</a>
-                      <button disabled={busy} onClick={() => handleRename(v.name)} style={GHOST}>Rename</button>
-                      <button disabled={busy} onClick={() => handleDelete(v.name)}
-                        style={{ ...BTN, background: "transparent", color: "var(--dupe-ink)", border: "0.5px solid var(--hairline)" }}>
-                        Delete
-                      </button>
-                    </div>
+                    )}
                   </div>
                   <TitleChips titles={s.titles} />
                 </div>
