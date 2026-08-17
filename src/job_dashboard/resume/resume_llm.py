@@ -407,16 +407,18 @@ def generate_bullets(heading, details, llm=None, n=3):
             from job_dashboard.letter.draft import make_default_llm
             llm = make_default_llm()
         prompt = (
-            f"Consolidate the rough notes below into exactly {n} strong résumé "
-            f"bullet points for \"{heading or 'this work'}\".\n\n"
-            f"There are usually MORE notes than bullets — that is the whole point: "
-            f"MERGE. Do NOT just pick {n} notes and ignore the rest. Every distinct "
-            f"fact, number and tool from EVERY note must survive somewhere across the "
-            f"{n} bullets. When one note is a detail of another — e.g. the input "
-            f"features that go INTO a model, or a second use of the same service — "
-            f"fold it into that bullet instead of dropping it. Before you finish, "
-            f"check that no note was left out. Keep every number and technology name "
-            f"exactly as written.\n\n"
+            f"Turn the rough notes below into EXACTLY {n} strong résumé bullet "
+            f"points for \"{heading or 'this work'}\".\n\n"
+            f"You must output {n} bullets — no more, no fewer. To fit {n}: MERGE "
+            f"notes that describe the SAME accomplishment (when one note is a "
+            f"sub-detail of another — e.g. the input features that go INTO a model, "
+            f"or a second use of the same service — fold it in). NEVER drop a whole "
+            f"distinct accomplishment (a different system or deliverable) to fit, and "
+            f"never cram two unrelated systems into one line. Every distinct fact, "
+            f"number and tool must survive somewhere, exactly as written. If you have "
+            f"more distinct accomplishments than {n} bullets, the notes were mis-"
+            f"counted — keep them all and it is fine to exceed {n} slightly rather "
+            f"than delete one.\n\n"
             "Write them the way a real engineer types their own résumé — plain, "
             "specific, factual. They must NOT look AI-written (recruiters and AI "
             "detectors reject that instantly).\n\n"
@@ -445,7 +447,8 @@ def generate_bullets(heading, details, llm=None, n=3):
             "- Plain sentences only: no labels, no headings, no preamble, no leading "
             "dash or bullet marker.\n\n"
             f"NOTES:\n{str(details).strip()[:1500]}\n\n"
-            f"Output exactly {n} lines, one bullet per line."
+            f"Output {n} lines, one bullet per line — every distinct accomplishment "
+            f"kept, related notes merged."
         )
         out = llm(prompt)
         allowed = _supported_numbers(details)

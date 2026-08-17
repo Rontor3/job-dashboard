@@ -113,6 +113,7 @@ export default function BlockEditor({
   const [editDetails, setEditDetails] = useState(""); // rough notes fed to the AI bullet writer
   const [genBusy, setGenBusy] = useState(false);
   const [genFailed, setGenFailed] = useState(false);
+  const [bulletCount, setBulletCount] = useState("auto"); // "auto" = one per note; or force 3/4/5
   const [addMenuKind, setAddMenuKind] = useState(null); // which section's "add" picker is open
   const [skillSug, setSkillSug] = useState([]);         // AI-suggested skills (chips)
   const [skillSugBusy, setSkillSugBusy] = useState(false);
@@ -261,7 +262,9 @@ export default function BlockEditor({
     if (!editDetails.trim()) return;
     setGenBusy(true);
     setGenFailed(false);
-    generateBullets({ heading: editTitle, details: editDetails })
+    const body = { heading: editTitle, details: editDetails };
+    if (bulletCount !== "auto") body.n = Number(bulletCount);
+    generateBullets(body)
       .then((bullets) => {
         if (bullets.length === 0) {
           setGenFailed(true);
@@ -528,6 +531,18 @@ export default function BlockEditor({
                 >
                   {genBusy ? "Writing…" : "✨ Generate bullets"}
                 </button>
+                <select
+                  value={bulletCount}
+                  onChange={(e) => setBulletCount(e.target.value)}
+                  aria-label="How many bullets"
+                  title="Auto = one bullet per note (nothing dropped). Pick a number to consolidate down."
+                  style={{ fontSize: 11, padding: "3px 6px", border: "0.5px solid var(--hairline)", borderRadius: 6 }}
+                >
+                  <option value="auto">auto</option>
+                  <option value="3">3 bullets</option>
+                  <option value="4">4 bullets</option>
+                  <option value="5">5 bullets</option>
+                </select>
                 {genFailed && (
                   <span style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>
                     couldn't generate — type bullets below

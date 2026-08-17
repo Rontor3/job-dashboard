@@ -150,14 +150,15 @@ def build_resume_router(
         500s on LLM issues — ``generate_bullets`` returns ``[]`` safely."""
         if not body.details.strip():
             raise HTTPException(status_code=422, detail="details required")
-        # Consolidate into 3 by default (never MORE bullets than notes, so a
-        # 1–2 note block isn't padded); the LLM merges the rest — see
-        # generate_bullets. An explicit n still overrides.
+        # `n` is the CAP, not a fixed count. Default it to the number of notes
+        # (never pad below, never drop above) and let generate_bullets aim for
+        # ~3 by merging facets while keeping distinct accomplishments separate.
+        # An explicit n still overrides.
         if body.n is None:
             note_lines = len([ln for ln in body.details.splitlines() if ln.strip()])
-            n = min(3, max(1, note_lines))
+            n = min(6, max(1, note_lines))
         else:
-            n = max(1, min(5, body.n))
+            n = max(1, min(6, body.n))
         bullets = generate_bullets(body.heading, body.details, llm=bullet_llm, n=n)
         return {"bullets": bullets}
 
