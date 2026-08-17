@@ -347,6 +347,16 @@ _AI_SWAPS = [
     (re.compile(r"\bin order to\b", re.I), "to"),
     (re.compile(r"\ba wide (?:range|variety) of\b", re.I), "several"),
 ]
+# Stacked-adjective / nominalised jargon that reads as AI on sight — nobody
+# types "severity-tiered violations". Rewritten to the plain thing a human says.
+# Grammar-safe drop-in replacements only.
+_AI_PHRASES = [
+    (re.compile(r"\bseverity[- ]tiered\s+violations\b", re.I), "violations ranked by severity"),
+    (re.compile(r"\b(\w+)[- ]tiered\s+violations\b", re.I), r"violations ranked by \1"),
+    (re.compile(r"\bevidence[- ]based reasoning\b", re.I), "grounded reasoning"),
+    (re.compile(r"\b(multi|multiple)[- ]tiered\b", re.I), "layered"),
+    (re.compile(r"\bseverity[- ]tiered\b", re.I), "severity-ranked"),
+]
 # Filler words that add nothing and read as AI padding — deleted outright.
 _AI_FILLER = re.compile(
     r"\b(?:successfully|seamlessly|robust|comprehensive|cutting[- ]edge|"
@@ -362,6 +372,8 @@ def _natural_bullet(b):
     conservative — meaning is preserved."""
     b = b.replace("—", ", ").replace(" – ", ", ").replace(" -- ", ", ")
     for pat, repl in _AI_SWAPS:
+        b = pat.sub(repl, b)
+    for pat, repl in _AI_PHRASES:
         b = pat.sub(repl, b)
     b = _AI_FILLER.sub("", b)
     b = re.sub(r"^\s*[a-z]", lambda m: m.group(0).upper(), b)  # recapitalize if filler was first word
@@ -418,6 +430,11 @@ def generate_bullets(heading, details, llm=None, n=3):
             "'responsible for', 'successfully', 'various', em-dashes (—), marketing "
             "adjectives.\n"
             "- Use ONLY numbers that appear in the notes. Never invent a metric.\n"
+            "- Write plainly with verbs — NOT invented stacked-adjective jargon. "
+            "Banned constructions: 'severity-tiered', 'evidence-based reasoning', "
+            "'multi-tiered', anything '-driven'/'-centric'/'-first'. Say the plain "
+            "thing: 'ranked violations by severity', NOT 'severity-tiered violations'; "
+            "'checked the evidence', NOT 'evidence-based reasoning'.\n"
             "- Plain sentences only: no labels, no headings, no preamble, no leading "
             "dash or bullet marker.\n\n"
             f"NOTES:\n{str(details).strip()[:1500]}\n\n"
