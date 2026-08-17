@@ -60,6 +60,7 @@ class GenerateBulletsRequest(BaseModel):
 class SuggestSkillsRequest(BaseModel):
     context: str          # the candidate's own experience + project text
     existing: list[str] = []  # skills already listed (to skip)
+    category: str = ""    # optional skill-group heading to scope suggestions to
 
 
 class HighlightRequest(BaseModel):
@@ -169,7 +170,7 @@ def build_resume_router(
         returns [] safely on any LLM issue."""
         if not body.context.strip():
             return {"skills": []}
-        skills = suggest_skills(body.context, body.existing, llm=bullet_llm)
+        skills = suggest_skills(body.context, body.existing, llm=bullet_llm, category=body.category)
         return {"skills": skills}
 
     @router.post("/api/resume/highlight")

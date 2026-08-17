@@ -118,6 +118,8 @@ export default function BlockEditor({
   const [skillSug, setSkillSug] = useState([]);         // AI-suggested skills (chips)
   const [skillSugBusy, setSkillSugBusy] = useState(false);
   const [skillSugDone, setSkillSugDone] = useState(false);
+  const [blockSkillSug, setBlockSkillSug] = useState({}); // per-skill-group suggestions {blockKey: string[]}
+  const [blockSkillBusy, setBlockSkillBusy] = useState(null); // blockKey being suggested
 
   // Auto-save the working résumé whenever blocks change (debounced), so edits,
   // additions, order and exclusions persist across Generate and reopening.
@@ -319,6 +321,41 @@ export default function BlockEditor({
   const addSegmentBlock = (seg) => {
     setBlocks((prev) => (prev.some((b) => b.segment_id === seg.id) ? prev : [...prev, segToBlock(seg)]));
     setAddMenuKind(null);
+  };
+
+  // The candidate's own experience + project text — the grounding source for
+  // every skill suggestion (server keeps only terms that literally appear here).
+  const experienceText = () =>
+    blocks
+      .filter((b) => (b.kind === "experience" || b.kind === "project") && !b.excluded)
+      .flatMap((b) => activeBulletsOf(b))
+      .join("\n");
+
+  // The individual skills already listed in a group's block (bold label stripped).
+  const skillsInBlock = (block) =>
+    activeBulletsOf(block).join(", ").replace(/\*\*[^*]+\*\*:?/g, "")
+      .split(",").map((s) => s.trim()).filter(Boolean);
+
+  // Suggest skills that fit THIS group's category (its heading), drawn from the
+  // candidate's experience/projects and not already in the group.
+  const handleSuggestForBlock = (block) => {
+    setBlockSkillBusy(block.key);
+    suggestSkills({ context: experienceText(), existing: skillsInBlock(block), category: block.title })
+      .then((skills) => setBlockSkillSug((prev) => ({ ...prev, [block.key]: skills })))
+      .catch(() => setBlockSkillSug((prev) => ({ ...prev, [block.key]: [] })))
+      .finally(() => setBlockSkillBusy(null));
+  };
+
+  // Append a suggested skill into that specific group's skill line.
+  const addSkillToBlock = (block, skill) => {
+    setBlockSkillSug((prev) => ({ ...prev, [block.key]: (prev[block.key] || []).filter((s) => s !== skill) }));
+    updateBlock(block.key, (b) => {
+      const bullets = [...activeBulletsOf(b)];
+      if (bullets.length === 0) bullets.push(skill);
+      else bullets[0] = bullets[0] ? `${bullets[0]}, ${skill}` : skill;
+      const variants = b.variants.map((v, i) => (i === b.active ? { ...v, bullets } : v));
+      return { ...b, variants };
+    });
   };
 
   // Ask the LLM for skills the candidate evidenced in their own experience +
@@ -611,6 +648,16 @@ export default function BlockEditor({
                   )}
                 </>
               )}
+              {block.kind === "skills" && (
+                <button
+                  onClick={() => handleSuggestForBlock(block)}
+                  disabled={blockSkillBusy === block.key}
+                  title={`Suggest skills from your experience that fit "${block.title || "this group"}"`}
+                  style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)" }}
+                >
+                  {blockSkillBusy === block.key ? "Scanning…" : "✨ Suggest"}
+                </button>
+              )}
               <button onClick={() => startEdit(block)} style={{ ...SMALL_BTN, background: "var(--canvas)", color: "var(--ink)" }}>
                 Edit
               </button>
@@ -633,6 +680,28 @@ export default function BlockEditor({
                 <li key={i}>{renderBulletText(bullet)}</li>
               ))}
             </ul>
+          )}
+
+          {block.kind === "skills" && blockSkillSug[block.key] && (
+            blockSkillSug[block.key].length > 0 ? (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: "var(--ink-faint)", marginBottom: 4 }}>
+                  From your experience — click to add to “{block.title || "this group"}”:
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {blockSkillSug[block.key].map((s) => (
+                    <button key={s} onClick={() => addSkillToBlock(block, s)}
+                      style={{ ...SMALL_BTN, border: "0.5px solid var(--hairline)", background: "var(--green-tint)", color: "var(--green)" }}>
+                      + {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic", marginTop: 8 }}>
+                No unlisted skills found for this group.
+              </div>
+            )
           )}
 
           {block.variants.length > 1 && (
