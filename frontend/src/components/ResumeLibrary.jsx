@@ -13,6 +13,20 @@ const BTN = {
 const OPEN = { ...BTN, background: "var(--green)", color: "#FFFFFF", textDecoration: "none" };
 const GHOST = { ...BTN, background: "var(--canvas)", color: "var(--ink)", border: "0.5px solid var(--hairline)" };
 
+// A brand-new résumé starts from the candidate's base résumé — the default
+// segments in manifest order — in the persisted layout shape, so the editor
+// (and the PDF renderer) treat it exactly like a saved version.
+const NEW_KINDS = ["experience", "project", "skills"];
+function seedFromSegments(segs) {
+  return (segs || [])
+    .filter((s) => NEW_KINDS.includes(s.kind) && s.default !== false)
+    .map((s) => ({
+      kind: s.kind, title: s.title || "", bullets: s.bullets || [],
+      excluded: false, source: "segment", segment_id: s.id,
+      group: s.group || null, roleHeader: !!s.role_header,
+    }));
+}
+
 function fmtDate(iso) {
   if (!iso) return "";
   try {
@@ -58,6 +72,23 @@ export default function ResumeLibrary() {
       .catch((e) => setError(String(e)));
   };
 
+  const versionsList = (data && data.versions) || [];
+  const handleNew = () => {
+    if (!segments) return;
+    const raw = window.prompt("Name your new résumé (starts from your base résumé — edit it after):");
+    if (!raw || !raw.trim()) return;
+    const name = raw.trim();
+    if (name === "__working__") { setError("That name is reserved — pick another."); return; }
+    if (versionsList.some((v) => v.name === name)) { setError(`A version named “${name}” already exists.`); return; }
+    const seed = seedFromSegments(segments);
+    setBusy(true);
+    setError(null);
+    saveVersion(name, seed)
+      .then(() => { load(); openEditor(name, name, seed); })
+      .catch((e) => setError(String(e)))
+      .finally(() => setBusy(false));
+  };
+
   const handleDelete = (name) => {
     if (!window.confirm(`Delete résumé version “${name}”? This can't be undone.`)) return;
     setBusy(true);
@@ -85,11 +116,20 @@ export default function ResumeLibrary() {
 
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", margin: 0 }}>Custom résumés</h2>
-        <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>
-          {versions.length} saved version{versions.length === 1 ? "" : "s"}
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+            {versions.length} saved version{versions.length === 1 ? "" : "s"}
+          </span>
+          {!editing && (
+            <button onClick={handleNew} disabled={busy || !segments}
+              title={segments ? "Create a new résumé from your base résumé" : "Loading…"}
+              style={{ ...OPEN, cursor: busy || !segments ? "default" : "pointer", opacity: busy || !segments ? 0.6 : 1 }}>
+              + New résumé
+            </button>
+          )}
+        </div>
       </div>
       <p style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 0 }}>
         Every version you save in a job’s <b>Tailor résumé</b> editor is stored here in the dashboard. <b>Edit</b> any version, open it as a PDF, rename, or delete.
