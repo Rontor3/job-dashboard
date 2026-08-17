@@ -339,6 +339,11 @@ _AI_SWAPS = [
     (re.compile(r"\bspearhead(?:ed|ing|s)?\b", re.I), "led"),
     (re.compile(r"\borchestrat(?:ed|ing|es|e)\b", re.I), "ran"),
     (re.compile(r"\bfacilitat(?:ed|ing|es|e)\b", re.I), "enabled"),
+    # Pompous verbs AI/ATS detectors flag on sight (even when the candidate
+    # typed them in their own notes) — swapped for the plain thing they mean.
+    (re.compile(r"\barchitect(?:ed|ing|s)?\b", re.I), "designed"),
+    (re.compile(r"\bproductioni[sz](?:ed|ing|es|e)\b", re.I), "deployed"),
+    (re.compile(r"\bstreamlin(?:ed|ing|es|e)\b", re.I), "simplified"),
     (re.compile(r"\bin order to\b", re.I), "to"),
     (re.compile(r"\ba wide (?:range|variety) of\b", re.I), "several"),
 ]
@@ -386,26 +391,34 @@ def generate_bullets(heading, details, llm=None, n=3):
             from job_dashboard.letter.draft import make_default_llm
             llm = make_default_llm()
         prompt = (
-            f"You are writing {n} résumé bullet points for \"{heading or 'this work'}\" "
-            "from the rough notes below.\n\n"
+            f"Turn the rough notes below into exactly {n} résumé bullet points for "
+            f"\"{heading or 'this work'}\".\n\n"
+            "COVERAGE IS THE PRIORITY. Use EVERY note. If there are more notes than "
+            "bullets, combine related notes into one bullet — but never drop a fact, a "
+            "number, or a tool the notes mention. Keep every concrete number and every "
+            "technology name exactly as written in the notes.\n\n"
             "Write them the way a real engineer types their own résumé — plain, "
             "specific, factual. They must NOT look AI-written (recruiters and AI "
             "detectors reject that instantly).\n\n"
             "Match this person's actual résumé voice:\n"
             f"{_VOICE_EXEMPLARS}\n\n"
             "Rules:\n"
-            "- Each bullet ONE line, about 10-20 words. Start with a plain past-tense "
-            "verb (Built, Wrote, Shipped, Cut, Automated, Designed, Deployed, Trained).\n"
-            "- Say the concrete thing done and the real tech used. Keep it dry and direct.\n"
+            "- Each bullet is ONE line, roughly 16-30 words — long enough to carry the "
+            "real detail (what was built, how, the tech, the number). Don't pad; don't "
+            "strip substance.\n"
+            "- Start each bullet with a plain, VARIED past-tense verb: Built, Designed, "
+            "Deployed, Automated, Cut, Wrote, Trained, Shipped, Mapped, Scored. Never "
+            "reuse the same opener twice.\n"
+            "- NEVER use these (AI/ATS tells): Architected, Productionized, Leveraged, "
+            "Utilized, Spearheaded, Orchestrated, Streamlined, seamlessly, robust, "
+            "cutting-edge, state-of-the-art, comprehensive, innovative, 'in order to', "
+            "'responsible for', 'successfully', 'various', em-dashes (—), marketing "
+            "adjectives.\n"
             "- Use ONLY numbers that appear in the notes. Never invent a metric.\n"
-            "- Do NOT start every bullet with the same word.\n"
-            "- BANNED (never use): leveraged, utilized, spearheaded, seamlessly, robust, "
-            "cutting-edge, state-of-the-art, comprehensive, innovative, streamline, "
-            "empower, facilitate, 'in order to', 'a wide range of', 'responsible for', "
-            "'successfully', 'various', em-dashes (—), and marketing adjectives.\n"
-            "- No labels, no headings, no preamble.\n\n"
+            "- Plain sentences only: no labels, no headings, no preamble, no leading "
+            "dash or bullet marker.\n\n"
             f"NOTES:\n{str(details).strip()[:1500]}\n\n"
-            f"Output exactly {n} lines, each starting with '- '."
+            f"Output exactly {n} lines, one bullet per line."
         )
         out = llm(prompt)
         allowed = _supported_numbers(details)

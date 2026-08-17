@@ -54,7 +54,7 @@ class SaveBlockRequest(BaseModel):
 class GenerateBulletsRequest(BaseModel):
     heading: str = ""
     details: str
-    n: int = 3
+    n: int | None = None  # None → derive from the number of note lines (3–5)
 
 
 class SuggestSkillsRequest(BaseModel):
@@ -150,7 +150,12 @@ def build_resume_router(
         500s on LLM issues — ``generate_bullets`` returns ``[]`` safely."""
         if not body.details.strip():
             raise HTTPException(status_code=422, detail="details required")
-        n = max(1, min(5, body.n))
+        if body.n is None:
+            # One bullet per note line so nothing is dropped — clamped 3–5.
+            note_lines = len([ln for ln in body.details.splitlines() if ln.strip()])
+            n = max(3, min(5, note_lines))
+        else:
+            n = max(1, min(5, body.n))
         bullets = generate_bullets(body.heading, body.details, llm=bullet_llm, n=n)
         return {"bullets": bullets}
 

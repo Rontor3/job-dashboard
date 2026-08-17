@@ -526,7 +526,7 @@ export default function BlockEditor({
                   disabled={genBusy || !editDetails.trim()}
                   style={{ ...SMALL_BTN, background: "var(--green-tint)", color: "var(--green)", opacity: !editDetails.trim() ? 0.5 : 1 }}
                 >
-                  {genBusy ? "Writing…" : "✨ Generate 3 bullets"}
+                  {genBusy ? "Writing…" : "✨ Generate bullets"}
                 </button>
                 {genFailed && (
                   <span style={{ fontSize: 11, color: "var(--ink-faint)", fontStyle: "italic" }}>
