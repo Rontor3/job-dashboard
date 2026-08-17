@@ -347,15 +347,19 @@ _AI_SWAPS = [
     (re.compile(r"\bin order to\b", re.I), "to"),
     (re.compile(r"\ba wide (?:range|variety) of\b", re.I), "several"),
 ]
-# Stacked-adjective / nominalised jargon that reads as AI on sight — nobody
-# types "severity-tiered violations". Rewritten to the plain thing a human says.
-# Grammar-safe drop-in replacements only.
+# The #1 AI tell is a manufactured compound adjective: a word glued to a
+# participle in front of a noun ("severity-tiered violations", "evidence-based
+# reasoning"). These rules undo that CONSTRUCTION generally — not a per-phrase
+# blocklist — turning "<X>-<participle> <noun>" back into a plain clause. Scoped
+# so real, established terms (role-based access, cloud-based, machine learning)
+# are left alone: "-based" is only rewritten before abstract reasoning nouns.
 _AI_PHRASES = [
-    (re.compile(r"\bseverity[- ]tiered\s+violations\b", re.I), "violations ranked by severity"),
-    (re.compile(r"\b(\w+)[- ]tiered\s+violations\b", re.I), r"violations ranked by \1"),
-    (re.compile(r"\bevidence[- ]based reasoning\b", re.I), "grounded reasoning"),
-    (re.compile(r"\b(multi|multiple)[- ]tiered\b", re.I), "layered"),
-    (re.compile(r"\bseverity[- ]tiered\b", re.I), "severity-ranked"),
+    (re.compile(r"\b(?:multi|multiple)[- ]tiered\b", re.I), "layered"),
+    # <X>-tiered <noun>  ->  <noun> ranked by <X>   (nobody "tiers" things aloud)
+    (re.compile(r"\b(\w+)[- ]tiered\s+(\w+)", re.I), r"\2 ranked by \1"),
+    # <X>-based reasoning/logic/approach  ->  reasoning from <X>
+    (re.compile(r"\b(\w+)[- ]based\s+(reasoning|logic|approach|thinking|methodology)\b", re.I),
+     r"\2 from \1"),
 ]
 # Filler words that add nothing and read as AI padding — deleted outright.
 _AI_FILLER = re.compile(
@@ -430,11 +434,14 @@ def generate_bullets(heading, details, llm=None, n=3):
             "'responsible for', 'successfully', 'various', em-dashes (—), marketing "
             "adjectives.\n"
             "- Use ONLY numbers that appear in the notes. Never invent a metric.\n"
-            "- Write plainly with verbs — NOT invented stacked-adjective jargon. "
-            "Banned constructions: 'severity-tiered', 'evidence-based reasoning', "
-            "'multi-tiered', anything '-driven'/'-centric'/'-first'. Say the plain "
-            "thing: 'ranked violations by severity', NOT 'severity-tiered violations'; "
-            "'checked the evidence', NOT 'evidence-based reasoning'.\n"
+            "- GENERAL RULE for sounding human, not AI: never manufacture a "
+            "compound adjective by gluing a word to a participle in front of a noun "
+            "(the '<word>-based / -tiered / -driven / -centric / -enabled <noun>' "
+            "shape, e.g. 'severity-tiered violations', 'evidence-based reasoning'). "
+            "Unless it is a real established term people actually say (like 'machine "
+            "learning' or 'role-based access'), rewrite it as a plain verb + clause: "
+            "'ranked violations by severity', 'reasoned from the evidence'. Read each "
+            "bullet aloud — if it sounds like a consulting slide, make it plainer.\n"
             "- Plain sentences only: no labels, no headings, no preamble, no leading "
             "dash or bullet marker.\n\n"
             f"NOTES:\n{str(details).strip()[:1500]}\n\n"
