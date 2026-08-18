@@ -61,6 +61,7 @@ class SuggestSkillsRequest(BaseModel):
     context: str          # the candidate's own experience + project text
     existing: list[str] = []  # skills already listed (to skip)
     category: str = ""    # optional skill-group heading to scope suggestions to
+    siblings: list[str] = []  # skills in OTHER groups, for best-group routing
 
 
 class HighlightRequest(BaseModel):
@@ -170,7 +171,8 @@ def build_resume_router(
         returns [] safely on any LLM issue."""
         if not body.context.strip():
             return {"skills": []}
-        skills = suggest_skills(body.context, body.existing, llm=bullet_llm, category=body.category)
+        skills = suggest_skills(body.context, body.existing, llm=bullet_llm,
+                                category=body.category, siblings=body.siblings)
         return {"skills": skills}
 
     @router.post("/api/resume/highlight")

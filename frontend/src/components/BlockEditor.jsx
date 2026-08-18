@@ -338,9 +338,17 @@ export default function BlockEditor({
 
   // Suggest skills that fit THIS group's category (its heading), drawn from the
   // candidate's experience/projects and not already in the group.
+  // Skills already listed in every OTHER group — lets the server route each
+  // suggested skill to the group it fits best (so PyTorch lands under ML, not
+  // Programming), instead of dumping it under whichever group asked.
+  const otherGroupSkills = (block) =>
+    blocks
+      .filter((b) => b.kind === "skills" && b.key !== block.key && !b.excluded)
+      .flatMap((b) => skillsInBlock(b));
+
   const handleSuggestForBlock = (block) => {
     setBlockSkillBusy(block.key);
-    suggestSkills({ context: experienceText(), existing: skillsInBlock(block), category: block.title })
+    suggestSkills({ context: experienceText(), existing: skillsInBlock(block), category: block.title, siblings: otherGroupSkills(block) })
       .then((skills) => setBlockSkillSug((prev) => ({ ...prev, [block.key]: skills })))
       .catch(() => setBlockSkillSug((prev) => ({ ...prev, [block.key]: [] })))
       .finally(() => setBlockSkillBusy(null));

@@ -556,7 +556,53 @@ def _norm_skill(s):
     return re.sub(r"[^a-z0-9+.#]", "", str(s or "").lower())
 
 
-def suggest_skills(context, existing=None, llm=None, max_n=12, category=""):
+_EMBED_MODEL = None
+
+
+def _get_embed_model():
+    """Lazy-load the shared local MiniLM embedder (cached after first use).
+    Returns None if sentence-transformers isn't installed."""
+    global _EMBED_MODEL
+    if _EMBED_MODEL is None:
+        try:
+            from job_dashboard.match.embedder import load_default_model
+            _EMBED_MODEL = load_default_model()
+        except Exception:
+            _EMBED_MODEL = False  # sentinel: don't retry every call
+    return _EMBED_MODEL or None
+
+
+def _rank_skills_by_group(candidates, group_skills, rivals=None, min_sim=0.30):
+    """Route each candidate skill to the group it fits BEST. Keep a candidate
+    only if it is (a) at least ``min_sim`` similar to THIS group's skills and
+    (b) MORE similar to this group than to any OTHER group's skills
+    (``rivals``) — so 'PyTorch' lands in ML (near scikit-learn), not in
+    Programming (near Python). Closest-first; may be empty when nothing fits.
+    A real classifier via the local embedder — no LLM guess, no wordlist.
+    Falls back to the input list if the embedder is unavailable; never raises."""
+    model = _get_embed_model()
+    if not model or not candidates or not group_skills:
+        return candidates
+    try:
+        from job_dashboard.match.embedder import cosine
+        gvecs = model.encode(group_skills)
+        rvecs = model.encode(rivals) if rivals else None
+        cvecs = model.encode(candidates)
+        kept = []
+        for c, cv in zip(candidates, cvecs):
+            own = max(cosine(cv, gv) for gv in gvecs)
+            if own < min_sim:
+                continue
+            if rvecs is not None and len(rvecs) and max(cosine(cv, rv) for rv in rvecs) > own:
+                continue  # fits a different group better
+            kept.append((own, c))
+        kept.sort(key=lambda t: t[0], reverse=True)
+        return [c for _, c in kept]
+    except Exception:
+        return candidates
+
+
+def suggest_skills(context, existing=None, llm=None, max_n=12, category="", siblings=None):
     """Suggest concrete skills/tools the candidate demonstrably USED in their
     own experience + project text (``context``) but hasn't yet listed in
     ``existing``. Grounded: every suggestion must literally appear in
@@ -573,20 +619,19 @@ def suggest_skills(context, existing=None, llm=None, max_n=12, category=""):
             llm = make_default_llm()
         ctx = str(context)
         ctx_l = ctx.lower()
-        existing_norm = {_norm_skill(s) for s in (existing or [])}
-        cat_line = (
-            f"Return ONLY skills that belong under the category \"{category}\" — "
-            "the languages/frameworks/tools/platforms that fit that specific "
-            "heading. Skip anything that belongs in a different category.\n"
-            if category and str(category).strip() else ""
-        )
+        existing_list = [s for s in (existing or []) if str(s).strip()]
+        existing_norm = {_norm_skill(s) for s in existing_list}
+        scoped = bool(category and str(category).strip() and existing_list)
+        # The LLM only EXTRACTS (its strength); when a group is given, the
+        # embedder does the categorising afterwards, so pull a wider candidate
+        # pool here and let similarity ranking trim it.
+        extract_cap = 40 if scoped else max_n
         prompt = (
             "From the candidate's own experience and project text below, list the "
             "concrete technical skills, tools, frameworks, languages, and platforms "
             "they actually used. Only terms that literally appear in the text — do "
             "NOT infer or add anything not written there.\n"
-            f"{cat_line}"
-            f"Already listed (skip these): {', '.join(existing or []) or '(none)'}\n\n"
+            f"Already listed (skip these): {', '.join(existing_list) or '(none)'}\n\n"
             f"TEXT:\n{ctx[:2500]}\n\n"
             "Reply as a plain comma-separated list of skill terms, nothing else."
         )
@@ -606,9 +651,13 @@ def suggest_skills(context, existing=None, llm=None, max_n=12, category=""):
                 continue
             seen.add(norm)
             result.append(term)
-            if len(result) >= max_n:
+            if len(result) >= extract_cap:
                 break
-        return result
+        # Category classification via embeddings (not the LLM): keep only skills
+        # semantically close to what's already in this group, closest first.
+        if scoped:
+            result = _rank_skills_by_group(result, existing_list, rivals=siblings)
+        return result[:max_n]
     except Exception:
         return []
 
