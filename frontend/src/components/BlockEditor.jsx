@@ -515,11 +515,16 @@ export default function BlockEditor({
     }
     setLayoutError(null);
     if (standalone) {
-      // Flush the current blocks to this version, then let the parent open its
-      // freshly-rendered PDF (job-agnostic — no JD, no highlight).
-      saveLayout(layoutFromBlocks(blocks))
-        .then(() => onGenerate(autoSaveName))
-        .catch(() => onGenerate(autoSaveName));
+      // Open the PDF tab SYNCHRONOUSLY (inside the click gesture, or the popup
+      // blocker kills it), then point it at the freshly-saved render. onGenerate
+      // returns the PDF URL for this version.
+      const url = onGenerate(autoSaveName);
+      const win = typeof url === "string" ? window.open("", "_blank") : null;
+      const go = () => {
+        if (win) win.location.href = url;
+        else if (typeof url === "string") window.open(url, "_blank");
+      };
+      saveLayout(layoutFromBlocks(blocks)).then(go).catch(go);
       return;
     }
     onGenerate(buildLayout());

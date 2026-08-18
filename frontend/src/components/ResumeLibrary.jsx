@@ -201,7 +201,7 @@ export default function ResumeLibrary() {
               suggestion={{ segments, working: editing.blocks, versions }}
               generating={false}
               hasDraft={false}
-              onGenerate={(name) => window.open(layoutPdfUrl(name), "_blank", "noopener")}
+              onGenerate={(name) => layoutPdfUrl(name)}
               onCancel={() => { setEditing(null); load(); }}
             />
           ) : (
