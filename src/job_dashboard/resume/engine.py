@@ -362,7 +362,7 @@ def render_layout_pdf(
         if kind and (bullets or title):
             # A skills/project segment block carries its bold label inside the
             # bullets (**label**); sending the title too would double the heading.
-            drop_title = entry.get("source") == "segment" and kind in ("skills", "project")
+            drop_title = entry.get("source") == "segment" and kind == "skills"
             norm.append({"kind": kind, "title": "" if drop_title else title, "bullets": bullets})
     ordered_blocks = _drop_conflicting_segments(_resolve_layout(norm, segments, seg_by_id))
     tex = _build_tex(_compose_kind_aware(ordered_blocks))

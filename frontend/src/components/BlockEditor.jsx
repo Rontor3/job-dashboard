@@ -502,8 +502,7 @@ export default function BlockEditor({
           // inside the bullets (**label**); sending the manifest title too
           // would double the heading. Custom (added) and experience blocks
           // keep their title.
-          const dropTitle =
-            b.source === "segment" && (b.kind === "skills" || b.kind === "project");
+          const dropTitle = b.source === "segment" && b.kind === "skills";
           return { kind: b.kind, title: dropTitle ? "" : b.title, bullets: activeBulletsOf(b) };
         })
     );
