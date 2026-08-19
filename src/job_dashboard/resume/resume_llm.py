@@ -393,6 +393,60 @@ _VOICE_EXEMPLARS = (
 )
 
 
+# --- Line-fit: stop a bullet spilling a few words onto a fresh line ------------
+# Measured from the rendered 10pt/Letter résumé: ~100 characters per bullet line
+# (avg char advance ~4.9pt across a ~530pt bullet column). A "clean" bullet fills
+# its line(s); an ORPHAN spills a short tail (a few words) onto a new line, wasting
+# vertical space — the thing we tighten away.
+_CHARS_PER_LINE = 100
+
+
+def estimate_lines(text, cpl=_CHARS_PER_LINE):
+    """Rough number of wrapped lines this bullet occupies on the résumé page."""
+    n = len(str(text).strip())
+    return max(1, -(-n // cpl))  # ceil division
+
+
+def _orphan_tail(text, cpl=_CHARS_PER_LINE):
+    """Length of the wastefully-short last line (a few words dangling), else 0.
+    0 when the bullet fits one line or fills its lines; a small positive number
+    means it spills just a bit past a full line — the orphan we want gone."""
+    n = len(str(text).strip())
+    if n <= cpl:
+        return 0
+    tail = n - (n // cpl) * cpl          # n % cpl
+    return tail if 0 < tail <= cpl // 3 else 0
+
+
+def _tighten_bullet(text, llm, allowed, cpl=_CHARS_PER_LINE):
+    """One LLM pass to shorten an orphan bullet so it fills its line(s) WITHOUT
+    losing any fact, number, tool or its meaning. Accepts the result only if it
+    is shorter, no longer an orphan, and still contains every number the original
+    had; otherwise returns the original unchanged. Never raises."""
+    try:
+        target = max(cpl, (len(text.strip()) // cpl) * cpl)  # nearest full line below
+        prompt = (
+            f"Shorten this résumé bullet to {target} characters or fewer WITHOUT "
+            "losing any fact, number, tool or its meaning — same plain voice, just "
+            "fewer words. Keep every number exactly as written; never add one. "
+            "Reply with ONLY the rewritten bullet on one line.\n\n"
+            f"BULLET:\n{text.strip()}"
+        )
+        out = llm(prompt)
+        lines = [ln for ln in (out if isinstance(out, str) else "").splitlines() if ln.strip()]
+        if not lines:
+            return text
+        cand = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", lines[0]).strip()
+        cand = _natural_bullet(_strip_unsupported_numbers(cand, allowed))
+        orig_nums = {m.group(0).replace(" ", "") for m in _NUM_RE.finditer(text) if m.group(0).strip()}
+        cand_nums = {m.group(0).replace(" ", "") for m in _NUM_RE.finditer(cand)}
+        if cand and len(cand) < len(text.strip()) and _orphan_tail(cand) == 0 and orig_nums <= cand_nums:
+            return cand
+    except Exception:
+        pass
+    return text
+
+
 def generate_bullets(heading, details, llm=None, n=3):
     """Turn a heading + rough ``details`` notes into ``n`` plain resume
     bullets via the local LLM. Foregrounds the concrete tech stack and uses
@@ -436,6 +490,11 @@ def generate_bullets(heading, details, llm=None, n=3):
             "'responsible for', 'successfully', 'various', em-dashes (—), marketing "
             "adjectives.\n"
             "- Use ONLY numbers that appear in the notes. Never invent a metric.\n"
+            "- FIT THE PAGE: a résumé line holds ~100 characters. Make each bullet "
+            "either fit on ONE line (about 100 characters or fewer) OR fill close to "
+            "two full lines — NEVER leave just a few words dangling on a new line "
+            "(avoid the ~101-130 character range). Choose tighter wording for the "
+            "same meaning when it saves a line.\n"
             "- GENERAL RULE for sounding human, not AI: never manufacture a "
             "compound adjective by gluing a word to a participle in front of a noun "
             "(the '<word>-based / -tiered / -driven / -centric / -enabled <noun>' "
@@ -462,6 +521,12 @@ def generate_bullets(heading, details, llm=None, n=3):
                 bullets.append(grounded)
             if len(bullets) >= n:
                 break
+        # Tighten any bullet that would spill a few words onto a fresh line, so
+        # the page stays clean (deterministic detection, single grounded LLM pass).
+        bullets = [
+            _tighten_bullet(b, llm, allowed) if _orphan_tail(b) else b
+            for b in bullets
+        ]
         return bullets
     except Exception:
         return []
