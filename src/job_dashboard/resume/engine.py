@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from job_dashboard import db
-from job_dashboard.resume.custom_block import block_to_tex
+from job_dashboard.resume.custom_block import block_to_tex, segment_bullets
 from job_dashboard.resume.keyword_map import (
     DeepRankFn,
     GapKeyword,
@@ -247,6 +247,7 @@ def _resolve_layout(
                 Segment(
                     id=f"custom-{i}", kind=kind, title=title, tags=[],
                     tex_path=None, text=block_to_tex(kind, title, bullets),
+                    section=entry.get("section"),
                 )
             )
     return fixed_blocks + mapped_blocks
@@ -351,18 +352,32 @@ def render_layout_pdf(
         title = entry.get("title") or ""
         bullets = entry.get("bullets") or []
         seg = seg_by_id.get(sid) if sid else None
-        # A segment-backed block renders VERBATIM from its .tex unless the user
-        # actually edited it (explicit `edited` flag from the editor). This is
-        # immune to a segment .tex changing under a saved layout, which the old
-        # bullet-by-bullet comparison was not.
-        if seg is not None and not entry.get("edited"):
-            norm.append({"segment_id": sid})
-            continue
+        # A segment-backed block renders VERBATIM from its .tex unless it was
+        # edited. "Edited" = the editor's explicit `edited` flag OR (for layouts
+        # saved before that flag existed) the stored bullets differing from the
+        # segment's own — so pre-existing edits still reach the PDF.
+        if seg is not None:
+            orig = [b.strip() for b in segment_bullets(seg.text)]
+            edited = bool(entry.get("edited")) or (
+                bool(bullets) and [b.strip() for b in bullets] != orig
+            )
+            if not edited:
+                norm.append({"segment_id": sid})
+                continue
         if kind and (bullets or title):
-            # A skills/project segment block carries its bold label inside the
-            # bullets (**label**); sending the title too would double the heading.
+            # Skills carry their bold label inside the bullet (**label**), so
+            # dropping the separate title avoids a doubled heading; projects keep
+            # the title, minus any stored "Project: " prefix. `section` carries a
+            # segment's section override (e.g. OYO -> Internship) into the edited
+            # custom block so it still lands in the right section.
             drop_title = entry.get("source") == "segment" and kind == "skills"
-            norm.append({"kind": kind, "title": "" if drop_title else title, "bullets": bullets})
+            t = "" if drop_title else title
+            if kind == "project" and t.startswith("Project: "):
+                t = t[len("Project: "):]
+            norm.append({
+                "kind": kind, "title": t, "bullets": bullets,
+                "section": getattr(seg, "section", None) if seg else None,
+            })
     ordered_blocks = _drop_conflicting_segments(_resolve_layout(norm, segments, seg_by_id))
     tex = _build_tex(_compose_kind_aware(ordered_blocks))
     pdf_path = render_pdf(tex, out_dir)
