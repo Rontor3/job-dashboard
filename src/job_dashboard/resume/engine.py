@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 from job_dashboard import db
-from job_dashboard.resume.custom_block import block_to_tex, segment_bullets
+from job_dashboard.resume.custom_block import block_to_tex
 from job_dashboard.resume.keyword_map import (
     DeepRankFn,
     GapKeyword,
@@ -42,14 +42,14 @@ _SECTION_TITLES = {
     "summary": "Summary",
     "skills": "Skills",
     "project": "Projects",
-    "experience": "Experience",
-    "experience-framing": "Experience",
+    "experience": "Work Experience",
+    "experience-framing": "Work Experience",
     "education": "Education",
 }
 
 # Canonical résumé section order — Experience is the focus, Skills sit last.
 # Sections render in this order regardless of block/layout order.
-_SECTION_ORDER = {"Summary": 0, "Education": 1, "Experience": 2, "Projects": 3, "Skills": 4}
+_SECTION_ORDER = {"Summary": 0, "Education": 1, "Work Experience": 2, "Internship": 3, "Projects": 4, "Skills": 5}
 
 
 def _is_item_bearing(block: Segment) -> bool:
@@ -59,6 +59,9 @@ def _is_item_bearing(block: Segment) -> bool:
 
 
 def _section_title(block: Segment) -> str:
+    override = getattr(block, "section", None)
+    if override:
+        return override
     return _SECTION_TITLES.get(block.kind, block.kind.replace("-", " ").title())
 
 
@@ -348,17 +351,13 @@ def render_layout_pdf(
         title = entry.get("title") or ""
         bullets = entry.get("bullets") or []
         seg = seg_by_id.get(sid) if sid else None
-        if seg is not None:
-            # Segment-backed block (Projects/Skills are segment-backed too). Use
-            # the ORIGINAL segment verbatim only when the stored bullets are
-            # unchanged; once the user edited them, render THEIR bullets so the
-            # edit actually reaches the PDF (mirrors BlockEditor.buildLayout's
-            # active-variant check, which layoutFromBlocks flattens away).
-            orig = [b.strip() for b in segment_bullets(seg.text)]
-            edited = bool(bullets) and [b.strip() for b in bullets] != orig
-            if not edited:
-                norm.append({"segment_id": sid})
-                continue
+        # A segment-backed block renders VERBATIM from its .tex unless the user
+        # actually edited it (explicit `edited` flag from the editor). This is
+        # immune to a segment .tex changing under a saved layout, which the old
+        # bullet-by-bullet comparison was not.
+        if seg is not None and not entry.get("edited"):
+            norm.append({"segment_id": sid})
+            continue
         if kind and (bullets or title):
             # A skills/project segment block carries its bold label inside the
             # bullets (**label**); sending the title too would double the heading.

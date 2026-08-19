@@ -87,12 +87,16 @@ def block_to_tex(kind, title, bullets) -> str:
         return ""
     lines = []
     if k in ("project", "skills") and lead:
-        first = _tex_inline(items[0])
         if k == "skills":
             body = ", ".join(_tex_inline(b) for b in items)
             return rf"\item \textbf{{{lead}}}: {body}"
-        lines.append(rf"\item \textbf{{{lead}}}: {first}")
-        rest = items[1:]
+        # A project bullet that already opens with a bold heading (**Title**) IS
+        # the title line — don't prepend the block title again (avoids doubling).
+        if re.match(r"\s*\*\*", items[0]):
+            rest = items
+        else:
+            lines.append(rf"\item \textbf{{{lead}}}: {_tex_inline(items[0])}")
+            rest = items[1:]
     else:
         rest = items
     for b in rest:

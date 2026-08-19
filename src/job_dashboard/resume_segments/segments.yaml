@@ -146,6 +146,7 @@ segments:
     tex: experience-oyo-intern.tex
     group: "OYO"
     role_header: true
+    section: "Internship"
 
   - id: education-btech
     kind: education

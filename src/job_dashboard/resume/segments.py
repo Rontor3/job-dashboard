@@ -29,6 +29,7 @@ class Segment:
     default: bool = True  # False = opt-in block, offered in an "add" picker, not loaded by default
     group: str | None = None      # company/employer an experience block belongs to (editor nesting)
     role_header: bool = False     # True = this block is a company's role/date header, not a sub-project
+    section: str | None = None    # override the section heading this block renders under (else derived from kind)
 
 
 def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
@@ -59,6 +60,7 @@ def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
                 default=entry.get("default", True),
                 group=entry.get("group"),
                 role_header=entry.get("role_header", False),
+                section=entry.get("section"),
             )
         )
     return segments

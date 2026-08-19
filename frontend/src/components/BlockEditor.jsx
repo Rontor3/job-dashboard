@@ -42,6 +42,7 @@ function blocksFromLayout(layout) {
       excluded: !!b.excluded,
       group: b.group || null,
       roleHeader: !!b.roleHeader,
+      edited: !!b.edited,
       variants: [{ label: "Saved", bullets: b.bullets || [] }],
     }));
 }
@@ -57,6 +58,7 @@ function layoutFromBlocks(blocks) {
     segment_id: b.segment_id || null,
     group: b.group || null,
     roleHeader: !!b.roleHeader,
+    edited: !!b.edited,
   }));
 }
 
@@ -162,7 +164,7 @@ export default function BlockEditor({
         if (!bulls || !bulls.length) return;
         updateBlock(block.key, (b) => {
           const variants = [...b.variants, { label: "Highlighted", bullets: bulls }];
-          return { ...b, variants, active: variants.length - 1 };
+          return { ...b, variants, active: variants.length - 1, edited: true };
         });
       })
       .catch(() => {})
@@ -236,6 +238,7 @@ export default function BlockEditor({
           return {
             ...b,
             active: 0,
+            edited: true,
             variants: [
               ...kept,
               ...alternatives.map((bullets, idx) => ({ label: `Alternative ${idx + 1}`, bullets })),
@@ -247,7 +250,7 @@ export default function BlockEditor({
       .finally(() => setRegeneratingKey(null));
   };
 
-  const pickVariant = (block, idx) => updateBlock(block.key, (b) => ({ ...b, active: idx }));
+  const pickVariant = (block, idx) => updateBlock(block.key, (b) => ({ ...b, active: idx, edited: idx !== 0 ? true : b.edited }));
 
   const startEdit = (block) => {
     setEditingKey(block.key);
@@ -292,7 +295,7 @@ export default function BlockEditor({
       .filter(Boolean);
     updateBlock(block.key, (b) => {
       const variants = [b.variants[0], { label: "Your edit", bullets }];
-      return { ...b, title: editTitle, variants, active: variants.length - 1 };
+      return { ...b, title: editTitle, variants, active: variants.length - 1, edited: true };
     });
     setEditingKey(null);
   };
@@ -362,7 +365,7 @@ export default function BlockEditor({
       if (bullets.length === 0) bullets.push(skill);
       else bullets[0] = bullets[0] ? `${bullets[0]}, ${skill}` : skill;
       const variants = b.variants.map((v, i) => (i === b.active ? { ...v, bullets } : v));
-      return { ...b, variants };
+      return { ...b, variants, edited: true };
     });
   };
 
@@ -395,7 +398,7 @@ export default function BlockEditor({
         const bullets = [...activeBulletsOf(b)];
         bullets[0] = bullets[0] ? `${bullets[0]}, ${skill}` : `**Additional**: ${skill}`;
         const copy = [...prev];
-        copy[idx] = { ...b, variants: [{ label: "Original", bullets }], active: 0 };
+        copy[idx] = { ...b, variants: [{ label: "Original", bullets }], active: 0, edited: true };
         return copy;
       }
       customBlockCounter += 1;
