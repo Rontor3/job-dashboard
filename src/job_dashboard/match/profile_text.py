@@ -16,7 +16,18 @@ class ProfileText:
     hash: str
 
 
+def _local(path):
+    """Prefer a gitignored ``<name>.local<ext>`` override if it exists, so the
+    real (personal) profile stays out of the repo while the committed file is a
+    placeholder. Falls back to the given path otherwise."""
+    p = Path(path)
+    override = p.with_suffix(".local" + p.suffix)
+    return override if override.exists() else p
+
+
 def compose_profile_text(profile_file=PROFILE_FILE, evaluation_file=EVALUATION_FILE):
+    profile_file = _local(profile_file)
+    evaluation_file = _local(evaluation_file)
     profile_file = Path(profile_file)
     if not profile_file.exists():
         raise FileNotFoundError(

@@ -45,6 +45,11 @@ def load_segments(root: Path | str = SEGMENTS_DIR) -> list[Segment]:
     segments: list[Segment] = []
     for entry in manifest.get("segments", []):
         tex_path = root / entry["tex"]
+        # Prefer a gitignored "<name>.local.tex" override (real personal content:
+        # contact block, education) so the committed .tex can be a placeholder.
+        local = tex_path.with_suffix(".local.tex")
+        if local.exists():
+            tex_path = local
         if not tex_path.exists():
             raise FileNotFoundError(f"Segment tex file not found: {tex_path}")
         text = tex_path.read_text()

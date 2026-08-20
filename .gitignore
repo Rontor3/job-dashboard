@@ -14,3 +14,13 @@ frontend/dist/
 .DS_Store
 data/
 *.log
+
+# --- Personal profile/contact: real content stays local; repo ships placeholders ---
+*.local.tex
+*.local.md
+.claude/profile/CANDIDATE.md
+.claude/skills/ai-job-search/skills/job-application-assistant/02-behavioral-profile.md
+.claude/skills/ai-job-search/cv/main_example.tex
+
+# claude-flow tooling cache/state (not project code)
+.claude-flow/
