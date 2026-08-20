@@ -91,10 +91,18 @@ def block_to_tex(kind, title, bullets) -> str:
             body = ", ".join(_tex_inline(b) for b in items)
             return rf"\item \textbf{{{lead}}}: {body}"
         # A project bullet that already opens with a bold heading (**Title**) IS
-        # the title line — don't prepend the block title again (avoids doubling).
+        # the title line — render as-is (compact one-liner), don't re-add the title.
         if re.match(r"\s*\*\*", items[0]):
             rest = items
+        elif len(items) > 1:
+            # A multi-bullet project: put the NAME on its own line, then its
+            # bullets underneath (like an experience sub-project) so the title
+            # isn't squashed onto the first line of content.
+            head = rf"\textbf{{{lead}}}"
+            body = "\n".join(rf"\item {_tex_inline(b)}" for b in items)
+            return f"{head}\n\\begin{{itemize}}\n{body}\n\\end{{itemize}}"
         else:
+            # Single-bullet project with a plain description: keep it on one line.
             lines.append(rf"\item \textbf{{{lead}}}: {_tex_inline(items[0])}")
             rest = items[1:]
     else:
