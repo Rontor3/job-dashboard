@@ -168,7 +168,25 @@ Reuse: `from job_dashboard.match … import profile`, `from job_dashboard.resume
 5. **LangGraph durable orchestration** — checkpointer + `interrupt()`/resume; event trigger from the dashboard.
 6. **CV generation node** (researched-JD → tailored PDF).
 
-## 15. Global constraints
+## 15. Compute & cost model (local-default, Claude-for-judgment)
+
+Hardware target: **Apple M4 Pro, 24 GB unified memory**, Ollama on Metal. The agent keeps a **persistent Chrome context resident** while working (~2-4 GB), so the local model is sized to leave browser headroom — never to fill RAM.
+
+**Two-tier reasoning substrate** (model-agnostic behind the routers):
+
+| Tier | Handler | Handles | Why |
+|---|---|---|---|
+| **Local workhorse** | Ollama **`qwen3:14b`** | form → Form Model JSON · stable field mapping · templated review cards · routine short text | high-volume, low-stakes, free; fits beside the resident Chrome |
+| **Judgment** | **Claude** (Pro via Agent SDK, or API) | novel/ambiguous screening questions · low-confidence field disambiguation · quality-critical free-text (e.g., "why this company") | low-volume, high-stakes; worth the stronger model |
+
+**Routing rule — volume + stakes, NOT writing-vs-reasoning.** An essay is "writing" yet high-stakes → Claude. A stable field map is trivial → local. The node decides by `(confidence, stakes)`, not by task type.
+
+**Cost guards:**
+- **Hard cap on Claude calls per application** (default `≤ 4`); on overflow, fall back to the local model rather than exceed the cap. Claude Pro's allowance is modest and shared with the user's coding use — a single bad run must not burn it.
+- **Graduated autonomy compounds the saving:** an approved field stops calling *any* LLM (§8), so Claude calls per application trend toward **zero** as the agent learns a portal/company.
+- Local tier has **no metered cost**; the bulk of every application runs free.
+
+## 16. Global constraints
 - Reasoning substrate is model-agnostic behind the routers (Agent SDK / API / local Ollama — an honest, licensed compute source; **not** circumventing a subscription's billing).
 - **No evasion in-tree:** the system detects-and-routes verification gates and never defeats an anti-bot control; the sole seam (§7a) ships `escalate` and is user-owned.
 - **No auto-submit on an unproven form** — first real submit per form always taps through Telegram.
