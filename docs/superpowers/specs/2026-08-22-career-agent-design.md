@@ -186,6 +186,17 @@ Hardware target: **Apple M4 Pro, 24 GB unified memory**, Ollama on Metal. The ag
 - **Graduated autonomy compounds the saving:** an approved field stops calling *any* LLM (§8), so Claude calls per application trend toward **zero** as the agent learns a portal/company.
 - Local tier has **no metered cost**; the bulk of every application runs free.
 
+### 15a. Token discipline (keeps the Claude tier inside Pro limits)
+
+The orchestrator is a **LangGraph state machine — routing between nodes is deterministic Python, 0 tokens.** There is no LLM "orchestrator brain" re-reading a growing transcript each step; the LLM is invoked only inside judgment nodes. To keep even those cheap:
+
+1. **Perception compacts the A11y tree into the Form Model once per page; downstream calls read the compact model — never re-feed raw DOM/A11y into a field decision.**
+2. **Every judgment call is stateless + scoped** (this field + its memory chunk, or the JD for one essay) — no accumulated conversation history.
+3. **Prompt-cache the static prefix** (instructions + tool schema) so repeat calls pay only for the scoped delta.
+4. **Cap the page-snapshot tokens** fed to any single call; large forms are chunked, not dumped.
+
+The heavy, re-read context (page snapshots) stays on the **free local tier**; Claude only ever receives small scoped prompts, bounded by the ≤4-calls/application cap (§15).
+
 ## 16. Global constraints
 - Reasoning substrate is model-agnostic behind the routers (Agent SDK / API / local Ollama — an honest, licensed compute source; **not** circumventing a subscription's billing).
 - **No evasion in-tree:** the system detects-and-routes verification gates and never defeats an anti-bot control; the sole seam (§7a) ships `escalate` and is user-owned.
