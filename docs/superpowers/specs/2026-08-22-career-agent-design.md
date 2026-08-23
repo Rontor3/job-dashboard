@@ -74,7 +74,7 @@ Exposed by `mcp_server.py` (FastMCP) = the "doing" boundary.
   3. Escape focus-trap / traverse iframes;
   4. multimodal: screenshot → LLM reasons over pixels → self-correct **or** escalate.
 
-## 7. Verification gates — detect & route (with the user-owned seam)
+## 7. Verification gates — detect & route
 
 `browser/gate_probe.py` **classifies** the gate (detection only) into a precise enum: `recaptcha_v2_checkbox` · `recaptcha_v2_image` · `recaptcha_v3` · `hcaptcha_*` · `turnstile` · `cloudflare_interstitial` · `otp_email` · `otp_sms` · `text_challenge` · `cleared` · `none`. It never interacts with a challenge widget.
 
@@ -197,7 +197,7 @@ The heavy, re-read context (page snapshots) stays on the **free local tier**; Cl
 
 ## 16. Global constraints
 - Reasoning substrate is model-agnostic behind the routers (Agent SDK / API / local Ollama — an honest, licensed compute source; **not** circumventing a subscription's billing).
-- **No evasion in-tree:** the system detects-and-routes verification gates and never defeats an anti-bot control; the sole seam (§7a) ships `escalate` and is user-owned.
+- **No evasion in-tree:** the system detects-and-routes verification gates and never defeats an anti-bot control; the sole seam (§7a) ships `escalate`.
 - **No auto-submit on an unproven form** — first real submit per form always taps through Telegram.
 - **Substantive attestations always flagged**, never auto-answered.
 - The review is composed data, never a screen/session share.
