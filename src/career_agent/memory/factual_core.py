@@ -8,10 +8,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from job_dashboard.apply.store import get_application_profile
-
 
 def export_profile(conn, path: str) -> dict:
+    # Imported lazily: the runtime read path (load_profile) must not depend on
+    # the dashboard package — only this one-time export does.
+    from job_dashboard.apply.store import get_application_profile
+
     profile = get_application_profile(conn)
     if profile is None:
         raise ValueError("no application_profile row (id=1) to export")
