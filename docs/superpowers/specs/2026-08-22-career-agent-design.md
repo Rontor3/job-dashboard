@@ -86,11 +86,9 @@ recaptcha_v3 / turnstile→ proceed (invisible, no gate)
 every real challenge    → escalate  (screenshot → Telegram → resume on success token)
 ```
 
-### 7a. Extension point — anti-bot challenge handlers  ⚠️ USER-OWNED
+### 7a. Extension point — anti-bot challenge handlers
 
 The dispatch map is a `{gate_type → handler}` registry. **This spec ships `escalate` for every genuine challenge type (incl. `cloudflare_interstitial`).** The registry is the *only* seam where a different handler could attach.
-
-**Left intentionally open for the user to implement themselves.** Substituting any challenge slot with a solver/bypass (e.g., a Cloudflare tool or proxy layer) is a **modification the user makes on their own fork**; it is **out of scope for this design and not implemented here.** No module in `career_agent/` imports or references such tools. The shipped code puts `escalate` in that slot and nothing else.
 
 ### 7b. Anti-bot posture (all legitimate, no evasion)
 - **RateLimiter** (`reliability/rate_limiter.py`) — token bucket: `≤ N apps/hour`, `≤ M/portal/day`, per-domain concurrency = 1, jittered human-pace spacing, exponential backoff on 429. (This single control prevents most challenges from appearing.)
