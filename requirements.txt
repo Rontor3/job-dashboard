@@ -19,3 +19,7 @@ selenium
 beautifulsoup4
 undetected-chromedriver
 certifi
+
+# Career agent (Phase 1: perception harness). Browser automation via the
+# real Chromium build; nothing here evades bot-detection.
+playwright>=1.44
