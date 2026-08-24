@@ -24,3 +24,8 @@ data/
 
 # claude-flow tooling cache/state (not project code)
 .claude-flow/
+
+# Career agent: local venv and the persistent Chrome profile (holds live
+# session cookies — must never be committed).
+.jd_env/
+src/career_agent/chrome-profile/
