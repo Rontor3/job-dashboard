@@ -54,6 +54,8 @@ def _gather_signals(page) -> dict:
         recaptcha_bframe_visible: vis(q('iframe[src*="recaptcha/api2/bframe"]')),
         hcaptcha_iframe: !!q('iframe[src*="hcaptcha.com"]'),
         hcaptcha_challenge_visible: vis(q('iframe[src*="hcaptcha.com/captcha"]')),
+        hcaptcha_response_present: (() => { const t = q('textarea[name="h-captcha-response"]');
+          return !!(t && t.value && t.value.length > 0); })(),
         turnstile_iframe: !!q('iframe[src*="challenges.cloudflare.com"]'),
         cf_interstitial: /just a moment|checking your browser/i.test(document.title || ''),
         otp_email_field: !!q('input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="verification" i]'),
@@ -66,3 +68,8 @@ def _gather_signals(page) -> dict:
 
 def classify_gate(page) -> str:
     return classify_from_signals(_gather_signals(page))
+
+
+def is_cleared_from_signals(sig: dict) -> bool:
+    return bool(sig.get("grecaptcha_response_present")
+                or sig.get("hcaptcha_response_present"))
