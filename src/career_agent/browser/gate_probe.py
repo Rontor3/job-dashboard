@@ -23,8 +23,9 @@ HANDLERS.update({
 
 
 def classify_from_signals(sig: dict) -> str:
-    # cleared beats "present" — a solved reCAPTCHA has a response token.
-    if sig.get("grecaptcha_response_present"):
+    # cleared beats "present" — a solved reCAPTCHA/hCaptcha writes a response
+    # token, so the gate is done even though its iframe is still in the DOM.
+    if sig.get("grecaptcha_response_present") or sig.get("hcaptcha_response_present"):
         return "cleared"
     if sig.get("cf_interstitial"):
         return "cloudflare_interstitial"
@@ -73,3 +74,9 @@ def classify_gate(page) -> str:
 def is_cleared_from_signals(sig: dict) -> bool:
     return bool(sig.get("grecaptcha_response_present")
                 or sig.get("hcaptcha_response_present"))
+
+
+def is_cleared(page) -> bool:
+    """Live-page check used by remote solve to detect the human's solve: a
+    response token has appeared (or no gate remains)."""
+    return is_cleared_from_signals(_gather_signals(page))

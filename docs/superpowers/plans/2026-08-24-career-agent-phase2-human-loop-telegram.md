@@ -551,6 +551,27 @@ git commit -m "feat(career-agent): pointer coord mapping + is_cleared token dete
 
 ### Task 6: CDP bridge + live-view server (browser/network, skip-marked)
 
+> **REVISED after review (commit supersedes the naive template below).** The
+> original `server.py` template wired frames as `on_frame=lambda: ws.send_json(...)`,
+> but `send_json` is async and the CDP callback is sync → the coroutine was never
+> awaited and no frame reached the client. Corrected architecture, now
+> round-trip-verified live:
+> - **`server.py`** runs aiohttp in its **own thread/loop** (sync Playwright and
+>   asyncio can't share a thread). Frames: the sync screencast callback calls
+>   `push_frame` → `loop.call_soon_threadsafe` → an `asyncio.Queue` → a per-connection
+>   coroutine `await ws.send_json(...)`. Pointers: the WS handler drops each tap onto a
+>   thread-safe `queue.Queue`; the server never touches Playwright.
+> - **`integrations/live_view/session.py` — `RemoteSolveSession`** (the piece the
+>   original plan referenced but never defined): `start()` mints the token, starts the
+>   screencast + threaded server, returns the single-use URL; `wait_until_cleared()`
+>   runs the **main-thread pump** that drains the pointer queue → `forward_pointer`
+>   (sync Playwright, on the owning thread) and polls `is_cleared(page)`; `close()`
+>   tears it down. This one loop both applies taps and detects the solve.
+> - **`gate_probe`** gains `is_cleared(page)` and now treats an hCaptcha response
+>   token as `cleared` (so a solved hCaptcha lets the run proceed).
+> - Verified by `tests/career_agent/test_live_view_server_browser.py::test_remote_solve_session_streams_frame_and_applies_tap` (skip-marked; run with `RUN_BROWSER_TESTS=1` in a venv with playwright+aiohttp+pytest — passes: frame streamed to a WS client AND the client's tap clicked the real page).
+> The signatures below still hold; the frame-delivery internals are as described here.
+
 **Files:**
 - Create: `src/career_agent/browser/live_view/__init__.py`, `src/career_agent/browser/live_view/cdp_bridge.py`
 - Create: `src/career_agent/integrations/live_view/server.py`
