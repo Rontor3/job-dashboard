@@ -35,3 +35,23 @@ def test_build_url_tailnet_default():
 def test_build_url_requires_host_when_not_public():
     with pytest.raises(ValueError):
         build_url(None, 8765, "abc", allow_public=False)
+
+
+def test_build_url_accepts_tailnet_ip():
+    assert build_url("100.101.102.103", 8765, "abc", allow_public=False) == \
+        "http://100.101.102.103:8765/s/abc"
+
+
+def test_build_url_rejects_public_host_without_optin():
+    with pytest.raises(ValueError):
+        build_url("foo.trycloudflare.com", 8765, "abc", allow_public=False)
+
+
+def test_build_url_allows_public_host_with_optin():
+    assert build_url("foo.trycloudflare.com", 8765, "abc", allow_public=True) == \
+        "http://foo.trycloudflare.com:8765/s/abc"
+
+
+def test_build_url_still_requires_host_even_when_public():
+    with pytest.raises(ValueError):
+        build_url(None, 8765, "abc", allow_public=True)

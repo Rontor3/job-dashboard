@@ -411,12 +411,34 @@ def check_and_consume(tok: SolveToken, presented: str, now: float) -> bool:
     return True
 
 
+_TAILSCALE_CGNAT = ipaddress.ip_network("100.64.0.0/10")  # module top, with `import ipaddress`
+
+
+def _is_private_host(host: str) -> bool:
+    h = host.strip().lower()
+    if h == "localhost":
+        return True
+    if h.endswith(".ts.net"):
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    return ip in _TAILSCALE_CGNAT or ip.is_private or ip.is_loopback
+
+
 def build_url(host: str | None, port: int, token: str, allow_public: bool) -> str:
     if not host:
         raise ValueError(
             "no host for the live-view link (set TAILSCALE_HOST or enable a public tunnel)")
+    if not allow_public and not _is_private_host(host):
+        raise ValueError(
+            f"refusing to build a public live-view link to {host!r} (not on the tailnet); "
+            "set REMOTE_SOLVE_ALLOW_PUBLIC=1 to opt in")
     return f"http://{host}:{port}/s/{token}"
 ```
+
+Tests must also cover: tailnet IP (100.x) accepted, a public host rejected without opt-in, the same public host accepted with `allow_public=True`, and a missing host raising even when public.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
