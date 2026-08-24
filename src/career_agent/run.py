@@ -84,14 +84,21 @@ def main() -> None:
     else:
         approver = CliApprover()
 
+    # Remote solve needs BOTH a tailnet host AND a channel to deliver the link
+    # (Telegram). Without a delivery channel the link would go nowhere and the
+    # run would hang, so we only enable it when on_link exists — otherwise an
+    # interactive gate degrades to stop-and-report.
     remote_solve_factory = None
     host = detect_host(settings)
-    if host is not None:
+    if host is not None and on_link is not None:
         remote_solve_factory = lambda page: RemoteSolveSession(
             page, host, settings.remote_solve_port, settings.remote_solve_ttl,
             settings.remote_solve_allow_public, is_cleared)
 
-    human = HumanLoop(approver, remote_solve_factory=remote_solve_factory)
+    # Wait no longer than the link stays valid (token TTL), so we don't poll on
+    # after the single-use link has expired.
+    human = HumanLoop(approver, remote_solve_factory=remote_solve_factory,
+                      deadline_s=settings.remote_solve_ttl)
 
     pw, context, page = launch(settings)
     try:

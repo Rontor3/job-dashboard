@@ -28,3 +28,26 @@ def test_remote_solve_with_factory_reports_link_and_outcome():
     assert ok is True
     assert seen["url"].endswith("/s/abc")
     assert seen["closed"] is True
+
+
+def test_remote_solve_degrades_when_start_raises():
+    # a live-view that fails to stand up (start raises) must NOT crash the run
+    # -> return False (stop-and-report) and still close the session.
+    seen = {}
+    class BrokenSession:
+        def __init__(self, page): pass
+        def start(self): raise RuntimeError("port bind failed")
+        def wait_until_cleared(self, timeout_s): return True  # never reached
+        def close(self): seen["closed"] = True
+    hl = HumanLoop(YesApprover(), remote_solve_factory=lambda page: BrokenSession(page))
+    assert hl.remote_solve(page=object(), gate="hcaptcha_checkbox",
+                           on_link=lambda u: None) is False
+    assert seen["closed"] is True
+
+
+def test_remote_solve_degrades_when_factory_raises():
+    # factory itself raising (no session created) must also degrade cleanly.
+    def boom(page): raise RuntimeError("cannot detect viewport")
+    hl = HumanLoop(YesApprover(), remote_solve_factory=boom)
+    assert hl.remote_solve(page=object(), gate="hcaptcha_checkbox",
+                           on_link=lambda u: None) is False

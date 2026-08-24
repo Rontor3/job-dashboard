@@ -18,7 +18,7 @@ from .server import LiveViewServer
 
 class RemoteSolveSession:
     def __init__(self, page, host, port, ttl_s, allow_public, is_cleared,
-                 clock=time.time, sleep=time.sleep, poll_interval_s=1.0):
+                 clock=time.time, sleep=time.sleep, poll_interval_s=0.3):
         self.page = page
         self.host = host
         self.port = port

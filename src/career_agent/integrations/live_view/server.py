@@ -100,7 +100,6 @@ class LiveViewServer:
     async def _start_site(self) -> None:
         from aiohttp import web
         vp = self.page.viewport_size or {"width": 900, "height": 1600}
-        self._vp = vp
 
         async def page_handler(request):
             if not secrets.compare_digest(request.match_info["tok"], self.token.value):

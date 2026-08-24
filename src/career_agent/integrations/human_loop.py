@@ -16,9 +16,19 @@ class HumanLoop:
     def remote_solve(self, page, gate: str, on_link) -> bool:
         if self.remote_solve_factory is None:
             return False  # caller degrades to Phase-1 stop-and-report
-        session = self.remote_solve_factory(page)
+        # Any failure to stand up the live view (CDP error, port bind, a
+        # public-host build_url refusal) must degrade to stop-and-report, never
+        # crash the run — the gate stays escalated and nothing is submitted.
+        session = None
         try:
+            session = self.remote_solve_factory(page)
             on_link(session.start())
             return bool(session.wait_until_cleared(self.deadline_s))
+        except Exception:
+            return False
         finally:
-            session.close()
+            if session is not None:
+                try:
+                    session.close()
+                except Exception:
+                    pass
