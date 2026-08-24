@@ -23,3 +23,6 @@ certifi
 # Career agent (Phase 1: perception harness). Browser automation via the
 # real Chromium build; nothing here evades bot-detection.
 playwright>=1.44
+
+# Career agent (Phase 2: remote-solve live-view server).
+aiohttp>=3.9
