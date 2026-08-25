@@ -119,6 +119,7 @@ class LiveViewServer:
     async def _start_site(self) -> None:
         from aiohttp import web
         vp = self.page.viewport_size or {"width": 900, "height": 1600}
+        self._ws_clients = set()
 
         async def page_handler(request):
             if not secrets.compare_digest(request.match_info["tok"], self.token.value):
@@ -134,6 +135,7 @@ class LiveViewServer:
                 return web.Response(status=403)
             ws = web.WebSocketResponse()
             await ws.prepare(request)
+            self._ws_clients.add(ws)
             sender = asyncio.create_task(self._pump_frames(ws, vp))
             try:
                 async for msg in ws:
@@ -142,8 +144,11 @@ class LiveViewServer:
                         self.pointer_sink.put((d["x"], d["y"], d["kind"]))
                         if _DEBUG:
                             print(f"[lv] pointer recv {d}", flush=True)
+            except asyncio.CancelledError:
+                pass
             finally:
                 sender.cancel()
+                self._ws_clients.discard(ws)
             return ws
 
         app = web.Application()
@@ -162,5 +167,13 @@ class LiveViewServer:
             pass
 
     async def _cleanup(self) -> None:
+        # Close live sockets gracefully first so their handlers exit on their
+        # own, rather than being force-cancelled mid-request (which threw
+        # InvalidStateError from aiohttp's internals during shutdown).
+        for ws in list(getattr(self, "_ws_clients", ())):
+            try:
+                await ws.close(code=1001)
+            except Exception:
+                pass
         if self._runner:
             await self._runner.cleanup()
