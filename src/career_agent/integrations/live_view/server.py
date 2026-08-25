@@ -93,9 +93,25 @@ class LiveViewServer:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._frame_q = asyncio.Queue(maxsize=2)
-        self._loop.run_until_complete(self._start_site())
-        self._ready.set()
-        self._loop.run_forever()
+        try:
+            self._loop.run_until_complete(self._start_site())
+            self._ready.set()
+            self._loop.run_forever()
+        finally:
+            # Drain pending tasks (ws handler, frame pump) before closing, so we
+            # don't emit "Task destroyed / Event loop is closed" noise on stop.
+            try:
+                pending = list(asyncio.all_tasks(self._loop))
+                for t in pending:
+                    t.cancel()
+                if pending:
+                    self._loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True))
+                self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            finally:
+                self._loop.close()
 
     async def _start_site(self) -> None:
         from aiohttp import web
