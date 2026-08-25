@@ -103,6 +103,14 @@ def main() -> None:
     pw, context, page = launch(settings)
     try:
         page.goto(args.url)
+        # Let async widgets settle before we perceive/classify — reCAPTCHA,
+        # hCaptcha, and SPA forms (Workday/Oracle) mount after the load event,
+        # so classifying immediately would miss the gate. Capped so a page that
+        # never goes idle (long-polling) can't hang us.
+        try:
+            page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
         meta = {"company": args.company, "role": args.role, "portal": args.url}
         out = run_once(page, profile, args.resume, meta, human, args.submit, on_link=on_link)
         print(out["card"])
