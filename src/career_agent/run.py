@@ -80,7 +80,12 @@ def main() -> None:
     if settings.telegram_bot_token and settings.telegram_chat_id:
         telegram_client = TelegramClient(settings.telegram_bot_token, settings.telegram_chat_id)
         approver = TelegramApprover(telegram_client)
-        on_link = lambda url: telegram_client.send_message(url)
+
+        def on_link(url):
+            mid = telegram_client.send_message(url)
+            print(f"[telegram] link sent, message_id={mid}" if mid
+                  else "[telegram] link send FAILED (message_id=0) — bot can't DM you?")
+            return mid
     else:
         approver = CliApprover()
 
@@ -94,6 +99,9 @@ def main() -> None:
         remote_solve_factory = lambda page: RemoteSolveSession(
             page, host, settings.remote_solve_port, settings.remote_solve_ttl,
             settings.remote_solve_allow_public, is_cleared)
+        print(f"[remote-solve] enabled — host={host} port={settings.remote_solve_port} ttl={settings.remote_solve_ttl}s")
+    else:
+        print(f"[remote-solve] DISABLED — host={host!r}, telegram_configured={on_link is not None}")
 
     # Wait no longer than the link stays valid (token TTL), so we don't poll on
     # after the single-use link has expired.
@@ -114,7 +122,8 @@ def main() -> None:
         meta = {"company": args.company, "role": args.role, "portal": args.url}
         out = run_once(page, profile, args.resume, meta, human, args.submit, on_link=on_link)
         print(out["card"])
-        print(f"\n[gate={out['gate']}] submitted={out['submitted']}")
+        print(f"\n[gate={out['gate']}] remote_solve_attempted={out['remote_solve_attempted']} "
+              f"gate_after_solve={out['gate_after_solve']} submitted={out['submitted']}")
     finally:
         close(pw, context)
 
