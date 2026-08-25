@@ -17,9 +17,12 @@ Binds to the caller-supplied host (the tailnet interface), never 0.0.0.0.
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import threading
 import time
+
+_DEBUG = bool(os.getenv("CAREER_AGENT_LIVEVIEW_DEBUG"))
 
 _PAGE = """<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>
 <canvas id=c style='width:100vw'></canvas><script>
@@ -137,6 +140,8 @@ class LiveViewServer:
                     if msg.type == web.WSMsgType.TEXT:
                         d = msg.json()
                         self.pointer_sink.put((d["x"], d["y"], d["kind"]))
+                        if _DEBUG:
+                            print(f"[lv] pointer recv {d}", flush=True)
             finally:
                 sender.cancel()
             return ws

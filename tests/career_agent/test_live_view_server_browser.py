@@ -20,7 +20,7 @@ def test_screencast_emits_frames_and_pointer_reaches_page():
             " onclick=\"window.__hit=1\">tap</button>")
         cdp = start_screencast(page, lambda data: frames.append(data))
         page.wait_for_timeout(500)
-        forward_pointer(cdp, 0.5, 0.5, "click",
+        forward_pointer(page, 0.5, 0.5, "click",
                         page.viewport_size["width"], page.viewport_size["height"])
         page.wait_for_timeout(200)
         hit = page.evaluate("window.__hit")

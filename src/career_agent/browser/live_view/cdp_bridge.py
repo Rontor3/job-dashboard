@@ -18,14 +18,19 @@ def start_screencast(page, on_frame):
     return cdp
 
 
-def forward_pointer(cdp, nx, ny, kind, width, height):
+def forward_pointer(page, nx, ny, kind, width, height):
+    # Use Playwright's mouse API (move -> down -> up) rather than a raw CDP
+    # press/release. The move establishes the pointer position and hit-test,
+    # which is what routes the click into out-of-process iframes (reCAPTCHA /
+    # hCaptcha live in cross-origin frames — a bare press/release never reached
+    # them, so taps did nothing). Relays only the human's coordinates; no
+    # synthetic movement or timing.
     x, y = norm_to_px(nx, ny, width, height)
-    seq = {"click": ["mousePressed", "mouseReleased"],
-           "down": ["mousePressed"], "up": ["mouseReleased"],
-           "move": ["mouseMoved"]}.get(kind, ["mouseMoved"])
-    for t in seq:
-        cdp.send("Input.dispatchMouseEvent",
-                 {"type": t, "x": x, "y": y, "button": "left", "clickCount": 1})
+    page.mouse.move(x, y)
+    if kind in ("click", "down"):
+        page.mouse.down()
+    if kind in ("click", "up"):
+        page.mouse.up()
 
 
 def stop_screencast(cdp):

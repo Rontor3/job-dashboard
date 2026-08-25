@@ -9,11 +9,14 @@ here, not there.
 """
 from __future__ import annotations
 
+import os
 import queue
 import time
 
 from .token import mint_token, build_url
 from .server import LiveViewServer
+
+_DEBUG = bool(os.getenv("CAREER_AGENT_LIVEVIEW_DEBUG"))
 
 
 class RemoteSolveSession:
@@ -79,8 +82,12 @@ class RemoteSolveSession:
             except queue.Empty:
                 return
             try:
-                forward_pointer(self._cdp, nx, ny, kind, vp["width"], vp["height"])
-            except Exception:
+                forward_pointer(self.page, nx, ny, kind, vp["width"], vp["height"])
+                if _DEBUG:
+                    print(f"[lv] tap applied ({nx:.3f},{ny:.3f}) {kind}", flush=True)
+            except Exception as e:
+                if _DEBUG:
+                    print(f"[lv] tap FAILED: {e!r}", flush=True)
                 pass   # a bad tap must never crash the pump
 
     def close(self) -> None:
