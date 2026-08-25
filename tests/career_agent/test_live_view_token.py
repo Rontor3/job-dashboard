@@ -1,7 +1,19 @@
 import pytest
 from career_agent.integrations.live_view.token import (
-    mint_token, check_and_consume, build_url,
+    mint_token, check_and_consume, is_valid, build_url,
 )
+
+
+def test_is_valid_allows_reconnect_but_respects_expiry_and_revoke():
+    t = mint_token(300, now=1000.0)
+    # reconnect-friendly: valid repeatedly within the TTL (does NOT consume)
+    assert is_valid(t, t.value, now=1001.0) is True
+    assert is_valid(t, t.value, now=1002.0) is True
+    # wrong token / expired / revoked all fail
+    assert is_valid(t, "nope", now=1003.0) is False
+    assert is_valid(t, t.value, now=1400.0) is False   # past TTL
+    t.used = True                                       # revoked on close
+    assert is_valid(t, t.value, now=1004.0) is False
 
 
 def test_token_is_high_entropy_and_unique():

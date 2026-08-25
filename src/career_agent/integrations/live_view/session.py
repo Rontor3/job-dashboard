@@ -18,7 +18,8 @@ from .server import LiveViewServer
 
 class RemoteSolveSession:
     def __init__(self, page, host, port, ttl_s, allow_public, is_cleared,
-                 clock=time.time, sleep=time.sleep, poll_interval_s=0.3):
+                 clock=time.time, sleep=time.sleep, poll_interval_s=0.3,
+                 frame_slice_ms=40):
         self.page = page
         self.host = host
         self.port = port
@@ -28,6 +29,7 @@ class RemoteSolveSession:
         self._clock = clock
         self._sleep = sleep
         self.poll_interval_s = poll_interval_s
+        self._frame_slice_ms = frame_slice_ms
         self._pointer_q = queue.Queue()
         self._cdp = None
         self._server = None
@@ -50,12 +52,24 @@ class RemoteSolveSession:
 
         vp = self.page.viewport_size or {"width": 900, "height": 1600}
         start = self._clock()
+        last_check = 0.0
         while self._clock() - start < timeout_s:
+            # Apply queued taps immediately (low input latency).
             self._drain_pointers(forward_pointer, vp)
-            if self.is_cleared(self.page):
-                self._drain_pointers(forward_pointer, vp)   # apply any final taps
-                return True
-            self._sleep(self.poll_interval_s)
+            # Pump Playwright for a short slice so the CDP screencast keeps
+            # delivering frames to the viewer. A dead sleep here froze the live
+            # view between polls, so taps landed on stale/refreshed tiles.
+            try:
+                self.page.wait_for_timeout(self._frame_slice_ms)
+            except Exception:
+                return False   # page / browser gone
+            # Check for the human's solve periodically (cheaper than per frame).
+            now = self._clock()
+            if now - last_check >= self.poll_interval_s:
+                last_check = now
+                if self.is_cleared(self.page):
+                    self._drain_pointers(forward_pointer, vp)   # apply final taps
+                    return True
         return False
 
     def _drain_pointers(self, forward_pointer, vp) -> None:
@@ -71,6 +85,8 @@ class RemoteSolveSession:
 
     def close(self) -> None:
         from career_agent.browser.live_view.cdp_bridge import stop_screencast
+        if getattr(self, "_token", None) is not None:
+            self._token.used = True   # revoke — no reconnects after the session ends
         try:
             if self._cdp is not None:
                 stop_screencast(self._cdp)

@@ -107,8 +107,11 @@ class LiveViewServer:
             return web.Response(text=_PAGE, content_type="text/html")
 
         async def ws_handler(request):
-            from career_agent.integrations.live_view.token import check_and_consume
-            if not check_and_consume(self.token, request.match_info["tok"], time.time()):
+            from career_agent.integrations.live_view.token import is_valid
+            # Non-consuming: allow the phone to RECONNECT within the TTL (a
+            # reflexive back/reload must not lock the user out). Still gated by
+            # match + expiry; the session revokes the token on close.
+            if not is_valid(self.token, request.match_info["tok"], time.time()):
                 return web.Response(status=403)
             ws = web.WebSocketResponse()
             await ws.prepare(request)

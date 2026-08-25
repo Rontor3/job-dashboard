@@ -31,6 +31,17 @@ def check_and_consume(tok: SolveToken, presented: str, now: float) -> bool:
     return True
 
 
+def is_valid(tok: SolveToken, presented: str, now: float) -> bool:
+    """Non-consuming check: the token matches and hasn't expired or been
+    revoked. Used to gate live-view connections — a phone that reflexively goes
+    back/reloads must be able to RECONNECT within the TTL, so we don't burn the
+    token on first connect. Still tailnet-only, still TTL-bounded, and the
+    session dies on solve/close, so the exposure window is unchanged (<= TTL)."""
+    if tok.used or now >= tok.expires_at:
+        return False
+    return secrets.compare_digest(presented, tok.value)
+
+
 def _is_private_host(host: str) -> bool:
     """True for tailnet / loopback / LAN hosts — the ones safe to link without
     an explicit public opt-in."""
