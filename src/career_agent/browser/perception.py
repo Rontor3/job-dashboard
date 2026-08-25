@@ -12,6 +12,11 @@ def to_form_model(raw: list[dict]) -> list[Field]:
     radio_groups: dict[str, dict] = {}
 
     for r in raw:
+        # Disabled / read-only inputs aren't part of the fillable form — a human
+        # can't type in them either. Drop them so the mapper never targets one
+        # (a strict fill on a disabled field blocks and crashes the run).
+        if r.get("disabled"):
+            continue
         kind = r["kind"]
         if kind == "radio" and r.get("group"):
             g = radio_groups.setdefault(
@@ -65,6 +70,7 @@ _INPUT_JS = r"""
       ref: el.id ? `#${el.id}` : `[name="${el.name}"]`,
       kind, label: labelFor(el), required: !!el.required,
       options, group: (kind === 'radio') ? (el.name || null) : null,
+      disabled: !!(el.disabled || el.readOnly),
     });
   }
   return out;

@@ -30,3 +30,14 @@ def test_radio_inputs_collapse_into_one_group():
 
 def test_empty_input_yields_empty_model():
     assert to_form_model([]) == []
+
+
+def test_disabled_and_readonly_fields_are_dropped():
+    raw = [
+        {"ref": "#live", "kind": "text", "label": "Full name",
+         "required": False, "options": [], "group": None, "disabled": False},
+        {"ref": "#decoy", "kind": "text", "label": "Full name",
+         "required": False, "options": [], "group": None, "disabled": True},
+    ]
+    fm = to_form_model(raw)
+    assert [f.ref for f in fm] == ["#live"]

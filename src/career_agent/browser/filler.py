@@ -5,10 +5,11 @@ from __future__ import annotations
 from ..orchestrator.mapper import FillDecision
 
 
-# Option/upload actions can legitimately fail on a real form (an option label
-# that doesn't match, a hidden file input). They must never hang or abort the
-# whole run — fail fast and leave the field for the human. Text fills stay
-# strict: those are direct profile values that should always apply.
+# Any fill action can legitimately fail on a real form (an unmatched option, a
+# hidden file input, or a field that turns out disabled/read-only). None may
+# hang or abort the whole run — every action fails fast and leaves the field
+# for the human. (A live reCAPTCHA demo has a disabled decoy input that, filled
+# strictly, blocked for 30s and crashed the run — never again.)
 _SOFT_TIMEOUT_MS = 4000
 
 
@@ -17,7 +18,10 @@ def apply_decisions(page, decisions: list[FillDecision]) -> None:
         if d.value is None:
             continue
         if d.action == "fill":
-            page.fill(d.ref, str(d.value))
+            try:
+                page.fill(d.ref, str(d.value), timeout=_SOFT_TIMEOUT_MS)
+            except Exception:
+                pass
         elif d.action == "select":
             try:
                 page.select_option(d.ref, label=str(d.value), timeout=_SOFT_TIMEOUT_MS)
