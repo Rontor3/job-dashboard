@@ -47,6 +47,10 @@ class RemoteSolveSession:
         self._server = LiveViewServer(
             self.page, self._token, self.host, self.port, self._pointer_q)
         self._cdp = start_screencast(self.page, self._server.push_frame)
+        try:
+            self._start_url = self.page.url
+        except Exception:
+            self._start_url = None
         self._server.start()
         return url
 
@@ -70,9 +74,27 @@ class RemoteSolveSession:
             now = self._clock()
             if now - last_check >= self.poll_interval_s:
                 last_check = now
-                if self.is_cleared(self.page):
+                if self._cleared():
                     self._drain_pointers(forward_pointer, vp)   # apply final taps
                     return True
+        return False
+
+    def _cleared(self) -> bool:
+        """A gate is cleared when EITHER the response token appears in place
+        (e.g. reCAPTCHA checkbox), OR solving it advanced the flow — the form
+        submitted and the page navigated past the gate (e.g. an ATS email step).
+        Watching only for the in-place token missed the navigation case."""
+        try:
+            if self.is_cleared(self.page):          # in-place token
+                return True
+            if self._start_url and self.page.url != self._start_url:
+                return True                          # navigated past the gate
+        except Exception:
+            # A destroyed execution context mid-check means the main page is
+            # navigating — i.e. the solve submitted and we moved past the gate.
+            # (hCaptcha only swaps its iframe between rounds; that does NOT
+            # touch the main page's context, so this won't fire mid-solve.)
+            return True
         return False
 
     def _drain_pointers(self, forward_pointer, vp) -> None:
