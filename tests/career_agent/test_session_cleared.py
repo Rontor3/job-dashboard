@@ -2,13 +2,16 @@ from career_agent.integrations.live_view.session import RemoteSolveSession
 
 
 class FakePage:
-    """`signals` drives classify_gate (via _gather_signals -> page.evaluate)."""
-    def __init__(self, url, signals=None):
+    """`flag` is what the in-page solve observer would report via evaluate."""
+    def __init__(self, url, flag=False, evaluate_raises=False):
         self.url = url
-        self._signals = signals if signals is not None else {"hcaptcha_iframe": True}
+        self._flag = flag
+        self._raises = evaluate_raises
 
     def evaluate(self, js):
-        return self._signals
+        if self._raises:
+            raise RuntimeError("Execution context was destroyed, most likely because of a navigation")
+        return self._flag
 
 
 def _sess(page, is_cleared, start_url):
@@ -18,45 +21,29 @@ def _sess(page, is_cleared, start_url):
     return s
 
 
-def test_cleared_on_in_place_token():
-    s = _sess(FakePage("http://a/step1"), lambda p: True, "http://a/step1")
+def test_cleared_when_token_flag_latched():
+    # the in-page observer caught the response token
+    s = _sess(FakePage("http://a/step1", flag=True), lambda p: False, "http://a/step1")
     assert s._cleared() is True
 
 
-def test_not_cleared_when_token_absent_gate_present_same_url():
-    # gate widget still on the page (hcaptcha_iframe present) -> keep waiting
-    page = FakePage("http://a/step1", signals={"hcaptcha_iframe": True})
-    s = _sess(page, lambda p: False, "http://a/step1")
+def test_cleared_via_is_cleared_fallback():
+    s = _sess(FakePage("http://a/step1", flag=False), lambda p: True, "http://a/step1")
+    assert s._cleared() is True
+
+
+def test_not_cleared_when_no_token_same_url():
+    # THE FALSE-POSITIVE GUARD: dismissing a popup (no token, no navigation)
+    # must NOT be treated as a solve.
+    s = _sess(FakePage("http://a/step1", flag=False), lambda p: False, "http://a/step1")
     assert s._cleared() is False
 
 
-def test_cleared_when_navigated_past_gate():
-    # multi-page: solving advanced to the next screen -> URL changed
-    s = _sess(FakePage("http://a/step2"), lambda p: False, "http://a/step1")
+def test_cleared_when_navigated_multi_page():
+    s = _sess(FakePage("http://a/step2", flag=False), lambda p: False, "http://a/step1")
     assert s._cleared() is True
 
 
-def test_cleared_when_spa_gate_disappears_debounced():
-    # SPA advance: same URL, but the captcha widget is gone (no signals).
-    page = FakePage("http://a/step1", signals={})   # classify_gate -> "none"
-    s = _sess(page, lambda p: False, "http://a/step1")
-    assert s._cleared() is False   # 1st gone poll (debounce)
-    assert s._cleared() is True    # 2nd consecutive gone poll -> cleared
-
-
-def test_gone_debounce_resets_if_gate_reappears():
-    page = FakePage("http://a/step1", signals={})   # gone
-    s = _sess(page, lambda p: False, "http://a/step1")
-    assert s._cleared() is False                    # gone_polls = 1
-    page._signals = {"hcaptcha_iframe": True}        # gate back (mid-solve blip)
-    assert s._cleared() is False                    # resets
-    page._signals = {}                              # gone again
-    assert s._cleared() is False                    # gone_polls = 1 again
-    assert s._cleared() is True                     # gone_polls = 2
-
-
 def test_cleared_when_context_destroyed_mid_navigation():
-    def boom(p):
-        raise RuntimeError("Execution context was destroyed, most likely because of a navigation")
-    s = _sess(FakePage("http://a/step1"), boom, "http://a/step1")
+    s = _sess(FakePage("http://a/step1", evaluate_raises=True), lambda p: False, "http://a/step1")
     assert s._cleared() is True

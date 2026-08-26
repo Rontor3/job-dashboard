@@ -13,6 +13,23 @@ import os
 import queue
 import time
 
+# Injected into the page: latch a flag the instant a captcha response token
+# appears. The token is the only unambiguous proof of a solve, but on a SPA it
+# can vanish within a poll interval as the view advances — so we watch it from
+# INSIDE the page at 50ms and set a window flag that survives the view swap.
+_SOLVE_OBSERVER_JS = """
+() => {
+  if (window.__cca_installed) return;
+  window.__cca_installed = true;
+  window.__cca_cleared = false;
+  setInterval(() => {
+    const r = document.querySelector('textarea#g-recaptcha-response');
+    const h = document.querySelector('textarea[name="h-captcha-response"]');
+    if ((r && r.value) || (h && h.value)) window.__cca_cleared = true;
+  }, 50);
+}
+"""
+
 from .token import mint_token, build_url
 from .server import LiveViewServer
 
@@ -47,6 +64,10 @@ class RemoteSolveSession:
         self._server = LiveViewServer(
             self.page, self._token, self.host, self.port, self._pointer_q)
         self._cdp = start_screencast(self.page, self._server.push_frame)
+        try:
+            self.page.evaluate(_SOLVE_OBSERVER_JS)   # latch the solve token in-page
+        except Exception:
+            pass
         try:
             self._start_url = self.page.url
         except Exception:
@@ -85,23 +106,19 @@ class RemoteSolveSession:
         submitted and the page navigated past the gate (e.g. an ATS email step).
         Watching only for the in-place token missed the navigation case."""
         try:
-            if self.is_cleared(self.page):          # in-place token
+            # Primary signal: the in-page observer latched the response token
+            # the moment the human solved it (survives an SPA view-swap).
+            if self.page.evaluate("() => window.__cca_cleared === true"):
                 return True
+            # Fallback for pages where the token persists in the DOM.
+            if self.is_cleared(self.page):
+                return True
+            # Multi-page ATS: solving navigated to the next screen.
             if self._start_url and self.page.url != self._start_url:
-                return True                          # multi-page: navigated away
-            # SPA advance (e.g. Oracle CX): solving swaps the view in place with
-            # no URL change. Signal = the captcha widget is gone. The persistent
-            # anchor iframe stays through the challenge rounds and only vanishes
-            # when the form actually moves on, so this reflects a real advance —
-            # debounced over 2 polls as extra insurance against a transient.
-            from career_agent.browser.gate_probe import classify_gate
-            if classify_gate(self.page) in ("none", "cleared"):
-                self._gone_polls = getattr(self, "_gone_polls", 0) + 1
-                return self._gone_polls >= 2
-            self._gone_polls = 0
+                return True
         except Exception:
-            # A destroyed execution context means the main page is navigating —
-            # a real (multi-page) advance past the gate.
+            # Destroyed execution context = the main page is navigating away,
+            # i.e. a real advance past the gate.
             return True
         return False
 
