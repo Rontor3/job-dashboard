@@ -28,7 +28,8 @@ _PAGE = """<!doctype html><meta name=viewport content='width=device-width,initia
 <canvas id=c style='width:100vw'></canvas><script>
 const ws=new WebSocket(location.href.replace('http','ws')+'/ws');
 const c=document.getElementById('c'),x=c.getContext('2d'),img=new Image();
-ws.onmessage=e=>{const m=JSON.parse(e.data);img.onload=()=>{c.width=m.w;c.height=m.h;
+ws.onmessage=e=>{const m=JSON.parse(e.data);img.onload=()=>{
+ c.width=img.naturalWidth||m.w;c.height=img.naturalHeight||m.h;
  x.drawImage(img,0,0);};img.src='data:image/jpeg;base64,'+m.f;};
 function send(ev,k){const r=c.getBoundingClientRect();
  ws.send(JSON.stringify({x:(ev.clientX-r.left)/r.width,y:(ev.clientY-r.top)/r.height,kind:k}));}
