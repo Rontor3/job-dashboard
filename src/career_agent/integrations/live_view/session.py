@@ -88,12 +88,20 @@ class RemoteSolveSession:
             if self.is_cleared(self.page):          # in-place token
                 return True
             if self._start_url and self.page.url != self._start_url:
-                return True                          # navigated past the gate
+                return True                          # multi-page: navigated away
+            # SPA advance (e.g. Oracle CX): solving swaps the view in place with
+            # no URL change. Signal = the captcha widget is gone. The persistent
+            # anchor iframe stays through the challenge rounds and only vanishes
+            # when the form actually moves on, so this reflects a real advance —
+            # debounced over 2 polls as extra insurance against a transient.
+            from career_agent.browser.gate_probe import classify_gate
+            if classify_gate(self.page) in ("none", "cleared"):
+                self._gone_polls = getattr(self, "_gone_polls", 0) + 1
+                return self._gone_polls >= 2
+            self._gone_polls = 0
         except Exception:
-            # A destroyed execution context mid-check means the main page is
-            # navigating — i.e. the solve submitted and we moved past the gate.
-            # (hCaptcha only swaps its iframe between rounds; that does NOT
-            # touch the main page's context, so this won't fire mid-solve.)
+            # A destroyed execution context means the main page is navigating —
+            # a real (multi-page) advance past the gate.
             return True
         return False
 
