@@ -25,7 +25,15 @@ import time
 _DEBUG = bool(os.getenv("CAREER_AGENT_LIVEVIEW_DEBUG"))
 
 _PAGE = """<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>
-<canvas id=c style='width:100vw'></canvas><script>
+<style>body{margin:0;font-family:system-ui,sans-serif}
+#bar{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;
+ padding:8px 10px;background:#0f172a;color:#fff;z-index:9}
+#bar span{flex:1;font-size:13px;line-height:1.2}
+#done{padding:11px 16px;font-size:15px;font-weight:700;background:#16a34a;color:#fff;
+ border:0;border-radius:9px;white-space:nowrap}#done:disabled{background:#64748b}
+#c{width:100vw;display:block;margin-top:52px}</style>
+<div id=bar><span>Solve the captcha, then tap &rarr;</span><button id=done>&#10003; Done</button></div>
+<canvas id=c></canvas><script>
 const ws=new WebSocket(location.href.replace('http','ws')+'/ws');
 const c=document.getElementById('c'),x=c.getContext('2d'),img=new Image();
 ws.onmessage=e=>{const m=JSON.parse(e.data);img.onload=()=>{
@@ -35,6 +43,9 @@ function send(ev,k){const r=c.getBoundingClientRect();
  ws.send(JSON.stringify({x:(ev.clientX-r.left)/r.width,y:(ev.clientY-r.top)/r.height,kind:k}));}
 c.addEventListener('touchend',e=>{const t=e.changedTouches[0];send(t,'click');e.preventDefault();});
 c.addEventListener('click',e=>send(e,'click'));
+const d=document.getElementById('done');
+d.addEventListener('click',()=>{ws.send(JSON.stringify({kind:'done'}));
+ d.disabled=true;d.textContent='closing...';});
 </script>"""
 
 
@@ -142,9 +153,14 @@ class LiveViewServer:
                 async for msg in ws:
                     if msg.type == web.WSMsgType.TEXT:
                         d = msg.json()
-                        self.pointer_sink.put((d["x"], d["y"], d["kind"]))
-                        if _DEBUG:
-                            print(f"[lv] pointer recv {d}", flush=True)
+                        if d.get("kind") == "done":
+                            self.pointer_sink.put((0.0, 0.0, "__done__"))
+                            if _DEBUG:
+                                print("[lv] human pressed DONE", flush=True)
+                        else:
+                            self.pointer_sink.put((d["x"], d["y"], d["kind"]))
+                            if _DEBUG:
+                                print(f"[lv] pointer recv {d}", flush=True)
             except asyncio.CancelledError:
                 pass
             finally:

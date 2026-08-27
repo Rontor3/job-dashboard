@@ -36,3 +36,12 @@ def test_not_cleared_without_token():
 def test_evaluate_error_is_not_a_solve():
     # a transient / mid-navigation evaluate error must NOT be treated as cleared
     assert _sess(FakePage(evaluate_raises=True), lambda p: False)._cleared() is False
+
+
+def test_done_sentinel_sets_human_done():
+    # the "__done__" queue sentinel (from the phone's Done button) flags the
+    # human-done close without calling forward_pointer.
+    s = _sess(FakePage(), lambda p: False)
+    s._pointer_q.put((0.0, 0.0, "__done__"))
+    s._drain_pointers(lambda *a: None, {"width": 100, "height": 100})
+    assert s._human_done is True

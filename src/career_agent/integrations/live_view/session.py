@@ -20,13 +20,30 @@ import time
 _OBSERVER_BODY = r"""
   if (window.__cca_installed) return;
   window.__cca_installed = true;
+  function __ccaLatch() {
+    window.__cca_cleared = true;
+    try { localStorage.setItem('__cca_cleared', '1'); } catch (e) {}
+  }
+  // Layer 1: hook the textarea value setter, so we catch the response token the
+  // instant it is written — even if the page consumes it a moment later.
+  try {
+    var desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    if (desc && desc.set && !desc.set.__cca) {
+      var orig = desc.set;
+      var wrapped = function (v) {
+        orig.call(this, v);
+        if (v && (this.id === 'g-recaptcha-response' || this.name === 'h-captcha-response')) __ccaLatch();
+      };
+      wrapped.__cca = true;
+      Object.defineProperty(HTMLTextAreaElement.prototype, 'value',
+        { set: wrapped, get: desc.get, configurable: true, enumerable: desc.enumerable });
+    }
+  } catch (e) {}
+  // Layer 2: also poll, in case the token is set via a path that skips the setter.
   setInterval(function () {
     var r = document.querySelector('textarea#g-recaptcha-response');
     var h = document.querySelector('textarea[name="h-captcha-response"]');
-    if ((r && r.value) || (h && h.value)) {
-      window.__cca_cleared = true;
-      try { localStorage.setItem('__cca_cleared', '1'); } catch (e) {}
-    }
+    if ((r && r.value) || (h && h.value)) __ccaLatch();
   }, 50);
 """
 _OBSERVER_EVAL = "() => {%s}" % _OBSERVER_BODY          # install on the current page
@@ -56,6 +73,7 @@ class RemoteSolveSession:
         self.poll_interval_s = poll_interval_s
         self._frame_slice_ms = frame_slice_ms
         self._pointer_q = queue.Queue()
+        self._human_done = False
         self._cdp = None
         self._server = None
 
@@ -92,6 +110,8 @@ class RemoteSolveSession:
         while self._clock() - start < timeout_s:
             # Apply queued taps immediately (low input latency).
             self._drain_pointers(forward_pointer, vp)
+            if self._human_done:          # human tapped "Done" — canonical close
+                return True
             # Pump Playwright for a short slice so the CDP screencast keeps
             # delivering frames to the viewer. A dead sleep here froze the live
             # view between polls, so taps landed on stale/refreshed tiles.
@@ -160,6 +180,9 @@ class RemoteSolveSession:
                 nx, ny, kind = self._pointer_q.get_nowait()
             except queue.Empty:
                 return
+            if kind == "__done__":
+                self._human_done = True   # the human pressed "I solved it — done"
+                continue
             try:
                 forward_pointer(self.page, nx, ny, kind, vp["width"], vp["height"])
                 if _DEBUG:

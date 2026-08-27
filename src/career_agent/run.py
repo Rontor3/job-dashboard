@@ -82,7 +82,9 @@ def main() -> None:
         approver = TelegramApprover(telegram_client)
 
         def on_link(url):
-            mid = telegram_client.send_message(url)
+            text = ("\U0001F9E9 Captcha to solve. Open the live view, solve it, "
+                    "then tap Done:\n" + url)
+            mid = telegram_client.send_message(text)
             print(f"[telegram] link sent, message_id={mid}" if mid
                   else "[telegram] link send FAILED (message_id=0) — bot can't DM you?")
             return mid
