@@ -10,6 +10,8 @@ KNOWN_PURPOSES = frozenset({
     "portfolio_url", "work_authorization", "years_experience",
     "notice_period", "salary_expectation", "willing_to_relocate",
     "attestation", "resume_upload",
+    "employer", "job_title", "start_date", "end_date", "degree", "school",
+    "field_of_study", "gpa", "skills", "summary",
 })
 
 
@@ -26,7 +28,19 @@ class Field:
 
 # Ordered most-specific-first; first hit wins.
 _RULES: list[tuple[str, str]] = [
+    # Résumé-driven (employer/job/education) purposes. `employer` must precede
+    # `full_name` — "Company Name" contains "name" and must not hit full_name.
+    (r"\bemployer\b|\bcompany name\b|\bcompany\b|\borganization\b", "employer"),
     (r"\bfirst name\b|\blast name\b|\bfull name\b|\byour name\b|\bname\b", "full_name"),
+    (r"\bjob title\b|\bposition title\b|\brole\b|\btitle\b", "job_title"),
+    (r"\bstart date\b|\bdate from\b|\bfrom date\b", "start_date"),
+    (r"\bend date\b|\bdate to\b|\bto date\b", "end_date"),
+    (r"\bfield of study\b|\bmajor\b|\bspecial", "field_of_study"),
+    (r"\bdegree\b|\bqualification\b", "degree"),
+    (r"\buniversity\b|\bschool\b|\bcollege\b|\binstitution\b", "school"),
+    (r"\bgpa\b|\bgrade\b|\bcgpa\b|\bpercentage\b", "gpa"),
+    (r"\bskills?\b|\bkey skills\b|\btechnolog", "skills"),
+    (r"\bsummary\b|\babout you\b|\bprofile summary\b", "summary"),
     (r"\be-?mail\b", "email"),
     (r"\bphone\b|\bmobile\b|\bcontact number\b", "phone"),
     (r"\blinkedin\b", "linkedin_url"),
