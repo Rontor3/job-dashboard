@@ -17,18 +17,20 @@ import time
 # appears. The token is the only unambiguous proof of a solve, but on a SPA it
 # can vanish within a poll interval as the view advances — so we watch it from
 # INSIDE the page at 50ms and set a window flag that survives the view swap.
-_SOLVE_OBSERVER_JS = """
-() => {
+_OBSERVER_BODY = r"""
   if (window.__cca_installed) return;
   window.__cca_installed = true;
   window.__cca_cleared = false;
-  setInterval(() => {
-    const r = document.querySelector('textarea#g-recaptcha-response');
-    const h = document.querySelector('textarea[name="h-captcha-response"]');
+  setInterval(function () {
+    var r = document.querySelector('textarea#g-recaptcha-response');
+    var h = document.querySelector('textarea[name="h-captcha-response"]');
     if ((r && r.value) || (h && h.value)) window.__cca_cleared = true;
   }, 50);
-}
 """
+_OBSERVER_EVAL = "() => {%s}" % _OBSERVER_BODY          # install on the current page
+# add_init_script form: re-installs on EVERY navigation, so a page reload (e.g.
+# a consent banner accepting) can't leave us without the observer running.
+_OBSERVER_INIT = "(function () {%s})();" % _OBSERVER_BODY
 
 from .token import mint_token, build_url
 from .server import LiveViewServer
@@ -65,7 +67,11 @@ class RemoteSolveSession:
             self.page, self._token, self.host, self.port, self._pointer_q)
         self._cdp = start_screencast(self.page, self._server.push_frame)
         try:
-            self.page.evaluate(_SOLVE_OBSERVER_JS)   # latch the solve token in-page
+            self.page.add_init_script(_OBSERVER_INIT)  # re-install on every nav
+        except Exception:
+            pass
+        try:
+            self.page.evaluate(_OBSERVER_EVAL)         # and on the current page
         except Exception:
             pass
         try:
