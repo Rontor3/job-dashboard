@@ -41,8 +41,8 @@ CandidateProfile:
   skills:       [ str ]                                          # from résumé
 ```
 
-- **Source:** the dashboard's current **résumé draft** — the `src/job_dashboard/resume_segments/` blocks (`experience-*`, `project-*`, `skills-*`, `education-*`, `header-contact*`) plus `application_profile`.
-- **Extraction:** one **qwen3:14b** pass turns the résumé text into the schema above (a bounded "extract structured fields" task — *not* open-ended judgment), reusing the dashboard's Ollama client pattern (`job_dashboard.resume.resume_llm.make_ollama_llm`: POST `/api/generate`, `format: json`). Result cached to JSON so it runs once per résumé.
+- **Source:** the **saved résumé version `Rakshit_Singh_draft1`** (the user's "draft one") — a stored résumé *layout* in the `resume_layouts` table (`id, name, layout, updated_at`), loaded via the dashboard's résumé store (`get_resume_layout(conn, "Rakshit_Singh_draft1")`; other saved names include `__working__` and `v1`). The layout is a JSON list of blocks: `{ kind, title, bullets[], group, roleHeader, excluded, … }` with `kind ∈ {experience, project, skills, education, header}`. Experience entries carry the company in `group` and a `roleHeader` block whose title holds "Role, Company — dates, location"; skills blocks hold skill lists. So the input is **already well-structured** — not raw prose. `excluded: true` blocks are skipped. Plus `application_profile` for contact. (The version name should be configurable, defaulting to this one.)
+- **Extraction:** parse the layout's blocks into the CandidateProfile — experience/education block **titles** ("Company — Title, dates") + bullets → `experiences[]` / `education[]`; the skills block → `skills[]`; header/contact → `contact`. A **light qwen3:14b** pass handles only the fuzzy bits (splitting a block title into company / title / dates) where a rule can't; rule-based where it can. Reuses the dashboard's Ollama client pattern (`job_dashboard.resume.resume_llm.make_ollama_llm`: POST `/api/generate`, `format: json`). Cached to JSON, once per résumé version.
 - Extends the Phase-1 **Factual Core** to hold this profile. PII stays local; the cache never enters git.
 
 ## 5. The per-screen loop
@@ -122,7 +122,7 @@ tests/career_agent/…
 
 ## 13. Reuse from the dashboard
 
-- `job_dashboard.apply.store` (application_profile), `resume_segments/` (résumé draft), `job_dashboard.resume.*` (CV render for upload steps), `resume_llm.make_ollama_llm` (Ollama client for extraction).
+- `job_dashboard.apply.store` (application_profile); the résumé **layout store** — `get_resume_layout(conn, "draft one")` / `list_resume_layouts` — for the saved résumé version's blocks; `job_dashboard.resume.*` (CV render for upload steps); `resume_llm.make_ollama_llm` (Ollama client for extraction).
 - From Phase 1/2: perception, gate_probe, remote-solve, filler, review_card, human_loop/TelegramApprover.
 
 ## 14. Global constraints
