@@ -703,22 +703,25 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         deps.fill(page, decisions)
 
         before = screen_signature(deps.url(page), form)
-        label = pick_advance_label(form, is_last=False)
-        submit_label = pick_advance_label(form, is_last=True)
-        is_submit = label is None and submit_label is not None
+        # NOTE: pick_advance_label(is_last=False) falls back to SUBMIT_NAMES, so
+        # "label is None" can't distinguish a submit-only screen. Check control
+        # PRESENCE per family instead (_has_control ignores Back/Cancel).
+        has_advance = _has_control(form, ADVANCE_NAMES)
+        has_submit = _has_control(form, SUBMIT_NAMES)
 
-        if is_submit:
+        if not has_advance and has_submit:          # final screen: submit
             if not do_submit:
                 reason = "reached_submit_dry_run"; break
             if autonomous or human.approve("Ready to submit"):
-                deps.click(page, submit_label); submitted = True; reason = "submitted"
+                deps.click(page, pick_advance_label(form, is_last=True))
+                submitted = True; reason = "submitted"
             else:
                 reason = "submit_declined"
             break
-        if label is None:
+        if not has_advance:
             reason = "no_advance_control"; break
 
-        deps.click(page, label)
+        deps.click(page, pick_advance_label(form, is_last=False))
         after = screen_signature(deps.url(page), deps.snapshot(page))
         if not changed(before, after):
             reason = "stuck"; break
