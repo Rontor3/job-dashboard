@@ -77,8 +77,9 @@ def blocks_to_profile(blocks, contact, split=None) -> CandidateProfile:
                     exp.company = parts.get("company", exp.company)
                     exp.start = parts.get("start", exp.start)
                     exp.end = parts.get("end", exp.end)
-            else:
-                exp.bullets.extend(b.get("bullets", []))
+            # collect bullets from ANY block (a roleHeader can carry them too,
+            # e.g. an internship with no separate description blocks).
+            exp.bullets.extend(b.get("bullets", []))
     # de-dup skills, preserve order
     seen = set()
     prof.skills = [s for s in prof.skills if not (s in seen or seen.add(s))]
