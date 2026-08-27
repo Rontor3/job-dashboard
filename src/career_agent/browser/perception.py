@@ -73,6 +73,19 @@ _INPUT_JS = r"""
       disabled: !!(el.disabled || el.readOnly),
     });
   }
+  // Advance controls (Next/Continue/Submit): buttons and link-buttons. Captured
+  // as kind 'button' so the step engine can find them; the mapper skips them
+  // (no fillable purpose, not required).
+  for (const el of document.querySelectorAll(
+        'button, a[href], input[type=submit], input[type=button], [role=button]')) {
+    const label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
+    if (!label) continue;
+    out.push({
+      ref: el.id ? `#${el.id}` : `button:${label}`,
+      kind: 'button', label, required: false,
+      options: [], group: null, disabled: !!el.disabled,
+    });
+  }
   return out;
 }
 """
