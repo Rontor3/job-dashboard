@@ -5,10 +5,11 @@ from __future__ import annotations
 
 
 class HumanLoop:
-    def __init__(self, approver, remote_solve_factory=None, deadline_s: int = 900):
+    def __init__(self, approver, remote_solve_factory=None, deadline_s: int = 900, collector=None):
         self.approver = approver
         self.remote_solve_factory = remote_solve_factory
         self.deadline_s = deadline_s
+        self.collector = collector
 
     def approve(self, card: str) -> bool:
         return self.approver.request(card)
@@ -32,3 +33,8 @@ class HumanLoop:
                     session.close()
                 except Exception:
                     pass
+
+    def collect(self, fields) -> dict:
+        if self.collector is None or not fields:
+            return {}
+        return dict(self.collector(fields) or {})
