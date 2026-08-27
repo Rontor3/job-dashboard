@@ -48,9 +48,11 @@ def test_remote_solve_session_streams_frame_and_applies_tap():
 
     with sync_playwright() as pw:
         b = pw.chromium.launch(); page = b.new_page()
-        # No captcha token here, so the session clears via is_cleared (the tap
-        # setting __hit) — a real test of the pointer path.
+        # An hcaptcha iframe keeps classify_gate seeing a live gate, so the
+        # resolve-timer never fires here and the session clears ONLY via
+        # is_cleared (the tap setting __hit) — a real test of the pointer path.
         page.set_content(
+            "<iframe src='https://hcaptcha.com/1/api.js' style='display:none'></iframe>"
             "<button style='position:absolute;left:0;top:0;width:100vw;height:100vh'"
             " onclick='window.__hit=1'>tap</button>")
         sess = RemoteSolveSession(

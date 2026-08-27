@@ -43,7 +43,8 @@ _DEBUG = bool(os.getenv("CAREER_AGENT_LIVEVIEW_DEBUG"))
 class RemoteSolveSession:
     def __init__(self, page, host, port, ttl_s, allow_public, is_cleared,
                  clock=time.time, sleep=time.sleep, poll_interval_s=0.3,
-                 frame_slice_ms=40):
+                 frame_slice_ms=40, resolve_absence_s=3.5):
+        self._resolve_absence_s = resolve_absence_s
         self.page = page
         self.host = host
         self.port = port
@@ -82,10 +83,12 @@ class RemoteSolveSession:
 
     def wait_until_cleared(self, timeout_s) -> bool:
         from career_agent.browser.live_view.cdp_bridge import forward_pointer
+        from career_agent.browser.gate_probe import classify_gate
 
         vp = self.page.viewport_size or {"width": 900, "height": 1600}
         start = self._clock()
         last_check = 0.0
+        gone_since = None
         while self._clock() - start < timeout_s:
             # Apply queued taps immediately (low input latency).
             self._drain_pointers(forward_pointer, vp)
@@ -96,13 +99,36 @@ class RemoteSolveSession:
                 self.page.wait_for_timeout(self._frame_slice_ms)
             except Exception:
                 return False   # page / browser gone
-            # Check for the human's solve periodically (cheaper than per frame).
+            # Check periodically (cheaper than per frame).
             now = self._clock()
             if now - last_check >= self.poll_interval_s:
                 last_check = now
+                # Fast path: the response token was latched (e.g. reCAPTCHA).
                 if self._cleared():
-                    self._drain_pointers(forward_pointer, vp)   # apply final taps
+                    self._drain_pointers(forward_pointer, vp)
                     return True
+                # Captcha-resolve path: the captcha we were solving is GONE and
+                # STAYS gone. A consent-popup reload makes it briefly absent then
+                # it returns (resetting the timer); only a real advance keeps it
+                # gone past the window.
+                try:
+                    present = classify_gate(self.page) not in ("none", "cleared")
+                except Exception:
+                    present = True   # navigating / uncertain -> assume present
+                if present:
+                    if gone_since is not None and _DEBUG:
+                        print("[lv] captcha reappeared — resolve timer reset", flush=True)
+                    gone_since = None
+                else:
+                    if gone_since is None:
+                        gone_since = now
+                        if _DEBUG:
+                            print("[lv] captcha absent — starting resolve timer", flush=True)
+                    elif now - gone_since >= self._resolve_absence_s:
+                        if _DEBUG:
+                            print(f"[lv] captcha gone {self._resolve_absence_s}s -> resolved",
+                                  flush=True)
+                        return True
         return False
 
     def _cleared(self) -> bool:
