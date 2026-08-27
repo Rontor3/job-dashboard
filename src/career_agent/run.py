@@ -37,6 +37,13 @@ def run_once(page, profile, resume_path, meta, human, do_submit, on_link=None) -
     if HANDLERS.get(gate, "escalate") == "escalate" and gate in INTERACTIVE_GATES:
         remote_solve_attempted = True
         if human.remote_solve(page, gate, on_link or (lambda u: None)):
+            # Let the page settle so the solved captcha's iframe is gone and the
+            # next screen has loaded before we re-read the gate (otherwise the
+            # stale widget lingers a beat and re-reads as still-present).
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
             gate = classify_gate(page)       # re-read after the human solved it
             gate_after_solve = gate
 
