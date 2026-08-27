@@ -20,11 +20,13 @@ import time
 _OBSERVER_BODY = r"""
   if (window.__cca_installed) return;
   window.__cca_installed = true;
-  window.__cca_cleared = false;
   setInterval(function () {
     var r = document.querySelector('textarea#g-recaptcha-response');
     var h = document.querySelector('textarea[name="h-captcha-response"]');
-    if ((r && r.value) || (h && h.value)) window.__cca_cleared = true;
+    if ((r && r.value) || (h && h.value)) {
+      window.__cca_cleared = true;
+      try { localStorage.setItem('__cca_cleared', '1'); } catch (e) {}
+    }
   }, 50);
 """
 _OBSERVER_EVAL = "() => {%s}" % _OBSERVER_BODY          # install on the current page
@@ -67,17 +69,14 @@ class RemoteSolveSession:
             self.page, self._token, self.host, self.port, self._pointer_q)
         self._cdp = start_screencast(self.page, self._server.push_frame)
         try:
-            self.page.add_init_script(_OBSERVER_INIT)  # re-install on every nav
+            # Clear any stale flag from a prior session on this origin, then
+            # install the token observer (add_init_script re-runs it on every
+            # navigation; evaluate covers the already-loaded page).
+            self.page.evaluate("() => { try { localStorage.removeItem('__cca_cleared'); } catch (e) {} }")
+            self.page.add_init_script(_OBSERVER_INIT)
+            self.page.evaluate(_OBSERVER_EVAL)
         except Exception:
             pass
-        try:
-            self.page.evaluate(_OBSERVER_EVAL)         # and on the current page
-        except Exception:
-            pass
-        try:
-            self._start_url = self.page.url
-        except Exception:
-            self._start_url = None
         self._server.start()
         return url
 
@@ -111,21 +110,22 @@ class RemoteSolveSession:
         (e.g. reCAPTCHA checkbox), OR solving it advanced the flow — the form
         submitted and the page navigated past the gate (e.g. an ATS email step).
         Watching only for the in-place token missed the navigation case."""
+        # The response token is the ONLY unambiguous proof of a solve. Detect
+        # nothing else: URL changes / widget-gone / nav-errors all false-fire on
+        # benign things like dismissing a consent popup. The token is latched by
+        # the in-page observer into window AND localStorage, so it survives an
+        # SPA view-swap or a same-origin navigation.
         try:
-            # Primary signal: the in-page observer latched the response token
-            # the moment the human solved it (survives an SPA view-swap).
-            if self.page.evaluate("() => window.__cca_cleared === true"):
+            latched = self.page.evaluate(
+                "() => (window.__cca_cleared === true)"
+                " || (function(){ try { return localStorage.getItem('__cca_cleared') === '1'; }"
+                " catch (e) { return false; } })()")
+            if latched:
                 return True
-            # Fallback for pages where the token persists in the DOM.
-            if self.is_cleared(self.page):
-                return True
-            # Multi-page ATS: solving navigated to the next screen.
-            if self._start_url and self.page.url != self._start_url:
+            if self.is_cleared(self.page):   # fallback: token still in the DOM
                 return True
         except Exception:
-            # Destroyed execution context = the main page is navigating away,
-            # i.e. a real advance past the gate.
-            return True
+            return False   # a transient/navigation error is NOT proof of a solve
         return False
 
     def _drain_pointers(self, forward_pointer, vp) -> None:
