@@ -48,3 +48,19 @@ def test_education_with_dates_populates_start_end():
     e = education_from_segments(segs)[0]
     assert e.degree == "B.Tech" and e.school == "IIT BHU"
     assert e.start == "2018" and e.end == "2022"
+
+
+def test_missing_segments_warns_not_crashes(monkeypatch, capsys):
+    import career_agent.memory.candidate_profile as cp
+    import job_dashboard.db as _db
+    import job_dashboard.resume.segments as seg
+
+    monkeypatch.setattr(_db, "get_resume_layout", lambda conn, v: {"layout": []})
+
+    def boom(*a, **k):
+        raise ImportError("No module named 'yaml'")
+
+    monkeypatch.setattr(seg, "load_segments", boom)
+    p = cp.load_candidate_profile(object())
+    assert p.education == []
+    assert "education unavailable" in capsys.readouterr().err.lower()
