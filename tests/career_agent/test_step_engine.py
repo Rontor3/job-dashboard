@@ -23,6 +23,16 @@ def _f(ref, label, purpose=None, required=False, kind="text"):
     return Field(ref, kind, label, required, [], None, purpose)
 
 
+def test_resume_pdf_threads_to_upload_decision():
+    s1 = [_f("#cv", "Attach resume", "resume_upload", kind="file"),
+          _f("#c", "Submit application", None, kind="button")]
+    deps = Deps([s1])
+    walk(object(), CandidateProfile(), Human(), deps, do_submit=True, autonomous=True,
+         resume_pdf="/tmp/cv.pdf")
+    uploads = [d for batch in deps.filled for d in batch if d.action == "upload"]
+    assert uploads and uploads[0].value == "/tmp/cv.pdf"
+
+
 def test_walks_two_screens_then_submits():
     s1 = [_f("#n", "Full name", "full_name"), _f("#c", "Continue", None, kind="button")]
     s2 = [_f("#s", "Submit application", None, kind="button")]
