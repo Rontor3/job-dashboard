@@ -29,3 +29,8 @@ data/
 # session cookies — must never be committed).
 .jd_env/
 src/career_agent/chrome-profile/
+
+# Anti-bot handler slot: user's own local tools, never imported by the agent
+# and deliberately kept out of the tracked codebase.
+src/job_dashboard/flare_tool.py
+src/job_dashboard/proxy_tool.py
