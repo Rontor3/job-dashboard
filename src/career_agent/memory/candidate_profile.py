@@ -52,6 +52,30 @@ def _skills_from(bullet: str) -> list:
     return [s.strip(" *") for s in re.split(r"[,;]", tail) if s.strip(" *")]
 
 
+_EDU_PREFIX_RE = re.compile(r"^\s*education\s*:\s*", re.I)
+
+
+def _parse_education(title: str) -> "Education":
+    # "Education: B.Tech, IIT (BHU) Varanasi"  or  "...— 2018 – 2022" when dated.
+    t = _EDU_PREFIX_RE.sub("", title or "").strip()
+    parts = _rule_split(t)                       # "Degree, School — start – end"
+    if parts:
+        return Education(school=parts["company"], degree=parts["title"],
+                         start=parts["start"], end=parts["end"])
+    if "," in t:                                 # "Degree, School" (no dates)
+        degree, school = t.split(",", 1)
+        return Education(school=school.strip(), degree=degree.strip())
+    return Education(school=t)                    # bare school name
+
+
+def education_from_segments(segments) -> list:
+    """Education lives in the fixed segment library (segments.yaml), prepended
+    at render time — NOT in the saved layout blocks — so it is pulled from the
+    segments separately from the experience/skills blocks."""
+    return [_parse_education(s.title)
+            for s in segments if getattr(s, "kind", None) == "education"]
+
+
 def blocks_to_profile(blocks, contact, split=None) -> CandidateProfile:
     split = split or _rule_split
     prof = CandidateProfile(contact=dict(contact or {}))
@@ -90,4 +114,10 @@ def load_candidate_profile(conn, version="Rakshit_Singh_draft1", contact=None, s
     from job_dashboard.db import get_resume_layout
     layout = get_resume_layout(conn, version)
     blocks = (layout or {}).get("layout", [])
-    return blocks_to_profile(blocks, contact or {}, split=split)
+    prof = blocks_to_profile(blocks, contact or {}, split=split)
+    try:
+        from job_dashboard.resume.segments import load_segments
+        prof.education = education_from_segments(load_segments())
+    except Exception:
+        pass   # segment library unavailable -> no education, the walk still runs
+    return prof

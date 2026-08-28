@@ -15,6 +15,7 @@ def test_scalar_and_indexed_resolution():
     assert resolve("employer", P, 1) == "OYO"
     assert resolve("school", P, 0) == "IIT"
     assert resolve("degree", P, 0) == "B.Tech"
+    assert resolve("field_of_study", P, 0) == "CS"
     assert resolve("skills", P) == "Python, SQL"
 
 def test_missing_returns_none():
