@@ -6,8 +6,8 @@ import re
 from dataclasses import dataclass, field as _field
 
 KNOWN_PURPOSES = frozenset({
-    "full_name", "first_name", "last_name", "email", "phone", "location",
-    "country", "linkedin_url", "github_url",
+    "full_name", "first_name", "last_name", "middle_name", "email", "phone",
+    "location", "city", "country", "veteran", "linkedin_url", "github_url",
     "portfolio_url", "work_authorization", "visa_sponsorship", "prior_contact",
     "years_experience",
     "notice_period", "salary_expectation", "willing_to_relocate",
@@ -35,6 +35,7 @@ _RULES: list[tuple[str, str]] = [
     (r"\bemployer\b|\bcompany name\b|\bcompany\b|\borganization\b", "employer"),
     (r"\bfirst name\b|\bgiven name\b|\bforename\b", "first_name"),
     (r"\blast name\b|\bsurname\b|\bfamily name\b", "last_name"),
+    (r"\bmiddle name\b", "middle_name"),
     (r"\bfull name\b|\byour name\b|\bname\b", "full_name"),
     (r"\bjob title\b|\bposition title\b|\brole\b|\btitle\b", "job_title"),
     (r"\bstart date\b|\bdate from\b|\bfrom date\b", "start_date"),
@@ -59,8 +60,11 @@ _RULES: list[tuple[str, str]] = [
     (r"\bsalary\b|\bcompensation\b|\bexpected ctc\b|\bpay expectation\b", "salary_expectation"),
     (r"\brelocat", "willing_to_relocate"),
     (r"\bresume\b|\bcv\b|\bupload.*(resume|cv)\b", "resume_upload"),
+    (r"\barmed forces\b|\bmilitary\b|\bveteran\b|\breserve component\b"
+     r"|\bserved (as|in)\b", "veteran"),
     (r"\bcountry\b", "country"),
-    (r"\bcity\b|\blocation\b|\baddress\b", "location"),
+    (r"\bcity\b|\btown\b", "city"),
+    (r"\blocation\b", "location"),
 ]
 
 _RESUME_RE = re.compile(r"\bresume\b|\bcv\b", re.I)

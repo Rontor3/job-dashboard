@@ -18,6 +18,13 @@ def resolve(purpose, profile, index=0):
     if purpose in ("first_name", "last_name"):
         first, last = _name_parts(profile.contact)
         return (first if purpose == "first_name" else last) or None
+    if purpose == "middle_name":
+        return profile.contact.get("middle_name") or None   # escalate if absent
+    if purpose == "veteran":
+        return None                                          # never auto-answered
+    if purpose == "city":
+        loc = profile.contact.get("location") or ""
+        return loc.split(",")[0].strip() or None if loc else None
     if purpose == "country":
         loc = profile.contact.get("location") or ""
         return loc.split(",")[-1].strip() if "," in loc else None
