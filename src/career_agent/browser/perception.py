@@ -45,9 +45,24 @@ def to_form_model(raw: list[dict]) -> list[Field]:
 _INPUT_JS = r"""
 () => {
   const out = [];
+  // Query a selector across the light DOM AND every open shadow root
+  // (LinkedIn / web-component ATS render their form fields inside shadow DOM,
+  // which a plain document.querySelectorAll never reaches).
+  const deepQuery = (sel) => {
+    const res = [];
+    const walk = (root) => {
+      root.querySelectorAll(sel).forEach(e => res.push(e));
+      root.querySelectorAll('*').forEach(e => { if (e.shadowRoot) walk(e.shadowRoot); });
+    };
+    walk(document);
+    return res;
+  };
+  const byId = (root, id) => (root.getElementById ? root.getElementById(id)
+                              : root.querySelector('#' + CSS.escape(id)));
   const labelFor = (el) => {
+    const root = el.getRootNode();   // ShadowRoot or Document — scope lookups here
     if (el.id) {
-      const l = document.querySelector(`label[for="${el.id}"]`);
+      const l = root.querySelector(`label[for="${el.id}"]`);
       if (l) return l.innerText.trim();
     }
     const wrap = el.closest('label');
@@ -60,7 +75,7 @@ _INPUT_JS = r"""
     const lb = el.getAttribute('aria-labelledby');
     if (lb) {
       const t = lb.split(/\s+/).map(id => {
-        const n = document.getElementById(id); return n ? n.innerText : '';
+        const n = byId(root, id); return n ? n.innerText : '';
       }).join(' ').trim();
       if (t) return t;
     }
@@ -79,7 +94,7 @@ _INPUT_JS = r"""
     }
     return (el.name || el.getAttribute('placeholder') || '').trim();
   };
-  for (const el of document.querySelectorAll('input,select,textarea')) {
+  for (const el of deepQuery('input,select,textarea')) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
     if (type === 'hidden' || type === 'submit' || type === 'button') continue;
@@ -99,7 +114,7 @@ _INPUT_JS = r"""
   // Advance controls (Next/Continue/Submit): buttons and link-buttons. Captured
   // as kind 'button' so the step engine can find them; the mapper skips them
   // (no fillable purpose, not required).
-  for (const el of document.querySelectorAll(
+  for (const el of deepQuery(
         'button, a[href], input[type=submit], input[type=button], [role=button]')) {
     const label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
     if (!label) continue;

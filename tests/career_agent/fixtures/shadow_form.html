@@ -1,0 +1,16 @@
+<!doctype html><html><body>
+  <input type="text" aria-label="Light DOM search">
+  <div id="host"></div>
+  <script>
+    const r = document.getElementById('host').attachShadow({mode: 'open'});
+    r.innerHTML =
+      '<label for="em">Email address</label><input id="em" type="email">' +
+      '<textarea id="wt" aria-label="Why this role"></textarea>' +
+      '<button>Submit application</button>';
+    // a nested shadow root, to prove recursion
+    const inner = document.createElement('div');
+    r.appendChild(inner);
+    const r2 = inner.attachShadow({mode: 'open'});
+    r2.innerHTML = '<input id="ph" type="tel" aria-label="Phone number">';
+  </script>
+</body></html>
