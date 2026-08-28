@@ -25,3 +25,29 @@ def test_apply_answers():
     needs = [_f("#q", "Why?", None, required=True, kind="textarea")]
     decisions = apply_answers(needs, {"#q": "Because I love ML."})
     assert decisions[0].value == "Because I love ML." and decisions[0].action == "fill"
+
+
+def _sel(ref, label, purpose, options, required=True):
+    return Field(ref, "select", label, required, options, None, purpose)
+
+
+def test_option_coercion_and_escalation():
+    P = CandidateProfile(contact={})
+    yn = ["Yes", "No"]
+    spons = _sel("#sp", "Will you require visa sponsorship?", "visa_sponsorship", yn)
+    auth_us = _sel("#au", "Authorized to work in the US?", "work_authorization", yn)
+    auth_none = _sel("#an", "Are you authorized to work?", "work_authorization", yn)
+    no_opt = _sel("#x", "Will you require sponsorship?", "visa_sponsorship", ["Maybe", "Later"])
+    decisions, needs = map_screen([spons, auth_us, auth_none, no_opt], P)
+    d = {x.ref: x for x in decisions}
+    assert d["#sp"].value == "Yes"
+    assert d["#au"].value == "No"
+    assert "#an" in {f.ref for f in needs}    # no country -> escalate
+    assert "#x" in {f.ref for f in needs}     # no matching option -> escalate
+
+
+def test_boolean_value_normalized_to_yes_no():
+    P = CandidateProfile(contact={"willing_to_relocate": True})
+    f = _sel("#r", "Willing to relocate?", "willing_to_relocate", ["Yes", "No"])
+    decisions, needs = map_screen([f], P)
+    assert {x.ref: x for x in decisions}["#r"].value == "Yes"

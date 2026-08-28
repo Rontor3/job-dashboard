@@ -50,7 +50,10 @@ _RULES: list[tuple[str, str]] = [
     (r"\blinkedin\b", "linkedin_url"),
     (r"\bgithub\b", "github_url"),
     (r"\bportfolio\b|\bwebsite\b|\bpersonal site\b", "portfolio_url"),
-    (r"\bauthoriz|\bwork permit\b|\bvisa\b|\bsponsor|\beligible to work\b", "work_authorization"),
+    (r"\bsponsor", "visa_sponsorship"),
+    (r"\brelativ|\bknow (anyone|someone)\b|\breferr|\bemployee referral\b"
+     r"|\b(contact|connection|relationship)s? (at|with|to)\b|\bfriends? (at|who)\b", "prior_contact"),
+    (r"\bauthoriz|\bwork permit\b|\bvisa\b|\beligible to work\b|\blegally (authorized|entitled)\b", "work_authorization"),
     (r"\byears? of experience\b|\byears? experience\b|\bexperience\b", "years_experience"),
     (r"\bnotice period\b|\bavailab|\bearliest start\b|\bstart date\b", "notice_period"),
     (r"\bsalary\b|\bcompensation\b|\bexpected ctc\b|\bpay expectation\b", "salary_expectation"),
