@@ -6,7 +6,18 @@ _EXP = {"employer": "company", "job_title": "title", "start_date": "start", "end
 _EDU = {"school": "school", "degree": "degree", "field_of_study": "field"}
 
 
+def _name_parts(contact):
+    first, last = contact.get("first_name"), contact.get("last_name")
+    if first or last:
+        return (first or "", last or "")
+    toks = (contact.get("full_name") or "").split()
+    return (toks[0] if toks else "", " ".join(toks[1:]))
+
+
 def resolve(purpose, profile, index=0):
+    if purpose in ("first_name", "last_name"):
+        first, last = _name_parts(profile.contact)
+        return (first if purpose == "first_name" else last) or None
     if purpose in _EXP:
         if 0 <= index < len(profile.experiences):
             return getattr(profile.experiences[index], _EXP[purpose]) or None

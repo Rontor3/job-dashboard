@@ -6,8 +6,10 @@ import re
 from dataclasses import dataclass, field as _field
 
 KNOWN_PURPOSES = frozenset({
-    "full_name", "email", "phone", "location", "linkedin_url", "github_url",
-    "portfolio_url", "work_authorization", "years_experience",
+    "full_name", "first_name", "last_name", "email", "phone", "location",
+    "country", "linkedin_url", "github_url",
+    "portfolio_url", "work_authorization", "visa_sponsorship", "prior_contact",
+    "years_experience",
     "notice_period", "salary_expectation", "willing_to_relocate",
     "attestation", "resume_upload",
     "employer", "job_title", "start_date", "end_date", "degree", "school",
@@ -31,7 +33,9 @@ _RULES: list[tuple[str, str]] = [
     # Résumé-driven (employer/job/education) purposes. `employer` must precede
     # `full_name` — "Company Name" contains "name" and must not hit full_name.
     (r"\bemployer\b|\bcompany name\b|\bcompany\b|\borganization\b", "employer"),
-    (r"\bfirst name\b|\blast name\b|\bfull name\b|\byour name\b|\bname\b", "full_name"),
+    (r"\bfirst name\b|\bgiven name\b|\bforename\b", "first_name"),
+    (r"\blast name\b|\bsurname\b|\bfamily name\b", "last_name"),
+    (r"\bfull name\b|\byour name\b|\bname\b", "full_name"),
     (r"\bjob title\b|\bposition title\b|\brole\b|\btitle\b", "job_title"),
     (r"\bstart date\b|\bdate from\b|\bfrom date\b", "start_date"),
     (r"\bend date\b|\bdate to\b|\bto date\b", "end_date"),
