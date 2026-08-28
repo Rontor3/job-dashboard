@@ -80,3 +80,16 @@ def is_cleared(page) -> bool:
     """Live-page check used by remote solve to detect the human's solve: a
     response token has appeared (or no gate remains)."""
     return is_cleared_from_signals(_gather_signals(page))
+
+
+def is_cleared_for(gate: str):
+    """Return a gate-specific cleared-check. On a page carrying BOTH captchas,
+    keying on 'either token' false-clears (an auto reCAPTCHA token latches while
+    the hCaptcha is still unsolved), so an hcaptcha_* gate checks only the
+    hCaptcha token, a recaptcha_* gate only the reCAPTCHA token."""
+    g = str(gate or "")
+    if g.startswith("hcaptcha"):
+        return lambda page: bool(_gather_signals(page).get("hcaptcha_response_present"))
+    if g.startswith("recaptcha"):
+        return lambda page: bool(_gather_signals(page).get("grecaptcha_response_present"))
+    return is_cleared

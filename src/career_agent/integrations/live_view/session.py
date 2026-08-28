@@ -17,7 +17,24 @@ import time
 # appears. The token is the only unambiguous proof of a solve, but on a SPA it
 # can vanish within a poll interval as the view advances — so we watch it from
 # INSIDE the page at 50ms and set a window flag that survives the view swap.
-_OBSERVER_BODY = r"""
+#
+# `watch_g`/`watch_h` select WHICH token latches. On a page carrying BOTH a
+# reCAPTCHA and an hCaptcha (e.g. Oracle's email step), an auto/v3 reCAPTCHA
+# token latches while the hCaptcha the human is actually solving is still
+# pending — a false "cleared". So for an hCaptcha gate we watch only the
+# hCaptcha token, and vice-versa.
+def _observer_body(watch_g: bool = True, watch_h: bool = True) -> str:
+    setter = []
+    poll = []
+    if watch_g:
+        setter.append("this.id === 'g-recaptcha-response'")
+        poll.append("(r && r.value)")
+    if watch_h:
+        setter.append("this.name === 'h-captcha-response'")
+        poll.append("(h && h.value)")
+    setter_cond = " || ".join(setter) or "false"
+    poll_cond = " || ".join(poll) or "false"
+    return r"""
   if (window.__cca_installed) return;
   window.__cca_installed = true;
   function __ccaLatch() {
@@ -32,7 +49,7 @@ _OBSERVER_BODY = r"""
       var orig = desc.set;
       var wrapped = function (v) {
         orig.call(this, v);
-        if (v && (this.id === 'g-recaptcha-response' || this.name === 'h-captcha-response')) __ccaLatch();
+        if (v && (%s)) __ccaLatch();
       };
       wrapped.__cca = true;
       Object.defineProperty(HTMLTextAreaElement.prototype, 'value',
@@ -43,13 +60,9 @@ _OBSERVER_BODY = r"""
   setInterval(function () {
     var r = document.querySelector('textarea#g-recaptcha-response');
     var h = document.querySelector('textarea[name="h-captcha-response"]');
-    if ((r && r.value) || (h && h.value)) __ccaLatch();
+    if (%s) __ccaLatch();
   }, 50);
-"""
-_OBSERVER_EVAL = "() => {%s}" % _OBSERVER_BODY          # install on the current page
-# add_init_script form: re-installs on EVERY navigation, so a page reload (e.g.
-# a consent banner accepting) can't leave us without the observer running.
-_OBSERVER_INIT = "(function () {%s})();" % _OBSERVER_BODY
+""" % (setter_cond, poll_cond)
 
 from .token import mint_token, build_url
 from .server import LiveViewServer
@@ -60,7 +73,12 @@ _DEBUG = bool(os.getenv("CAREER_AGENT_LIVEVIEW_DEBUG"))
 class RemoteSolveSession:
     def __init__(self, page, host, port, ttl_s, allow_public, is_cleared,
                  clock=time.time, sleep=time.sleep, poll_interval_s=0.3,
-                 frame_slice_ms=40, resolve_absence_s=3.5):
+                 frame_slice_ms=40, resolve_absence_s=3.5, captcha_kind=None):
+        # captcha_kind selects which token latches "cleared". None = watch both
+        # (back-compat). An hcaptcha_* gate watches only the hCaptcha token so a
+        # co-present reCAPTCHA token can't false-clear it, and vice-versa.
+        self._watch_g = captcha_kind is None or str(captcha_kind).startswith("recaptcha")
+        self._watch_h = captcha_kind is None or str(captcha_kind).startswith("hcaptcha")
         self._resolve_absence_s = resolve_absence_s
         self.page = page
         self.host = host
@@ -91,9 +109,10 @@ class RemoteSolveSession:
             # Clear any stale flag from a prior session on this origin, then
             # install the token observer (add_init_script re-runs it on every
             # navigation; evaluate covers the already-loaded page).
+            body = _observer_body(self._watch_g, self._watch_h)
             self.page.evaluate("() => { try { localStorage.removeItem('__cca_cleared'); } catch (e) {} }")
-            self.page.add_init_script(_OBSERVER_INIT)
-            self.page.evaluate(_OBSERVER_EVAL)
+            self.page.add_init_script("(function () {%s})();" % body)
+            self.page.evaluate("() => {%s}" % body)
         except Exception:
             pass
         self._server.start()
