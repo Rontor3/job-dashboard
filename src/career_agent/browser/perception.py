@@ -54,7 +54,30 @@ _INPUT_JS = r"""
     if (wrap) return wrap.innerText.trim();
     const fs = el.closest('fieldset');
     if (fs) { const lg = fs.querySelector('legend'); if (lg) return lg.innerText.trim(); }
-    return (el.getAttribute('aria-label') || el.name || '').trim();
+    const al = el.getAttribute('aria-label');
+    if (al) return al.trim();
+    // aria-labelledby -> concatenated text of referenced element(s)
+    const lb = el.getAttribute('aria-labelledby');
+    if (lb) {
+      const t = lb.split(/\s+/).map(id => {
+        const n = document.getElementById(id); return n ? n.innerText : '';
+      }).join(' ').trim();
+      if (t) return t;
+    }
+    // a label-like element just before the input (Greenhouse renders the
+    // visible label as a separate sibling, not a <label for>)
+    let prev = el.previousElementSibling;
+    while (prev) {
+      const t = (prev.innerText || '').trim();
+      if (t) return t;
+      prev = prev.previousElementSibling;
+    }
+    const container = el.closest('div,section,fieldset,li');
+    if (container) {
+      const lbl = container.querySelector('label,legend,.label,[class*=label]');
+      if (lbl && (lbl.innerText || '').trim()) return lbl.innerText.trim();
+    }
+    return (el.name || el.getAttribute('placeholder') || '').trim();
   };
   for (const el of document.querySelectorAll('input,select,textarea')) {
     const tag = el.tagName.toLowerCase();
