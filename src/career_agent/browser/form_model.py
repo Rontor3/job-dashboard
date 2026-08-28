@@ -59,6 +59,7 @@ _RULES: list[tuple[str, str]] = [
     (r"\bsalary\b|\bcompensation\b|\bexpected ctc\b|\bpay expectation\b", "salary_expectation"),
     (r"\brelocat", "willing_to_relocate"),
     (r"\bresume\b|\bcv\b|\bupload.*(resume|cv)\b", "resume_upload"),
+    (r"\bcountry\b", "country"),
     (r"\bcity\b|\blocation\b|\baddress\b", "location"),
 ]
 

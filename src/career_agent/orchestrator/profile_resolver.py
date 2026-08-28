@@ -18,6 +18,9 @@ def resolve(purpose, profile, index=0):
     if purpose in ("first_name", "last_name"):
         first, last = _name_parts(profile.contact)
         return (first if purpose == "first_name" else last) or None
+    if purpose == "country":
+        loc = profile.contact.get("location") or ""
+        return loc.split(",")[-1].strip() if "," in loc else None
     if purpose in _EXP:
         if 0 <= index < len(profile.experiences):
             return getattr(profile.experiences[index], _EXP[purpose]) or None
