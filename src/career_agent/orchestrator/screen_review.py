@@ -5,15 +5,20 @@ from __future__ import annotations
 
 import re
 
-from ..browser.form_model import Field
 from ..orchestrator.mapper import FillDecision, _action_for_kind as _action
 from ..orchestrator.profile_resolver import resolve
 from ..orchestrator import standard_answers
 
 _SELECT_KINDS = {"select", "radio_group"}
 _STD_PURPOSES = {"visa_sponsorship", "prior_contact", "work_authorization"}
-_YES = {"yes", "y", "true"}
-_NO = {"no", "n", "false"}
+# Full-word tokens only — single letters ("y"/"n") mis-coerce "N/A"-style
+# options (M-1).
+_YES = {"yes", "true"}
+_NO = {"no", "false"}
+# File fields whose label clearly names a non-résumé document -> never attach
+# the résumé there (I-3).
+_NON_RESUME_FILE = re.compile(
+    r"cover letter|portfolio|photo|picture|transcript|certificate|writing sample", re.I)
 
 
 def _normalize(value):
@@ -58,10 +63,11 @@ def map_screen(form, profile, resume_pdf=None):
             decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
             continue
         if f.purpose == "resume_upload" or f.kind == "file":
-            if resume_pdf:
+            is_resume = f.purpose == "resume_upload" or not _NON_RESUME_FILE.search(f.label or "")
+            if is_resume and resume_pdf:
                 decisions.append(FillDecision(f.ref, f.kind, f.label, resume_pdf, "upload", "resume"))
             else:
-                needs_human.append(f)
+                needs_human.append(f)   # non-résumé file, or no résumé available
             continue
         if f.purpose in _STD_PURPOSES:
             ans = standard_answers.answer(f.purpose, f.label)

@@ -18,3 +18,21 @@ def test_answer_work_auth_is_jurisdiction_aware():
     assert answer("work_authorization", "Authorized to work in the United States?") == "No"
     assert answer("work_authorization", "Authorized to work in the UK?") == "No"
     assert answer("work_authorization", "Are you legally authorized to work?") is None
+
+
+def test_answer_work_auth_both_countries_escalate():
+    # I-1: label naming both India and a non-India country -> escalate, never over-claim
+    assert answer("work_authorization",
+                  "Authorized to work in the US? (offices also in India)") is None
+
+
+def test_answer_work_auth_ignores_pronoun_us():
+    # M-2: lowercase "us" pronoun is not the country
+    assert answer("work_authorization", "Please tell us your authorization status") is None
+
+
+def test_answer_sponsorship_combined_escalates():
+    # I-2: "authorized ... without sponsorship" is a combined question -> escalate
+    assert answer("visa_sponsorship",
+                  "Are you authorized to work in the US without requiring sponsorship?") is None
+    assert answer("visa_sponsorship", "Will you now or in future require sponsorship?") == "Yes"

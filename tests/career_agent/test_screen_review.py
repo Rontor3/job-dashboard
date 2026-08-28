@@ -51,3 +51,22 @@ def test_boolean_value_normalized_to_yes_no():
     f = _sel("#r", "Willing to relocate?", "willing_to_relocate", ["Yes", "No"])
     decisions, needs = map_screen([f], P)
     assert {x.ref: x for x in decisions}["#r"].value == "Yes"
+
+
+def test_no_prefers_exact_over_na_option():
+    # M-1: answer "No" must pick "No", not "N/A"
+    P = CandidateProfile(contact={})
+    f = _sel("#c", "Prior contact at company?", "prior_contact", ["N/A", "No"])
+    decisions, needs = map_screen([f], P)
+    assert {x.ref: x for x in decisions}["#c"].value == "No"
+
+
+def test_non_resume_file_field_escalates():
+    # I-3: a cover-letter upload must NOT receive the résumé PDF
+    P = CandidateProfile(contact={})
+    cv = Field("#cv", "file", "Attach resume", False, [], None, "resume_upload")
+    cover = Field("#cl", "file", "Cover Letter", False, [], None, None)
+    decisions, needs = map_screen([cv, cover], P, resume_pdf="/tmp/cv.pdf")
+    d = {x.ref: x for x in decisions}
+    assert d["#cv"].value == "/tmp/cv.pdf" and d["#cv"].action == "upload"
+    assert "#cl" in {f.ref for f in needs}   # cover letter -> escalate, no résumé

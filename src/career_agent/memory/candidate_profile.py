@@ -118,9 +118,9 @@ def load_candidate_profile(conn, version="Rakshit_Singh_draft1", contact=None, s
     try:
         from job_dashboard.resume.segments import load_segments
         prof.education = education_from_segments(load_segments())
-    except (ImportError, FileNotFoundError) as e:
+    except Exception as e:
         import sys
-        # Surface the cause (e.g. missing PyYAML) instead of silently dropping
-        # all education — the walk still runs, but the reason is visible.
+        # Surface the cause (missing PyYAML, malformed segments.yaml, ...) instead
+        # of silently dropping all education — but never crash the walk over it.
         print(f"[warn] education unavailable ({type(e).__name__}: {e})", file=sys.stderr)
     return prof
