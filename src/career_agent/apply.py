@@ -11,7 +11,7 @@ def main() -> None:
     from .orchestrator.browser_deps import BrowserDeps
     from .orchestrator.step_engine import walk
     from .memory.candidate_profile import load_candidate_profile
-    from .integrations.approver import CliApprover
+    from .integrations.approver import CliApprover, CliCollector
     from .integrations.human_loop import HumanLoop
     from job_dashboard.apply.store import get_application_profile
 
@@ -29,7 +29,10 @@ def main() -> None:
     profile = load_candidate_profile(conn, args.resume_version, contact=contact)
 
     settings = load_settings()
-    human = HumanLoop(CliApprover())   # Telegram wiring mirrors run.py when configured
+    # CLI harness: approve + collect unknowns on the terminal. remote_solve
+    # stays unwired on purpose — an interactive captcha here degrades to a safe
+    # stop (gate:*), never an auto-solve. Telegram wiring mirrors run.py in prod.
+    human = HumanLoop(CliApprover(), collector=CliCollector())
     pw, context, page = launch(settings)
     try:
         page.goto(args.url)

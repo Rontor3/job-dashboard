@@ -44,6 +44,8 @@ def _review(f: Field) -> FillDecision:
 def map_fields(form: list[Field], profile: dict, resume_path: str | None) -> list[FillDecision]:
     out: list[FillDecision] = []
     for f in form:
+        if f.kind == "button":
+            continue  # nav / submit controls aren't fillable — not a card item
         if f.purpose == "attestation":
             out.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
             continue

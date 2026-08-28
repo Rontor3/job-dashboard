@@ -41,6 +41,17 @@ def test_stops_on_unrecoverable_gate():
     assert out["submitted"] is False and out["stopped_reason"].startswith("gate:")
 
 
+def test_stops_on_otp_email_gate():
+    # otp_email routes to its own handler (not "escalate"); the walk must still
+    # stop on it — Gmail-OTP auto-read is a later sub-project, never bypass now.
+    class G(Deps):
+        def gate(self, page): return "otp_email"
+    form = [_f("#code", "Verification code"), _f("#c", "Continue", None, kind="button")]
+    out = walk(object(), CandidateProfile(), Human(), G([form]), do_submit=True, autonomous=True)
+    assert out["submitted"] is False
+    assert out["stopped_reason"] == "gate:otp_email"
+
+
 def test_dry_run_stops_at_submit_without_submitting():
     s1 = [_f("#s", "Submit application", None, kind="button")]
     out = walk(object(), CandidateProfile(), Human(), Deps([s1]), do_submit=False)

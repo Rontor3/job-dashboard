@@ -6,21 +6,20 @@ from __future__ import annotations
 from ..browser.gate_probe import HANDLERS
 from ..orchestrator.screen_review import map_screen, apply_answers
 from ..orchestrator.advance import (
-    screen_signature, changed, pick_advance_label,
-    ADVANCE_NAMES, SUBMIT_NAMES, NEVER_NAMES,
+    screen_signature, changed, pick_advance_label, has_control,
+    ADVANCE_NAMES, SUBMIT_NAMES,
 )
 
 INTERACTIVE_GATES = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
                      "hcaptcha_checkbox", "hcaptcha_image"}
 
 
-def _has_control(form, names):
-    """Is a control of this family (advance / submit) present, ignoring
-    Back/Cancel? Used instead of `pick_advance_label(...) is None`, which can't
-    tell an advance step from a submit step (it falls back across families)."""
-    labels = [f.label.strip().lower() for f in form if f.label]
-    return any(cand in l and not any(bad in l for bad in NEVER_NAMES)
-               for l in labels for cand in names)
+def _blocking(gate: str) -> bool:
+    # Any gate whose handler is not "proceed" blocks the walk. Checking against
+    # "proceed" (not against "escalate") is deliberate: otp_email routes to its
+    # own handler string, so an == "escalate" test would wrongly let an OTP
+    # screen fall through to fill/advance — a boundary violation.
+    return HANDLERS.get(gate, "escalate") != "proceed"
 
 
 def walk(page, profile, human, deps, max_steps=15, do_submit=False,
@@ -31,11 +30,12 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         form = deps.snapshot(page)
 
         gate = deps.gate(page)
-        if HANDLERS.get(gate, "escalate") == "escalate":
+        if _blocking(gate):
             if gate in INTERACTIVE_GATES:
                 if not human.remote_solve(page, gate, on_link or (lambda u: None)):
                     reason = f"gate:{gate}"; break
-                gate = deps.gate(page)          # re-read after the human solved it
+                if _blocking(deps.gate(page)):   # solve didn't actually clear it
+                    reason = f"gate:{gate}"; break
             else:
                 reason = f"gate:{gate}"; break   # OTP / cloudflare / etc -> stop
 
@@ -45,8 +45,8 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         deps.fill(page, decisions)
 
         before = screen_signature(deps.url(page), form)
-        has_advance = _has_control(form, ADVANCE_NAMES)
-        has_submit = _has_control(form, SUBMIT_NAMES)
+        has_advance = has_control(form, ADVANCE_NAMES)
+        has_submit = has_control(form, SUBMIT_NAMES)
 
         if not has_advance and has_submit:          # final screen: submit
             if not do_submit:

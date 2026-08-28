@@ -3,19 +3,17 @@ human. Attestations are never auto-valued; novel required questions escalate."""
 from __future__ import annotations
 
 from ..browser.form_model import Field
-from ..orchestrator.mapper import FillDecision
+from ..orchestrator.mapper import FillDecision, _action_for_kind as _action
 from ..orchestrator.profile_resolver import resolve
 
 _SELECT_KINDS = {"select", "radio_group"}
 
 
-def _action(kind):
-    return "select" if kind == "select" else ("check_group" if kind == "radio_group" else "fill")
-
-
 def map_screen(form, profile):
     decisions, needs_human = [], []
     for f in form:
+        if f.kind == "button":
+            continue  # nav / submit controls: handled by the advance logic
         if f.purpose == "attestation":
             decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
             continue

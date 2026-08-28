@@ -50,6 +50,16 @@ def test_unknown_or_missing_becomes_review():
     assert decisions["#s"].action == "review"
 
 
+def test_buttons_are_not_review_items():
+    # Perception now captures nav/submit buttons so the step engine can find
+    # them; the Phase-1 card must ignore them (not fillable, not "needs input").
+    form = [_f("#n", "text", "Full name", "full_name"),
+            _f("button:Continue", "button", "Continue", None),
+            _f("button:Submit", "button", "Submit application", None)]
+    decisions = map_fields(form, PROFILE, None)
+    assert {d.ref for d in decisions} == {"#n"}
+
+
 def test_radio_group_checks_when_value_is_an_option():
     # profile value literally matches one of the options -> auto check.
     form = [_f("group:auth", "radio_group", "authorized", "work_authorization",
