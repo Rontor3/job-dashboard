@@ -94,3 +94,27 @@ def test_dry_run_stops_at_submit_without_submitting():
     out = walk(object(), CandidateProfile(), Human(), Deps([s1]), do_submit=False)
     assert out["submitted"] is False
     assert out["stopped_reason"] == "reached_submit_dry_run"
+
+
+def test_learn_records_then_recalls_across_walks():
+    # First walk: human answers a novel question. Second walk (same question,
+    # varied wording): the learned answer is reused, human.collect never fires.
+    import sqlite3
+    from career_agent.memory.learned_answers import AnswerMemory
+    mem = AnswerMemory(sqlite3.connect(":memory:"))
+    prof = CandidateProfile(contact={})
+
+    q1 = [_f("#np", "Notice period (in days)", None, required=True),
+          _f("#c", "Submit application", None, kind="button")]
+    walk(object(), prof, Human(), Deps([q1]), do_submit=True, autonomous=True, learn=mem)
+
+    seen = {}
+    class H(Human):
+        def collect(self, fields): seen["called"] = True; return {f.ref: "X" for f in fields}
+    q2 = [_f("#np2", "Notice Period (In Days)", None, required=True),
+          _f("#c", "Submit application", None, kind="button")]
+    deps2 = Deps([q2])
+    walk(object(), prof, H(), deps2, do_submit=True, autonomous=True, learn=mem)
+    filled = [d for batch in deps2.filled for d in batch]
+    assert any(d.ref == "#np2" and d.value == "X" and d.source == "learned" for d in filled)
+    assert "called" not in seen            # reused -> human never asked again

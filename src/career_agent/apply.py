@@ -69,6 +69,11 @@ def main() -> None:
         print(f"[warn] judgment tier unavailable ({type(e).__name__}: {e})")
         judge_fn = None
 
+    # Learning loop (Phase D): reuse answers the human typed on past forms
+    # before escalating again; record new ones. Same jobs.db, no new store.
+    from .memory.learned_answers import AnswerMemory
+    learn = AnswerMemory(conn)
+
     settings = load_settings()
     # CLI harness: approve + collect unknowns on the terminal. remote_solve
     # stays unwired on purpose — an interactive captcha here degrades to a safe
@@ -98,7 +103,7 @@ def main() -> None:
         out = walk(page, profile, human, BrowserDeps(),
                    max_steps=args.max_steps, do_submit=args.submit,
                    autonomous=args.autonomous, resume_pdf=resume_pdf,
-                   judge_fn=judge_fn, prep_fn=prepare)
+                   judge_fn=judge_fn, prep_fn=prepare, learn=learn)
         print(out)
     finally:
         close(pw, context)

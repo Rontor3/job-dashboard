@@ -24,7 +24,7 @@ def _blocking(gate: str) -> bool:
 
 def walk(page, profile, human, deps, max_steps=15, do_submit=False,
          autonomous=False, on_link=None, resume_pdf=None, judge_fn=None,
-         prep_fn=None) -> dict:
+         prep_fn=None, learn=None) -> dict:
     submitted, reason, steps = False, "max_steps", 0
     for _ in range(max_steps):
         steps += 1
@@ -46,8 +46,16 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         if needs and judge_fn is not None:
             answered, needs, _flagged = judge_fn(needs)   # tier 2/3 before the human
             decisions += answered
+        if needs and learn is not None:
+            recalled, needs = learn.recall(needs)         # reuse past answers
+            decisions += recalled
         if needs:
-            decisions += apply_answers(needs, human.collect(needs))
+            human_answers = human.collect(needs)
+            decisions += apply_answers(needs, human_answers)
+            if learn is not None:                         # remember for next time
+                for f in needs:
+                    if human_answers.get(f.ref) is not None:
+                        learn.record(f, human_answers[f.ref])
         deps.fill(page, decisions)
 
         before = screen_signature(deps.url(page), form)
