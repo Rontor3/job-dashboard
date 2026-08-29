@@ -23,6 +23,23 @@ def _f(ref, label, purpose=None, required=False, kind="text"):
     return Field(ref, kind, label, required, [], None, purpose)
 
 
+def test_walk_uses_judge_fn_before_human_collect():
+    s1 = [_f("#q", "Why us?", None, required=True, kind="textarea"),
+          _f("#c", "Submit application", None, kind="button")]
+    deps = Deps([s1])
+    prof = CandidateProfile(contact={})
+    seen = {}
+    class H(Human):
+        def collect(self, fields): seen["refs"] = [f.ref for f in fields]; return {}
+    def judge_fn(needs):
+        from career_agent.orchestrator.mapper import FillDecision
+        return ([FillDecision("#q", "textarea", "Why us?", "Because ML.", "fill", "judgment")], [], set())
+    walk(object(), prof, H(), deps, do_submit=True, autonomous=True, judge_fn=judge_fn)
+    filled = [d for batch in deps.filled for d in batch]
+    assert any(d.ref == "#q" and d.source == "judgment" for d in filled)
+    assert "refs" not in seen              # judge answered all -> human.collect never called
+
+
 def test_resume_pdf_threads_to_upload_decision():
     s1 = [_f("#cv", "Attach resume", "resume_upload", kind="file"),
           _f("#c", "Submit application", None, kind="button")]

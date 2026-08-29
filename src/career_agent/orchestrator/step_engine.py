@@ -23,7 +23,7 @@ def _blocking(gate: str) -> bool:
 
 
 def walk(page, profile, human, deps, max_steps=15, do_submit=False,
-         autonomous=False, on_link=None, resume_pdf=None) -> dict:
+         autonomous=False, on_link=None, resume_pdf=None, judge_fn=None) -> dict:
     submitted, reason, steps = False, "max_steps", 0
     for _ in range(max_steps):
         steps += 1
@@ -40,6 +40,9 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                 reason = f"gate:{gate}"; break   # OTP / cloudflare / etc -> stop
 
         decisions, needs = map_screen(form, profile, resume_pdf)
+        if needs and judge_fn is not None:
+            answered, needs, _flagged = judge_fn(needs)   # tier 2/3 before the human
+            decisions += answered
         if needs:
             decisions += apply_answers(needs, human.collect(needs))
         deps.fill(page, decisions)
