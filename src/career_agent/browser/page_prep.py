@@ -189,3 +189,11 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
         _advance(page)
         page.wait_for_timeout(1500)
     return classify_entry(page)
+
+
+def prepare(page) -> None:
+    """Idempotent per-step page prep: clear cookie overlays and idle dialogs."""
+    try: dismiss_consent(page)
+    except Exception: pass
+    try: dismiss_dialogs(page)
+    except Exception: pass

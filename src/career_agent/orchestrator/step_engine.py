@@ -23,10 +23,13 @@ def _blocking(gate: str) -> bool:
 
 
 def walk(page, profile, human, deps, max_steps=15, do_submit=False,
-         autonomous=False, on_link=None, resume_pdf=None, judge_fn=None) -> dict:
+         autonomous=False, on_link=None, resume_pdf=None, judge_fn=None,
+         prep_fn=None) -> dict:
     submitted, reason, steps = False, "max_steps", 0
     for _ in range(max_steps):
         steps += 1
+        if prep_fn is not None:
+            prep_fn(page)               # clear cookie/idle overlays before perceiving
         form = deps.snapshot(page)
 
         gate = deps.gate(page)

@@ -74,6 +74,7 @@ def main() -> None:
     # stays unwired on purpose — an interactive captcha here degrades to a safe
     # stop (gate:*), never an auto-solve. Telegram wiring mirrors run.py in prod.
     human = HumanLoop(CliApprover(), collector=CliCollector())
+    from .browser.page_prep import prepare, classify_entry, enter_application, email_auth
     pw, context, page = launch(settings)
     try:
         page.goto(args.url)
@@ -81,9 +82,23 @@ def main() -> None:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
             pass
+        prepare(page)                          # clear cookie/idle overlays
+        kind = classify_entry(page)
+        if kind == "none":                     # JD page -> one Apply hop to the form
+            enter_application(page)
+            page = page.context.pages[-1]      # adopt a new tab if one opened
+            prepare(page); kind = classify_entry(page)
+        if kind == "password":
+            print("[stop] this application needs an account/login. Create it / log in "
+                  "in the open browser (or via your password manager), then re-run --url "
+                  "at the post-login form. The agent never enters passwords.")
+            return
+        if kind == "email_auth":               # passwordless email->OTP->form
+            email_auth(page, contact.get("email", ""), otp_reader=None, on_captcha=None)
         out = walk(page, profile, human, BrowserDeps(),
                    max_steps=args.max_steps, do_submit=args.submit,
-                   autonomous=args.autonomous, resume_pdf=resume_pdf, judge_fn=judge_fn)
+                   autonomous=args.autonomous, resume_pdf=resume_pdf,
+                   judge_fn=judge_fn, prep_fn=prepare)
         print(out)
     finally:
         close(pw, context)

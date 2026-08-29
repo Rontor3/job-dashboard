@@ -23,6 +23,16 @@ def _f(ref, label, purpose=None, required=False, kind="text"):
     return Field(ref, kind, label, required, [], None, purpose)
 
 
+def test_walk_runs_prep_fn_each_step():
+    s1 = [_f("#n", "Full name", "full_name"), _f("#c", "Submit application", None, kind="button")]
+    deps = Deps([s1])
+    calls = {"n": 0}
+    def prep_fn(page): calls["n"] += 1
+    walk(object(), CandidateProfile(contact={"full_name": "R"}), Human(), deps,
+         do_submit=True, autonomous=True, prep_fn=prep_fn)
+    assert calls["n"] >= 1
+
+
 def test_walk_uses_judge_fn_before_human_collect():
     s1 = [_f("#q", "Why us?", None, required=True, kind="textarea"),
           _f("#c", "Submit application", None, kind="button")]
