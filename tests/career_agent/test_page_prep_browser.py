@@ -62,3 +62,20 @@ def test_enter_application_reaches_form():
         b, p = _page(pw, "entry_apply.html")
         assert enter_application(p) == "form"
         b.close()
+
+
+def test_email_auth_email_to_otp_to_form():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import email_auth
+    with sync_playwright() as pw:
+        b, p = _page(pw, "email_auth.html")
+        got = {}
+        def otp_reader():
+            got["asked"] = True
+            return "123456"
+        res = email_auth(p, "me@example.com", otp_reader=otp_reader, on_captcha=None)
+        assert got.get("asked") is True
+        assert res == "form"
+        assert p.locator('#em').input_value() == "me@example.com"
+        assert p.locator('input[name="pin-code-1"]').input_value() == "1"
+        b.close()

@@ -1,0 +1,14 @@
+<!doctype html><html><body>
+  <div id="s1">Confirm your identity. Enter your email; we'll send a code.
+    <input type="email" id="em"><button id="next">NEXT</button></div>
+  <div id="s2" style="display:none">Enter the code.
+    <input name="pin-code-1"><input name="pin-code-2"><input name="pin-code-3">
+    <input name="pin-code-4"><input name="pin-code-5"><input name="pin-code-6">
+    <button id="verify">Verify</button></div>
+  <div id="s3" style="display:none"><form>
+    <input aria-label="First name"><input aria-label="Phone"><input type="email" aria-label="Email"></form></div>
+  <script>
+    next.onclick=()=>{s1.style.display='none';s2.style.display='block';};
+    verify.onclick=()=>{s2.style.display='none';s3.style.display='block';};
+  </script>
+</body></html>

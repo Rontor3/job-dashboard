@@ -135,3 +135,57 @@ def enter_application(page) -> str:
         try: active.wait_for_load_state("domcontentloaded", timeout=15000)
         except Exception: pass
     return classify_entry(active)
+
+
+_INTERACTIVE_GATES = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
+                      "hcaptcha_checkbox", "hcaptcha_image"}
+
+
+def _fill_otp(page, code):
+    code = "".join(c for c in str(code) if c.isdigit())[:6]
+    boxes = [page.query_selector(f'input[name="pin-code-{i}"]') for i in range(1, 7)]
+    boxes = [b for b in boxes if b]
+    if not boxes:
+        boxes = page.query_selector_all('input[aria-label*="verification code digit" i]')
+    if not boxes:
+        return False
+    for b, ch in zip(boxes, code):
+        try: b.click(); b.fill(ch)
+        except Exception: pass
+    return True
+
+
+def _advance(page, names=("NEXT", "Next", "Continue", "Verify", "Submit")):
+    for n in names:
+        try:
+            el = page.get_by_role("button", name=n, exact=False).first
+            if el.count() > 0:
+                el.click(timeout=5000); page.wait_for_timeout(1200); return True
+        except Exception:
+            pass
+    return False
+
+
+def email_auth(page, email, otp_reader, on_captcha=None) -> str:
+    """Passwordless email-first auth: fill email -> (captcha via on_captcha) ->
+    NEXT -> OTP (via otp_reader) -> form. NEVER fills a password / ticks T&C.
+    Returns classify_entry of where it lands ('form' on success, else a reason)."""
+    from ..browser.gate_probe import classify_gate
+    try:
+        page.fill('input[type=email], input[name*="mail" i]', email)
+    except Exception:
+        return "none"
+    gate = classify_gate(page)
+    if gate in _INTERACTIVE_GATES:
+        if on_captcha is None or not on_captcha(page, gate):
+            return "captcha"
+    _advance(page)
+    page.wait_for_timeout(1500)
+    if page.query_selector('input[name="pin-code-1"], input[aria-label*="verification code digit" i]'):
+        code = otp_reader() if otp_reader else None
+        if not code:
+            return "otp_timeout"
+        _fill_otp(page, code)
+        _advance(page)
+        page.wait_for_timeout(1500)
+    return classify_entry(page)
