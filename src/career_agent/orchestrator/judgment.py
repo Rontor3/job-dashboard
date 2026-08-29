@@ -76,6 +76,8 @@ from ..orchestrator.mapper import FillDecision, _action_for_kind
 
 _SELECT_KINDS = {"select", "radio_group"}
 _FREETEXT_KINDS = {"text", "textarea"}
+# Not application questions — never draft an answer into these (search/nav boxes).
+_NOT_A_QUESTION = re.compile(r"\bsearch\b|\bfilter\b|\bkeyword", re.I)
 
 
 def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
@@ -101,6 +103,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
                                              _action_for_kind(f.kind), "judgment"))
             continue
         if f.kind in _FREETEXT_KINDS and f.purpose is None:
+            if _NOT_A_QUESTION.search(f.label or ""):
+                still_need.append(f); continue   # search/filter box, not a question
             calls += 1
             res = draft_screening_answer(ctx.job, f.label, ctx.profile_text,
                                          ctx.research, ctx.resume_text, llm=llm)

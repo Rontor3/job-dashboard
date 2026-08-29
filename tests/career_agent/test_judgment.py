@@ -58,6 +58,16 @@ def test_judge_answers_freetext_flags_and_escalates_sensitive():
     assert "#q" not in {f.ref for f in still_need}
 
 
+def test_judge_never_answers_a_search_box():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    search = _f("#s", "Search", kind="text")
+    called = {"n": 0}
+    def llm(prompt): called["n"] += 1; return "some answer"
+    answered, still_need, flagged = judge([search], ctx, llm)
+    assert "#s" in {f.ref for f in still_need}     # escalated, not answered
+    assert called["n"] == 0                        # llm never called for a search box
+
+
 def test_judge_maps_enum_or_escalates():
     ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="B.Tech IIT")
     edu = _f("#edu", "Highest level of education", kind="select",
