@@ -134,4 +134,5 @@ def collect_raw(page) -> list[dict]:
 
 
 def snapshot_form(page) -> list[Field]:
-    return to_form_model(collect_raw(page))
+    from .page_prep import suppress_noise
+    return suppress_noise(to_form_model(collect_raw(page)))
