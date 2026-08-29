@@ -60,7 +60,14 @@ def map_screen(form, profile, resume_pdf=None):
         if f.kind == "button":
             continue
         if f.purpose == "attestation":
-            decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
+            # Tick REQUIRED attestations (T&C / e-signature) in the DRAFT — a tick
+            # on an unsubmitted form binds nothing; the human-approved SUBMIT is
+            # the consent point. Optional attestations (e.g. marketing opt-in) are
+            # left unticked.
+            if f.required:
+                decisions.append(FillDecision(f.ref, f.kind, f.label, True, "check", "attestation"))
+            else:
+                decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
             continue
         if f.purpose == "resume_upload" or f.kind == "file":
             is_resume = f.purpose == "resume_upload" or not _NON_RESUME_FILE.search(f.label or "")

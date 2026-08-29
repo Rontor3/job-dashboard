@@ -61,6 +61,16 @@ def test_no_prefers_exact_over_na_option():
     assert {x.ref: x for x in decisions}["#c"].value == "No"
 
 
+def test_required_attestation_ticked_optional_left():
+    P = CandidateProfile(contact={})
+    tc = Field("#tc", "checkbox", "I agree with the terms and conditions", True, [], None, "attestation")
+    mkt = Field("#mk", "checkbox", "I agree to receive marketing communications", False, [], None, "attestation")
+    decisions, needs = map_screen([tc, mkt], P)
+    d = {x.ref: x for x in decisions}
+    assert d["#tc"].action == "check" and d["#tc"].value is True   # required T&C -> ticked (draft)
+    assert d["#mk"].action == "attestation"                        # optional marketing -> not ticked
+
+
 def test_non_resume_file_field_escalates():
     # I-3: a cover-letter upload must NOT receive the résumé PDF
     P = CandidateProfile(contact={})

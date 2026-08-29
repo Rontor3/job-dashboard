@@ -38,7 +38,14 @@ def apply_decisions(page, decisions: list[FillDecision]) -> None:
                 page.get_by_label(str(d.value), exact=True).check(timeout=_SOFT_TIMEOUT_MS)
             except Exception:
                 pass
-        # review / attestation: intentionally left for the human.
+        elif d.action == "check":
+            # tick a single checkbox (a required attestation draft). Binding is
+            # the SUBMIT, which stays human-gated — see screen_review.
+            try:
+                page.check(d.ref, timeout=_SOFT_TIMEOUT_MS)
+            except Exception:
+                pass
+        # review: intentionally left for the human.
 
 
 def read_back(page, decisions: list[FillDecision]) -> dict:
