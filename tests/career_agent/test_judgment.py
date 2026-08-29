@@ -37,6 +37,12 @@ def test_map_option_picks_a_real_option_or_none():
     assert map_option("Highest level of education", opts, "B.Tech", llm_bad) is None
     llm_none = lambda prompt: "NONE"
     assert map_option("Highest level of education", opts, "B.Tech", llm_none) is None
+    # LLM wraps the choice in a sentence -> accept the single contained option
+    llm_verbose = lambda prompt: "The candidate holds a Bachelor's degree (B.Tech)."
+    assert map_option("Highest level of education", opts, "B.Tech", llm_verbose) == "Bachelor's degree"
+    # reply mentions two options -> ambiguous -> escalate
+    llm_ambig = lambda prompt: "Between Bachelor's degree and Master's degree, likely the former."
+    assert map_option("Highest level of education", opts, "B.Tech", llm_ambig) is None
 
 
 def test_judge_answers_freetext_flags_and_escalates_sensitive():

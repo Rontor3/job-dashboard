@@ -61,10 +61,15 @@ def map_option(label, options, profile_text, llm) -> str | None:
     except Exception:
         return None
     low = reply.lower()
-    for o in opts:
+    if low in ("none", ""):
+        return None
+    for o in opts:                              # exact reply
         if o.strip().lower() == low:
             return o
-    return None
+    # the LLM may wrap the choice in a sentence; accept it iff EXACTLY ONE
+    # option appears in the reply (ambiguous / none -> escalate, never guess).
+    contained = [o for o in opts if o.strip().lower() in low]
+    return contained[0] if len(contained) == 1 else None
 
 
 from ..orchestrator.mapper import FillDecision, _action_for_kind
