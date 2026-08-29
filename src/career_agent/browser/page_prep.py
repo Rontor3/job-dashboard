@@ -74,3 +74,31 @@ def dismiss_dialogs(page) -> bool:
     except Exception:
         return False
     return _click_first(page, _DIALOG_DISMISS) is not None
+
+
+def classify_entry(page) -> str:
+    """Which of the two application shapes (or a JD/password gate) is on screen:
+    'form' | 'email_auth' | 'password' | 'none'."""
+    try:
+        d = page.evaluate("""() => {
+          const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+          const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
+          const txt = document.body.innerText.slice(0, 4000);
+          const hasPw = ins.some(e => e.type === 'password')
+                        || /create a password|sign in with password/i.test(txt);
+          const email = ins.find(e => e.type === 'email' || /mail/i.test(e.name||e.id||''));
+          const fillable = ins.filter(e => !['hidden','submit','button','password'].includes(e.type)
+            && !/search/i.test(e.getAttribute('aria-label')||e.name||'')).length;
+          return { hasPw, hasEmail: !!email,
+            verify: /verify|one-time|we'll send|continue with email|create .*profile|confirm your identity/i.test(txt),
+            fillable };
+        }""")
+    except Exception:
+        return "none"
+    if d["hasPw"]:
+        return "password"
+    if d["hasEmail"] and d["verify"]:
+        return "email_auth"
+    if d["fillable"] >= 2:
+        return "form"
+    return "none"

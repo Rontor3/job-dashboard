@@ -40,3 +40,16 @@ def test_dismiss_dialogs_continue_working():
         b, p = _page(pw, "dialog_session.html")
         assert dismiss_dialogs(p) is True
         b.close()
+
+
+def test_classify_entry():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import classify_entry
+    with sync_playwright() as pw:
+        for name, expect in [("entry_password.html", "password"),
+                             ("entry_email.html", "email_auth"),
+                             ("entry_form.html", "form"),
+                             ("entry_jd.html", "none")]:
+            b, p = _page(pw, name)
+            assert classify_entry(p) == expect, name
+            b.close()
