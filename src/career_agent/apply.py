@@ -24,6 +24,8 @@ def main() -> None:
     ap.add_argument("--max-steps", type=int, default=15)
     ap.add_argument("--resume-pdf", default=None,
                     help="PDF to attach; default renders the chosen --resume-version")
+    ap.add_argument("--job-id", type=int, default=None,
+                    help="jobs-table id whose JD grounds judgment-tier free-text answers")
     args = ap.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -49,6 +51,24 @@ def main() -> None:
                   "file fields will escalate")
             resume_pdf = None
 
+    # Judgment tier (Phase E): answer free-text/enum fields the rules escalate,
+    # grounded in the JD (--job-id) + profile, via local qwen. Degrades to None
+    # (rules + human only) if unavailable.
+    judge_fn = None
+    try:
+        from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
+        from job_dashboard.db import get_job
+        from job_dashboard.letter.draft import make_default_llm
+        job = (get_job(conn, args.job_id) if args.job_id else None) or \
+            {"title": "", "company": "", "description": ""}
+        llm = make_default_llm()
+        ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
+                              resume_text=job.get("description", ""))
+        judge_fn = lambda needs: judge(needs, ctx, llm, cap=6)
+    except Exception as e:
+        print(f"[warn] judgment tier unavailable ({type(e).__name__}: {e})")
+        judge_fn = None
+
     settings = load_settings()
     # CLI harness: approve + collect unknowns on the terminal. remote_solve
     # stays unwired on purpose — an interactive captcha here degrades to a safe
@@ -63,7 +83,7 @@ def main() -> None:
             pass
         out = walk(page, profile, human, BrowserDeps(),
                    max_steps=args.max_steps, do_submit=args.submit,
-                   autonomous=args.autonomous, resume_pdf=resume_pdf)
+                   autonomous=args.autonomous, resume_pdf=resume_pdf, judge_fn=judge_fn)
         print(out)
     finally:
         close(pw, context)
