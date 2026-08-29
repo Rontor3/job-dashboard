@@ -1,7 +1,7 @@
 from career_agent.browser.form_model import Field
 from career_agent.memory.candidate_profile import CandidateProfile, Experience, Education
 from career_agent.orchestrator.judgment import (
-    JudgmentContext, profile_to_text, _is_sensitive, map_option,
+    JudgmentContext, profile_to_text, _is_sensitive, map_option, judge,
 )
 
 
@@ -37,3 +37,52 @@ def test_map_option_picks_a_real_option_or_none():
     assert map_option("Highest level of education", opts, "B.Tech", llm_bad) is None
     llm_none = lambda prompt: "NONE"
     assert map_option("Highest level of education", opts, "B.Tech", llm_none) is None
+
+
+def test_judge_answers_freetext_flags_and_escalates_sensitive():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme", "description": "..."},
+                          profile_text="Rakshit, Data Scientist at Tata AIG")
+    freetext = _f("#q", "Why do you want this role?", kind="textarea", required=True)
+    gender = _f("#g", "Gender", kind="text")
+    llm = lambda prompt: "I'm excited about Acme because of my ML work at Tata AIG."
+    answered, still_need, flagged = judge([freetext, gender], ctx, llm, cap=6)
+    d = {x.ref: x for x in answered}
+    assert d["#q"].source == "judgment" and "Acme" in d["#q"].value
+    assert "#g" in {f.ref for f in still_need}          # sensitive -> escalate
+    assert "#q" not in {f.ref for f in still_need}
+
+
+def test_judge_maps_enum_or_escalates():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="B.Tech IIT")
+    edu = _f("#edu", "Highest level of education", kind="select",
+             options=["Bachelor's degree", "Master's degree"], required=True)
+    llm = lambda prompt: "Bachelor's degree"
+    answered, still_need, flagged = judge([edu], ctx, llm)
+    assert {x.ref: x for x in answered}["#edu"].value == "Bachelor's degree"
+
+
+def test_judge_respects_cap():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q1 = _f("#q1", "Why us?", kind="textarea", required=True)
+    q2 = _f("#q2", "Why now?", kind="textarea", required=True)
+    llm = lambda prompt: "grounded answer"
+    answered, still_need, flagged = judge([q1, q2], ctx, llm, cap=1)
+    assert len(answered) == 1 and len(still_need) == 1   # cap hit -> one escalates
+
+
+def test_judge_never_raises_on_llm_failure():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#q", "Why?", kind="textarea", required=True)
+    def boom(prompt): raise RuntimeError("ollama down")
+    answered, still_need, flagged = judge([q], ctx, boom, cap=6)
+    assert "#q" in ({x.ref for x in answered} | {f.ref for f in still_need})
+
+
+def test_judge_tier3_orchestrator_answers_weak_freetext():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#q", "Why?", kind="textarea", required=True)
+    def boom(prompt): raise RuntimeError("ollama down")   # -> general_fallback (weak)
+    orch = lambda items: {it["ref"]: "Orchestrator-drafted answer." for it in items}
+    answered, still_need, flagged = judge([q], ctx, boom, cap=6, orchestrator=orch)
+    d = {x.ref: x for x in answered}
+    assert d["#q"].source == "orchestrator" and "Orchestrator" in d["#q"].value

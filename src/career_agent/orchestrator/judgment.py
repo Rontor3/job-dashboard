@@ -65,3 +65,59 @@ def map_option(label, options, profile_text, llm) -> str | None:
         if o.strip().lower() == low:
             return o
     return None
+
+
+from ..orchestrator.mapper import FillDecision, _action_for_kind
+
+_SELECT_KINDS = {"select", "radio_group"}
+_FREETEXT_KINDS = {"text", "textarea"}
+
+
+def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
+    """Answer the fields map_screen escalated. Returns (answered, still_need,
+    flagged). Never raises; never answers a sensitive field; never exceeds `cap`
+    model calls; option fields fill a real option or escalate."""
+    from job_dashboard.apply.screening import draft_screening_answer
+    answered, still_need, flagged = [], [], set()
+    calls = 0
+    hard = []                                  # weak free-text -> tier-3 orchestrator
+    for f in needs_human:
+        if _is_sensitive(f):
+            still_need.append(f); continue
+        if calls >= cap:
+            still_need.append(f); continue
+        if f.kind in _SELECT_KINDS:
+            calls += 1
+            opt = map_option(f.label, f.options, ctx.profile_text, llm)
+            if opt is None:
+                still_need.append(f)
+            else:
+                answered.append(FillDecision(f.ref, f.kind, f.label, opt,
+                                             _action_for_kind(f.kind), "judgment"))
+            continue
+        if f.kind in _FREETEXT_KINDS and f.purpose is None:
+            calls += 1
+            res = draft_screening_answer(ctx.job, f.label, ctx.profile_text,
+                                         ctx.research, ctx.resume_text, llm=llm)
+            weak = res.get("flags") or res.get("unsupported_company_claims")
+            if weak and orchestrator is not None:
+                hard.append(f); continue       # route the weak ones to tier-3
+            answered.append(FillDecision(f.ref, f.kind, f.label, res["answer"], "fill", "judgment"))
+            if weak:
+                flagged.add(f.ref)
+            continue
+        still_need.append(f)                    # unhandled kind -> escalate
+    if hard and orchestrator is not None:
+        try:
+            replies = orchestrator([{"ref": f.ref, "label": f.label,
+                                     "job": ctx.job, "profile_text": ctx.profile_text}
+                                    for f in hard]) or {}
+        except Exception:
+            replies = {}
+        for f in hard:
+            ans = replies.get(f.ref)
+            if ans:
+                answered.append(FillDecision(f.ref, f.kind, f.label, ans, "fill", "orchestrator"))
+            else:
+                still_need.append(f)
+    return answered, still_need, flagged
