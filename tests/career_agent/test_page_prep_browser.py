@@ -53,3 +53,12 @@ def test_classify_entry():
             b, p = _page(pw, name)
             assert classify_entry(p) == expect, name
             b.close()
+
+
+def test_enter_application_reaches_form():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import enter_application
+    with sync_playwright() as pw:
+        b, p = _page(pw, "entry_apply.html")
+        assert enter_application(p) == "form"
+        b.close()

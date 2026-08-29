@@ -102,3 +102,36 @@ def classify_entry(page) -> str:
     if d["fillable"] >= 2:
         return "form"
     return "none"
+
+
+_APPLY = ["Apply now", "Apply for this job", "Apply", "I'm interested", "Start application", "Start"]
+
+
+def enter_application(page) -> str:
+    """From a JD page (classify_entry == 'none'), click Apply ONCE and follow a
+    same-tab nav OR a new tab; return classify_entry of where it lands. One hop —
+    never a submit."""
+    here = classify_entry(page)
+    if here != "none":
+        return here
+    ctx = page.context
+    before = len(ctx.pages)
+    clicked = None
+    for name in _APPLY:
+        try:
+            el = page.get_by_role("button", name=name, exact=False).first
+            if el.count() == 0:
+                el = page.get_by_role("link", name=name, exact=False).first
+            if el.count() > 0:
+                el.click(timeout=5000); clicked = name; break
+        except Exception:
+            pass
+    if clicked is None:
+        return "none"
+    page.wait_for_timeout(2500)
+    active = page
+    if len(ctx.pages) > before:                    # a new tab opened -> adopt it
+        active = ctx.pages[-1]
+        try: active.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception: pass
+    return classify_entry(active)
