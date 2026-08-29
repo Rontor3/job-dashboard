@@ -193,6 +193,17 @@ def get_sample_job_for_company(conn, company_key):
     return (row[0], row[1], row[2]) if row else ("", "", company_key)
 
 
+def get_job(conn, job_id):
+    """The (title, company, description) for a job id, or None. Used by the
+    career agent to ground judgment-tier answers in the job's JD."""
+    row = conn.execute(
+        "SELECT title, company, description FROM jobs WHERE id = ?", (job_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return {"title": row[0], "company": row[1], "description": row[2]}
+
+
 def job_exists(conn, job_url):
     row = conn.execute("SELECT 1 FROM jobs WHERE job_url = ?", (job_url,)).fetchone()
     return row is not None
