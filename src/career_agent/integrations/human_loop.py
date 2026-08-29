@@ -22,7 +22,10 @@ class HumanLoop:
         # crash the run — the gate stays escalated and nothing is submitted.
         session = None
         try:
-            session = self.remote_solve_factory(page)
+            try:
+                session = self.remote_solve_factory(page, gate)   # gate-aware factory
+            except TypeError:
+                session = self.remote_solve_factory(page)          # legacy single-arg
             on_link(session.start())
             return bool(session.wait_until_cleared(self.deadline_s))
         except Exception:

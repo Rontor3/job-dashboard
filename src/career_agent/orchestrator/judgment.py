@@ -84,7 +84,10 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
     """Answer the fields map_screen escalated. Returns (answered, still_need,
     flagged). Never raises; never answers a sensitive field; never exceeds `cap`
     model calls; option fields fill a real option or escalate."""
-    from job_dashboard.apply.screening import draft_screening_answer
+    try:
+        from job_dashboard.apply.screening import draft_screening_answer
+    except Exception:
+        draft_screening_answer = None      # answerer unavailable -> free-text escalates
     answered, still_need, flagged = [], [], set()
     calls = 0
     hard = []                                  # weak free-text -> tier-3 orchestrator
@@ -103,8 +106,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
                                              _action_for_kind(f.kind), "judgment"))
             continue
         if f.kind in _FREETEXT_KINDS and f.purpose is None:
-            if _NOT_A_QUESTION.search(f.label or ""):
-                still_need.append(f); continue   # search/filter box, not a question
+            if _NOT_A_QUESTION.search(f.label or "") or draft_screening_answer is None:
+                still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
             res = draft_screening_answer(ctx.job, f.label, ctx.profile_text,
                                          ctx.research, ctx.resume_text, llm=llm)

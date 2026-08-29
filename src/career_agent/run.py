@@ -64,7 +64,7 @@ def run_once(page, profile, resume_path, meta, human, do_submit, on_link=None) -
 def main() -> None:
     from .config.settings import load_settings
     from .browser.runner import launch, close
-    from .browser.gate_probe import is_cleared
+    from .browser.gate_probe import is_cleared_for
     from .memory.factual_core import load_profile
     from .integrations.live_view.tailscale import detect_host
     from .integrations.live_view.session import RemoteSolveSession
@@ -105,9 +105,11 @@ def main() -> None:
     remote_solve_factory = None
     host = detect_host(settings)
     if host is not None and on_link is not None:
-        remote_solve_factory = lambda page: RemoteSolveSession(
+        # gate-aware: watch only the token for the gate being solved, so a
+        # co-present reCAPTCHA can't false-clear an hCaptcha (dual-captcha pages).
+        remote_solve_factory = lambda page, gate: RemoteSolveSession(
             page, host, settings.remote_solve_port, settings.remote_solve_ttl,
-            settings.remote_solve_allow_public, is_cleared)
+            settings.remote_solve_allow_public, is_cleared_for(gate), captcha_kind=gate)
         print(f"[remote-solve] enabled — host={host} port={settings.remote_solve_port} ttl={settings.remote_solve_ttl}s")
     else:
         print(f"[remote-solve] DISABLED — host={host!r}, telegram_configured={on_link is not None}")

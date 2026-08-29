@@ -45,6 +45,20 @@ def test_remote_solve_degrades_when_start_raises():
     assert seen["closed"] is True
 
 
+def test_remote_solve_passes_gate_to_gate_aware_factory():
+    # a factory taking (page, gate) gets the real gate (so it can watch the
+    # right captcha token on a dual-captcha page).
+    seen = {}
+    class FakeSession:
+        def __init__(self, page, gate): seen["gate"] = gate
+        def start(self): return "http://x/s"
+        def wait_until_cleared(self, timeout_s): return True
+        def close(self): pass
+    hl = HumanLoop(YesApprover(), remote_solve_factory=lambda page, gate: FakeSession(page, gate))
+    hl.remote_solve(page=object(), gate="hcaptcha_image", on_link=lambda u: None)
+    assert seen["gate"] == "hcaptcha_image"
+
+
 def test_remote_solve_degrades_when_factory_raises():
     # factory itself raising (no session created) must also degrade cleanly.
     def boom(page): raise RuntimeError("cannot detect viewport")
