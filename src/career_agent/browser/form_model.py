@@ -7,7 +7,8 @@ from dataclasses import dataclass, field as _field
 
 KNOWN_PURPOSES = frozenset({
     "full_name", "first_name", "last_name", "middle_name", "email", "phone",
-    "location", "city", "country", "veteran", "linkedin_url", "github_url",
+    "location", "city", "country", "veteran", "gender", "ethnicity", "disability",
+    "linkedin_url", "github_url",
     "portfolio_url", "work_authorization", "visa_sponsorship", "prior_contact",
     "years_experience",
     "notice_period", "salary_expectation", "willing_to_relocate",
@@ -62,6 +63,9 @@ _RULES: list[tuple[str, str]] = [
     (r"\bresume\b|\bcv\b|\bupload.*(resume|cv)\b", "resume_upload"),
     (r"\barmed forces\b|\bmilitary\b|\bveteran\b|\breserve component\b"
      r"|\bserved (as|in)\b", "veteran"),
+    (r"\bdisab", "disability"),
+    (r"\bethnic|\brace\b|\bhispanic\b|\blatino\b", "ethnicity"),
+    (r"\bgender\b", "gender"),
     (r"\bcountry\b", "country"),
     (r"\bcity\b|\btown\b", "city"),
     (r"\blocation\b", "location"),

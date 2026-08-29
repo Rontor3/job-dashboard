@@ -12,6 +12,7 @@ _PROFILE_COLS = (
     "portfolio_url", "work_authorization", "years_experience",
     "willing_to_relocate", "notice_period", "salary_expectation",
     "current_ctc", "reason_for_change",
+    "gender", "ethnicity", "veteran_status", "disability_status",
 )
 
 
@@ -38,7 +39,7 @@ def ensure_application_tables(conn):
         )
     """)
     existing = {r[1] for r in conn.execute("PRAGMA table_info(application_profile)")}
-    for col in ("current_ctc", "reason_for_change"):
+    for col in _PROFILE_COLS:          # additive migration for any new profile column
         if col not in existing:
             conn.execute(f"ALTER TABLE application_profile ADD COLUMN {col} TEXT")
 

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 _EXP = {"employer": "company", "job_title": "title", "start_date": "start", "end_date": "end"}
 _EDU = {"school": "school", "degree": "degree", "field_of_study": "field"}
+# Voluntary self-ID: purpose -> contact key. Filled from the user's provided
+# values (never guessed); absent -> None (escalate).
+_DEMO = {"gender": "gender", "ethnicity": "ethnicity",
+         "veteran": "veteran_status", "disability": "disability_status"}
 
 
 def _name_parts(contact):
@@ -20,8 +24,8 @@ def resolve(purpose, profile, index=0):
         return (first if purpose == "first_name" else last) or None
     if purpose == "middle_name":
         return profile.contact.get("middle_name") or None   # escalate if absent
-    if purpose == "veteran":
-        return None                                          # never auto-answered
+    if purpose in _DEMO:                                     # user-provided self-ID
+        return profile.contact.get(_DEMO[purpose]) or None
     if purpose == "city":
         loc = profile.contact.get("location") or ""
         return loc.split(",")[0].strip() or None if loc else None
