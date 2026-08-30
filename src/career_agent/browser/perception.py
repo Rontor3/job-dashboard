@@ -37,6 +37,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             required=bool(r.get("required")), options=list(r.get("options", [])),
             group=r.get("group"),
             purpose=guess_purpose(r["label"], kind),
+            description=r.get("description", ""),
         ))
 
     for name, g in radio_groups.items():
@@ -65,41 +66,49 @@ _INPUT_JS = r"""
   };
   const byId = (root, id) => (root.getElementById ? root.getElementById(id)
                               : root.querySelector('#' + CSS.escape(id)));
+  // Resolve id-references to their concatenated text (aria-labelledby/describedby).
+  const idRefsText = (el, attr) => {
+    const root = el.getRootNode();
+    const v = el.getAttribute(attr);
+    if (!v) return '';
+    return v.split(/\s+/).map(id => { const n = byId(root, id); return n ? n.innerText : ''; })
+            .join(' ').replace(/\s+/g, ' ').trim();
+  };
+  // Accessible NAME in the W3C accname priority order — this is what a screen
+  // reader announces. Priority is the fix: aria-labelledby and aria-label come
+  // BEFORE native <label>, and placeholder is a genuine last resort (so a React
+  // combobox no longer reports "Select..."). Sibling/container text is kept only
+  // as a fallback for forms with no formal association at all (e.g. Greenhouse).
   const labelFor = (el) => {
-    const root = el.getRootNode();   // ShadowRoot or Document — scope lookups here
-    if (el.id) {
+    const root = el.getRootNode();
+    const lb = idRefsText(el, 'aria-labelledby');            // 1
+    if (lb) return lb;
+    const al = (el.getAttribute('aria-label') || '').trim(); // 2
+    if (al) return al;
+    if (el.id) {                                             // 3: <label for>
       const l = root.querySelector(`label[for="${el.id}"]`);
-      if (l) return l.innerText.trim();
+      if (l && l.innerText.trim()) return l.innerText.trim();
     }
-    const wrap = el.closest('label');
-    if (wrap) return wrap.innerText.trim();
-    const fs = el.closest('fieldset');
-    if (fs) { const lg = fs.querySelector('legend'); if (lg) return lg.innerText.trim(); }
-    const al = el.getAttribute('aria-label');
-    if (al) return al.trim();
-    // aria-labelledby -> concatenated text of referenced element(s)
-    const lb = el.getAttribute('aria-labelledby');
-    if (lb) {
-      const t = lb.split(/\s+/).map(id => {
-        const n = byId(root, id); return n ? n.innerText : '';
-      }).join(' ').trim();
-      if (t) return t;
-    }
-    // a label-like element just before the input (Greenhouse renders the
-    // visible label as a separate sibling, not a <label for>)
+    const wrap = el.closest('label');                        // 3: wrapping <label>
+    if (wrap && wrap.innerText.trim()) return wrap.innerText.trim();
+    const fs = el.closest('fieldset');                       // 3: fieldset legend
+    if (fs) { const lg = fs.querySelector('legend'); if (lg && lg.innerText.trim()) return lg.innerText.trim(); }
+    const title = (el.getAttribute('title') || '').trim();   // 4
+    if (title) return title;
+    // ---- fallbacks below are NOT accname; only for forms with no association ----
     let prev = el.previousElementSibling;
-    while (prev) {
-      const t = (prev.innerText || '').trim();
-      if (t) return t;
-      prev = prev.previousElementSibling;
-    }
+    while (prev) { const t = (prev.innerText || '').trim(); if (t) return t; prev = prev.previousElementSibling; }
     const container = el.closest('div,section,fieldset,li');
     if (container) {
       const lbl = container.querySelector('label,legend,.label,[class*=label]');
       if (lbl && (lbl.innerText || '').trim()) return lbl.innerText.trim();
     }
-    return (el.name || el.getAttribute('placeholder') || '').trim();
+    return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
   };
+  // Accessible DESCRIPTION — the helper text (aria-describedby). This is the piece
+  // we used to drop; it carries hints like "type 'relocating'" that change what
+  // a field means.
+  const describedBy = (el) => idRefsText(el, 'aria-describedby');
   for (const el of deepQuery('input,select,textarea')) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
@@ -117,7 +126,7 @@ _INPUT_JS = r"""
     const isCombo = role === 'combobox' || haspopup === 'listbox';
     out.push({
       ref: el.id ? `#${el.id}` : `[name="${el.name}"]`,
-      kind, label: labelFor(el), required: !!el.required,
+      kind, label: labelFor(el), description: describedBy(el), required: !!el.required,
       options, group: (kind === 'radio') ? (el.name || null) : null,
       disabled: !!el.disabled || (!!el.readOnly && !isCombo),
       role, haspopup,

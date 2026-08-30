@@ -27,6 +27,7 @@ class Field:
     options: list = _field(default_factory=list)
     group: str | None = None
     purpose: str | None = None
+    description: str = ""      # accessible description (aria-describedby helper text)
 
 
 # Ordered most-specific-first; first hit wins.

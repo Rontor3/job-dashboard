@@ -59,3 +59,15 @@ def test_combobox_role_promotes_text_to_combobox():
     assert kinds["#gender"] == "combobox"
     assert kinds["#state"] == "combobox"
     assert kinds["#name"] == "text"          # plain text box unaffected
+
+
+def test_description_threads_through():
+    raw = [{"ref": "#addr", "kind": "text", "label": "Home address",
+            "required": False, "options": [], "group": None,
+            "description": "If relocating, type 'relocating'."}]
+    fm = to_form_model(raw)
+    assert fm[0].description == "If relocating, type 'relocating'."
+    # absent description defaults to empty (backward compatible)
+    raw2 = [{"ref": "#n", "kind": "text", "label": "Name", "required": False,
+             "options": [], "group": None}]
+    assert to_form_model(raw2)[0].description == ""
