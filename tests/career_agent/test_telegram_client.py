@@ -58,3 +58,22 @@ def test_poll_text_advances_offset():
     c = TelegramClient("tok", "42", transport=t)
     c.poll_text(timeout_s=0)
     assert c._offset == 9
+
+
+def test_drain_advances_offset_past_all_pending():
+    upd = {"ok": True, "result": [
+        {"update_id": 10, "message": {"chat": {"id": 42}, "text": "old1"}},
+        {"update_id": 12, "message": {"chat": {"id": 42}, "text": "old2"}}]}
+    t = FakeTransport([upd])
+    c = TelegramClient("tok", "42", transport=t)
+    c.drain()
+    assert c._offset == 13                       # past the highest pending update
+    method, payload = t.calls[0]
+    assert method == "getUpdates"
+
+
+def test_drain_noop_when_nothing_pending():
+    t = FakeTransport([{"ok": True, "result": []}])
+    c = TelegramClient("tok", "42", transport=t)
+    c.drain()
+    assert c._offset == 0

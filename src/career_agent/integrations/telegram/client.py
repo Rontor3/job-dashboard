@@ -41,6 +41,14 @@ class TelegramClient:
                 return data
         return None
 
+    def drain(self) -> None:
+        """Discard any pending updates so stale messages (e.g. an earlier test
+        reply) are not later consumed as an answer. Advances the offset past the
+        highest pending update_id."""
+        resp = self._t("getUpdates", {"timeout": 0, "offset": self._offset})
+        for upd in resp.get("result", []):
+            self._offset = max(self._offset, upd["update_id"] + 1)
+
     def poll_text(self, timeout_s: int) -> str | None:
         """One long-poll for a text reply from our chat. Returns the trimmed
         message text, or None if nothing arrived this round."""

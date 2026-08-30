@@ -61,6 +61,9 @@ class TelegramCollector:
 
     def __call__(self, fields) -> dict:
         out: dict = {}
+        drain = getattr(self.client, "drain", None)
+        if drain:
+            drain()               # discard stale updates so they aren't read as answers
         for f in fields:
             label = (f.label or "").strip() or f.ref
             if f.kind != "file" and label.strip().lower() in _JUNK:
