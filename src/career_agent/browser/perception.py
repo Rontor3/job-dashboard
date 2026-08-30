@@ -4,7 +4,43 @@
 thin browser-bound collectors."""
 from __future__ import annotations
 
+import re
+from dataclasses import replace
+
 from .form_model import Field, guess_purpose
+
+# A field the DOM couldn't label: empty, a placeholder-only value, or a
+# checkbox/radio whose only text is the option itself (the question lives in a
+# separate heading the accname computation can't reach). These are the vision
+# fallback's job — no DOM extractor reaches a label that isn't there.
+_PLACEHOLDER_LABEL = re.compile(
+    r"^(select|start typing|pick( a)? date|choose|search|type here|"
+    r"dd/mm|mm/dd|please select|--)\b|^\.\.\.|\.\.\.$", re.I)
+_OPTION_ONLY = {"yes", "no", "n/a", "na", "true", "false", "-"}
+
+
+def is_unlabeled(field) -> bool:
+    lab = (field.label or "").strip()
+    if not lab:
+        return True
+    if _PLACEHOLDER_LABEL.search(lab):
+        return True
+    if field.kind in ("checkbox", "radio", "radio_group") and lab.lower() in _OPTION_ONLY:
+        return True
+    return False
+
+
+def apply_vision_labels(form, labels: dict):
+    """Replace the labels of unlabeled fields with what vision read, and re-guess
+    their purpose from the new label. `labels` maps ref -> the real question."""
+    out = []
+    for f in form:
+        new = labels.get(f.ref)
+        if new and is_unlabeled(f):
+            out.append(replace(f, label=new, purpose=guess_purpose(new, f.kind)))
+        else:
+            out.append(f)
+    return out
 
 
 def to_form_model(raw: list[dict]) -> list[Field]:
@@ -148,6 +184,39 @@ _INPUT_JS = r"""
   return out;
 }
 """
+
+
+def _box(page, ref):
+    try:
+        el = page.query_selector(ref)
+        return el.bounding_box() if el else None
+    except Exception:
+        return None
+
+
+def enrich_with_vision(page, form, vision_fn, shot_path=None):
+    """For fields the DOM couldn't label, screenshot the page + collect the
+    unlabeled fields' boxes, and ask `vision_fn` to read the real question from
+    the picture. vision_fn(shot_path, [{ref,kind,current_label,options,box}])
+    -> {ref: question}. No unlabeled fields or no vision_fn -> form unchanged."""
+    if vision_fn is None:
+        return form
+    unl = [f for f in form if is_unlabeled(f)]
+    if not unl:
+        return form
+    import os, tempfile
+    path = shot_path or os.path.join(tempfile.gettempdir(), "career_vision_form.png")
+    try:
+        page.screenshot(path=path, full_page=True)
+    except Exception:
+        return form
+    info = [{"ref": f.ref, "kind": f.kind, "current_label": f.label,
+             "options": list(f.options), "box": _box(page, f.ref)} for f in unl]
+    try:
+        labels = vision_fn(path, info) or {}
+    except Exception:
+        labels = {}
+    return apply_vision_labels(form, labels)
 
 
 def collect_raw(page) -> list[dict]:
