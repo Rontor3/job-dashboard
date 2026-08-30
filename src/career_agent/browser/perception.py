@@ -18,6 +18,12 @@ def to_form_model(raw: list[dict]) -> list[Field]:
         if r.get("disabled"):
             continue
         kind = r["kind"]
+        # A React "fake dropdown" renders as a plain <input> but announces
+        # role=combobox / aria-haspopup=listbox. Fill it by open+pick, never
+        # by blind text entry — so type it as combobox, not text.
+        if kind == "text" and (r.get("role") == "combobox"
+                               or r.get("haspopup") == "listbox"):
+            kind = "combobox"
         if kind == "radio" and r.get("group"):
             g = radio_groups.setdefault(
                 r["group"],
@@ -104,11 +110,17 @@ _INPUT_JS = r"""
              : 'text';
     const options = tag === 'select'
       ? Array.from(el.options).map(o => o.text.trim()).filter(Boolean) : [];
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+    // A combobox is interacted with by clicking, not typing, so readOnly is
+    // normal there and must NOT drop it as if disabled.
+    const isCombo = role === 'combobox' || haspopup === 'listbox';
     out.push({
       ref: el.id ? `#${el.id}` : `[name="${el.name}"]`,
       kind, label: labelFor(el), required: !!el.required,
       options, group: (kind === 'radio') ? (el.name || null) : null,
-      disabled: !!(el.disabled || el.readOnly),
+      disabled: !!el.disabled || (!!el.readOnly && !isCombo),
+      role, haspopup,
     });
   }
   // Advance controls (Next/Continue/Submit): buttons and link-buttons. Captured

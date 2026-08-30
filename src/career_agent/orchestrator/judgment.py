@@ -72,6 +72,34 @@ def map_option(label, options, profile_text, llm) -> str | None:
     return contained[0] if len(contained) == 1 else None
 
 
+def match_value_to_option(label, value, options, llm) -> str | None:
+    """Rung 3 of value->option matching: we already HAVE the answer `value`
+    (e.g. 'Male'); ask the llm which live option means the same (e.g. 'Man').
+    Validates the reply against `options`; never returns a non-option."""
+    opts = [o for o in (options or []) if o and o.strip()]
+    if not opts:
+        return None
+    prompt = (
+        f"Application question: \"{label}\"\n"
+        f"The candidate's answer is: \"{value}\"\n"
+        "Choose the ONE option below that expresses that same answer to this "
+        "question. Reply with the option text EXACTLY as written, or NONE if none "
+        "fit.\n\nOPTIONS:\n"
+        + "\n".join(f"- {o}" for o in opts) + "\n\nAnswer with one option or NONE:")
+    try:
+        reply = (llm(prompt) or "").strip()
+    except Exception:
+        return None
+    low = reply.lower()
+    if low in ("none", ""):
+        return None
+    for o in opts:
+        if o.strip().lower() == low:
+            return o
+    contained = [o for o in opts if o.strip().lower() in low]
+    return contained[0] if len(contained) == 1 else None
+
+
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 
 _SELECT_KINDS = {"select", "radio_group"}

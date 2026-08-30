@@ -69,6 +69,18 @@ def main() -> None:
         print(f"[warn] judgment tier unavailable ({type(e).__name__}: {e})")
         judge_fn = None
 
+    # Combobox value->option matcher (rung 3): maps our answer to a React
+    # dropdown's live option (e.g. Male->Man) when exact/word match misses.
+    option_matcher = None
+    try:
+        from .orchestrator.judgment import match_value_to_option
+        from job_dashboard.letter.draft import make_default_llm
+        _mllm = make_default_llm()
+        option_matcher = lambda label, value, options: match_value_to_option(
+            label, value, options, _mllm)
+    except Exception as e:
+        print(f"[warn] combobox matcher unavailable ({type(e).__name__}: {e})")
+
     # Learning loop (Phase D): reuse answers the human typed on past forms
     # before escalating again; record new ones. Same jobs.db, no new store.
     from .memory.learned_answers import AnswerMemory
@@ -100,7 +112,7 @@ def main() -> None:
             return
         if kind == "email_auth":               # passwordless email->OTP->form
             email_auth(page, contact.get("email", ""), otp_reader=None, on_captcha=None)
-        out = walk(page, profile, human, BrowserDeps(),
+        out = walk(page, profile, human, BrowserDeps(option_matcher=option_matcher),
                    max_steps=args.max_steps, do_submit=args.submit,
                    autonomous=args.autonomous, resume_pdf=resume_pdf,
                    judge_fn=judge_fn, prep_fn=prepare, learn=learn)

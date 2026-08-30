@@ -4,6 +4,9 @@ from __future__ import annotations
 
 
 class BrowserDeps:
+    def __init__(self, option_matcher=None):
+        self.option_matcher = option_matcher   # rung-3 value->option llm (comboboxes)
+
     def snapshot(self, page):
         from ..browser.perception import snapshot_form
         return snapshot_form(page)
@@ -14,7 +17,7 @@ class BrowserDeps:
 
     def fill(self, page, decisions):
         from ..browser.filler import apply_decisions
-        apply_decisions(page, decisions)
+        apply_decisions(page, decisions, matcher=self.option_matcher)
 
     def click(self, page, label):
         try:

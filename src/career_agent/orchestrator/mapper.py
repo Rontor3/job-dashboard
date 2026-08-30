@@ -34,6 +34,8 @@ def _action_for_kind(kind: str) -> str:
         return "select"
     if kind == "radio_group":
         return "check_group"
+    if kind == "combobox":
+        return "combobox"           # open the fake dropdown + click a live option
     return "fill"
 
 

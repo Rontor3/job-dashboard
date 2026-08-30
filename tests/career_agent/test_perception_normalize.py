@@ -41,3 +41,21 @@ def test_disabled_and_readonly_fields_are_dropped():
     ]
     fm = to_form_model(raw)
     assert [f.ref for f in fm] == ["#live"]
+
+
+def test_combobox_role_promotes_text_to_combobox():
+    # A React "fake dropdown" is an <input> that reports role=combobox; it must
+    # be typed as combobox (open+pick), not text (blind fill).
+    raw = [
+        {"ref": "#gender", "kind": "text", "label": "Gender", "required": False,
+         "options": [], "group": None, "role": "combobox"},
+        {"ref": "#state", "kind": "text", "label": "State", "required": False,
+         "options": [], "group": None, "haspopup": "listbox"},
+        {"ref": "#name", "kind": "text", "label": "Full name", "required": False,
+         "options": [], "group": None},
+    ]
+    fm = to_form_model(raw)
+    kinds = {f.ref: f.kind for f in fm}
+    assert kinds["#gender"] == "combobox"
+    assert kinds["#state"] == "combobox"
+    assert kinds["#name"] == "text"          # plain text box unaffected
