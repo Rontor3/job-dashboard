@@ -33,3 +33,28 @@ def test_poll_callback_ignores_unknown_and_times_out():
     t = FakeTransport([upd])
     c = TelegramClient("tok", "42", transport=t)
     assert c.poll_callback(timeout_s=0, valid={"submit"}) is None
+
+
+def test_poll_text_returns_message_text_from_our_chat():
+    upd = {"ok": True, "result": [
+        {"update_id": 5, "message": {"chat": {"id": 42}, "text": " Male "}}]}
+    t = FakeTransport([upd])
+    c = TelegramClient("tok", "42", transport=t)
+    assert c.poll_text(timeout_s=0) == "Male"        # trimmed
+
+
+def test_poll_text_ignores_other_chats_and_times_out():
+    upd = {"ok": True, "result": [
+        {"update_id": 6, "message": {"chat": {"id": 999}, "text": "nope"}}]}
+    t = FakeTransport([upd])
+    c = TelegramClient("tok", "42", transport=t)
+    assert c.poll_text(timeout_s=0) is None
+
+
+def test_poll_text_advances_offset():
+    upd = {"ok": True, "result": [
+        {"update_id": 8, "message": {"chat": {"id": 42}, "text": "hi"}}]}
+    t = FakeTransport([upd])
+    c = TelegramClient("tok", "42", transport=t)
+    c.poll_text(timeout_s=0)
+    assert c._offset == 9

@@ -40,3 +40,18 @@ class TelegramClient:
             if data in valid:
                 return data
         return None
+
+    def poll_text(self, timeout_s: int) -> str | None:
+        """One long-poll for a text reply from our chat. Returns the trimmed
+        message text, or None if nothing arrived this round."""
+        payload = {"timeout": timeout_s, "offset": self._offset,
+                   "allowed_updates": ["message"]}
+        resp = self._t("getUpdates", payload)
+        for upd in resp.get("result", []):
+            self._offset = max(self._offset, upd["update_id"] + 1)
+            msg = upd.get("message", {})
+            if str(msg.get("chat", {}).get("id")) == str(self.chat_id):
+                text = (msg.get("text") or "").strip()
+                if text:
+                    return text
+        return None
