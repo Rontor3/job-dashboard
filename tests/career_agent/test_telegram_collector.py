@@ -12,16 +12,22 @@ def _f(ref, kind, label, options=None):
     return Field(ref, kind, label, True, options or [], None, None)
 
 
-def _collector(client, drafter=None):
-    return TelegramCollector(client, drafter=drafter, deadline_s=4,
-                             poll_interval_s=1, sleep=lambda s: None)
+def _collector(client, drafter=None, context="Anthropic · Data Scientist"):
+    return TelegramCollector(client, drafter=drafter, context=context,
+                             deadline_s=4, poll_interval_s=1, sleep=lambda s: None)
+
+
+def test_message_carries_context_header():
+    c = FakeClient(["2"])
+    _collector(c)([_f("#loc", "select", "Preferred Location", ["NY", "Jersey City", "Chicago"])])
+    assert "Anthropic · Data Scientist" in c.sent[0]     # context shown
 
 
 def test_dropdown_numbered_and_number_reply_maps_to_option():
     c = FakeClient(["2"])
     out = _collector(c)([_f("#loc", "select", "Preferred Location", ["NY", "Jersey City", "Chicago"])])
     assert out == {"#loc": "Jersey City"}
-    assert "1) NY" in c.sent[0] and "2) Jersey City" in c.sent[0]   # numbered list shown
+    assert "1) NY" in c.sent[0] and "2) Jersey City" in c.sent[0]
 
 
 def test_checkbox_yes_no():
@@ -35,13 +41,12 @@ def test_textarea_uses_draft_on_ok():
     drafter = lambda label: "JPMorgan's payments data work fits my ML background."
     out = _collector(c, drafter)([_f("#why", "textarea", "Why do you want to work here?")])
     assert out["#why"].startswith("JPMorgan")
-    assert "Suggested:" in c.sent[0]                                # draft shown for editing
+    assert "draft" in c.sent[0].lower()
 
 
 def test_textarea_edit_overrides_draft():
     c = FakeClient(["Actually, I admire the fraud-analytics team."])
-    drafter = lambda label: "generic draft"
-    out = _collector(c, drafter)([_f("#why", "textarea", "Why us?")])
+    out = _collector(c, lambda label: "generic")([_f("#why", "textarea", "Why us?")])
     assert out["#why"] == "Actually, I admire the fraud-analytics team."
 
 
@@ -51,14 +56,30 @@ def test_combobox_free_text_typed_value():
     assert out == {"#g": "Male"}
 
 
-def test_file_field_is_not_asked():
+def test_skip_reply_leaves_blank():
+    c = FakeClient(["skip"])
+    out = _collector(c)([_f("#q", "text", "Anything else?")])
+    assert out == {}
+    assert "skip" in c.sent[0].lower()                   # skip option advertised
+
+
+def test_junk_placeholder_label_is_not_asked():
+    # a combobox whose label perception couldn't resolve ("Select...") is
+    # unanswerable over text -> skip it, leave for the browser (no message).
+    c = FakeClient([])
+    out = _collector(c)([_f("#x", "combobox", "Select...")])
+    assert out == {}
+    assert c.sent == []                                  # nothing sent for a junk label
+
+
+def test_file_field_is_not_asked_for_a_value():
     c = FakeClient([])
     out = _collector(c)([_f("#cv", "file", "Cover Letter")])
     assert out == {}
-    assert "browser" in c.sent[0].lower()                          # told to attach in browser
+    assert "browser" in c.sent[0].lower()
 
 
 def test_dropdown_no_match_skips():
     c = FakeClient(["banana"])
     out = _collector(c)([_f("#loc", "select", "Location", ["NY", "SF"])])
-    assert out == {}                                               # unmatched -> not filled
+    assert out == {}
