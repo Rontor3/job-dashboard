@@ -86,8 +86,8 @@ def map_screen(form, profile, resume_pdf=None):
         value = resolve(f.purpose, profile) if f.purpose else None
         if value is not None:
             _place(f, value, "resume", decisions, needs_human)
-        elif f.required or (f.purpose is None and f.kind in ("text", "textarea")):
-            needs_human.append(f)
+        elif f.required or (f.purpose is None and f.kind == "text"):
+            needs_human.append(f)     # optional catch-all textareas -> left blank
     return decisions, needs_human
 
 

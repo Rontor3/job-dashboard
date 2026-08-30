@@ -80,3 +80,17 @@ def test_non_resume_file_field_escalates():
     d = {x.ref: x for x in decisions}
     assert d["#cv"].value == "/tmp/cv.pdf" and d["#cv"].action == "upload"
     assert "#cl" in {f.ref for f in needs}   # cover letter -> escalate, no résumé
+
+
+def test_optional_freetext_textarea_left_blank_not_escalated():
+    # An optional catch-all essay ("Additional Information") should be left blank,
+    # not drafted/asked. A required essay still escalates.
+    P = CandidateProfile(contact={})
+    opt = Field("#add", "textarea", "Additional Information", False, [], None, None)
+    req = Field("#why", "textarea", "Why do you want to work here?", True, [], None, None)
+    short_opt = Field("#nick", "text", "Preferred nickname", False, [], None, None)
+    decisions, needs = map_screen([opt, req, short_opt], P)
+    refs = {f.ref for f in needs}
+    assert "#add" not in refs        # optional textarea -> blank
+    assert "#why" in refs            # required textarea -> ask
+    assert "#nick" in refs           # optional short text still asked
