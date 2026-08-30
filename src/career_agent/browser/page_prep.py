@@ -138,15 +138,35 @@ def classify_entry(page, status=None) -> str:
 _APPLY = ["Apply now", "Apply for this job", "Apply", "I'm interested", "Start application", "Start"]
 
 
+_REACHED = {"form", "email_auth", "password"}    # a hop that actually got somewhere
+
+
+def _apply_url_variants(url: str) -> list:
+    """ATS-specific apply routes to try if clicking Apply didn't reach a form.
+    Lever forms live at {job}/apply, Ashby at {job}/application."""
+    u = url.split("?")[0].split("#")[0].rstrip("/")
+    if u.endswith(("/apply", "/application")):
+        return []
+    out = []
+    if "ashbyhq.com" in url:
+        out.append(u + "/application")
+    if "lever.co" in url:
+        out.append(u + "/apply")
+    if not out:                                   # generic last try
+        out.append(u + "/apply")
+    return out
+
+
 def enter_application(page) -> str:
-    """From a JD page (classify_entry == 'none'), click Apply ONCE and follow a
-    same-tab nav OR a new tab; return classify_entry of where it lands. One hop —
-    never a submit."""
+    """From a JD page (classify_entry == 'none'), reach the application form: click
+    Apply ONCE (follow a same-tab nav OR a new tab), and if that doesn't land on a
+    form, try the ATS-specific /apply|/application route. One hop — never a submit."""
     here = classify_entry(page)
     if here != "none":
         return here
     ctx = page.context
     before = len(ctx.pages)
+    job_url = page.url
     clicked = None
     for name in _APPLY:
         try:
@@ -157,14 +177,26 @@ def enter_application(page) -> str:
                 el.click(timeout=5000); clicked = name; break
         except Exception:
             pass
-    if clicked is None:
-        return "none"
-    page.wait_for_timeout(2500)
     active = page
-    if len(ctx.pages) > before:                    # a new tab opened -> adopt it
-        active = ctx.pages[-1]
-        try: active.wait_for_load_state("domcontentloaded", timeout=15000)
-        except Exception: pass
+    if clicked is not None:
+        page.wait_for_timeout(2500)
+        if len(ctx.pages) > before:                # a new tab opened -> adopt it
+            active = ctx.pages[-1]
+            try: active.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception: pass
+        res = classify_entry(active)
+        if res in _REACHED:
+            return res
+    # click didn't reach a form (wrong Apply link, or no button) -> try the ATS route
+    for variant in _apply_url_variants(job_url):
+        try:
+            active.goto(variant, wait_until="domcontentloaded")
+            active.wait_for_timeout(2500)
+            res = classify_entry(active)
+            if res in _REACHED:
+                return res
+        except Exception:
+            pass
     return classify_entry(active)
 
 

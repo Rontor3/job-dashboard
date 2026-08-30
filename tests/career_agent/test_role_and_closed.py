@@ -55,3 +55,11 @@ def test_classify_no_form_but_alive_is_none_not_closed():
     from career_agent.browser.page_prep import classify_entry
     p = _FakePage(_d(fillable=0), body="Loading your application… please wait")
     assert classify_entry(p) == "none"        # alive but unreached -> not 'closed'
+
+
+def test_apply_url_variants():
+    from career_agent.browser.page_prep import _apply_url_variants
+    assert _apply_url_variants("https://jobs.lever.co/co/abc-123") == ["https://jobs.lever.co/co/abc-123/apply"]
+    assert _apply_url_variants("https://jobs.ashbyhq.com/co/abc?src=x") == ["https://jobs.ashbyhq.com/co/abc/application"]
+    assert _apply_url_variants("https://jobs.lever.co/co/abc/apply") == []          # already there
+    assert _apply_url_variants("https://acme.com/careers/42") == ["https://acme.com/careers/42/apply"]  # generic
