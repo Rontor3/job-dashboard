@@ -38,7 +38,9 @@ _RULES: list[tuple[str, str]] = [
     (r"\blast name\b|\bsurname\b|\bfamily name\b", "last_name"),
     (r"\bmiddle\b", "middle_name"),        # "Middle", "Middle Name", "Middle Initial"
     (r"\bfull name\b|\byour name\b|\bname\b", "full_name"),
-    (r"\bjob title\b|\bposition title\b|\brole\b|\btitle\b", "job_title"),
+    # Bare "role" over-matched "for this role" (relocation/interview questions);
+    # require a title-like word instead. "Position" still catches job-title inputs.
+    (r"\bjob title\b|\bposition title\b|\bposition\b|\brole title\b|\btitle\b", "job_title"),
     (r"\bstart date\b|\bdate from\b|\bfrom date\b", "start_date"),
     (r"\bend date\b|\bdate to\b|\bto date\b", "end_date"),
     (r"\bfield of study\b|\bmajor\b|\bspecial", "field_of_study"),

@@ -101,10 +101,16 @@ def main() -> None:
             pass
         prepare(page)                          # clear cookie/idle overlays
         kind = classify_entry(page)
+        if kind == "closed":                   # expired / removed / 404 shell -> skip
+            print("[skip] this posting is closed or no longer available.")
+            return
         if kind == "none":                     # JD page -> one Apply hop to the form
             enter_application(page)
             page = page.context.pages[-1]      # adopt a new tab if one opened
             prepare(page); kind = classify_entry(page)
+        if kind == "closed":
+            print("[skip] this posting is closed or no longer available.")
+            return
         if kind == "password":
             print("[stop] this application needs an account/login. Create it / log in "
                   "in the open browser (or via your password manager), then re-run --url "

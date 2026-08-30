@@ -76,9 +76,33 @@ def dismiss_dialogs(page) -> bool:
     return _click_first(page, _DIALOG_DISMISS) is not None
 
 
+_CLOSED_RE = re.compile(
+    r"job (not found|you requested was not found)|no longer available"
+    r"|could ?n'?t find anything|posting[^.]{0,40}(closed|removed)|404 error",
+    re.I)
+
+
+def _looks_closed(text: str) -> bool:
+    """True if the page is a dead-posting shell (expired/removed/404). Guarded to
+    a short body so a long JD that merely mentions '404' isn't flagged."""
+    t = (text or "").strip()
+    if not t or len(t) > 600:
+        return False
+    return _CLOSED_RE.search(t) is not None
+
+
+def is_closed_posting(page) -> bool:
+    try:
+        return _looks_closed(page.evaluate("() => document.body.innerText"))
+    except Exception:
+        return False
+
+
 def classify_entry(page) -> str:
     """Which of the two application shapes (or a JD/password gate) is on screen:
-    'form' | 'email_auth' | 'password' | 'none'."""
+    'closed' | 'form' | 'email_auth' | 'password' | 'none'."""
+    if is_closed_posting(page):
+        return "closed"
     try:
         d = page.evaluate("""() => {
           const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
