@@ -46,3 +46,16 @@ def test_address_purpose_escalates_when_no_value():
     f = Field("#addr", "text", "Home address", True, [], None, "address")
     decisions, needs = map_screen([f], CandidateProfile(contact={}))
     assert "#addr" in {x.ref for x in needs}               # escalated, not filled with junk
+
+
+def test_checkbox_never_gets_a_text_value_purpose():
+    from career_agent.browser.form_model import guess_purpose
+    # a checkbox can't hold a typed name/email/phone -> those purposes are dropped
+    assert guess_purpose("Use name only", "checkbox") is None
+    assert guess_purpose("Email me updates", "checkbox") is None
+    # attestation checkboxes still resolve
+    assert guess_purpose("I agree to the terms and conditions", "checkbox") == "attestation"
+    # a yes/no QUESTION rendered as a checkbox keeps its question purpose
+    assert guess_purpose("Do you require visa sponsorship?", "checkbox") == "visa_sponsorship"
+    # a plain text name field is unaffected
+    assert guess_purpose("Full Name", "text") == "full_name"

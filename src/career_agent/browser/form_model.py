@@ -88,14 +88,30 @@ _ATTEST = re.compile(
 )
 
 
+# Purposes that resolve to a TEXT value to type — nonsensical on a checkbox
+# ("Use name only" must not become full_name).
+_TEXT_VALUE_PURPOSES = {
+    "first_name", "last_name", "middle_name", "full_name", "email", "phone",
+    "linkedin_url", "github_url", "portfolio_url", "employer", "job_title",
+    "start_date", "end_date", "field_of_study", "degree", "school", "gpa",
+    "skills", "summary", "address", "city", "location", "country",
+    "years_experience", "notice_period", "salary_expectation",
+}
+
+
 def guess_purpose(label: str, kind: str) -> str | None:
     text = (label or "").strip().lower()
     if not text:
         return None
     if kind == "file":
         return "resume_upload" if _RESUME_RE.search(text) else None
-    if kind == "checkbox" and _ATTEST.search(text):
-        return "attestation"
+    if kind == "checkbox":
+        if _ATTEST.search(text):
+            return "attestation"
+        for pattern, purpose in _RULES:      # keep only question purposes, not text ones
+            if re.search(pattern, text):
+                return None if purpose in _TEXT_VALUE_PURPOSES else purpose
+        return None
     for pattern, purpose in _RULES:
         if re.search(pattern, text):
             return purpose
