@@ -145,6 +145,10 @@ _INPUT_JS = r"""
   // we used to drop; it carries hints like "type 'relocating'" that change what
   // a field means.
   const describedBy = (el) => idRefsText(el, 'aria-describedby');
+  // Stamp a unique handle on every field so it's addressable even with no id and
+  // no name (custom widgets share [name=""] otherwise). Prefer #id when present
+  // (stable, readable); else use the stamped [data-cref="fN"].
+  let _ci = 0;
   for (const el of deepQuery('input,select,textarea')) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
@@ -160,8 +164,10 @@ _INPUT_JS = r"""
     // A combobox is interacted with by clicking, not typing, so readOnly is
     // normal there and must NOT drop it as if disabled.
     const isCombo = role === 'combobox' || haspopup === 'listbox';
+    const cref = 'f' + (_ci++);
+    el.setAttribute('data-cref', cref);          // unique, id/name-independent handle
     out.push({
-      ref: el.id ? `#${el.id}` : `[name="${el.name}"]`,
+      ref: el.id ? `#${el.id}` : `[data-cref="${cref}"]`,
       kind, label: labelFor(el), description: describedBy(el), required: !!el.required,
       options, group: (kind === 'radio') ? (el.name || null) : null,
       disabled: !!el.disabled || (!!el.readOnly && !isCombo),
