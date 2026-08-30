@@ -98,10 +98,15 @@ def is_closed_posting(page) -> bool:
         return False
 
 
-def classify_entry(page) -> str:
+def classify_entry(page, status=None) -> str:
     """Which of the two application shapes (or a JD/password gate) is on screen:
-    'closed' | 'form' | 'email_auth' | 'password' | 'none'."""
-    if is_closed_posting(page):
+    'closed' | 'form' | 'email_auth' | 'password' | 'none'.
+
+    Reasoning for 'closed': a 404/410 HTTP status is decisive; otherwise it needs
+    BOTH no fillable form AND dead-posting language — so a live form is never
+    'closed', and a page that's alive but whose form we didn't reach is 'none'
+    (a different problem: a second hop / login / render), not 'closed'."""
+    if status in (404, 410):
         return "closed"
     try:
         d = page.evaluate("""() => {
@@ -124,8 +129,10 @@ def classify_entry(page) -> str:
     if d["hasEmail"] and d["verify"]:
         return "email_auth"
     if d["fillable"] >= 2:
-        return "form"
-    return "none"
+        return "form"                       # a form is present -> never 'closed'
+    if is_closed_posting(page):             # no form + dead-posting language -> closed
+        return "closed"
+    return "none"                           # no form, but alive -> unreached, not dead
 
 
 _APPLY = ["Apply now", "Apply for this job", "Apply", "I'm interested", "Start application", "Start"]

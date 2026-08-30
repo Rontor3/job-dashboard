@@ -94,13 +94,13 @@ def main() -> None:
     from .browser.page_prep import prepare, classify_entry, enter_application, email_auth
     pw, context, page = launch(settings)
     try:
-        page.goto(args.url)
+        resp = page.goto(args.url)
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
             pass
         prepare(page)                          # clear cookie/idle overlays
-        kind = classify_entry(page)
+        kind = classify_entry(page, status=resp.status if resp else None)
         if kind == "closed":                   # expired / removed / 404 shell -> skip
             print("[skip] this posting is closed or no longer available.")
             return
