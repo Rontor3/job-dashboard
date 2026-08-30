@@ -58,7 +58,8 @@ class AnswerMemory:
         self.conn.commit()
 
     def _lookup(self, field):
-        if field.kind == "textarea":
+        # never recall essays, file uploads, or attestations (consent is per-run)
+        if field.kind in ("textarea", "file") or field.purpose == "attestation":
             return None
         # 1. same purpose -> reuse regardless of wording
         if field.purpose:
@@ -91,6 +92,23 @@ class AnswerMemory:
             if cand and len(toks & cand) / len(toks | cand) >= _MIN_OVERLAP:
                 return hits[0]
         return None
+
+    def record_corrections(self, form, decisions, final_values):
+        """Learn from the human's edits: where the final form value differs from
+        what the agent filled, record it as a correction (keyed by the field's
+        label/purpose) so recall provides the right value next time."""
+        byref = {f.ref: f for f in form}
+        for d in decisions:
+            if d.action not in ("fill", "select", "combobox") or d.value is None:
+                continue
+            final = final_values.get(d.ref)
+            if final is None:
+                continue
+            final = str(final).strip()
+            if final and final != str(d.value).strip():
+                f = byref.get(d.ref)
+                if f is not None:
+                    self.record(f, final)
 
     def recall(self, fields):
         """(decisions, still_need) — fill fields we've seen answered, escalate the rest."""

@@ -45,13 +45,17 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
             else:
                 reason = f"gate:{gate}"; break   # OTP / cloudflare / etc -> stop
 
-        decisions, needs = map_screen(form, profile, resume_pdf)
+        # Recall FIRST — a learned answer/correction wins over the rules, so a
+        # field the rules once filled wrong (address="Yes") is fixed for good.
+        fillable = [f for f in form if f.kind != "button"]
+        recalled, remaining = ([], fillable)
+        if learn is not None:
+            recalled, remaining = learn.recall(fillable)
+        decisions, needs = map_screen(remaining, profile, resume_pdf)
+        decisions += recalled
         if needs and judge_fn is not None:
             answered, needs, _flagged = judge_fn(needs)   # tier 2/3 before the human
             decisions += answered
-        if needs and learn is not None:
-            recalled, needs = learn.recall(needs)         # reuse past answers
-            decisions += recalled
         if needs:
             human_answers = human.collect(needs)
             decisions += apply_answers(needs, human_answers)
@@ -69,6 +73,13 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
             if not do_submit:
                 reason = "reached_submit_dry_run"; break
             if autonomous or human.approve("Ready to submit"):
+                # the human just reviewed/edited the live form -> learn from any
+                # change (final value != what we filled) before submitting.
+                if learn is not None and hasattr(deps, "read_back"):
+                    try:
+                        learn.record_corrections(form, decisions, deps.read_back(page, decisions))
+                    except Exception:
+                        pass
                 deps.click(page, pick_advance_label(form, is_last=True))
                 submitted = True; reason = "submitted"
             else:

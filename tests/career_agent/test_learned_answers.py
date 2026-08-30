@@ -59,3 +59,19 @@ def test_record_updates_existing_answer():
     m.record(_f("#np", "Notice period"), "30")   # changed answer overwrites
     decisions, _ = m.recall([_f("#np", "Notice period")])
     assert decisions[0].value == "30"
+
+
+def test_record_corrections_diffs_and_learns():
+    from career_agent.orchestrator.mapper import FillDecision
+    m = _mem()
+    form = [_f("#p", "Phone", purpose="phone"), _f("#np", "Notice period")]
+    decisions = [FillDecision("#p", "text", "Phone", "+91 000", "fill", "resume"),
+                 FillDecision("#np", "text", "Notice period", "30 days", "fill", "learned")]
+    final = {"#p": "+91 99999", "#np": "30 days"}      # phone changed by human, notice unchanged
+    m.record_corrections(form, decisions, final)
+    # the changed one is learned; recall now returns the corrected value
+    dec, still = m.recall([_f("#p2", "Phone", purpose="phone")])
+    assert dec and dec[0].value == "+91 99999"
+    # the unchanged one was NOT recorded (nothing to learn) -> not recalled
+    dec2, still2 = m.recall([_f("#np2", "Notice period")])
+    assert dec2 == [] and "#np2" in {f.ref for f in still2}

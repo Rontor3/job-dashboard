@@ -118,3 +118,39 @@ def test_learn_records_then_recalls_across_walks():
     filled = [d for batch in deps2.filled for d in batch]
     assert any(d.ref == "#np2" and d.value == "X" and d.source == "learned" for d in filled)
     assert "called" not in seen            # reused -> human never asked again
+
+
+def test_recall_overrides_a_wrong_rule_fill():
+    # a learned CORRECTION for a field must win over what the rules would fill.
+    import sqlite3
+    from career_agent.memory.learned_answers import AnswerMemory
+    mem = AnswerMemory(sqlite3.connect(":memory:"))
+    # human once corrected "Phone" to a specific value -> recorded
+    mem.record(_f("#p", "Phone", "phone"), "+91 99999 88888")
+    prof = CandidateProfile(contact={"phone": "+91 00000 00000"})   # rule would fill this
+    s1 = [_f("#p", "Phone", "phone"), _f("#c", "Submit application", None, kind="button")]
+    deps = Deps([s1])
+    walk(object(), prof, Human(), deps, do_submit=True, autonomous=True, learn=mem)
+    filled = [d for batch in deps.filled for d in batch]
+    phone = next(d for d in filled if d.ref == "#p")
+    assert phone.value == "+91 99999 88888"       # recall (correction) beat the rule
+    assert phone.source == "learned"
+
+
+def test_walk_learns_corrections_at_submit():
+    # agent fills; human edits the live form; at submit the walk diffs read-back
+    # vs what it filled and learns the change.
+    import sqlite3
+    from career_agent.memory.learned_answers import AnswerMemory
+    mem = AnswerMemory(sqlite3.connect(":memory:"))
+    prof = CandidateProfile(contact={"phone": "+91 000"})
+
+    class DepsRB(Deps):
+        def read_back(self, page, decisions):
+            return {"#p": "+91 99999"}      # human corrected the phone on the live form
+
+    s1 = [_f("#p", "Phone", "phone"), _f("#s", "Submit application", None, kind="button")]
+    walk(object(), prof, Human(), DepsRB([s1]), do_submit=True, autonomous=True, learn=mem)
+    # next form: recall now serves the human's correction
+    dec, _ = mem.recall([_f("#p2", "Phone", "phone")])
+    assert dec and dec[0].value == "+91 99999"

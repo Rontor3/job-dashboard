@@ -19,6 +19,10 @@ class BrowserDeps:
         from ..browser.filler import apply_decisions
         apply_decisions(page, decisions, matcher=self.option_matcher)
 
+    def read_back(self, page, decisions):
+        from ..browser.filler import read_back
+        return read_back(page, decisions)
+
     def click(self, page, label):
         try:
             page.get_by_role("button", name=label).first.click(timeout=8000)
