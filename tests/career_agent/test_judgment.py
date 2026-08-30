@@ -48,7 +48,7 @@ def test_map_option_picks_a_real_option_or_none():
 def test_judge_answers_freetext_flags_and_escalates_sensitive():
     ctx = JudgmentContext(job={"title": "DS", "company": "Acme", "description": "..."},
                           profile_text="Rakshit, Data Scientist at Tata AIG")
-    freetext = _f("#q", "Why do you want this role?", kind="textarea", required=True)
+    freetext = _f("#q", "What interests you about this role?", kind="text", required=True)
     gender = _f("#g", "Gender", kind="text")
     llm = lambda prompt: "I'm excited about Acme because of my ML work at Tata AIG."
     answered, still_need, flagged = judge([freetext, gender], ctx, llm, cap=6)
@@ -56,6 +56,19 @@ def test_judge_answers_freetext_flags_and_escalates_sensitive():
     assert d["#q"].source == "judgment" and "Acme" in d["#q"].value
     assert "#g" in {f.ref for f in still_need}          # sensitive -> escalate
     assert "#q" not in {f.ref for f in still_need}
+
+
+def test_judge_escalates_textarea_for_editable_draft():
+    # Essays (textareas) are never auto-committed — they escalate so the
+    # collector can offer the human an editable draft. llm is never called.
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    essay = _f("#why", "Why do you want to work here?", kind="textarea", required=True)
+    called = {"n": 0}
+    def llm(prompt): called["n"] += 1; return "auto essay"
+    answered, still_need, flagged = judge([essay], ctx, llm)
+    assert "#why" in {f.ref for f in still_need}
+    assert "#why" not in {x.ref for x in answered}
+    assert called["n"] == 0
 
 
 def test_judge_never_answers_a_search_box():
@@ -79,8 +92,8 @@ def test_judge_maps_enum_or_escalates():
 
 def test_judge_respects_cap():
     ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
-    q1 = _f("#q1", "Why us?", kind="textarea", required=True)
-    q2 = _f("#q2", "Why now?", kind="textarea", required=True)
+    q1 = _f("#q1", "One-word motivation?", kind="text", required=True)
+    q2 = _f("#q2", "Another short answer?", kind="text", required=True)
     llm = lambda prompt: "grounded answer"
     answered, still_need, flagged = judge([q1, q2], ctx, llm, cap=1)
     assert len(answered) == 1 and len(still_need) == 1   # cap hit -> one escalates
@@ -88,7 +101,7 @@ def test_judge_respects_cap():
 
 def test_judge_never_raises_on_llm_failure():
     ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
-    q = _f("#q", "Why?", kind="textarea", required=True)
+    q = _f("#q", "Short answer?", kind="text", required=True)
     def boom(prompt): raise RuntimeError("ollama down")
     answered, still_need, flagged = judge([q], ctx, boom, cap=6)
     assert "#q" in ({x.ref for x in answered} | {f.ref for f in still_need})
@@ -96,7 +109,7 @@ def test_judge_never_raises_on_llm_failure():
 
 def test_judge_tier3_orchestrator_answers_weak_freetext():
     ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
-    q = _f("#q", "Why?", kind="textarea", required=True)
+    q = _f("#q", "Short answer?", kind="text", required=True)
     def boom(prompt): raise RuntimeError("ollama down")   # -> general_fallback (weak)
     orch = lambda items: {it["ref"]: "Orchestrator-drafted answer." for it in items}
     answered, still_need, flagged = judge([q], ctx, boom, cap=6, orchestrator=orch)

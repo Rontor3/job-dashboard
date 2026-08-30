@@ -103,7 +103,6 @@ def match_value_to_option(label, value, options, llm) -> str | None:
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 
 _SELECT_KINDS = {"select", "radio_group"}
-_FREETEXT_KINDS = {"text", "textarea"}
 # Not application questions — never draft an answer into these (search/nav boxes).
 _NOT_A_QUESTION = re.compile(r"\bsearch\b|\bfilter\b|\bkeyword", re.I)
 
@@ -133,7 +132,11 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
                 answered.append(FillDecision(f.ref, f.kind, f.label, opt,
                                              _action_for_kind(f.kind), "judgment"))
             continue
-        if f.kind in _FREETEXT_KINDS and f.purpose is None:
+        if f.kind == "textarea":
+            # Essays are personal — never auto-commit them. Escalate so the
+            # collector can hand the human an editable draft to approve/edit.
+            still_need.append(f); continue
+        if f.kind == "text" and f.purpose is None:
             if _NOT_A_QUESTION.search(f.label or "") or draft_screening_answer is None:
                 still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
