@@ -26,8 +26,10 @@ def test_armed_forces_is_not_classified_as_country():
 
 
 def test_address_line_no_longer_grabs_location():
-    # "Address Line 1" must not auto-fill the bare location string
-    assert guess_purpose("Address Line 1", "text") is None
+    # "Address Line 1" -> `address` purpose, which escalates (no street address in
+    # profile) rather than auto-filling the bare location string.
+    assert guess_purpose("Address Line 1", "text") == "address"
+    assert resolve("address", CandidateProfile(contact={"location": "Mumbai, India"})) is None
 
 
 def test_advance_ignores_session_dialog_buttons():

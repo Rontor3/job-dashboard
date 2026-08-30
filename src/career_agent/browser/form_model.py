@@ -36,7 +36,7 @@ _RULES: list[tuple[str, str]] = [
     (r"\bemployer\b|\bcompany name\b|\bcompany\b|\borganization\b", "employer"),
     (r"\bfirst name\b|\bgiven name\b|\bforename\b", "first_name"),
     (r"\blast name\b|\bsurname\b|\bfamily name\b", "last_name"),
-    (r"\bmiddle name\b", "middle_name"),
+    (r"\bmiddle\b", "middle_name"),        # "Middle", "Middle Name", "Middle Initial"
     (r"\bfull name\b|\byour name\b|\bname\b", "full_name"),
     (r"\bjob title\b|\bposition title\b|\brole\b|\btitle\b", "job_title"),
     (r"\bstart date\b|\bdate from\b|\bfrom date\b", "start_date"),
@@ -59,7 +59,12 @@ _RULES: list[tuple[str, str]] = [
     (r"\byears? of experience\b|\byears? experience\b|\bexperience\b", "years_experience"),
     (r"\bnotice period\b|\bavailab|\bearliest start\b|\bstart date\b", "notice_period"),
     (r"\bsalary\b|\bcompensation\b|\bexpected ctc\b|\bpay expectation\b", "salary_expectation"),
-    (r"\brelocat", "willing_to_relocate"),
+    # An address field can *mention* relocation ("...type 'relocating'") but is a
+    # free-text address, not a yes/no — must precede the relocate rule. Escalates
+    # (no street address in the profile), never fills "Yes". `email` above wins for
+    # "Email Address".
+    (r"\baddress\b", "address"),
+    (r"\bwilling to relocat|\bopen to relocat|\brelocat\w*\s*\?|\brelocat", "willing_to_relocate"),
     (r"\bresume\b|\bcv\b|\bupload.*(resume|cv)\b", "resume_upload"),
     (r"\barmed forces\b|\bmilitary\b|\bveteran\b|\breserve component\b"
      r"|\bserved (as|in)\b", "veteran"),

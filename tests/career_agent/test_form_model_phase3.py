@@ -16,3 +16,33 @@ def test_experience_and_education_purposes():
 def test_new_purposes_are_known():
     for lbl, kind in [("Employer", "text"), ("Degree", "text"), ("Key Skills", "textarea")]:
         assert guess_purpose(lbl, kind) in KNOWN_PURPOSES
+
+
+def test_middle_name_variants_all_map_to_middle_name():
+    from career_agent.browser.form_model import guess_purpose
+    for label in ["Middle Name", "Middle", "Middle Initial", "Middle Name(s)"]:
+        assert guess_purpose(label, "text") == "middle_name", label
+    # full-name / first-name still unaffected
+    assert guess_purpose("Full Name", "text") == "full_name"
+    assert guess_purpose("First Name", "text") == "first_name"
+
+
+def test_address_question_is_not_mistagged_as_relocate():
+    from career_agent.browser.form_model import guess_purpose
+    # the exact Oracle field that got "Yes": it mentions relocate but IS an address box
+    label = ("What is the address from which you plan on working? "
+             "If you would need to relocate, please type \"relocating\".")
+    assert guess_purpose(label, "text") == "address"          # not willing_to_relocate
+    # a real willingness question still maps to relocate
+    assert guess_purpose("Are you willing to relocate?", "select") == "willing_to_relocate"
+    # "Email Address" must still be email, not address
+    assert guess_purpose("Email Address", "text") == "email"
+
+
+def test_address_purpose_escalates_when_no_value():
+    from career_agent.browser.form_model import Field
+    from career_agent.memory.candidate_profile import CandidateProfile
+    from career_agent.orchestrator.screen_review import map_screen
+    f = Field("#addr", "text", "Home address", True, [], None, "address")
+    decisions, needs = map_screen([f], CandidateProfile(contact={}))
+    assert "#addr" in {x.ref for x in needs}               # escalated, not filled with junk
