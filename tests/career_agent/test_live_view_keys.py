@@ -38,3 +38,26 @@ def test_drain_dispatches_text_key_clear_to_forward_keys():
     s._drain_pointers(lambda *a: None, {"width": 100, "height": 100},
                       forward_keys=lambda page, kind, val: got.append((kind, val)))
     assert got == [("__text__", "Mumbai"), ("__key__", "Enter"), ("__clear__", "")]
+
+
+def test_forward_scroll_wheels():
+    class MousePage:
+        def __init__(self): self.wheels = []
+        class _M:
+            def __init__(s, p): s.p = p
+            def wheel(s, dx, dy): s.p.wheels.append((dx, dy))
+        @property
+        def mouse(self): return MousePage._M(self)
+    from career_agent.browser.live_view.cdp_bridge import forward_scroll
+    p = MousePage(); forward_scroll(p, 120.0)
+    assert p.wheels == [(0, 120.0)]
+
+
+def test_drain_dispatches_scroll():
+    from career_agent.integrations.live_view.session import RemoteSolveSession
+    s = RemoteSolveSession(FakePage(), "127.0.0.1", 8765, ttl_s=300,
+                           allow_public=False, is_cleared=lambda p: False, interactive=True)
+    s._pointer_q.put((150.0, None, "__scroll__"))
+    # __scroll__ imports forward_scroll lazily; just assert it drains without error
+    s._drain_pointers(lambda *a: None, {"width": 100, "height": 100})
+    assert s._pointer_q.empty()

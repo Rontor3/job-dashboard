@@ -48,6 +48,12 @@ def forward_keys(page, kind, value):
         kb.type(value)
 
 
+def forward_scroll(page, dy):
+    """Relay the human's swipe as a wheel scroll on the page. Only forwards the
+    delta it's handed — no synthetic scrolling."""
+    page.mouse.wheel(0, float(dy))
+
+
 def stop_screencast(cdp):
     try:
         cdp.send("Page.stopScreencast")

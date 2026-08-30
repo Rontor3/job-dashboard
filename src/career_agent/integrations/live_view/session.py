@@ -218,6 +218,13 @@ class RemoteSolveSession:
                 except Exception:
                     pass
                 continue
+            if kind == "__scroll__":            # swipe -> wheel scroll (nx carries dy)
+                try:
+                    from career_agent.browser.live_view.cdp_bridge import forward_scroll
+                    forward_scroll(self.page, nx)
+                except Exception:
+                    pass
+                continue
             try:
                 forward_pointer(self.page, nx, ny, kind, vp["width"], vp["height"])
                 if _DEBUG:

@@ -32,15 +32,16 @@ _PAGE = """<!doctype html><meta name=viewport content='width=device-width,initia
 #done{padding:11px 16px;font-size:15px;font-weight:700;background:#16a34a;color:#fff;
  border:0;border-radius:9px;white-space:nowrap}#done:disabled{background:#64748b}
 #c{width:100vw;display:block;margin-top:52px}
-#edit{position:fixed;bottom:0;left:0;right:0;display:flex;gap:6px;padding:8px;
+#edit{position:fixed;bottom:0;left:0;right:0;display:flex;flex-wrap:wrap;gap:6px;padding:8px;
  background:#0f172a;z-index:9}
-#t{flex:1;font-size:16px;padding:9px;border-radius:8px;border:0}
-#edit button{font-size:14px;font-weight:700;border:0;border-radius:8px;padding:9px 12px;color:#fff}
+#t{flex:1 1 100%;font-size:16px;padding:9px;border-radius:8px;border:0;
+ min-height:44px;max-height:38vh;resize:vertical;font-family:inherit;line-height:1.35}
+#edit button{flex:1;font-size:14px;font-weight:700;border:0;border-radius:8px;padding:11px 8px;color:#fff}
 #snd{background:#2563eb}#clr{background:#64748b}#ent{background:#334155}</style>
 <div id=bar><span>Tap a field to focus it, type below, Send. Captcha? solve on screen, then Done.</span>
  <button id=done>&#10003; Done</button></div>
 <canvas id=c></canvas>
-<div id=edit><input id=t placeholder='type a value, then Send' autocapitalize=off autocomplete=off>
+<div id=edit><textarea id=t rows=2 placeholder='type a value (multi-line ok), then Send' autocapitalize=off autocomplete=off></textarea>
  <button id=snd>Send</button><button id=clr>Clear</button><button id=ent>&#9166;</button></div>
 <script>
 const ws=new WebSocket(location.href.replace('http','ws')+'/ws');
@@ -50,8 +51,16 @@ ws.onmessage=e=>{const m=JSON.parse(e.data);img.onload=()=>{
  x.drawImage(img,0,0);};img.src='data:image/jpeg;base64,'+m.f;};
 function send(ev,k){const r=c.getBoundingClientRect();
  ws.send(JSON.stringify({x:(ev.clientX-r.left)/r.width,y:(ev.clientY-r.top)/r.height,kind:k}));}
-c.addEventListener('touchend',e=>{const t=e.changedTouches[0];send(t,'click');e.preventDefault();});
-c.addEventListener('click',e=>send(e,'click'));
+// A short touch is a TAP (click); a drag is a SCROLL (wheel). This lets you
+// reach fields lower on a long form.
+let _sy=null,_moved=false;
+c.addEventListener('touchstart',e=>{_sy=e.touches[0].clientY;_moved=false;},{passive:true});
+c.addEventListener('touchmove',e=>{const y=e.touches[0].clientY,dy=_sy-y;
+ if(Math.abs(dy)>3){_moved=true;ws.send(JSON.stringify({kind:'scroll',dy:dy*2.2}));_sy=y;}
+ e.preventDefault();},{passive:false});
+c.addEventListener('touchend',e=>{if(!_moved){const t=e.changedTouches[0];send(t,'click');}
+ e.preventDefault();});
+c.addEventListener('click',e=>send(e,'click'));   // desktop viewers
 const d=document.getElementById('done');
 d.addEventListener('click',()=>{ws.send(JSON.stringify({kind:'done'}));
  d.disabled=true;d.textContent='closing...';});
@@ -178,6 +187,8 @@ class LiveViewServer:
                             self.pointer_sink.put((d.get("key", ""), None, "__key__"))
                         elif k == "clear":
                             self.pointer_sink.put(("", None, "__clear__"))
+                        elif k == "scroll":
+                            self.pointer_sink.put((d.get("dy", 0), None, "__scroll__"))
                         else:
                             self.pointer_sink.put((d["x"], d["y"], d["kind"]))
                         if _DEBUG:
