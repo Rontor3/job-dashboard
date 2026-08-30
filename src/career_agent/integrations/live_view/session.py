@@ -73,7 +73,12 @@ _DEBUG = bool(os.getenv("CAREER_AGENT_LIVEVIEW_DEBUG"))
 class RemoteSolveSession:
     def __init__(self, page, host, port, ttl_s, allow_public, is_cleared,
                  clock=time.time, sleep=time.sleep, poll_interval_s=0.3,
-                 frame_slice_ms=40, resolve_absence_s=3.5, captcha_kind=None):
+                 frame_slice_ms=40, resolve_absence_s=3.5, captcha_kind=None,
+                 interactive=False):
+        # interactive=True: a review/EDIT session (tap + TYPE the real form),
+        # completed only by the human's "Done"/Submit — not a captcha token, so
+        # a no-captcha form doesn't false-complete via the absence timer.
+        self.interactive = interactive
         # captcha_kind selects which token latches "cleared". None = watch both
         # (back-compat). An hcaptcha_* gate watches only the hCaptcha token so a
         # co-present reCAPTCHA token can't false-clear it, and vice-versa.
@@ -138,6 +143,8 @@ class RemoteSolveSession:
                 self.page.wait_for_timeout(self._frame_slice_ms)
             except Exception:
                 return False   # page / browser gone
+            if self.interactive:
+                continue       # edit session: only the human's "Done" (checked above) completes
             # Check periodically (cheaper than per frame).
             now = self._clock()
             if now - last_check >= self.poll_interval_s:
@@ -193,14 +200,23 @@ class RemoteSolveSession:
             return False   # a transient/navigation error is NOT proof of a solve
         return False
 
-    def _drain_pointers(self, forward_pointer, vp) -> None:
+    def _drain_pointers(self, forward_pointer, vp, forward_keys=None) -> None:
         while True:
             try:
                 nx, ny, kind = self._pointer_q.get_nowait()
             except queue.Empty:
                 return
             if kind == "__done__":
-                self._human_done = True   # the human pressed "I solved it — done"
+                self._human_done = True   # the human pressed "Done" / Submit
+                continue
+            if kind in ("__text__", "__key__", "__clear__"):   # typed input -> keyboard
+                _fk = forward_keys
+                if _fk is None:
+                    from career_agent.browser.live_view.cdp_bridge import forward_keys as _fk
+                try:
+                    _fk(self.page, kind, nx)   # nx carries the value (text/key); ny unused
+                except Exception:
+                    pass
                 continue
             try:
                 forward_pointer(self.page, nx, ny, kind, vp["width"], vp["height"])

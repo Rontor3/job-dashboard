@@ -33,6 +33,21 @@ def forward_pointer(page, nx, ny, kind, width, height):
         page.mouse.up()
 
 
+def forward_keys(page, kind, value):
+    """Relay the human's typed input into whatever field they focused (via a tap).
+    Only forwards what it's handed — no synthetic input. kind is the queue
+    sentinel: '__text__' types the value, '__key__' presses a named key
+    (Backspace/Enter/Tab/…), '__clear__' selects-all and deletes the field."""
+    kb = page.keyboard
+    if kind == "__clear__":
+        kb.press("Meta+A")           # server runs on macOS Chromium; select-all
+        kb.press("Backspace")
+    elif kind == "__key__":
+        kb.press(value)
+    else:                             # __text__
+        kb.type(value)
+
+
 def stop_screencast(cdp):
     try:
         cdp.send("Page.stopScreencast")

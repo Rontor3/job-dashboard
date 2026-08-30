@@ -31,9 +31,18 @@ _PAGE = """<!doctype html><meta name=viewport content='width=device-width,initia
 #bar span{flex:1;font-size:13px;line-height:1.2}
 #done{padding:11px 16px;font-size:15px;font-weight:700;background:#16a34a;color:#fff;
  border:0;border-radius:9px;white-space:nowrap}#done:disabled{background:#64748b}
-#c{width:100vw;display:block;margin-top:52px}</style>
-<div id=bar><span>Solve the captcha, then tap &rarr;</span><button id=done>&#10003; Done</button></div>
-<canvas id=c></canvas><script>
+#c{width:100vw;display:block;margin-top:52px}
+#edit{position:fixed;bottom:0;left:0;right:0;display:flex;gap:6px;padding:8px;
+ background:#0f172a;z-index:9}
+#t{flex:1;font-size:16px;padding:9px;border-radius:8px;border:0}
+#edit button{font-size:14px;font-weight:700;border:0;border-radius:8px;padding:9px 12px;color:#fff}
+#snd{background:#2563eb}#clr{background:#64748b}#ent{background:#334155}</style>
+<div id=bar><span>Tap a field to focus it, type below, Send. Captcha? solve on screen, then Done.</span>
+ <button id=done>&#10003; Done</button></div>
+<canvas id=c></canvas>
+<div id=edit><input id=t placeholder='type a value, then Send' autocapitalize=off autocomplete=off>
+ <button id=snd>Send</button><button id=clr>Clear</button><button id=ent>&#9166;</button></div>
+<script>
 const ws=new WebSocket(location.href.replace('http','ws')+'/ws');
 const c=document.getElementById('c'),x=c.getContext('2d'),img=new Image();
 ws.onmessage=e=>{const m=JSON.parse(e.data);img.onload=()=>{
@@ -46,6 +55,13 @@ c.addEventListener('click',e=>send(e,'click'));
 const d=document.getElementById('done');
 d.addEventListener('click',()=>{ws.send(JSON.stringify({kind:'done'}));
  d.disabled=true;d.textContent='closing...';});
+const tb=document.getElementById('t');
+// Send REPLACES the focused field: clear it, then type the new value.
+document.getElementById('snd').addEventListener('click',()=>{
+ ws.send(JSON.stringify({kind:'clear'}));
+ ws.send(JSON.stringify({kind:'text',text:tb.value}));tb.value='';});
+document.getElementById('clr').addEventListener('click',()=>ws.send(JSON.stringify({kind:'clear'})));
+document.getElementById('ent').addEventListener('click',()=>ws.send(JSON.stringify({kind:'key',key:'Enter'})));
 </script>"""
 
 
@@ -153,14 +169,19 @@ class LiveViewServer:
                 async for msg in ws:
                     if msg.type == web.WSMsgType.TEXT:
                         d = msg.json()
-                        if d.get("kind") == "done":
+                        k = d.get("kind")
+                        if k == "done":
                             self.pointer_sink.put((0.0, 0.0, "__done__"))
-                            if _DEBUG:
-                                print("[lv] human pressed DONE", flush=True)
+                        elif k == "text":
+                            self.pointer_sink.put((d.get("text", ""), None, "__text__"))
+                        elif k == "key":
+                            self.pointer_sink.put((d.get("key", ""), None, "__key__"))
+                        elif k == "clear":
+                            self.pointer_sink.put(("", None, "__clear__"))
                         else:
                             self.pointer_sink.put((d["x"], d["y"], d["kind"]))
-                            if _DEBUG:
-                                print(f"[lv] pointer recv {d}", flush=True)
+                        if _DEBUG:
+                            print(f"[lv] recv {d}", flush=True)
             except asyncio.CancelledError:
                 pass
             finally:
