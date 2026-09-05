@@ -97,6 +97,7 @@ class RemoteSolveSession:
         self._frame_slice_ms = frame_slice_ms
         self._pointer_q = queue.Queue()
         self._human_done = False
+        self._last_activity = clock()
         self._cdp = None
         self._server = None
 
@@ -129,13 +130,23 @@ class RemoteSolveSession:
 
         vp = self.page.viewport_size or {"width": 900, "height": 1600}
         start = self._clock()
+        self._last_activity = start
         last_check = 0.0
         gone_since = None
-        while self._clock() - start < timeout_s:
+        while True:
             # Apply queued taps immediately (low input latency).
             self._drain_pointers(forward_pointer, vp)
             if self._human_done:          # human tapped "Done" — canonical close
                 return True
+            now0 = self._clock()
+            if self.interactive:
+                # NEVER close while the human is working. `timeout_s` here is an
+                # INACTIVITY window: only give up after that long with no tap /
+                # keystroke / scroll (activity updates _last_activity in the drain).
+                if now0 - self._last_activity >= timeout_s:
+                    return False
+            elif now0 - start >= timeout_s:   # captcha mode: bounded from the start
+                return False
             # Pump Playwright for a short slice so the CDP screencast keeps
             # delivering frames to the viewer. A dead sleep here froze the live
             # view between polls, so taps landed on stale/refreshed tiles.
@@ -206,6 +217,7 @@ class RemoteSolveSession:
                 nx, ny, kind = self._pointer_q.get_nowait()
             except queue.Empty:
                 return
+            self._last_activity = self._clock()   # any interaction resets the idle timer
             if kind == "__done__":
                 self._human_done = True   # the human pressed "Done" / Submit
                 continue
