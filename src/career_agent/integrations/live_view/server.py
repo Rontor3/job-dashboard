@@ -46,8 +46,10 @@ _PAGE = """<!doctype html><meta name=viewport content='width=device-width,initia
 <script>
 const ws=new WebSocket(location.href.replace('http','ws')+'/ws');
 const c=document.getElementById('c'),x=c.getContext('2d'),img=new Image();
-ws.onmessage=e=>{const m=JSON.parse(e.data);img.onload=()=>{
- c.width=img.naturalWidth||m.w;c.height=img.naturalHeight||m.h;
+const tb=document.getElementById('t');
+ws.onmessage=e=>{const m=JSON.parse(e.data);
+ if(m.fv!==undefined){tb.value=m.fv;tb.focus();return;}   // tapped field's text -> edit box
+ img.onload=()=>{c.width=img.naturalWidth||m.w;c.height=img.naturalHeight||m.h;
  x.drawImage(img,0,0);};img.src='data:image/jpeg;base64,'+m.f;};
 function send(ev,k){const r=c.getBoundingClientRect();
  ws.send(JSON.stringify({x:(ev.clientX-r.left)/r.width,y:(ev.clientY-r.top)/r.height,kind:k}));}
@@ -64,7 +66,6 @@ c.addEventListener('click',e=>send(e,'click'));   // desktop viewers
 const d=document.getElementById('done');
 d.addEventListener('click',()=>{ws.send(JSON.stringify({kind:'done'}));
  d.disabled=true;d.textContent='closing...';});
-const tb=document.getElementById('t');
 // Send REPLACES the focused field: clear it, then type the new value.
 document.getElementById('snd').addEventListener('click',()=>{
  ws.send(JSON.stringify({kind:'clear'}));
@@ -112,6 +113,19 @@ class LiveViewServer:
         if self._thread:
             self._thread.join(timeout=5)
 
+    def push_field_value(self, val) -> None:
+        # Main thread -> server loop: hand the phone the focused field's current
+        # text so it loads into the edit box (read + iterate the draft).
+        loop, q = self._loop, self._fv_q
+        if loop is None or q is None:
+            return
+        def _put():
+            if q.full():
+                try: q.get_nowait()
+                except asyncio.QueueEmpty: pass
+            q.put_nowait(val)
+        loop.call_soon_threadsafe(_put)
+
     def push_frame(self, data) -> None:
         # Called from the MAIN (Playwright) thread by the screencast callback.
         loop, q = self._loop, self._frame_q
@@ -133,6 +147,7 @@ class LiveViewServer:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         self._frame_q = asyncio.Queue(maxsize=2)
+        self._fv_q = asyncio.Queue(maxsize=8)
         try:
             self._loop.run_until_complete(self._start_site())
             self._ready.set()
@@ -174,6 +189,7 @@ class LiveViewServer:
             await ws.prepare(request)
             self._ws_clients.add(ws)
             sender = asyncio.create_task(self._pump_frames(ws, vp))
+            fvsender = asyncio.create_task(self._pump_fieldvals(ws))
             try:
                 async for msg in ws:
                     if msg.type == web.WSMsgType.TEXT:
@@ -197,6 +213,7 @@ class LiveViewServer:
                 pass
             finally:
                 sender.cancel()
+                fvsender.cancel()
                 self._ws_clients.discard(ws)
             return ws
 
@@ -212,6 +229,14 @@ class LiveViewServer:
             while not ws.closed:
                 data = await self._frame_q.get()
                 await ws.send_json({"f": data, "w": vp["width"], "h": vp["height"]})
+        except (asyncio.CancelledError, ConnectionResetError):
+            pass
+
+    async def _pump_fieldvals(self, ws) -> None:
+        try:
+            while not ws.closed:
+                val = await self._fv_q.get()
+                await ws.send_json({"fv": val})       # focused field's text -> phone edit box
         except (asyncio.CancelledError, ConnectionResetError):
             pass
 

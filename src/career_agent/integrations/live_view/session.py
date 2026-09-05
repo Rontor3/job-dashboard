@@ -229,6 +229,20 @@ class RemoteSolveSession:
                 forward_pointer(self.page, nx, ny, kind, vp["width"], vp["height"])
                 if _DEBUG:
                     print(f"[lv] tap applied ({nx:.3f},{ny:.3f}) {kind}", flush=True)
+                if kind == "click" and self._server is not None:
+                    # hand the phone the tapped field's current text, so it loads
+                    # into the edit box (read + iterate the draft).
+                    try:
+                        val = self.page.evaluate(
+                            "() => { const e=document.activeElement; if(!e) return '';"
+                            " if(e.getAttribute && e.getAttribute('role')==='combobox'){"
+                            "  const c=e.closest('[class*=control]');"
+                            "  const s=c&&c.querySelector('[class*=single-value]');"
+                            "  return s?s.textContent.trim():''; }"
+                            " return (e.value!==undefined?e.value:'') || ''; }")
+                        self._server.push_field_value(val)
+                    except Exception:
+                        pass
             except Exception as e:
                 if _DEBUG:
                     print(f"[lv] tap FAILED: {e!r}", flush=True)
