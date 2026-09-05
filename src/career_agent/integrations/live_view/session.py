@@ -98,6 +98,7 @@ class RemoteSolveSession:
         self._pointer_q = queue.Queue()
         self._human_done = False
         self._last_activity = clock()
+        self._focus_ref = None    # ref of the last field the human tapped
         self._cdp = None
         self._server = None
 
@@ -222,6 +223,15 @@ class RemoteSolveSession:
                 self._human_done = True   # the human pressed "Done" / Submit
                 continue
             if kind in ("__text__", "__key__", "__clear__"):   # typed input -> keyboard
+                # Re-focus the LAST field the human tapped before typing — by the
+                # time Send fires the browser field may have lost focus, so the
+                # keystrokes would go nowhere (the "my text didn't land" bug).
+                ref = getattr(self, "_focus_ref", None)
+                if ref:
+                    try:
+                        self.page.focus(ref)
+                    except Exception:
+                        pass
                 _fk = forward_keys
                 if _fk is None:
                     from career_agent.browser.live_view.cdp_bridge import forward_keys as _fk
@@ -241,18 +251,24 @@ class RemoteSolveSession:
                 forward_pointer(self.page, nx, ny, kind, vp["width"], vp["height"])
                 if _DEBUG:
                     print(f"[lv] tap applied ({nx:.3f},{ny:.3f}) {kind}", flush=True)
-                if kind == "click" and self._server is not None:
-                    # hand the phone the tapped field's current text, so it loads
-                    # into the edit box (read + iterate the draft).
+                if kind == "click":
+                    # Record the tapped field's ref (to re-focus before typing) and
+                    # push its current text to the phone edit box (read+iterate).
                     try:
-                        val = self.page.evaluate(
-                            "() => { const e=document.activeElement; if(!e) return '';"
+                        info = self.page.evaluate(
+                            "() => { const e=document.activeElement; if(!e) return {v:'',ref:null};"
+                            " let v;"
                             " if(e.getAttribute && e.getAttribute('role')==='combobox'){"
                             "  const c=e.closest('[class*=control]');"
-                            "  const s=c&&c.querySelector('[class*=single-value]');"
-                            "  return s?s.textContent.trim():''; }"
-                            " return (e.value!==undefined?e.value:'') || ''; }")
-                        self._server.push_field_value(val)
+                            "  const s=c&&c.querySelector('[class*=single-value]'); v=s?s.textContent.trim():''; }"
+                            " else v=(e.value!==undefined?e.value:'')||'';"
+                            " const ref = e.id ? '#'+e.id"
+                            "  : (e.getAttribute && e.getAttribute('data-cref') ? '[data-cref=\"'+e.getAttribute('data-cref')+'\"]' : null);"
+                            " return {v: v, ref: ref}; }")
+                        if info.get("ref"):
+                            self._focus_ref = info["ref"]
+                        if self._server is not None:
+                            self._server.push_field_value(info.get("v", ""))
                     except Exception:
                         pass
             except Exception as e:
