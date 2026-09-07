@@ -18,9 +18,16 @@ implementation. The reference below is intentionally not implemented.
 from __future__ import annotations
 
 
-def provide(page, gate: str) -> bool:
-    """OPERATOR-IMPLEMENTED. Clear an account/login wall for an account you own,
-    and return True once the page is past it. The agent does not implement this."""
+def provide(page, gate: str, site: str) -> bool:
+    """OPERATOR-IMPLEMENTED. Clear an account/login wall for an account you own.
+
+    page  - the Playwright page sitting on the login/signup.
+    gate  - "password" or "email_auth" (branch on it if you like).
+    site  - the ATS host, e.g. "career4.successfactors.com" — use it as the key
+            to generate or look up the right per-site credential.
+
+    Leave `page` on a state past the wall when you return; the seam re-checks with
+    auth_cleared(). The agent does not implement this."""
     raise NotImplementedError(
         "No credential provider is configured. The agent does not generate, "
         "enter, store, or read passwords, and does not create accounts. Provide "

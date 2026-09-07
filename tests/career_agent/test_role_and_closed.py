@@ -24,7 +24,7 @@ def test_looks_closed_detects_dead_postings():
 class _FakePage:
     """Dispatches page.evaluate by the JS it's handed: the big classify probe
     returns `d`; the body-innerText read returns `body`."""
-    def __init__(self, d, body=""): self._d = d; self._body = body
+    def __init__(self, d, body="", url=""): self._d = d; self._body = body; self.url = url
     def evaluate(self, js):
         return self._body if "document.body.innerText" in js and "hasPw" not in js else self._d
 
@@ -72,15 +72,15 @@ def test_clear_auth_wall_default_and_provider():
     walled = _FakePage(_d(hasPw=True))
     # default: no provider -> False (caller does the human hand-off)
     assert clear_auth_wall(walled, None) is False
-    # a provider is called (with the detected gate) and the wall is gone afterward
-    cleared = _FakePage(_d(fillable=5))
+    # a provider is called (with the detected gate + site) and the wall is gone
+    cleared = _FakePage(_d(fillable=5), url="https://career4.successfactors.com/x")
     calls = []
-    def prov(page, gate):
-        calls.append(gate)
+    def prov(page, gate, site):
+        calls.append((gate, site))
     assert clear_auth_wall(cleared, prov) is True
-    assert calls == ["form"]                              # provider was invoked
+    assert calls == [("form", "career4.successfactors.com")]   # gate + site passed
     # a provider that runs but the page is still a wall -> False (not cleared)
-    assert clear_auth_wall(walled, lambda p, g: None) is False
+    assert clear_auth_wall(walled, lambda p, g, s: None) is False
 
 
 def test_apply_url_variants():

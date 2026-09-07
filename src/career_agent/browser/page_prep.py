@@ -193,17 +193,28 @@ def auth_cleared(page) -> bool:
     return not is_auth_wall(page)
 
 
+def _site_of(page) -> str:
+    """The host the wall is on (e.g. 'career4.successfactors.com') — the per-ATS
+    key an operator provider uses to generate/look up the right credential."""
+    from urllib.parse import urlparse
+    try:
+        return (urlparse(page.url).hostname or "").lower()
+    except Exception:
+        return ""
+
+
 def clear_auth_wall(page, credential_provider=None) -> bool:
     """Seam for OPTIONAL operator-supplied auth automation. With no provider (the
     default) this returns False, so the caller does the human hand-off — the agent
     itself never handles credentials. If the operator wired a
-    credential_provider(page, gate)->bool for accounts THEY own, call it and report
+    credential_provider(page, gate, site)->bool for accounts THEY own, call it
+    (site = the ATS host, so it can pick the right per-site credential) and report
     whether the wall actually cleared. The secret lives entirely in that callable;
     it never enters the agent's context. See browser/credential_provider.py."""
     if credential_provider is None:
         return False
     try:
-        credential_provider(page, classify_entry(page))
+        credential_provider(page, classify_entry(page), _site_of(page))
     except Exception:
         return False
     return auth_cleared(page)
