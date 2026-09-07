@@ -1,4 +1,12 @@
-from career_agent.browser.perception import to_form_model
+from career_agent.browser.perception import to_form_model, split_ref
+
+
+def test_split_ref_frame_qualified():
+    assert split_ref("#email") == (0, "#email")             # main frame -> bare
+    assert split_ref('[data-cref="f3"]') == (0, '[data-cref="f3"]')
+    assert split_ref('f2@@#email') == (2, "#email")         # child frame
+    assert split_ref('f5@@[data-cref="f1"]') == (5, '[data-cref="f1"]')
+    assert split_ref('button:Apply') == (0, "button:Apply")  # not frame-prefixed
 
 
 def test_maps_purpose_and_preserves_fields():

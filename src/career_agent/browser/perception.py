@@ -192,9 +192,39 @@ _INPUT_JS = r"""
 """
 
 
+# --- Frame-qualified refs -------------------------------------------------
+# The application form is often inside a cross-origin <iframe> (an embedded ATS).
+# Page JavaScript can't cross into it, but Playwright can (page.frames). We scan
+# every frame and tag a child frame's refs "fN@@<selector>" so the filler knows
+# which frame to act in. Main-frame refs (frame 0) stay bare — full back-compat.
+_FRAME_SEP = "@@"
+
+
+def split_ref(ref):
+    """(frame_index, selector). 'f2@@#id' -> (2, '#id'); '#id' -> (0, '#id')."""
+    if isinstance(ref, str) and ref[:1] == "f" and _FRAME_SEP in ref:
+        head, sel = ref.split(_FRAME_SEP, 1)
+        try:
+            return int(head[1:]), sel
+        except ValueError:
+            return 0, ref
+    return 0, ref
+
+
+def frame_target(page, ref):
+    """The page or child frame a ref lives in, plus the bare selector. Frame
+    order is stable within a step (collect and fill run back-to-back)."""
+    idx, sel = split_ref(ref)
+    if idx == 0:
+        return page, sel
+    frames = page.frames
+    return (frames[idx] if idx < len(frames) else page), sel
+
+
 def _box(page, ref):
     try:
-        el = page.query_selector(ref)
+        target, sel = frame_target(page, ref)
+        el = target.query_selector(sel)
         return el.bounding_box() if el else None
     except Exception:
         return None
@@ -226,7 +256,21 @@ def enrich_with_vision(page, form, vision_fn, shot_path=None):
 
 
 def collect_raw(page) -> list[dict]:
-    return page.evaluate(_INPUT_JS)
+    """Scan the main frame AND every child frame (embedded ATS iframes). Child
+    frames' refs are frame-qualified so the filler targets the right frame."""
+    out = []
+    for idx, fr in enumerate(page.frames):        # frames[0] is the main frame
+        try:
+            rows = fr.evaluate(_INPUT_JS)
+        except Exception:
+            continue                              # detached / blocked frame -> skip
+        if idx == 0:
+            out.extend(rows)
+        else:
+            for r in rows:
+                r["ref"] = f"f{idx}{_FRAME_SEP}{r['ref']}"
+                out.append(r)
+    return out
 
 
 def snapshot_form(page) -> list[Field]:

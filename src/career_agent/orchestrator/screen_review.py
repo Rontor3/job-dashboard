@@ -29,17 +29,67 @@ def _normalize(value):
     return value
 
 
+_INF = float("inf")
+
+
+def _option_range(opt):
+    """Parse an option label into a numeric [lo, hi] band, or None. Handles the
+    common experience/count shapes: '3-5', '3 to 5', '5+', 'More than 5',
+    'Less than 2', 'Up to 2', '10 years'."""
+    s = opt.strip().lower()
+    nums = [int(n) for n in re.findall(r"\d+", s)]
+    if not nums:
+        return None
+    if any(k in s for k in ("+", "more than", "over", "at least", "or more", "greater")):
+        return (nums[0], _INF)
+    if any(k in s for k in ("less than", "under", "fewer", "below")):
+        return (0, nums[0] - 1)
+    if any(k in s for k in ("up to", "or less", "or fewer", "at most")):
+        return (0, nums[0])
+    if len(nums) >= 2:
+        return (min(nums[0], nums[1]), max(nums[0], nums[1]))
+    return (nums[0], nums[0])
+
+
 def _coerce_option(value, options):
+    """Map a profile value onto one of a field's real options. Tries, in order:
+    exact, yes/no word, numeric-range containment (e.g. 3 -> '3-5 years'), then
+    whole-word containment. Returns the matched option, or None to escalate."""
     v = str(value).strip().lower()
-    for o in options:
+    if not v:
+        return None
+    for o in options:                                   # 1. exact
         if o.strip().lower() == v:
             return o
-    toks = _YES if v in _YES else (_NO if v in _NO else None)
+    toks = _YES if v in _YES else (_NO if v in _NO else None)   # 2. yes / no
     if toks:
         for o in options:
             ol = o.strip().lower()
             if any(re.search(r"\b" + t + r"\b", ol) for t in toks):
                 return o
+    vnums = re.findall(r"\d+", v)                        # 3. numeric range
+    if len(vnums) == 1:
+        n = int(vnums[0])
+        for o in options:
+            band = _option_range(o)
+            if band and band[0] <= n <= band[1]:
+                return o
+    vt = [t for t in re.findall(r"[a-z0-9]+", v) if len(t) > 1]   # 4. word containment
+    if vt:
+        vset = set(vt)
+        for o in options:                          # 4a. every value word is in the option
+            ol = o.strip().lower()
+            if all(re.search(r"\b" + re.escape(t) + r"\b", ol) for t in vt):
+                return o
+        # 4b. every option word is in the value ("Mumbai, India" -> option "Mumbai");
+        # prefer the longest such option so a city beats a bare country.
+        subset = []
+        for o in options:
+            ot = [t for t in re.findall(r"[a-z0-9]+", o.lower()) if len(t) > 1]
+            if ot and all(t in vset for t in ot):
+                subset.append(o)
+        if subset:
+            return max(subset, key=len)
     return None
 
 

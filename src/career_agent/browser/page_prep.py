@@ -135,10 +135,183 @@ def classify_entry(page, status=None) -> str:
     return "none"                           # no form, but alive -> unreached, not dead
 
 
-_APPLY = ["Apply now", "Apply for this job", "Apply", "I'm interested", "Start application", "Start"]
+# --- Reaching the real application form ----------------------------------
+# The URL an external "Apply" link lands on is usually NOT the form: it's a JD
+# page, a search/listing page, or a JS-rendered SPA shell, with the form one or
+# two clicks in behind an "Apply" affordance. So instead of guessing whether the
+# current page "is a form", we DRILL: is the real form here? if not, click the
+# Apply affordance and look again — bounded, loop-safe, gates escalate.
+
+# Count of DISTINCT real applicant fields on the page (name/email/resume/phone).
+# A search box, filter checkboxes, or a chatbot input score zero — that's what
+# separates the application form from a JD/search/SPA landing.
+_REAL_FIELDS_JS = r"""() => {
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
+  const seen = new Set();
+  for (const e of ins) {
+    if (['hidden','submit','button'].includes(e.type)) continue;
+    const hay = ((e.getAttribute('aria-label')||'')+' '+(e.name||'')+' '+(e.id||'')
+                 +' '+(e.placeholder||'')+' '+(e.type||'')).toLowerCase();
+    let k = null;
+    if (e.type==='email' || /\be-?mail\b/.test(hay)) k='email';
+    else if (e.type==='file' || /resume|\bcv\b|upload/.test(hay)) k='resume';
+    else if (/first name|last name|full name|your name|given name|family name|surname/.test(hay)) k='name';
+    else if (/phone|mobile/.test(hay)) k='phone';
+    if (k) seen.add(k);
+  }
+  return seen.size;
+}"""
+
+# Every visible clickable's accessible-ish name + role, for the Apply ranker.
+_CLICKABLES_JS = r"""() => {
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  const out = [];
+  for (const e of document.querySelectorAll('button, a[href], [role=button], input[type=submit]')) {
+    if (!vis(e)) continue;
+    const name = (e.getAttribute('aria-label') || e.value || e.textContent || '').trim().replace(/\s+/g,' ');
+    if (name) out.push({ name, role: e.tagName === 'A' ? 'link' : 'button' });
+  }
+  return out.slice(0, 200);
+}"""
+
+# Apply affordances, highest-priority phrase first. Anything containing a DENY
+# term is rejected even if it also contains "apply" ("Apply filter", "Easy apply").
+_APPLY_ALLOW = (
+    "apply for this job", "apply for this role", "apply to this job",
+    "apply now", "apply online", "submit application", "start application",
+    "apply", "get started",
+)
+# "interested" ("I'm interested") is the common trigger for a CONVERSATIONAL
+# (chatbot) apply — a different interaction mode, not the form. Denying it keeps
+# the drill on the real "Apply" when both are present; a chatbot-only page is
+# handled by the dialog tool, not by pretending it's a form.
+_APPLY_DENY = (
+    "save", "search", "sign in", "sign up", "log in", "login", "register",
+    "create account", "filter", "refer", "subscribe", "share", "print",
+    "easy apply", "interested", "job alert", "view all", "back to", "learn more",
+)
 
 
-_REACHED = {"form", "email_auth", "password"}    # a hop that actually got somewhere
+def _best_apply(cands):
+    """cands: [{'name', 'role'}]. Return the best Apply control (highest-priority
+    allow phrase, not denied), or None. Pure — the ranking core, unit-tested."""
+    best, best_rank = None, len(_APPLY_ALLOW)
+    for c in cands:
+        name = (c.get("name") or "").strip().lower()
+        if not name or len(name) > 40 or any(d in name for d in _APPLY_DENY):
+            continue
+        for rank, allow in enumerate(_APPLY_ALLOW):
+            if allow in name:
+                if rank < best_rank:
+                    best, best_rank = c, rank
+                break
+    return best
+
+
+def _real_field_count(page) -> int:
+    total = 0
+    for fr in page.frames:                 # include embedded ATS iframes
+        try:
+            total += int(fr.evaluate(_REAL_FIELDS_JS))
+        except Exception:
+            pass
+    return total
+
+
+def is_application_form(page) -> bool:
+    """True only when >=2 distinct real applicant fields (name/email/resume/phone)
+    are present — so a JD/search/SPA landing is never mistaken for the form."""
+    return _real_field_count(page) >= 2
+
+
+def find_apply_affordance(page):
+    """The best Apply button/link across all frames, as {'name','role','frame'},
+    or None. `frame` is the index into page.frames the control lives in."""
+    cands = []
+    for idx, fr in enumerate(page.frames):
+        try:
+            rows = fr.evaluate(_CLICKABLES_JS)
+        except Exception:
+            continue
+        for c in (rows or []):
+            c["frame"] = idx
+            cands.append(c)
+    return _best_apply(cands)
+
+
+def _hop(page, aff):
+    """Click an Apply affordance (in its own frame), follow a new tab if one
+    opens, and settle — polling for the form to mount (SPA) for ~6s. Returns the
+    active page."""
+    ctx = page.context
+    before = len(ctx.pages)
+    fidx = aff.get("frame", 0)
+    clicker = page.frames[fidx] if fidx < len(page.frames) else page
+    name, role = aff["name"], aff["role"]
+    try:
+        clicker.get_by_role(role, name=name, exact=True).first.click(timeout=5000)
+    except Exception:
+        try:
+            clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000)
+        except Exception:
+            return page
+    page.wait_for_timeout(1000)
+    active = ctx.pages[-1] if len(ctx.pages) > before else page
+    for _ in range(6):
+        try:
+            active.wait_for_load_state("domcontentloaded", timeout=2000)
+        except Exception:
+            pass
+        if _real_field_count(active) >= 2:
+            break
+        active.wait_for_timeout(1000)
+    return active
+
+
+def reach_application_form(page, max_hops=3):
+    """Drill from any landing (JD / search / SPA) to the real application form by
+    following the Apply affordance until real applicant fields appear. Bounded and
+    loop-safe (a no-progress hop stops it). Login/OTP/captcha gates are returned
+    for the caller to escalate — never auto-passed. Returns (active_page, status)."""
+    active = page
+    seen = set()
+    for _ in range(max_hops):
+        prepare(active)
+        st = classify_entry(active)
+        if st == "closed":
+            return active, "closed"
+        if is_application_form(active):
+            return active, "form"
+        if st in ("email_auth", "password"):
+            return active, st              # gate -> caller escalates
+        sig = (active.url, _real_field_count(active))
+        if sig in seen:
+            break                          # hop made no progress -> stop
+        seen.add(sig)
+        aff = find_apply_affordance(active)
+        if aff is None:
+            nxt = _try_url_variants(active)
+            if nxt is not None:
+                active = nxt
+                continue
+            break
+        active = _hop(active, aff)
+    return active, ("form" if is_application_form(active) else classify_entry(active))
+
+
+def _try_url_variants(page):
+    """ATS-route fallback when no Apply affordance is found: Lever /apply, Ashby
+    /application. Returns the page if a form appears, else None."""
+    for variant in _apply_url_variants(page.url):
+        try:
+            page.goto(variant, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
+            if is_application_form(page):
+                return page
+        except Exception:
+            pass
+    return None
 
 
 def _apply_url_variants(url: str) -> list:
@@ -158,46 +331,11 @@ def _apply_url_variants(url: str) -> list:
 
 
 def enter_application(page) -> str:
-    """From a JD page (classify_entry == 'none'), reach the application form: click
-    Apply ONCE (follow a same-tab nav OR a new tab), and if that doesn't land on a
-    form, try the ATS-specific /apply|/application route. One hop — never a submit."""
-    here = classify_entry(page)
-    if here != "none":
-        return here
-    ctx = page.context
-    before = len(ctx.pages)
-    job_url = page.url
-    clicked = None
-    for name in _APPLY:
-        try:
-            el = page.get_by_role("button", name=name, exact=False).first
-            if el.count() == 0:
-                el = page.get_by_role("link", name=name, exact=False).first
-            if el.count() > 0:
-                el.click(timeout=5000); clicked = name; break
-        except Exception:
-            pass
-    active = page
-    if clicked is not None:
-        page.wait_for_timeout(2500)
-        if len(ctx.pages) > before:                # a new tab opened -> adopt it
-            active = ctx.pages[-1]
-            try: active.wait_for_load_state("domcontentloaded", timeout=15000)
-            except Exception: pass
-        res = classify_entry(active)
-        if res in _REACHED:
-            return res
-    # click didn't reach a form (wrong Apply link, or no button) -> try the ATS route
-    for variant in _apply_url_variants(job_url):
-        try:
-            active.goto(variant, wait_until="domcontentloaded")
-            active.wait_for_timeout(2500)
-            res = classify_entry(active)
-            if res in _REACHED:
-                return res
-        except Exception:
-            pass
-    return classify_entry(active)
+    """Reach the application form from a JD/landing page. Thin wrapper over the
+    bounded drill (`reach_application_form`); returns the status only. Callers
+    that need the possibly-new active page should call `reach_application_form`."""
+    _, st = reach_application_form(page)
+    return st
 
 
 _INTERACTIVE_GATES = {"recaptcha_v2_checkbox", "recaptcha_v2_image",

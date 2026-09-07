@@ -88,7 +88,10 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         if not has_advance:
             reason = "no_advance_control"; break
 
-        deps.click(page, pick_advance_label(form, is_last=False))
+        try:
+            deps.click(page, pick_advance_label(form, is_last=False))
+        except Exception:
+            reason = "advance_failed"; break   # advance label matched but wasn't clickable
         after = screen_signature(deps.url(page), deps.snapshot(page))
         if not changed(before, after):
             reason = "stuck"; break
