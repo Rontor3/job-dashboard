@@ -177,6 +177,22 @@ _CLICKABLES_JS = r"""() => {
 
 # Apply affordances, highest-priority phrase first. Anything containing a DENY
 # term is rejected even if it also contains "apply" ("Apply filter", "Easy apply").
+_AUTH_WALLS = {"password", "email_auth"}    # login / account-creation gates
+
+
+def is_auth_wall(page) -> bool:
+    """True while an account/login wall blocks the application (a password or
+    email-verify page). The agent never types the password — it hands off to the
+    human and waits for this to go False."""
+    return classify_entry(page) in _AUTH_WALLS
+
+
+def auth_cleared(page) -> bool:
+    """Predicate for RemoteSolveSession.wait_until_cleared: the wall is gone (the
+    human authenticated), so the drill/walk can resume behind the session."""
+    return not is_auth_wall(page)
+
+
 _APPLY_ALLOW = (
     "apply for this job", "apply for this role", "apply to this job",
     "apply now", "apply online", "submit application", "start application",

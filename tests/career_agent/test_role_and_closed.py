@@ -57,6 +57,16 @@ def test_classify_no_form_but_alive_is_none_not_closed():
     assert classify_entry(p) == "none"        # alive but unreached -> not 'closed'
 
 
+def test_auth_wall_detection():
+    from career_agent.browser.page_prep import is_auth_wall, auth_cleared
+    pw = _FakePage(_d(hasPw=True))                       # choose-a-password page
+    assert is_auth_wall(pw) and not auth_cleared(pw)
+    em = _FakePage(_d(hasEmail=True, verify=True))       # email-verify gate
+    assert is_auth_wall(em) and not auth_cleared(em)
+    form = _FakePage(_d(fillable=5))                     # past the wall -> resume
+    assert not is_auth_wall(form) and auth_cleared(form)
+
+
 def test_apply_url_variants():
     from career_agent.browser.page_prep import _apply_url_variants
     assert _apply_url_variants("https://jobs.lever.co/co/abc-123") == ["https://jobs.lever.co/co/abc-123/apply"]
