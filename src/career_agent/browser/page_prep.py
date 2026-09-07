@@ -193,6 +193,22 @@ def auth_cleared(page) -> bool:
     return not is_auth_wall(page)
 
 
+def clear_auth_wall(page, credential_provider=None) -> bool:
+    """Seam for OPTIONAL operator-supplied auth automation. With no provider (the
+    default) this returns False, so the caller does the human hand-off — the agent
+    itself never handles credentials. If the operator wired a
+    credential_provider(page, gate)->bool for accounts THEY own, call it and report
+    whether the wall actually cleared. The secret lives entirely in that callable;
+    it never enters the agent's context. See browser/credential_provider.py."""
+    if credential_provider is None:
+        return False
+    try:
+        credential_provider(page, classify_entry(page))
+    except Exception:
+        return False
+    return auth_cleared(page)
+
+
 _APPLY_ALLOW = (
     "apply for this job", "apply for this role", "apply to this job",
     "apply now", "apply online", "submit application", "start application",

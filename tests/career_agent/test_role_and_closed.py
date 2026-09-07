@@ -67,6 +67,22 @@ def test_auth_wall_detection():
     assert not is_auth_wall(form) and auth_cleared(form)
 
 
+def test_clear_auth_wall_default_and_provider():
+    from career_agent.browser.page_prep import clear_auth_wall
+    walled = _FakePage(_d(hasPw=True))
+    # default: no provider -> False (caller does the human hand-off)
+    assert clear_auth_wall(walled, None) is False
+    # a provider is called (with the detected gate) and the wall is gone afterward
+    cleared = _FakePage(_d(fillable=5))
+    calls = []
+    def prov(page, gate):
+        calls.append(gate)
+    assert clear_auth_wall(cleared, prov) is True
+    assert calls == ["form"]                              # provider was invoked
+    # a provider that runs but the page is still a wall -> False (not cleared)
+    assert clear_auth_wall(walled, lambda p, g: None) is False
+
+
 def test_apply_url_variants():
     from career_agent.browser.page_prep import _apply_url_variants
     assert _apply_url_variants("https://jobs.lever.co/co/abc-123") == ["https://jobs.lever.co/co/abc-123/apply"]
