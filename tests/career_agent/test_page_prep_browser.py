@@ -64,6 +64,24 @@ def test_enter_application_reaches_form():
         b.close()
 
 
+def test_wizard_step_is_the_form_but_search_page_is_not():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import (
+        _is_wizard_step, is_application_form, reach_application_form)
+    with sync_playwright() as pw:
+        # a wizard step (one screening question + Next) has no personal-info
+        # fields, but IS the application form and reach() must hand it off
+        b, p = _page(pw, "wizard_step.html")
+        assert not is_application_form(p)         # no name/email/resume
+        assert _is_wizard_step(p)                 # select + Next -> a form step
+        assert reach_application_form(p) == (p, "form")
+        b.close()
+        # a job-search page (search field + Search button, no Next) is NOT a step
+        b, p = _page(pw, "search_page.html")
+        assert not _is_wizard_step(p)
+        b.close()
+
+
 def test_email_auth_email_to_otp_to_form():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.page_prep import email_auth

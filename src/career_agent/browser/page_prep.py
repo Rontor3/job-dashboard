@@ -26,7 +26,7 @@ def suppress_noise(fields):
 
 
 _DECLINE = ["Decline", "Reject all", "Reject", "Only necessary", "Necessary only", "Refuse"]
-_ACCEPT = ["Accept all", "Accept", "Agree", "OK", "Got it", "I understand"]
+_ACCEPT = ["Accept all", "Accept", "Agree", "Allow", "OK", "Got it", "I understand"]
 _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Dismiss", "Close"]
 
 
@@ -163,14 +163,21 @@ _REAL_FIELDS_JS = r"""() => {
   return seen.size;
 }"""
 
-# Every visible clickable's accessible-ish name + role, for the Apply ranker.
+# Every visible clickable's name + role + a stamped unique ref. We click by the
+# ref (element identity), NOT by accessible name — a Phenom "Apply Now" link
+# nests an icon, so its accname isn't exactly "Apply Now" and get_by_role(name=)
+# times out. data-aff sidesteps that.
 _CLICKABLES_JS = r"""() => {
   const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
   const out = [];
+  let i = 0;
   for (const e of document.querySelectorAll('button, a[href], [role=button], input[type=submit]')) {
     if (!vis(e)) continue;
     const name = (e.getAttribute('aria-label') || e.value || e.textContent || '').trim().replace(/\s+/g,' ');
-    if (name) out.push({ name, role: e.tagName === 'A' ? 'link' : 'button' });
+    if (!name) continue;
+    const aff = 'a' + (i++);
+    e.setAttribute('data-aff', aff);
+    out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]' });
   }
   return out.slice(0, 200);
 }"""
@@ -268,6 +275,54 @@ def is_application_form(page) -> bool:
     return _real_field_count(page) >= 2
 
 
+# Forward controls of a multi-step application (mirrors orchestrator ADVANCE_NAMES).
+# A wizard step has one of these; a JD/search page has "Apply"/"Search" instead.
+_ADVANCE_WORDS = ("save and continue", "save & continue", "continue", "next", "review")
+
+# Count of visible, non-search fillable fields (mirrors classify_entry's filter).
+_FILLABLE_JS = r"""() => {
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  return Array.from(document.querySelectorAll('input,select,textarea')).filter(e => {
+    if (!vis(e)) return false;
+    const t = (e.getAttribute('type') || 'text').toLowerCase();
+    if (['hidden','submit','button','password'].includes(t)) return false;
+    return !/search/i.test((e.getAttribute('aria-label') || e.name || ''));
+  }).length;
+}"""
+
+
+def _fillable_count(page) -> int:
+    total = 0
+    for fr in page.frames:
+        try:
+            total += int(fr.evaluate(_FILLABLE_JS))
+        except Exception:
+            pass
+    return total
+
+
+def _has_advance(page) -> bool:
+    for fr in page.frames:
+        try:
+            rows = fr.evaluate(_CLICKABLES_JS)
+        except Exception:
+            continue
+        for c in (rows or []):
+            n = (c.get("name") or "").strip().lower()
+            if any(n == w or n.startswith(w + " ") for w in _ADVANCE_WORDS):
+                return True
+    return False
+
+
+def _is_wizard_step(page) -> bool:
+    """A multi-step application screen: >=1 fillable (non-search) field AND a
+    forward control (Next/Continue/Review). This catches a wizard whose FIRST
+    step is a single screening question (not personal info), which
+    is_application_form misses — while a JD/search page (Apply/Search button, no
+    Next) is correctly excluded."""
+    return _fillable_count(page) >= 1 and _has_advance(page)
+
+
 def find_apply_affordance(page):
     """The best Apply button/link across all frames, as {'name','role','frame'},
     or None. `frame` is the index into page.frames the control lives in."""
@@ -291,14 +346,21 @@ def _hop(page, aff):
     before = len(ctx.pages)
     fidx = aff.get("frame", 0)
     clicker = page.frames[fidx] if fidx < len(page.frames) else page
-    name, role = aff["name"], aff["role"]
+    ref, name, role = aff.get("ref"), aff["name"], aff["role"]
+    loc = (clicker.locator(ref).first if ref
+           else clicker.get_by_role(role, name=name, exact=True).first)
     try:
-        clicker.get_by_role(role, name=name, exact=True).first.click(timeout=5000)
+        loc.click(timeout=5000)
     except Exception:
+        # Covered by a consent/chatbot overlay, or a JS-handler <a> with no href:
+        # dispatch the click straight to the element (bypasses the overlay).
         try:
-            clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000)
+            loc.dispatch_event("click")
         except Exception:
-            return page
+            try:
+                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000)
+            except Exception:
+                return page
     page.wait_for_timeout(1000)
     active = ctx.pages[-1] if len(ctx.pages) > before else page
     for _ in range(6):
@@ -324,23 +386,41 @@ def reach_application_form(page, max_hops=3):
         st = classify_entry(active)
         if st == "closed":
             return active, "closed"
-        if is_application_form(active):
+        if is_application_form(active):    # a real personal-info form -> arrived
             return active, "form"
         if st in ("email_auth", "password"):
             return active, st              # gate -> caller escalates
-        sig = (active.url, _real_field_count(active))
-        if sig in seen:
-            break                          # hop made no progress -> stop
-        seen.add(sig)
+        # Follow an Apply affordance FIRST: a JD/search page has one, a real form
+        # step does not — so this avoids mistaking a JD (with a similar-jobs
+        # "Next" carousel) for a wizard step. Poll briefly for a late-rendering
+        # Apply control (Phenom's JD is JS-heavy).
         aff = find_apply_affordance(active)
         if aff is None:
-            nxt = _try_url_variants(active)
-            if nxt is not None:
-                active = nxt
-                continue
-            break
-        active = _hop(active, aff)
-    return active, ("form" if is_application_form(active) else classify_entry(active))
+            for _ in range(6):
+                active.wait_for_timeout(1000)
+                if is_application_form(active):
+                    return active, "form"
+                aff = find_apply_affordance(active)
+                if aff is not None:
+                    break
+        if aff is not None:
+            sig = (active.url, _real_field_count(active))
+            if sig in seen:
+                break                      # hop made no progress -> stop
+            seen.add(sig)
+            active = _hop(active, aff)
+            continue
+        # No Apply to follow: are we already ON a form step (wizard whose first
+        # screen is a screening question, so is_application_form missed it)?
+        if _is_wizard_step(active):
+            return active, "form"
+        nxt = _try_url_variants(active)
+        if nxt is not None:
+            active = nxt
+            continue
+        break
+    reached = is_application_form(active) or _is_wizard_step(active)
+    return active, ("form" if reached else classify_entry(active))
 
 
 def _try_url_variants(page):
