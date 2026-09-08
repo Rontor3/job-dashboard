@@ -1,0 +1,12 @@
+<!doctype html><html><body>
+  <div>Data Scientist role.
+    <button id="tog">Apply Now</button>
+    <div id="menu" style="display:none"><a id="opt" role="button" title="Apply Now">Apply Now</a></div>
+  </div>
+  <div id="form" style="display:none"><form>
+    <input aria-label="First name"><input type="email" aria-label="Email Address"></form></div>
+  <script>
+    document.getElementById('tog').onclick = () => { document.getElementById('menu').style.display='block'; };
+    document.getElementById('opt').onclick = () => { document.getElementById('form').style.display='block'; };
+  </script>
+</body></html>

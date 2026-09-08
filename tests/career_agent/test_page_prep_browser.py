@@ -64,6 +64,19 @@ def test_enter_application_reaches_form():
         b.close()
 
 
+def test_drill_traverses_a_dropdown_apply_menu():
+    """ZF-style: 'Apply Now' is a toggle that reveals a menu whose OPTION leads to
+    the form. The drill must click the toggle, then the revealed option, not stop
+    after the toggle (which changes no URL/fields)."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import reach_application_form
+    with sync_playwright() as pw:
+        b, p = _page(pw, "menu_apply.html")
+        assert reach_application_form(p) == (p, "form")
+        assert p.locator("#form").is_visible()       # reached via toggle -> option
+        b.close()
+
+
 def test_wizard_step_is_the_form_but_search_page_is_not():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.page_prep import (

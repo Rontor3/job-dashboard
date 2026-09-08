@@ -119,7 +119,7 @@ def classify_entry(page, status=None) -> str:
           const fillable = ins.filter(e => !['hidden','submit','button','password'].includes(e.type)
             && !/search/i.test(e.getAttribute('aria-label')||e.name||'')).length;
           return { hasPw, hasEmail: !!email,
-            verify: /verify|one-time|we'll send|continue with email|create .*profile|confirm your identity/i.test(txt),
+            verify: /verify|one-time|we'll send|continue with email|create .*profile|confirm your identity|start application|begin.*apply/i.test(txt),
             fillable };
         }""")
     except Exception:
@@ -169,14 +169,17 @@ _REAL_FIELDS_JS = r"""() => {
 # times out. data-aff sidesteps that.
 _CLICKABLES_JS = r"""() => {
   const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  if (window.__affN === undefined) window.__affN = 0;
   const out = [];
-  let i = 0;
   for (const e of document.querySelectorAll('button, a[href], [role=button], input[type=submit]')) {
     if (!vis(e)) continue;
     const name = (e.getAttribute('aria-label') || e.value || e.textContent || '').trim().replace(/\s+/g,' ');
     if (!name) continue;
-    const aff = 'a' + (i++);
-    e.setAttribute('data-aff', aff);
+    // Stable id: reuse an existing stamp so a control keeps the same ref across
+    // scans — lets the drill know it already clicked a dropdown TOGGLE and pick
+    // the revealed menu OPTION next, instead of re-toggling.
+    let aff = e.getAttribute('data-aff');
+    if (!aff) { aff = 'a' + (window.__affN++); e.setAttribute('data-aff', aff); }
     out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]' });
   }
   return out.slice(0, 200);
@@ -243,11 +246,14 @@ _APPLY_DENY = (
 )
 
 
-def _best_apply(cands):
-    """cands: [{'name', 'role'}]. Return the best Apply control (highest-priority
-    allow phrase, not denied), or None. Pure — the ranking core, unit-tested."""
+def _best_apply(cands, exclude=()):
+    """cands: [{'name', 'role', 'ref'?}]. Return the best Apply control
+    (highest-priority allow phrase, not denied), skipping any whose ref is in
+    `exclude` (already clicked). Or None. Pure — the ranking core, unit-tested."""
     best, best_rank = None, len(_APPLY_ALLOW)
     for c in cands:
+        if c.get("ref") in exclude:
+            continue
         name = (c.get("name") or "").strip().lower()
         if not name or len(name) > 40 or any(d in name for d in _APPLY_DENY):
             continue
@@ -323,9 +329,10 @@ def _is_wizard_step(page) -> bool:
     return _fillable_count(page) >= 1 and _has_advance(page)
 
 
-def find_apply_affordance(page):
-    """The best Apply button/link across all frames, as {'name','role','frame'},
-    or None. `frame` is the index into page.frames the control lives in."""
+def find_apply_affordance(page, exclude=()):
+    """The best Apply button/link across all frames, as {'name','role','frame',
+    'ref'}, skipping refs in `exclude` (already clicked). `frame` is the index
+    into page.frames the control lives in."""
     cands = []
     for idx, fr in enumerate(page.frames):
         try:
@@ -335,7 +342,7 @@ def find_apply_affordance(page):
         for c in (rows or []):
             c["frame"] = idx
             cands.append(c)
-    return _best_apply(cands)
+    return _best_apply(cands, exclude)
 
 
 def _hop(page, aff):
@@ -374,44 +381,47 @@ def _hop(page, aff):
     return active
 
 
-def reach_application_form(page, max_hops=3):
+def reach_application_form(page, max_hops=4):
     """Drill from any landing (JD / search / SPA) to the real application form by
     following the Apply affordance until real applicant fields appear. Bounded and
     loop-safe (a no-progress hop stops it). Login/OTP/captcha gates are returned
     for the caller to escalate — never auto-passed. Returns (active_page, status)."""
     active = page
-    seen = set()
+    clicked = set()                        # affordance refs already clicked
+    last_url = active.url
     for _ in range(max_hops):
+        if active.url != last_url:          # new page -> refs are fresh
+            clicked.clear()
+            last_url = active.url
         prepare(active)
         st = classify_entry(active)
         if st == "closed":
             return active, "closed"
+        if st in ("email_auth", "password"):
+            return active, st              # account/login wall FIRST — an account
+            # page has applicant fields AND a password; the wall wins -> escalate
         if is_application_form(active):    # a real personal-info form -> arrived
             return active, "form"
-        if st in ("email_auth", "password"):
-            return active, st              # gate -> caller escalates
         # Follow an Apply affordance FIRST: a JD/search page has one, a real form
         # step does not — so this avoids mistaking a JD (with a similar-jobs
         # "Next" carousel) for a wizard step. Poll briefly for a late-rendering
-        # Apply control (Phenom's JD is JS-heavy).
-        aff = find_apply_affordance(active)
+        # Apply control (Phenom's JD is JS-heavy). Skip affordances already
+        # clicked so a dropdown TOGGLE is followed by its revealed menu OPTION.
+        aff = find_apply_affordance(active, exclude=clicked)
         if aff is None:
             for _ in range(6):
                 active.wait_for_timeout(1000)
                 if is_application_form(active):
                     return active, "form"
-                aff = find_apply_affordance(active)
+                aff = find_apply_affordance(active, exclude=clicked)
                 if aff is not None:
                     break
         if aff is not None:
-            sig = (active.url, _real_field_count(active))
-            if sig in seen:
-                break                      # hop made no progress -> stop
-            seen.add(sig)
+            clicked.add(aff.get("ref"))
             active = _hop(active, aff)
             continue
-        # No Apply to follow: are we already ON a form step (wizard whose first
-        # screen is a screening question, so is_application_form missed it)?
+        # No Apply left to follow: are we already ON a form step (wizard whose
+        # first screen is a screening question, so is_application_form missed it)?
         if _is_wizard_step(active):
             return active, "form"
         nxt = _try_url_variants(active)
@@ -492,7 +502,8 @@ def _advance(page, names=("NEXT", "Next", "Continue", "Verify", "Submit")):
 
 def email_auth(page, email, otp_reader, on_captcha=None) -> str:
     """Passwordless email-first auth: fill email -> (captcha via on_captcha) ->
-    NEXT -> OTP (via otp_reader) -> form. NEVER fills a password / ticks T&C.
+    NEXT/Apply now -> OTP or magic-link (via otp_reader) -> form.
+    NEVER fills a password / ticks T&C.
     Returns classify_entry of where it lands ('form' on success, else a reason)."""
     from ..browser.gate_probe import classify_gate
     try:
@@ -503,15 +514,29 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
     if gate in _INTERACTIVE_GATES:
         if on_captcha is None or not on_captcha(page, gate):
             return "captcha"
-    _advance(page)
-    page.wait_for_timeout(1500)
+    _advance(page, ("NEXT", "Next", "Continue", "Verify", "Submit",
+                    "Apply now", "Apply", "Start", "Get started"))
+    page.wait_for_timeout(2000)
     if page.query_selector('input[name="pin-code-1"], input[aria-label*="verification code digit" i]'):
         code = otp_reader() if otp_reader else None
         if not code:
             return "otp_timeout"
-        _fill_otp(page, code)
-        _advance(page)
-        page.wait_for_timeout(1500)
+        if str(code).startswith("http"):    # magic link — navigate instead of OTP
+            page.goto(code, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
+        else:
+            _fill_otp(page, code)
+            _advance(page)
+            page.wait_for_timeout(1500)
+    else:
+        # No OTP boxes visible — ZF/Phenom-style: may show "check your email" or
+        # navigate directly to the form via a magic link the user clicks.
+        cur = classify_entry(page)
+        if cur not in ("form", "email_auth"):
+            code = otp_reader() if otp_reader else None
+            if code and str(code).startswith("http"):
+                page.goto(code, wait_until="domcontentloaded")
+                page.wait_for_timeout(2000)
     return classify_entry(page)
 
 
