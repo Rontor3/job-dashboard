@@ -91,7 +91,7 @@ def main() -> None:
     # stays unwired on purpose — an interactive captcha here degrades to a safe
     # stop (gate:*), never an auto-solve. Telegram wiring mirrors run.py in prod.
     human = HumanLoop(CliApprover(), collector=CliCollector())
-    from .browser.page_prep import prepare, classify_entry, enter_application, email_auth
+    from .browser.page_prep import prepare, classify_entry, enter_application, email_auth, is_application_form
     pw, context, page = launch(settings)
     try:
         resp = page.goto(args.url)
@@ -104,20 +104,47 @@ def main() -> None:
         if kind == "closed":                   # expired / removed / 404 shell -> skip
             print("[skip] this posting is closed or no longer available.")
             return
-        if kind == "none":                     # JD page -> one Apply hop to the form
+        # kind=="none" = clear JD page; kind=="form" can false-positive on pages
+        # that have search/filter inputs but no real applicant fields (e.g. Phenom).
+        if kind == "none" or (kind == "form" and not is_application_form(page)):
             enter_application(page)
             page = page.context.pages[-1]      # adopt a new tab if one opened
             prepare(page); kind = classify_entry(page)
         if kind == "closed":
             print("[skip] this posting is closed or no longer available.")
             return
+        # OTP reader shared by email_auth (ZF/Phenom) and otp_email gate (SAP SF).
+        import time as _time, pathlib as _pl
+        _otp_path = _pl.Path("/tmp/career_agent_otp.txt")
+        def _file_otp_reader(path=_otp_path, timeout=300):
+            path.unlink(missing_ok=True)
+            print(f"[otp] Waiting for OTP/magic-link — write it to {path}")
+            for _ in range(timeout // 2):
+                _time.sleep(2)
+                if path.exists():
+                    val = path.read_text().strip()
+                    if val:
+                        path.unlink(missing_ok=True)
+                        return val
+            return None
+
         if kind == "password":
-            print("[stop] this application needs an account/login. Create it / log in "
-                  "in the open browser (or via your password manager), then re-run --url "
-                  "at the post-login form. The agent never enters passwords.")
-            return
-        if kind == "email_auth":               # passwordless email->OTP->form
-            email_auth(page, contact.get("email", ""), otp_reader=None, on_captcha=None)
+            from .browser.credential_provider import provide as _provide
+            from .browser.page_prep import clear_auth_wall
+            print("[password] attempting credential provider...")
+            clear_auth_wall(page, credential_provider=_provide)
+            kind = classify_entry(page)
+            # Registration+application on one page (e.g. SAP SuccessFactors): the
+            # credential provider fills the auth fields; walk() fills the rest.
+            if kind == "password" and is_application_form(page):
+                print("[password] combined registration+application form — walk() handles remainder")
+                kind = "form"
+            elif kind == "password":
+                print("[stop] credential provider could not clear the login wall. "
+                      "Log in manually in the open browser, then re-run.")
+                return
+        if kind == "email_auth":               # passwordless email->OTP/magic-link->form
+            email_auth(page, contact.get("email", ""), otp_reader=_file_otp_reader, on_captcha=None)
         out = walk(page, profile, human, BrowserDeps(option_matcher=option_matcher),
                    max_steps=args.max_steps, do_submit=args.submit,
                    autonomous=args.autonomous, resume_pdf=resume_pdf,

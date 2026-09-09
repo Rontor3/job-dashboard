@@ -59,7 +59,7 @@ def _gather_signals(page) -> dict:
           return !!(t && t.value && t.value.length > 0); })(),
         turnstile_iframe: !!q('iframe[src*="challenges.cloudflare.com"]'),
         cf_interstitial: /just a moment|checking your browser/i.test(document.title || ''),
-        otp_email_field: !!q('input[autocomplete="one-time-code"], input[name*="otp" i], input[name*="verification" i]'),
+        otp_email_field: !!q('input[autocomplete="one-time-code"], input:not([type="hidden"])[name*="otp" i], input:not([type="hidden"])[name*="verification" i]'),
         otp_sms_field: false,
       };
     }
