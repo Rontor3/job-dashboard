@@ -87,10 +87,42 @@ def main() -> None:
     learn = AnswerMemory(conn)
 
     settings = load_settings()
-    # CLI harness: approve + collect unknowns on the terminal. remote_solve
-    # stays unwired on purpose — an interactive captcha here degrades to a safe
-    # stop (gate:*), never an auto-solve. Telegram wiring mirrors run.py in prod.
-    human = HumanLoop(CliApprover(), collector=CliCollector())
+
+    # Telegram wiring: upgrade approver/collector and enable remote captcha solve
+    # when TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set; otherwise fall back to CLI.
+    on_link = None
+    remote_solve_factory = None
+    if settings.telegram_bot_token and settings.telegram_chat_id:
+        from .integrations.telegram.client import TelegramClient
+        from .integrations.telegram.approver import TelegramApprover
+        from .integrations.telegram.collector import TelegramCollector
+        from .integrations.live_view.tailscale import detect_host
+        from .integrations.live_view.session import RemoteSolveSession
+        from .browser.gate_probe import is_cleared_for
+        _tg = TelegramClient(settings.telegram_bot_token, settings.telegram_chat_id)
+        approver = TelegramApprover(_tg)
+        collector = TelegramCollector(_tg)
+
+        def on_link(url):
+            msg = "\U0001F9E9 Captcha — open the live view and solve it:\n" + url
+            mid = _tg.send_message(msg)
+            print(f"[telegram] captcha link sent (message_id={mid})")
+            return mid
+
+        host = detect_host(settings)
+        if host is not None:
+            remote_solve_factory = lambda page, gate: RemoteSolveSession(
+                page, host, settings.remote_solve_port, settings.remote_solve_ttl,
+                settings.remote_solve_allow_public, is_cleared_for(gate), captcha_kind=gate)
+            print(f"[remote-solve] enabled via Telegram — host={host}")
+        else:
+            print("[remote-solve] DISABLED — Tailscale host not detected")
+    else:
+        approver = CliApprover()
+        collector = CliCollector()
+
+    human = HumanLoop(approver, remote_solve_factory=remote_solve_factory,
+                      deadline_s=settings.remote_solve_ttl, collector=collector)
     from .browser.page_prep import prepare, classify_entry, enter_application, email_auth, is_application_form
     pw, context, page = launch(settings)
     try:
@@ -148,7 +180,8 @@ def main() -> None:
         out = walk(page, profile, human, BrowserDeps(option_matcher=option_matcher),
                    max_steps=args.max_steps, do_submit=args.submit,
                    autonomous=args.autonomous, resume_pdf=resume_pdf,
-                   judge_fn=judge_fn, prep_fn=prepare, learn=learn)
+                   judge_fn=judge_fn, prep_fn=prepare, learn=learn,
+                   on_link=on_link)
         print(out)
     finally:
         close(pw, context)

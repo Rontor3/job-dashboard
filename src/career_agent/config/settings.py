@@ -30,7 +30,26 @@ def _as_bool(val: str | None, default: bool) -> bool:
     return val.strip().lower() not in ("0", "false", "no", "")
 
 
+def _load_dotenv(path: str = ".env") -> None:
+    """Load KEY=VALUE (or export KEY=VALUE) from path without overriding set vars."""
+    try:
+        for line in open(path):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            line = line.removeprefix("export").strip()
+            if "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip()
+            v = v.strip().strip('"').strip("'")
+            os.environ.setdefault(k, v)
+    except FileNotFoundError:
+        pass
+
+
 def load_settings() -> Settings:
+    _load_dotenv()
     return Settings(
         user_data_dir=os.getenv("CAREER_AGENT_USER_DATA_DIR", _DEFAULT_PROFILE_DIR),
         headed=_as_bool(os.getenv("CAREER_AGENT_HEADED"), True),
