@@ -229,6 +229,17 @@ def perceive_node(state: AgentState, config) -> dict:
                 return {"stopped_reason": f"gate:{gate}"}
             if HANDLERS.get(deps.gate(page), "escalate") != "proceed":
                 return {"stopped_reason": f"gate:{gate}"}
+    # Submit-gated captcha (e.g. hcaptcha_checkbox): form is accessible but captcha
+    # blocks submit. Alert immediately so the human is watching before field questions arrive.
+    if gate in _SUBMIT_GATED and HANDLERS.get(gate, "escalate") != "proceed":
+        _on_link = c.get("on_link")
+        if _on_link:
+            try:
+                _on_link(f"⚠️ {gate} detected on {page.url[:80]}\n"
+                         "I'm filling the form now — live-view link will follow when ready to submit.")
+            except Exception:
+                pass
+        print(f"[gate] {gate} on form (submit-gated) — early warning sent", flush=True)
 
     # Navigation rule: scroll to top + screenshot before reading DOM
     from .step_engine import _page_survey

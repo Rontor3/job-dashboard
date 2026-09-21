@@ -55,7 +55,9 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
             except Exception:
                 pass
         if fields:
+            print(f"[telegram] sending {len(fields)} field question(s) — waiting for reply...", flush=True)
             answers.update(human.collect(fields))
+            print(f"[telegram] received {len(answers)} answer(s)", flush=True)
         result = app.invoke(Command(resume=answers), cfg)
 
     return result or {}
