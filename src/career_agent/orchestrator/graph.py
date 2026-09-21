@@ -104,6 +104,20 @@ def classify_node(state: AgentState, config) -> dict:
     page = c["page"]
     if c.get("prep_fn"):
         c["prep_fn"](page)
+
+    # Security-email gate: stop immediately if the site has flagged our account.
+    try:
+        from urllib.parse import urlparse
+        from ..integrations.inbox_watch import check_security_email
+        from ..reliability.portal_state import PortalState
+        _domain = urlparse(page.url).netloc
+        if _domain and check_security_email(_domain):
+            PortalState().record_outcome(_domain, "blocked")
+            return {"kind": "closed", "stopped_reason": "security_email",
+                    "url": page.url, "jd_text": state.get("jd_text"), "ats_vendor": None}
+    except Exception:
+        pass  # never let inbox watch block a run
+
     from ..browser.page_prep import classify_entry
     from ..browser.ats_lookup import lookup as _ats_lookup
     kind = classify_entry(page)
