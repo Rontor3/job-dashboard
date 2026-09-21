@@ -154,9 +154,15 @@ def cred_provide_node(state: AgentState, config) -> dict:
 
     _prof = c.get("profile")
     _email = _prof.contact.get("email", "") if _prof and hasattr(_prof, "contact") else ""
+    _human = c["human"]
+    _on_link = c.get("on_link") or (lambda u: None)
+
+    def _on_captcha(pg, g):
+        return _human.remote_solve(pg, g, _on_link)
 
     def _prov(pg, gate, site):
-        return _provide(pg, gate, site, original_url=original_url, email=_email)
+        return _provide(pg, gate, site, original_url=original_url, email=_email,
+                        on_captcha=_on_captcha)
 
     clear_auth_wall(page, credential_provider=_prov)
     kind = classify_entry(page)
