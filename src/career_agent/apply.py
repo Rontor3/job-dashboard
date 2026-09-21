@@ -241,7 +241,7 @@ def main() -> None:
         # Scrape JD text from the landing page before clicking Apply Now.
         # Used only this run to ground company-specific Telegram questions.
         try:
-            jd_text = (page.inner_text("body") or "")[:3000].strip() or None
+            jd_text = (page.inner_text("body") or "")[:5000].strip() or None
         except Exception:
             jd_text = None
         if jd_text and hasattr(collector, "jd_text"):
