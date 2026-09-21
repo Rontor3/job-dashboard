@@ -299,10 +299,8 @@ def main() -> None:
         from .browser.page_prep import clear_auth_wall
         _job_url = args.url
         _profile_email = contact.get("email", "")
-        def _provide_url(pg, gate, site):
-            _oc = (lambda pg2, g: human.remote_solve(pg2, g, on_link or (lambda u: None))) if human.remote_solve_factory else None
-            return _provide(pg, gate, site, original_url=_job_url, email=_profile_email,
-                            on_captcha=_oc)
+        _provide_url = lambda pg, gate, site: _provide(
+            pg, gate, site, original_url=_job_url, email=_profile_email)
 
         if kind == "password":
             print("[password] attempting credential provider...")

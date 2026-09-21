@@ -476,12 +476,8 @@ def _ensure_signup_form(page) -> None:
 
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
-            email: str = "", on_captcha=None) -> bool:
-    """Fill an account/login wall using stored or freshly-generated credentials.
-
-    on_captcha: optional callable(page, gate_name) -> bool for remote captcha
-    solve during the login/registration flow.  If None, captchas cause a stop.
-    """
+            email: str = "") -> bool:
+    """Fill an account/login wall using stored or freshly-generated credentials."""
     if "infosys" in site or "intapidm" in site:
         site = "career.infosys.com"   # canonical key regardless of which domain triggered
     cred = load_credential(site, label=gate)
@@ -514,26 +510,11 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             _ensure_signup_form(page)
         else:
             _ensure_login_form(page)
-        _solve_captcha_if_present(page, on_captcha)
         _fill_wall(page, gate, cred)
     else:
         if is_new:
             _ensure_signup_form(page)
         else:
             _ensure_login_form(page)
-        _solve_captcha_if_present(page, on_captcha)
         _fill_wall(page, gate, cred)
     return True
-
-
-def _solve_captcha_if_present(page, on_captcha) -> None:
-    """Check for a visual captcha and escalate via on_captcha if present."""
-    if on_captcha is None:
-        return
-    from ..browser.gate_probe import classify_gate
-    _INTERACTIVE = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
-                    "hcaptcha_checkbox", "hcaptcha_image"}
-    g = classify_gate(page)
-    if g in _INTERACTIVE:
-        print(f"[cred] {g} on login/signup form — escalating to human...", flush=True)
-        on_captcha(page, g)
