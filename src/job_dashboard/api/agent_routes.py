@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
 from job_dashboard.db import init_db, job_detail
 
@@ -64,9 +65,13 @@ class AgentRunState:
                     "status": "done" if code == 0 else "error", "exit_code": code}
 
 
+def _live_screenshot_path(job_id: int) -> Path:
+    return REPO_ROOT / "data" / "agent_runs" / str(job_id) / "live.png"
+
+
 def _read_live_page(cdp_url: str, job_id: int) -> dict:
     """Read-only peek at the page career_agent is currently driving: url,
-    title, and a screenshot saved to data/agent_runs/{job_id}/live.png.
+    title, and (if the screenshot save succeeds) a saved screenshot.
 
     Opens its OWN connect_over_cdp session onto the same debug port
     career_agent uses — Chrome supports multiple attached CDP clients on one
@@ -77,6 +82,8 @@ def _read_live_page(cdp_url: str, job_id: int) -> dict:
     .click() / .fill() / .goto() — career_agent is the one actually driving
     that page, and a second writer would race it.
 
+    Returns a filesystem path (not a URL — the router turns that into a
+    servable URL if present) so this function stays free of API concerns.
     Degrades to all-None on any failure (Chrome not up, no page, timeout) —
     the subprocess's own running/done/error state stays authoritative for
     "is it running"; this is best-effort extra detail only.
@@ -89,17 +96,16 @@ def _read_live_page(cdp_url: str, job_id: int) -> dict:
                 ctx = browser.contexts[0] if browser.contexts else None
                 page = ctx.pages[-1] if ctx and ctx.pages else None
                 if page is None:
-                    return {"url": None, "title": None, "screenshot": None}
+                    return {"url": None, "title": None, "screenshot_path": None}
                 url, title = page.url, page.title()
-                ss_dir = REPO_ROOT / "data" / "agent_runs" / str(job_id)
-                ss_dir.mkdir(parents=True, exist_ok=True)
-                ss_path = ss_dir / "live.png"
+                ss_path = _live_screenshot_path(job_id)
+                ss_path.parent.mkdir(parents=True, exist_ok=True)
                 page.screenshot(path=str(ss_path))
-                return {"url": url, "title": title, "screenshot": str(ss_path)}
+                return {"url": url, "title": title, "screenshot_path": ss_path}
             finally:
                 browser.close()  # detaches this session only — see docstring
     except Exception:
-        return {"url": None, "title": None, "screenshot": None}
+        return {"url": None, "title": None, "screenshot_path": None}
 
 
 def build_agent_router(db_path) -> APIRouter:
@@ -138,9 +144,25 @@ def build_agent_router(db_path) -> APIRouter:
             return snapshot
         from career_agent.config.settings import load_settings
         cdp_url = load_settings().cdp_url
-        live = ({"url": None, "title": None, "screenshot": None} if not cdp_url
+        live = ({"url": None, "title": None, "screenshot_path": None} if not cdp_url
                 else _read_live_page(cdp_url, snapshot["job_id"]))
-        return {**snapshot, **live}
+        screenshot = (f"/api/jobs/{snapshot['job_id']}/agent-runs/live-screenshot"
+                     if live["screenshot_path"] else None)
+        return {**snapshot, "url": live["url"], "title": live["title"], "screenshot": screenshot}
+
+    @router.get("/api/jobs/{job_id}/agent-runs/live-screenshot")
+    def agent_live_screenshot(job_id: int):
+        path = _live_screenshot_path(job_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="no live screenshot yet")
+        return FileResponse(path, media_type="image/png")
+
+    @router.get("/api/jobs/{job_id}/agent-runs/screenshot/{step}")
+    def agent_step_screenshot(job_id: int, step: int):
+        path = REPO_ROOT / "data" / "agent_runs" / str(job_id) / f"perceive{step}.png"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="no screenshot for this step")
+        return FileResponse(path, media_type="image/png")
 
     @router.get("/api/jobs/{job_id}/agent-runs/latest")
     def agent_run_history(job_id: int):
@@ -162,6 +184,9 @@ def build_agent_router(db_path) -> APIRouter:
         steps = summarize_run(thread_id, checkpoint_db, run_dir=run_dir)
         if not steps:
             raise HTTPException(status_code=404, detail="no agent run found for this job")
+        for s in steps:
+            s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
+                               if s["screenshot"] else None)
         return {"job_id": job_id, "steps": steps}
 
     return router

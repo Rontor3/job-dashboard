@@ -101,3 +101,32 @@ def test_history_404_when_no_run_exists(tmp_path):
 def test_history_404_for_missing_job(tmp_path):
     c, _ = _client(tmp_path)
     assert c.get("/api/jobs/999/agent-runs/latest").status_code == 404
+
+
+def test_live_screenshot_404_when_none_saved(tmp_path):
+    c, jid = _client(tmp_path)
+    assert c.get(f"/api/jobs/{jid}/agent-runs/live-screenshot").status_code == 404
+
+
+def test_step_screenshot_404_when_none_saved(tmp_path):
+    c, jid = _client(tmp_path)
+    assert c.get(f"/api/jobs/{jid}/agent-runs/screenshot/3").status_code == 404
+
+
+def test_history_rewrites_screenshot_paths_to_urls(tmp_path, monkeypatch):
+    c, jid = _client(tmp_path)
+    fake_steps = [
+        {"step": 1, "kind": "form", "cred_action": None, "stopped_reason": None,
+         "pending_human": [], "gate_notice": None, "screenshot": "/abs/path/perceive1.png"},
+        {"step": 2, "kind": "form", "cred_action": None, "stopped_reason": "stuck",
+         "pending_human": [], "gate_notice": None, "screenshot": None},
+    ]
+    monkeypatch.setattr(
+        "career_agent.orchestrator.run_history.summarize_run",
+        lambda thread_id, db_path, run_dir=None: fake_steps,
+    )
+    r = c.get(f"/api/jobs/{jid}/agent-runs/latest")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["steps"][0]["screenshot"] == f"/api/jobs/{jid}/agent-runs/screenshot/1"
+    assert body["steps"][1]["screenshot"] is None
