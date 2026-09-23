@@ -15,8 +15,11 @@ agent, and to show what it did, for jobs on an external ATS.
 - Run history: what happened on the last run — which pages, login vs
   register, where it stopped and why, with a screenshot at that point.
 
-Out of scope (explicitly deferred, not needed for the above):
-- WebSocket / push updates — polling is sufficient (see "Live channel" below).
+Out of scope (not needed for the above):
+- Push updates (e.g. a WebSocket) — there's no such channel in this codebase
+  today, `career_agent` runs as a separate subprocess from the API server, and
+  polling already does the job (see "Live channel" below). This isn't cutting
+  something the app already had; it's not building new infra the goal doesn't need.
 - A persisted roadblock/event table with live resolution UI in the dashboard
   — Telegram already is the HITL channel; this spec makes past runs
   *inspectable*, it doesn't replace Telegram as the *resolution* channel.
@@ -145,6 +148,45 @@ but currently discards that classification after acting on it. Thread it back
 up as `cred_action: "login" | "register" | None` so run history can say which
 one happened.
 
+**Gate/captcha notifications — record whether Telegram actually fired.**
+`perceive_node` has four places that can stop the run on a gate (captcha,
+OTP, Cloudflare interstitial), and today they're inconsistent about Telegram:
+
+| Gate bucket | Current behavior |
+|---|---|
+| `_EARLY_BLOCK` (`cloudflare_interstitial`, `otp_sms`, `text_challenge`) | Stops immediately — **`on_link`/Telegram is never called at all.** |
+| `otp_email` | Same — stops with zero notification. |
+| `_INTERACTIVE` minus `_SUBMIT_GATED` (e.g. `recaptcha_v2_image`) | Calls `human.remote_solve(page, gate, on_link)`, which internally calls `on_link(session.start())` then `session.wait_until_cleared(...)`. But `remote_solve()` returns a single `bool` — `False` means *either* "never notified" (`remote_solve_factory is None`, e.g. Tailscale host not detected) *or* "notified, but the human never solved it in time." Those are very different situations and today they're indistinguishable. |
+| `_SUBMIT_GATED` (e.g. `hcaptcha_checkbox`) | Calls `_on_link(...)` directly inside a bare `try/except Exception: pass` — a failed send is silently swallowed and logged as if it succeeded ("early warning sent" prints unconditionally). |
+
+So right now, if you ask "did I get pinged when it hit a captcha," the honest
+answer for at least two of these four paths is "the code doesn't know, and in
+the `_EARLY_BLOCK`/`otp_email` cases it never even tried." Fixing this
+properly means one root-cause change, not four patches:
+
+- `HumanLoop.remote_solve()` returns a small `RemoteSolveResult(sent: bool,
+  resolved: bool)` instead of a bare `bool` (`__bool__` returns `resolved`, so
+  the two existing call sites — `perceive_node` and `advance_node`'s
+  pre-submit check — keep working with zero changes). `sent` is `True` only
+  if `on_link(session.start())` actually ran without raising.
+- A new small helper, `_notify_gate(c, gate, message) -> {"attempted": bool,
+  "sent": bool}`, used at **all four** call sites in `perceive_node`
+  (including `_EARLY_BLOCK` and `otp_email`, which currently skip
+  notification entirely — this closes that gap as a side effect of making the
+  recording honest, not as a separate feature). It attempts `on_link(message)`
+  when one is configured, catches and records failure instead of swallowing
+  it, and returns whether it was even attempted (`on_link` may be `None` —
+  Telegram not configured at all, e.g. `--no-telegram`).
+- `state["gate_notice"]`: `{"gate": str, "attempted": bool, "sent": bool,
+  "resolved": bool} | None`, set immediately before any gate-related
+  `stopped_reason` is returned from `perceive_node`.
+
+`run_history.summarize_run()` includes `gate_notice` on the step where it was
+set; the "Last agent run" UI shows, on that step: "🧩 hcaptcha_image — Telegram
+sent, unresolved" / "🧩 otp_sms — **not notified** (Telegram not configured)" /
+etc., so a silent stop is visible as silent instead of looking identical to a
+notified one.
+
 **Screenshots**: `_page_survey()` (`orchestrator/step_engine.py`, shared by
 both the LangGraph path and the legacy `walk()` path) already takes a
 full-page screenshot before every perceive step — but writes to a fixed path,
@@ -161,10 +203,12 @@ thread (oldest → newest) and returns:
 
 ```python
 [
-  {"step": 1, "kind": "password", "cred_action": "register", "stopped_reason": None, "pending_human": [], "screenshot": "data/agent_runs/42/step0.png"},
-  {"step": 1, "kind": "form", "cred_action": None, "stopped_reason": None, "pending_human": [], "screenshot": "data/agent_runs/42/step1.png"},
-  {"step": 2, "kind": "form", "cred_action": None, "stopped_reason": None, "pending_human": [], "screenshot": "data/agent_runs/42/step2.png"},
-  {"step": 3, "kind": "form", "cred_action": None, "stopped_reason": "stuck", "pending_human": [{"ref": "...", "label": "Why do you want to work here?"}], "screenshot": "data/agent_runs/42/step3.png"},
+  {"step": 1, "kind": "password", "cred_action": "register", "stopped_reason": None, "pending_human": [], "gate_notice": None, "screenshot": "data/agent_runs/42/step0.png"},
+  {"step": 1, "kind": "form", "cred_action": None, "stopped_reason": None, "pending_human": [], "gate_notice": None, "screenshot": "data/agent_runs/42/step1.png"},
+  {"step": 2, "kind": "form", "cred_action": None, "stopped_reason": None, "pending_human": [], "gate_notice": None, "screenshot": "data/agent_runs/42/step2.png"},
+  {"step": 3, "kind": "form", "cred_action": None, "stopped_reason": "gate:hcaptcha_image",
+   "pending_human": [], "gate_notice": {"gate": "hcaptcha_image", "attempted": True, "sent": True, "resolved": False},
+   "screenshot": "data/agent_runs/42/step3.png"},
 ]
 ```
 
@@ -229,6 +273,11 @@ its own.
 - Frontend: vitest for the "Last agent run" section rendering a stopped-mid-way
   fixture (3 steps, 3rd has `stopped_reason: "stuck"`) and a clean-finish
   fixture.
+- Backend: `pytest` for `_notify_gate()` covering all three outcomes —
+  `on_link` absent (`attempted: False`), `on_link` present and raises
+  (`attempted: True, sent: False`), `on_link` present and succeeds
+  (`sent: True`) — and a `perceive_node` test asserting `_EARLY_BLOCK`/
+  `otp_email` gates now call it (regression guard for the gap being closed).
 
 ## Explicitly skipped (ponytail: cut corners, upgrade path)
 
