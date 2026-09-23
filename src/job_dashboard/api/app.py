@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from job_dashboard.api.agent_routes import build_agent_router
 from job_dashboard.api.apply_routes import build_apply_router
 from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
@@ -72,6 +73,7 @@ def create_app(
     )
     app.include_router(build_letter_router(db_path, letter_engine))
     app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model))
+    app.include_router(build_agent_router(db_path))
 
     @contextmanager
     def db():
