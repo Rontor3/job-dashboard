@@ -102,7 +102,7 @@ def _email_on_page(page) -> str:
 
 def _type_into(page, el, value: str) -> None:
     """Click an input and type value using native keyboard events (isTrusted=True)."""
-    el.click()
+    _safe_click(el)
     page.keyboard.press("Control+a")
     page.keyboard.type(value, delay=30)   # slight delay = more human-like
     page.keyboard.press("Tab")            # blur so the field commits
@@ -179,16 +179,55 @@ def _observe_until_change(page, label: str, max_wait_s: int = 30, interval_s: in
     return _classify_page_state(page)  # classify anyway even if no DOM change detected
 
 
+_EMAIL_ATTR_SEL = ('input[type="email"], input[name*="email" i], input[id*="email" i],'
+                    'input[name*="userName" i], input[id*="userName" i],'
+                    'input[name*="user_name" i]')
+
+
+def _has_visible_email_field(page) -> bool:
+    """True if an email field is visible — by attribute, or (Workday: auto-generated
+    ids like 'input-4' carry no email-identifying attribute) by its <label> text."""
+    try:
+        if any(el.is_visible() for el in page.query_selector_all(_EMAIL_ATTR_SEL)):
+            return True
+        loc = page.get_by_label("email", exact=False).first
+        return loc.count() > 0 and loc.is_visible()
+    except Exception:
+        return False
+
+
 def _is_email_first(page) -> bool:
     """True if page has visible email field but NO visible password field (email-first form)."""
     try:
-        email_sel = ('input[type="email"], input[name*="email" i], input[id*="email" i],'
-                     'input[name*="userName" i]')
-        has_email = any(el.is_visible() for el in page.query_selector_all(email_sel))
-        if not has_email:
+        if not _has_visible_email_field(page):
             return False
         has_pw = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
         return not has_pw
+    except Exception:
+        return False
+
+
+def _safe_click(el, timeout_ms: int = 5000) -> bool:
+    """Click el; on interception/timeout, retry as a real (trusted) mouse click
+    that skips the obscured-by-overlay check, then fall back to a JS click as a
+    last resort. Some ATS component libraries (Workday's Canvas Kit) render a
+    decorative overlay div on top of the real control that fails Playwright's
+    actionability check. force=True still dispatches a genuine, trusted click —
+    unlike a JS .click(), which some React apps ignore as untrusted (isTrusted
+    is false), silently no-op'ing form submission."""
+    try:
+        el.click(timeout=timeout_ms)
+        return True
+    except Exception:
+        pass
+    try:
+        el.click(timeout=timeout_ms, force=True)
+        return True
+    except Exception:
+        pass
+    try:
+        el.evaluate("el => el.click()")
+        return True
     except Exception:
         return False
 
@@ -200,31 +239,60 @@ def _click_non_social_submit(page, btn_names=("Continue", "Create Account", "Sig
     if submit and submit.is_visible():
         txt = (submit.text_content() or "").lower()
         if not any(s in txt for s in _SOCIAL_KEYWORDS):
-            submit.click()
-            return True
+            return _safe_click(submit)
     for btn_name in btn_names:
         try:
             btn = page.get_by_role("button", name=btn_name, exact=False).first
             if btn.count() > 0 and btn.is_visible():
                 txt = (btn.text_content() or "").lower()
                 if not any(s in txt for s in _SOCIAL_KEYWORDS):
-                    btn.click()
-                    return True
+                    return _safe_click(btn)
         except Exception:
             pass
     return False
 
 
+_CONSENT_KEYWORDS = ("privacy", "consent", "terms", "agree", "policy")
+
+
+def _check_consent_checkboxes(page) -> None:
+    """Check any unchecked checkbox whose label suggests T&C/privacy consent."""
+    for cb in page.query_selector_all('input[type="checkbox"]'):
+        try:
+            if not cb.is_visible() or cb.is_checked():
+                continue
+            label_text = ""
+            cb_id = cb.get_attribute("id")
+            if cb_id:
+                lbl = page.query_selector(f'label[for="{cb_id}"]')
+                if lbl:
+                    label_text = (lbl.text_content() or "").lower()
+            if not label_text:
+                container = cb.evaluate_handle(
+                    "el => el.closest('label') || el.parentElement"
+                ).as_element()
+                if container:
+                    label_text = (container.inner_text() or "").lower()
+            if any(k in label_text for k in _CONSENT_KEYWORDS):
+                cb.check()
+        except Exception:
+            pass
+
+
+def _form_already_visible(page) -> bool:
+    """True if email + password fields are already visible — the target form
+    rendered directly (Workday-style), no separate nav click needed to reach it."""
+    try:
+        has_pw = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
+        return _has_visible_email_field(page) and has_pw
+    except Exception:
+        return False
+
+
 def _fill_visible_fields(page, cred: dict) -> None:
     """Fill all currently visible auth fields (email, passwords, name)."""
-    email_sel = (
-        'input[type="email"],'
-        'input[name*="email" i], input[id*="email" i],'
-        'input[name*="userName" i], input[id*="userName" i],'
-        'input[name*="user_name" i]'
-    )
     email_filled = False
-    for el in page.query_selector_all(email_sel):
+    for el in page.query_selector_all(_EMAIL_ATTR_SEL):
         if el.is_visible():
             _type_into(page, el, cred["username"])
             email_filled = True
@@ -249,6 +317,7 @@ def _fill_visible_fields(page, cred: dict) -> None:
         el = page.query_selector(name_sel)
         if el and el.is_visible():
             _type_into(page, el, val)
+    _check_consent_checkboxes(page)
 
 
 def _handle_otp_state(page, site: str, cred: dict) -> None:
@@ -745,6 +814,17 @@ _GUEST_KEYWORDS = ["guest", "without account", "without sign", "without log",
 _SOCIAL_KEYWORDS = ("google", "facebook", "linkedin", "github", "twitter", "microsoft", "apple")
 
 
+def _is_page_chrome(el) -> bool:
+    """True if el sits inside site-wide header/nav chrome rather than the current
+    form/flow — e.g. a global header 'Sign In' vs. an in-form 'Sign In' toggle."""
+    try:
+        return bool(el.evaluate(
+            "el => !!el.closest('header, nav, [role=banner], [role=navigation]')"
+        ))
+    except Exception:
+        return False
+
+
 def _navigate_to_form(page, link_texts: list[str], label: str) -> bool:
     try:
         sel = "a, button, input[type='button'], input[type='submit']"
@@ -755,9 +835,14 @@ def _navigate_to_form(page, link_texts: list[str], label: str) -> bool:
             # Skip social-login buttons (e.g. "Sign in with Google")
             if any(s in text for s in _SOCIAL_KEYWORDS):
                 continue
+            # Prefer an in-flow control over global site chrome (a header often
+            # has its own generic "Sign In" that opens an unrelated auth modal)
+            if _is_page_chrome(el):
+                continue
             if any(t in text for t in link_texts):
                 print(f"[cred] navigating to {label}: {text!r}", flush=True)
-                el.click()
+                if not _safe_click(el):
+                    continue
                 state = _observe_until_change(page, "navigate_form")
                 print(f"[cred] after nav click state: {state}", flush=True)
                 return True
@@ -803,20 +888,25 @@ def _ensure_signup_form(page) -> None:
 
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
-            email: str = "") -> bool:
+            email: str = "") -> tuple[bool, str | None]:
     """Fill an account/login wall using stored or freshly-generated credentials.
 
     Flow:
       1. Guest apply available → click it, done (no account needed).
       2. Credentials already stored → go to login form and fill.
       3. No credentials yet → go to REGISTER form, fill, then login.
+
+    Returns ``(handled, action)`` — ``action`` is ``"guest"``, ``"register"``,
+    or ``"login"`` (``None`` only alongside ``handled=False`` before any path
+    was chosen). Callers that only care about success (e.g.
+    ``clear_auth_wall``, which re-checks the DOM itself) can ignore ``action``.
     """
     if "infosys" in site or "intapidm" in site:
         site = "career.infosys.com"
 
     # Step 1 — guest apply (always try first; no account needed)
     if _try_guest_apply(page):
-        return True
+        return True, "guest"
     cred = load_credential(site, label=gate)
 
     is_new = cred is None
@@ -875,14 +965,19 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             _handle_state(page, state, cred, site)
         elif is_new:
             # Traditional form (email+password together) — need to register first
-            print(f"[cred] no stored cred for {site} — navigating to signup", flush=True)
-            found = _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
-            if not found:
-                print(f"[cred] no signup form found on {site} — escalating", flush=True)
-                return False
+            if _form_already_visible(page):
+                print(f"[cred] registration form already visible on {site}", flush=True)
+            else:
+                print(f"[cred] no stored cred for {site} — navigating to signup", flush=True)
+                found = _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
+                if not found:
+                    print(f"[cred] no signup form found on {site} — escalating", flush=True)
+                    return False, "register"
             _fill_wall(page, gate, cred, site=site)
+            save_credential(site, cred["username"], cred["password"], label=gate,
+                            first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
         else:
             # Traditional form, have credentials — login
             _ensure_login_form(page)
             _fill_wall(page, gate, cred, site=site)
-    return True
+    return True, ("register" if is_new else "login")
