@@ -70,3 +70,25 @@ test("shows + Track on untracked cards and calls onTrack without selecting", () 
   expect(onTrack).toHaveBeenCalledWith(1);
   expect(onSelect).not.toHaveBeenCalled();
 });
+
+test("Apply with agent only renders for fill===easy jobs", () => {
+  const jobs = [
+    { id: 1, title: "External ATS", company: "Acme", status: null,
+      apply_type: { kind: "external-ats", label: "ATS form", fill: "easy" } },
+    { id: 2, title: "LinkedIn maybe", company: "Acme", status: null,
+      apply_type: { kind: "linkedin", label: "LinkedIn", fill: "maybe" } },
+    { id: 3, title: "No apply_type", company: "Acme", status: null },
+  ];
+  render(<Feed jobs={jobs} selectedId={null} onSelect={() => {}} />);
+  expect(screen.getAllByRole("button", { name: /apply with agent/i })).toHaveLength(1);
+});
+
+test("clicking Apply with agent calls onApplyAgent without selecting the row", () => {
+  const onApplyAgent = vi.fn(); const onSelect = vi.fn();
+  const jobs = [{ id: 1, title: "External ATS", company: "Acme", status: null,
+                  apply_type: { kind: "external-ats", label: "ATS form", fill: "easy" } }];
+  render(<Feed jobs={jobs} selectedId={null} onSelect={onSelect} onApplyAgent={onApplyAgent} />);
+  fireEvent.click(screen.getByRole("button", { name: /apply with agent/i }));
+  expect(onApplyAgent).toHaveBeenCalledWith(1);
+  expect(onSelect).not.toHaveBeenCalled();
+});

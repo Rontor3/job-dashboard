@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { fetchJobs, fetchStats, patchStatus } from "./api.js";
+import { fetchJobs, fetchStats, patchStatus, launchApplyAgent } from "./api.js";
 import FilterBar from "./components/FilterBar.jsx";
 import Feed from "./components/Feed.jsx";
 import JobDetail from "./components/JobDetail.jsx";
@@ -12,6 +12,7 @@ import ThemeToggle from "./components/ThemeToggle.jsx";
 import HeaderScene from "./components/HeaderScene.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
 import ResumeLibrary from "./components/ResumeLibrary.jsx";
+import AgentStatusBadge from "./components/AgentStatusBadge.jsx";
 
 function TabButton({ active, onClick, label }) {
   return (
@@ -58,6 +59,14 @@ export default function App() {
 
   const onTrack = (id) => patchStatus(id, "saved").then(reload);
 
+  const onApplyAgent = (id) => {
+    patchStatus(id, "saved")
+      .then(() => { setActiveTab("tracker"); reloadAll(); })
+      .then(() => launchApplyAgent(id))
+      .then((r) => { if (r && r.alreadyRunning) setError("agent busy with another application"); })
+      .catch((e) => setError(String(e)));
+  };
+
   return (
     <div className="shell">
       <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative", overflow: "hidden" }}>
@@ -94,12 +103,13 @@ export default function App() {
           <div data-testid="feed-slot">
             <BrowseOverview stats={stats} onIndustry={(ind) => setFilters((f) => ({ ...f, industry: ind }))} />
             <FilterBar filters={filters} setFilters={setFilters} />
-            <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} onTrack={onTrack} />
+            <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} onTrack={onTrack} onApplyAgent={onApplyAgent} />
             <DuplicatesSection />
           </div>
         ) : (
           <div>
             <Overview stats={stats} />
+            <AgentStatusBadge />
             <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} />
           </div>
         )}

@@ -7,7 +7,7 @@ function monogram(company) {
 
 const PILL = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)" };
 
-export default function Feed({ jobs, selectedId, onSelect, onTrack }) {
+export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent }) {
   if (!jobs.length) {
     return (
       <div style={{ textAlign: "center", padding: "48px 0", color: "var(--ink-soft)" }}>
@@ -110,6 +110,15 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack }) {
                 style={{ ...PILL, background: "transparent", border: "1px solid var(--green)",
                          color: "var(--green)", cursor: "pointer" }}>
                 + Track
+              </button>
+            )}
+            {j.apply_type?.fill === "easy" && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onApplyAgent && onApplyAgent(j.id); }}
+                title="Have the career agent fill this application in your Chrome"
+                style={{ ...PILL, background: "var(--green)", color: "#FFFFFF",
+                         border: "none", cursor: "pointer" }}>
+                ⚡ Apply with agent
               </button>
             )}
           </div>

@@ -5,6 +5,7 @@ import { XIcon, ArrowUpRightIcon } from "./icons.jsx";
 import ResumePanel from "./ResumePanel.jsx";
 import CoverLetterPanel from "./CoverLetterPanel.jsx";
 import ApplyPanel from "./ApplyPanel.jsx";
+import AgentRunHistory from "./AgentRunHistory.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 
@@ -125,6 +126,7 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
       <ResumePanel jobId={id} />
       <CoverLetterPanel jobId={id} />
       <ApplyPanel jobId={id} />
+      <AgentRunHistory jobId={id} />
     </div>
     </>
   );

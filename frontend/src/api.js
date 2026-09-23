@@ -142,6 +142,12 @@ export const refreshHiring = () =>
 export const dismissHiring = (id) =>
   fetch(`/api/hiring/posts/${id}/dismiss`, { method: "POST" }).then((r) => r.json());
 
+export const launchApplyAgent = (id) =>
+  fetch(`/api/jobs/${id}/apply-agent`, { method: "POST" }).then(json);
+export const fetchApplyAgentStatus = () => fetch("/api/apply-agent/status").then(json);
+export const fetchAgentRunHistory = (id) =>
+  fetch(`/api/jobs/${id}/agent-runs/latest`).then((r) => (r.status === 404 ? null : json(r)));
+
 export const savedBlocks = () =>
   fetch("/api/resume/blocks").then((r) => r.json());
 export const saveBlock = (body) =>
