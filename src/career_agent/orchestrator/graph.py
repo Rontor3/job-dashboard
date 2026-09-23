@@ -29,6 +29,8 @@ class AgentState(TypedDict):
     do_submit: bool
     autonomous: bool
     cred_provided: bool     # True after cred_provide ran (prevents re-triggering)
+    cred_action: str | None      # "guest" | "register" | "login" from the last cred_provide
+    gate_notice: dict | None     # {"gate", "attempted", "sent", "resolved"} from the last gate stop
     # current screen snapshot (serialised Field dicts); reset each perceive pass
     form: list[dict]
     form_sig: str | None    # for stuck-detection in advance
@@ -46,7 +48,7 @@ def initial_state(url: str, *, job_id=None, jd_text=None,
         "url": url, "job_id": job_id, "jd_text": jd_text,
         "kind": "", "ats_vendor": None, "steps": 0, "max_steps": max_steps,
         "do_submit": do_submit, "autonomous": autonomous,
-        "cred_provided": False,
+        "cred_provided": False, "cred_action": None, "gate_notice": None,
         "form": [], "form_sig": None,
         "pending_human": [], "decisions": [],
         "submitted": False, "stopped_reason": None,
@@ -96,6 +98,22 @@ def _semantic_split(fields, mem_router):
         else:
             rest.append(f)
     return auto, rest
+
+
+def _notify_gate(c, gate: str, message: str) -> dict:
+    """Try to send `message` via the configured Telegram on_link. Never raises.
+    Returns {"attempted": bool, "sent": bool} — attempted is False only when
+    Telegram isn't configured at all (on_link is None), so a stop's
+    ``gate_notice`` always says honestly whether a human was actually pinged."""
+    on_link = c.get("on_link")
+    if on_link is None:
+        return {"attempted": False, "sent": False}
+    try:
+        on_link(message)
+        return {"attempted": True, "sent": True}
+    except Exception as e:
+        print(f"[notify] on_link failed: {e!r}", flush=True)
+        return {"attempted": True, "sent": False}
 
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
@@ -174,8 +192,12 @@ def cred_provide_node(state: AgentState, config) -> dict:
     if perceive_update.get("stopped_reason"):
         return {**perceive_update, "cred_provided": False}
 
+    _cred_result: dict = {}
+
     def _prov(pg, gate, site):
-        return _provide(pg, gate, site, original_url=original_url, email=_email)
+        handled, action = _provide(pg, gate, site, original_url=original_url, email=_email)
+        _cred_result["action"] = action
+        return handled
 
     # Auth wall reached — notify via Telegram then proceed with auto-login.
     on_link = c.get("on_link")
@@ -187,8 +209,9 @@ def cred_provide_node(state: AgentState, config) -> dict:
     print(f"[auth-wall] {page.url[:80]}", flush=True)
 
     cleared = clear_auth_wall(page, credential_provider=_prov)
+    cred_action = _cred_result.get("action")
     if not cleared:
-        return {"stopped_reason": "auth_wall", "cred_provided": True}
+        return {"stopped_reason": "auth_wall", "cred_provided": True, "cred_action": cred_action}
     kind = classify_entry(page)
     # After registration Darwinbox lands back on the JD page — re-enter apply
     if kind in ("none", "form") and not is_application_form(page):
@@ -199,7 +222,7 @@ def cred_provide_node(state: AgentState, config) -> dict:
         kind = classify_entry(page)
     if kind == "password" and is_application_form(page):
         kind = "form"
-    return {"kind": kind, "url": page.url, "cred_provided": True}
+    return {"kind": kind, "url": page.url, "cred_provided": True, "cred_action": cred_action}
 
 
 def tailor_cv_node(state: AgentState, config) -> dict:
@@ -237,6 +260,7 @@ def perceive_node(state: AgentState, config) -> dict:
                     "hcaptcha_checkbox", "hcaptcha_image"}
     _SUBMIT_GATED = {"hcaptcha_checkbox"}   # invisible widget; form still accessible
     _EARLY_BLOCK = {"cloudflare_interstitial", "otp_sms", "text_challenge"}
+    _submit_gate_notice = None
     from ..browser.gate_probe import HANDLERS
     if gate in _INTERACTIVE:
         # Poll up to 5s for auto-verify (trusted-browser self-solve).
@@ -246,40 +270,48 @@ def perceive_node(state: AgentState, config) -> dict:
             if HANDLERS.get(gate, "escalate") == "proceed":
                 break
     if gate in _EARLY_BLOCK:
-        return {"stopped_reason": f"gate:{gate}"}
+        notice = _notify_gate(c, gate, f"⛔ {gate} on {page.url[:80]} — agent stopped, needs your attention")
+        return {"stopped_reason": f"gate:{gate}",
+                "gate_notice": {"gate": gate, "resolved": False, **notice}}
     if gate == "otp_email":
-        return {"stopped_reason": "gate:otp_email"}
+        notice = _notify_gate(c, "otp_email", f"📧 OTP email required on {page.url[:80]} — agent stopped")
+        return {"stopped_reason": "gate:otp_email",
+                "gate_notice": {"gate": "otp_email", "resolved": False, **notice}}
     # Blocking visual challenge (image captcha) — remote-solve via Telegram.
     if gate in _INTERACTIVE and gate not in _SUBMIT_GATED:
         if HANDLERS.get(gate, "escalate") != "proceed":
             human = c["human"]
             on_link = c.get("on_link") or (lambda u: None)
             print(f"[gate] {gate} — sending live-view link via Telegram...", flush=True)
-            if not human.remote_solve(page, gate, on_link):
-                return {"stopped_reason": f"gate:{gate}"}
+            result = human.remote_solve(page, gate, on_link)
+            if not result:
+                return {"stopped_reason": f"gate:{gate}",
+                        "gate_notice": {"gate": gate, "attempted": c.get("on_link") is not None,
+                                        "sent": result.sent, "resolved": result.resolved}}
             if HANDLERS.get(deps.gate(page), "escalate") != "proceed":
-                return {"stopped_reason": f"gate:{gate}"}
+                return {"stopped_reason": f"gate:{gate}",
+                        "gate_notice": {"gate": gate, "attempted": True,
+                                        "sent": result.sent, "resolved": result.resolved}}
     # Submit-gated captcha (e.g. hcaptcha_checkbox): form is accessible but captcha
     # blocks submit. Alert immediately so the human is watching before field questions arrive.
     if gate in _SUBMIT_GATED and HANDLERS.get(gate, "escalate") != "proceed":
-        _on_link = c.get("on_link")
-        if _on_link:
-            try:
-                _on_link(f"⚠️ {gate} detected on {page.url[:80]}\n"
-                         "I'm filling the form now — live-view link will follow when ready to submit.")
-            except Exception:
-                pass
-        print(f"[gate] {gate} on form (submit-gated) — early warning sent", flush=True)
+        notice = _notify_gate(c, gate, f"⚠️ {gate} detected on {page.url[:80]}\n"
+                              "I'm filling the form now — live-view link will follow when ready to submit.")
+        print(f"[gate] {gate} on form (submit-gated) — notified: {notice['sent']}", flush=True)
+        # Doesn't stop the run (form stays fillable) — stash for the eventual
+        # stop/submit step to report, since this gate's own path continues below.
+        _submit_gate_notice = {"gate": gate, "resolved": False, **notice}
 
     # Navigation rule: scroll to top + screenshot before reading DOM
     from .step_engine import _page_survey
-    _page_survey(page, f"perceive{state.get('steps', 0)}")
+    _page_survey(page, f"perceive{state.get('steps', 0)}", run_dir=c.get("run_dir"))
 
     # Snapshot form — stored in state so advance_node can check controls
     form = deps.snapshot(page)
     from ..orchestrator.advance import screen_signature
     sig = screen_signature(deps.url(page), form)
-    return {"form": [_f2d(f) for f in form], "form_sig": sig, "pending_human": []}
+    return {"form": [_f2d(f) for f in form], "form_sig": sig, "pending_human": [],
+            "gate_notice": _submit_gate_notice}
 
 
 def fill_node(state: AgentState, config) -> dict:

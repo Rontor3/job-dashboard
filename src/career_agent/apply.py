@@ -6,14 +6,23 @@ import hashlib
 
 
 def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
-               max_steps: int, human, jd_text: str | None = None) -> dict:
+               max_steps: int, human, jd_text: str | None = None,
+               checkpoint_db: str | None = None) -> dict:
     """Drive the LangGraph graph; handles interrupt/resume cycle for human gates."""
     print("[engine] LangGraph", flush=True)
-    from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.types import Command
     from .orchestrator.graph import build_graph, initial_state
 
-    checkpointer = InMemorySaver()
+    # Persist checkpoints (per graph.py's docstring, this was always the intent)
+    # so run_history.summarize_run() can read a job's walk after this process
+    # exits. checkpoint_db is None only in tests/callers that don't care.
+    if checkpoint_db:
+        import sqlite3
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        checkpointer = SqliteSaver(sqlite3.connect(checkpoint_db, check_same_thread=False))
+    else:
+        from langgraph.checkpoint.memory import InMemorySaver
+        checkpointer = InMemorySaver()
     app = build_graph(checkpointer=checkpointer)
     state = initial_state(url, job_id=job_id, jd_text=jd_text, do_submit=do_submit,
                           autonomous=autonomous, max_steps=max_steps)
@@ -350,12 +359,15 @@ def main() -> None:
             _db_jd = jd_text  # --no-llm path: job not loaded; fall back to page scrape
 
         tid = args.thread_id or hashlib.sha1(args.url.encode()).hexdigest()[:16]
+        from pathlib import Path as _RunDirPath
+        run_dir = str(_RunDirPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         graph_cfg = {"configurable": {
             "thread_id": tid, "page": page, "profile": profile, "deps": deps,
             "human": human, "collector": collector, "resume_pdf": resume_pdf,
             "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
             "on_link": on_link, "memory_router": memory_router,
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text
+            "run_dir": run_dir,
         }}
 
         def _walk():
@@ -368,9 +380,10 @@ def main() -> None:
 
         if not args.no_langgraph:
             try:
+                checkpoint_db = str(_RunDirPath(args.db).parent / "jobs_graph.db")
                 out = _run_graph(graph_cfg, args.url, args.job_id,
                                  args.submit, args.autonomous, args.max_steps, human,
-                                 jd_text=_db_jd)
+                                 jd_text=_db_jd, checkpoint_db=checkpoint_db)
             except Exception as _ge:
                 print(f"[graph] failed ({_ge}), falling back to walk()", flush=True)
                 out = _walk()

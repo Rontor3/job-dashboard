@@ -12,7 +12,9 @@ def test_approve_delegates():
 def test_remote_solve_without_factory_returns_false():
     # no live-view configured -> caller must degrade to stop-and-report
     hl = HumanLoop(YesApprover(), remote_solve_factory=None)
-    assert hl.remote_solve(page=object(), gate="hcaptcha_checkbox", on_link=lambda u: None) is False
+    result = hl.remote_solve(page=object(), gate="hcaptcha_checkbox", on_link=lambda u: None)
+    assert not result
+    assert result.sent is False
 
 
 def test_remote_solve_with_factory_reports_link_and_outcome():
@@ -23,9 +25,10 @@ def test_remote_solve_with_factory_reports_link_and_outcome():
         def wait_until_cleared(self, timeout_s): return True
         def close(self): seen["closed"] = True
     hl = HumanLoop(YesApprover(), remote_solve_factory=lambda page: FakeSession(page))
-    ok = hl.remote_solve(page=object(), gate="hcaptcha_checkbox",
-                         on_link=lambda u: seen.setdefault("url", u))
-    assert ok is True
+    result = hl.remote_solve(page=object(), gate="hcaptcha_checkbox",
+                             on_link=lambda u: seen.setdefault("url", u))
+    assert result
+    assert result.sent is True
     assert seen["url"].endswith("/s/abc")
     assert seen["closed"] is True
 
@@ -40,8 +43,9 @@ def test_remote_solve_degrades_when_start_raises():
         def wait_until_cleared(self, timeout_s): return True  # never reached
         def close(self): seen["closed"] = True
     hl = HumanLoop(YesApprover(), remote_solve_factory=lambda page: BrokenSession(page))
-    assert hl.remote_solve(page=object(), gate="hcaptcha_checkbox",
-                           on_link=lambda u: None) is False
+    result = hl.remote_solve(page=object(), gate="hcaptcha_checkbox", on_link=lambda u: None)
+    assert not result
+    assert result.sent is False   # start() raised before the link could be sent
     assert seen["closed"] is True
 
 
@@ -63,5 +67,6 @@ def test_remote_solve_degrades_when_factory_raises():
     # factory itself raising (no session created) must also degrade cleanly.
     def boom(page): raise RuntimeError("cannot detect viewport")
     hl = HumanLoop(YesApprover(), remote_solve_factory=boom)
-    assert hl.remote_solve(page=object(), gate="hcaptcha_checkbox",
-                           on_link=lambda u: None) is False
+    result = hl.remote_solve(page=object(), gate="hcaptcha_checkbox", on_link=lambda u: None)
+    assert not result
+    assert result.sent is False

@@ -19,14 +19,24 @@ INTERACTIVE_GATES = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
 _SUBMIT_GATED = {"hcaptcha_checkbox"}
 
 
-def _page_survey(page, label: str) -> None:
+def _page_survey(page, label: str, run_dir: str | None = None) -> None:
     """Navigation rule (mandatory): scroll-to-top + full-page screenshot before
     reading DOM or acting on any screen. Captures the visual state we are about
-    to reason over so clicks are never made blind."""
+    to reason over so clicks are never made blind.
+
+    With `run_dir` (the LangGraph path passes `data/agent_runs/{job_id}`), the
+    screenshot survives the run and is keyed by job so it doesn't collide with
+    the next job's `perceive0`. Without one (the legacy `walk()` path, or no
+    job_id), it's a debug-only artifact in /tmp as before."""
     try:
         page.evaluate("window.scrollTo(0, 0)")
         page.wait_for_timeout(300)
-        ss = f"/tmp/career_agent_{label}_survey.png"
+        if run_dir:
+            from pathlib import Path
+            Path(run_dir).mkdir(parents=True, exist_ok=True)
+            ss = str(Path(run_dir) / f"{label}.png")
+        else:
+            ss = f"/tmp/career_agent_{label}_survey.png"
         page.screenshot(path=ss, full_page=True)
         print(f"[nav] survey → {ss}", flush=True)
     except Exception:
