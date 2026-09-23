@@ -14,6 +14,7 @@ _DEFAULT_PROFILE_DIR = str(
 class Settings:
     user_data_dir: str
     headed: bool
+    cdp_url: str | None        # e.g. "http://localhost:9222"; None = launch fresh Playwright
     ollama_host: str
     ollama_model: str
     telegram_bot_token: str | None
@@ -22,6 +23,9 @@ class Settings:
     remote_solve_ttl: int
     remote_solve_allow_public: bool
     tailscale_host: str | None
+    rate_limit_domain_day: int
+    rate_limit_hour: int
+    rate_limit_pace: str
 
 
 def _as_bool(val: str | None, default: bool) -> bool:
@@ -53,6 +57,7 @@ def load_settings() -> Settings:
     return Settings(
         user_data_dir=os.getenv("CAREER_AGENT_USER_DATA_DIR", _DEFAULT_PROFILE_DIR),
         headed=_as_bool(os.getenv("CAREER_AGENT_HEADED"), True),
+        cdp_url=os.getenv("CAREER_AGENT_CDP_URL") or None,
         ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
         ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:14b"),
         telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN") or None,
@@ -61,4 +66,7 @@ def load_settings() -> Settings:
         remote_solve_ttl=int(os.getenv("REMOTE_SOLVE_TTL", "300")),
         remote_solve_allow_public=_as_bool(os.getenv("REMOTE_SOLVE_ALLOW_PUBLIC"), False),
         tailscale_host=os.getenv("TAILSCALE_HOST") or None,
+        rate_limit_domain_day=int(os.getenv("RATE_LIMIT_DOMAIN_DAY", "5")),
+        rate_limit_hour=int(os.getenv("RATE_LIMIT_HOUR", "10")),
+        rate_limit_pace=os.getenv("RATE_LIMIT_PACE", "medium"),
     )

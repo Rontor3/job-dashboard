@@ -22,6 +22,14 @@ class AutoDenyApprover:
         return False
 
 
+class NullCollector:
+    """Auto-skips all human fields — used for unattended dry-runs/screenshots."""
+    def __call__(self, fields) -> dict:
+        for f in fields:
+            print(f"[skip] human field: {f.label or f.ref!r}", flush=True)
+        return {}
+
+
 class CliCollector:
     """Collects answers for fields the profile couldn't fill, on stdin. The
     HumanLoop `collector` contract: fields -> {ref: value}. Telegram-collect

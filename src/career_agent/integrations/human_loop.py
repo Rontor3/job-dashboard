@@ -28,7 +28,10 @@ class HumanLoop:
                 session = self.remote_solve_factory(page)          # legacy single-arg
             on_link(session.start())
             return bool(session.wait_until_cleared(self.deadline_s))
-        except Exception:
+        except Exception as _e:
+            import traceback
+            print(f"[remote-solve] exception: {_e!r}", flush=True)
+            traceback.print_exc()
             return False
         finally:
             if session is not None:
@@ -41,3 +44,9 @@ class HumanLoop:
         if self.collector is None or not fields:
             return {}
         return dict(self.collector(fields) or {})
+
+    def get_events(self) -> dict:
+        """Return {ref: 'approve'|'edit'} from the last collect() call."""
+        if self.collector and hasattr(self.collector, "_last_events"):
+            return dict(self.collector._last_events or {})
+        return {}

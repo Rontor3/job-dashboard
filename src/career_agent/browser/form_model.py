@@ -8,13 +8,16 @@ from dataclasses import dataclass, field as _field
 KNOWN_PURPOSES = frozenset({
     "full_name", "first_name", "last_name", "middle_name", "email", "phone",
     "location", "city", "country", "veteran", "gender", "ethnicity", "disability",
-    "linkedin_url", "github_url",
+    "linkedin_url", "github_url", "twitter_url", "facebook_url",
     "portfolio_url", "work_authorization", "visa_sponsorship", "prior_contact",
+    "conflict_of_interest",
     "years_experience",
     "notice_period", "salary_expectation", "willing_to_relocate",
-    "attestation", "resume_upload",
+    "attestation", "resume_upload", "phone_type", "referral_source",
     "employer", "job_title", "start_date", "end_date", "degree", "school",
     "field_of_study", "gpa", "skills", "summary",
+    "motivation",   # cover-letter / interest blurb (SR hiring manager message)
+    "file_comment", # short description field next to file upload (e.g. Taleo "Comments about the file")
 })
 
 
@@ -32,6 +35,14 @@ class Field:
 
 # Ordered most-specific-first; first hit wins.
 _RULES: list[tuple[str, str]] = [
+    # "Let the company know about your interest" must NOT hit the employer rule
+    # (which would fill it with the company name). Match it early as motivation
+    # so judgment tier writes a proper cover-letter blurb instead.
+    (r"\binterest (working|joining|in this)\b|\blet.{1,20}know about your interest\b"
+     r"|\bmessage to (the )?(hiring|recruiter|team)\b|\bhiring manager message\b", "motivation"),
+    # Sponsorship/work-auth must precede employer — "require employer sponsorship"
+    # contains \bemployer\b and would otherwise be misclassified as a company-name field.
+    (r"\bsponsor(ship)?\b", "visa_sponsorship"),
     # Résumé-driven (employer/job/education) purposes. `employer` must precede
     # `full_name` — "Company Name" contains "name" and must not hit full_name.
     (r"\bemployer\b|\bcompany name\b|\bcompany\b|\borganization\b", "employer"),
@@ -51,13 +62,21 @@ _RULES: list[tuple[str, str]] = [
     (r"\bskills?\b|\bkey skills\b|\btechnolog", "skills"),
     (r"\bsummary\b|\babout you\b|\bprofile summary\b", "summary"),
     (r"\be-?mail\b", "email"),
+    (r"\bphone (device|type)\b|\bphone_type\b", "phone_type"),
     (r"\bphone\b|\bmobile\b|\bcontact number\b", "phone"),
+    (r"^\s*source\s*\*?\s*$", "referral_source"),  # Phenom applicantSource: label is literally "Source*"
+    (r"\bhear about us\b|\bhear about (this|the) (job|role|position|opening)\b"
+     r"|\bhow did you (find|learn about|discover)\b|\bjob source\b", "referral_source"),
     (r"\blinkedin\b", "linkedin_url"),
+    (r"\bfacebook\b|\bfb\.com\b", "facebook_url"),
     (r"\bgithub\b", "github_url"),
+    (r"\btwitter\b|\bx\.com\b", "twitter_url"),
     (r"\bportfolio\b|\bwebsite\b|\bpersonal site\b", "portfolio_url"),
     (r"\bsponsor", "visa_sponsorship"),
+    (r"\bapplied before\b|\bpreviously applied\b|\bapply (to|with) (this|our)\b", "prior_contact"),
     (r"\brelativ|\bknow (anyone|someone)\b|\breferr|\bemployee referral\b"
      r"|\b(contact|connection|relationship)s? (at|with|to)\b|\bfriends? (at|who)\b", "prior_contact"),
+    (r"\bconflict.of.interest\b|\bcommercial or government contracts?\b|\banti.corruption\b", "conflict_of_interest"),
     (r"\bauthoriz|\bwork permit\b|\bvisa\b|\beligible to work\b|\blegally (authorized|entitled)\b", "work_authorization"),
     (r"\byears? of experience\b|\byears? experience\b|\bexperience\b", "years_experience"),
     (r"\bnotice period\b|\bavailab|\bearliest start\b|\bstart date\b", "notice_period"),
@@ -68,6 +87,7 @@ _RULES: list[tuple[str, str]] = [
     # "Email Address".
     (r"\baddress\b", "address"),
     (r"\bwilling to relocat|\bopen to relocat|\brelocat\w*\s*\?|\brelocat", "willing_to_relocate"),
+    (r"\bcomments? about (the )?file\b|\bfile (comment|description)\b", "file_comment"),
     (r"\bresume\b|\bcv\b|\bupload.*(resume|cv)\b", "resume_upload"),
     (r"\barmed forces\b|\bmilitary\b|\bveteran\b|\breserve component\b"
      r"|\bserved (as|in)\b", "veteran"),
@@ -77,6 +97,10 @@ _RULES: list[tuple[str, str]] = [
     (r"\bcountry\b", "country"),
     (r"\bcity\b|\btown\b", "city"),
     (r"\blocation\b", "location"),
+    # Auth-wall fields — credential_provider handles these; rule-filler must skip them.
+    (r"\bverify\b.*\bpassword\b|\bpassword\b.*\bverify\b|\bconfirm\b.*\bpassword\b", "password_confirm"),
+    (r"\bnew password\b|\bcreate password\b|\bset password\b", "password_new"),
+    (r"\bpassword\b", "password"),
 ]
 
 _RESUME_RE = re.compile(r"\bresume\b|\bcv\b", re.I)

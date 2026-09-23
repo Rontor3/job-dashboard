@@ -31,3 +31,27 @@ def test_export_then_load_roundtrip(tmp_path):
 def test_load_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_profile(str(tmp_path / "nope.json"))
+
+
+# ── get_profile_chunk ──────────────────────────────────────────────────────────
+
+from career_agent.memory.factual_core import get_profile_chunk
+
+_PROFILE = {"personal": {"name": "Rakshit"}, "skills": ["Python", "SQL"]}
+
+
+def test_get_profile_chunk_known_section():
+    result = get_profile_chunk(_PROFILE, "personal")
+    assert result == {"personal": {"name": "Rakshit"}}
+
+
+def test_get_profile_chunk_other_section():
+    result = get_profile_chunk(_PROFILE, "skills")
+    assert result == {"skills": ["Python", "SQL"]}
+
+
+def test_get_profile_chunk_missing_section_lists_available():
+    with pytest.raises(KeyError) as exc:
+        get_profile_chunk(_PROFILE, "missing")
+    assert "missing" in str(exc.value)
+    assert "personal" in str(exc.value) or "skills" in str(exc.value)

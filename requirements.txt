@@ -26,3 +26,11 @@ playwright>=1.44
 
 # Career agent (Phase 2: remote-solve live-view server).
 aiohttp>=3.9
+
+# Career agent (LangGraph orchestration: checkpointed graph + interrupt-based human gate).
+langgraph>=1.2
+langgraph-checkpoint-sqlite>=3.0
+mcp[server]>=1.0
+google-api-python-client>=2.100
+google-auth-httplib2>=0.2
+google-auth-oauthlib>=1.1

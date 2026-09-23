@@ -27,3 +27,13 @@ def load_profile(path: str) -> dict:
     if not p.is_file():
         raise FileNotFoundError(f"profile JSON not found: {path}")
     return json.loads(p.read_text())
+
+
+def get_profile_chunk(profile: dict, section: str) -> dict:
+    """Return one section of the profile dict (JIT chunk for the memory router).
+    Raises KeyError with available sections listed if the section is missing."""
+    if section not in profile:
+        raise KeyError(
+            f"section {section!r} not in profile; available: {sorted(profile)}"
+        )
+    return {section: profile[section]}

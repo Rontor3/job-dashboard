@@ -1,4 +1,11 @@
 {
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp", "--browser", "chromium"],
+      "type": "stdio"
+    }
+  },
   "permissions": {
     "allow": [
       "Bash(npx @claude-flow*)",

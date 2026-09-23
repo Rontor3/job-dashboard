@@ -31,6 +31,7 @@ PYTHONPATH=src python3 -m pytest tests/career_agent               # add RUN_BROW
 ## career_agent boundaries
 
 - **Submit is gated by default (dry-run, `do_submit=False`).** It auto-submits only under a **durable, revocable user authorization** — not a per-application tap once granted. This is the path to autonomy.
+- **Account creation is handled by `credential_provider.py`.** For new sites it generates a password, saves to `~/.career_agent/credentials.json`, and completes registration (email → OTP → password → T&C). On repeat visits it loads saved credentials and logs in. Credentials are local-only — never committed, never in model context.
 - **Secrets never committed; PII stays local** (local LLM; user-authorized Gmail read for OTP only).
 
 ## Where knowledge lives (query on demand — don't inline)

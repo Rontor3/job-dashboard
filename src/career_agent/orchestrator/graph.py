@@ -9,6 +9,7 @@ SqliteSaver checkpoints every node transition so the logical state survives.
 from __future__ import annotations
 
 import dataclasses
+import re
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
@@ -147,13 +148,25 @@ def classify_node(state: AgentState, config) -> dict:
 
 def cred_provide_node(state: AgentState, config) -> dict:
     c = config["configurable"]
-    page = c["page"]
     from ..browser.credential_provider import provide as _provide
     from ..browser.page_prep import classify_entry, clear_auth_wall, is_application_form, enter_application, prepare
     original_url = state["url"]
 
     _prof = c.get("profile")
     _email = _prof.contact.get("email", "") if _prof and hasattr(_prof, "contact") else ""
+
+    # reach_node may have opened a new tab (e.g. Taleo login); resolve the
+    # actual current page from state["url"] so provide() runs on the right tab.
+    _base = c["page"]
+    page = _base
+    _target = state.get("url", "")
+    if _target and _target != _base.url:
+        for _p in _base.context.pages:
+            if _p.url == _target:
+                page = _p
+                break
+        else:
+            page = _base.context.pages[-1]
 
     # Run perceive_node on the login/signup page first so its captcha check
     # and remote-solve logic fires before we attempt to fill credentials.
@@ -164,7 +177,18 @@ def cred_provide_node(state: AgentState, config) -> dict:
     def _prov(pg, gate, site):
         return _provide(pg, gate, site, original_url=original_url, email=_email)
 
-    clear_auth_wall(page, credential_provider=_prov)
+    # Auth wall reached — notify via Telegram then proceed with auto-login.
+    on_link = c.get("on_link")
+    if on_link:
+        try:
+            on_link(f"🔐 Login wall on {page.url[:80]} — attempting auto-login")
+        except Exception:
+            pass
+    print(f"[auth-wall] {page.url[:80]}", flush=True)
+
+    cleared = clear_auth_wall(page, credential_provider=_prov)
+    if not cleared:
+        return {"stopped_reason": "auth_wall", "cred_provided": True}
     kind = classify_entry(page)
     # After registration Darwinbox lands back on the JD page — re-enter apply
     if kind in ("none", "form") and not is_application_form(page):
@@ -292,6 +316,52 @@ def fill_node(state: AgentState, config) -> dict:
         decisions += answered
 
     deps.fill(page, decisions)
+
+    # Taleo/ATS two-step attachment widgets: after set_input_files, click "Attach"
+    # to commit the file to the table, then mark it as Resume/CV.
+    if any(d.action == "upload" for d in decisions):
+        try:
+            page.wait_for_timeout(500)
+            page.get_by_role("button", name=re.compile(r"^attach$", re.I)).first.click(timeout=3000)
+            page.wait_for_timeout(800)
+            # Taleo may show "This file has already been attached. Overwrite it?"
+            # Click No via JS — bypasses Playwright locator/role-match issues with
+            # Taleo's <input type="button" value="No"> modal elements.
+            try:
+                _modal_dismissed = page.evaluate("""() => {
+                    if (!document.body.innerText.includes('already been attached')) return false;
+                    for (const el of document.querySelectorAll(
+                            'input[type=button], input[type=submit], button')) {
+                        const v = (el.value || el.textContent || '').trim();
+                        if (/^no$/i.test(v)) { el.click(); return true; }
+                    }
+                    return false;
+                }""")
+            except Exception:
+                _modal_dismissed = False
+            if _modal_dismissed:
+                print("[fill] dismissed 'already attached' modal", flush=True)
+                # Wait for modal to fully leave the DOM
+                try:
+                    page.wait_for_function(
+                        "() => !document.body.innerText.includes('already been attached')",
+                        timeout=3000)
+                except Exception:
+                    page.wait_for_timeout(800)
+            # Wait for AJAX partial refresh to complete before anything else touches the page
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                page.wait_for_timeout(1500)
+            print("[fill] clicked Attach button after file upload", flush=True)
+            # Mark the newly-attached file as the Resume/CV (Taleo table checkbox/radio)
+            try:
+                page.locator("table").locator("input[type=checkbox],input[type=radio]").first.check(timeout=2000)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     print(f"[fill] step {state['steps']+1}: {len(decisions)} filled, "
           f"{len(needs)} escalated", flush=True)
 
@@ -392,7 +462,17 @@ def advance_node(state: AgentState, config) -> dict:
         return {"submitted": True, "stopped_reason": "submitted"}
 
     if not has_advance:
-        return {"stopped_reason": "no_advance_control"}
+        # File upload may have just enabled a previously-disabled advance button.
+        # Re-snapshot once before giving up.
+        page.wait_for_timeout(1500)
+        form = deps.snapshot(page)
+        has_advance = has_control(form, ADVANCE_NAMES)
+        has_submit = has_control(form, SUBMIT_NAMES)
+        if not has_advance and not has_submit:
+            return {"stopped_reason": "no_advance_control"}
+        if has_submit and not has_advance:
+            if not state["do_submit"]:
+                return {"stopped_reason": "reached_submit_dry_run"}
 
     deps.click(page, pick_advance_label(form, is_last=False))
 
@@ -420,19 +500,19 @@ def advance_node(state: AgentState, config) -> dict:
 # ── Routing ───────────────────────────────────────────────────────────────────
 
 def _route_reach(state: AgentState) -> str:
-    # Route to cred_provide only on first password wall (guard prevents loop)
-    if state["kind"] == "password" and not state.get("cred_provided"):
+    # Route to cred_provide on first password or email_auth wall (guard prevents loop)
+    if state["kind"] in ("password", "email_auth") and not state.get("cred_provided"):
         return "cred_provide"
-    return "tailor_cv"
+    return "perceive"
 
 
 def _route_classify(state: AgentState) -> str:
     k = state["kind"]
     if k == "closed":
         return END
-    if k == "password":
+    if k in ("password", "email_auth"):
         return "cred_provide"
-    return "reach"
+    return "tailor_cv"
 
 
 def _route_perceive(state: AgentState) -> str:
@@ -467,10 +547,10 @@ def build_graph(checkpointer=None):
 
     g.set_entry_point("classify")
     g.add_conditional_edges("classify", _route_classify,
-                            {"cred_provide": "cred_provide", "reach": "reach", END: END})
-    g.add_edge("cred_provide", "reach")
-    g.add_conditional_edges("reach", _route_reach, {"cred_provide": "cred_provide", "tailor_cv": "tailor_cv"})
-    g.add_edge("tailor_cv", "perceive")
+                            {"cred_provide": "cred_provide", "tailor_cv": "tailor_cv", END: END})
+    g.add_edge("cred_provide", "tailor_cv")
+    g.add_edge("tailor_cv", "reach")
+    g.add_conditional_edges("reach", _route_reach, {"cred_provide": "cred_provide", "perceive": "perceive"})
     g.add_conditional_edges("perceive", _route_perceive, {"fill": "fill", END: END})
     g.add_conditional_edges("fill", _route_fill,
                             {"human_gate": "human_gate", "advance": "advance", END: END})

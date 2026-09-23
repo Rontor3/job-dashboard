@@ -82,6 +82,7 @@ def make_default_llm(
             "model": resolved_model,
             "prompt": prompt,
             "stream": False,
+            "think": False,
             "options": {"temperature": 0.4},
         }
         resp = post_fn(url, body)

@@ -8,7 +8,10 @@ import re
 # Fields that are never real application inputs.
 _NOISE_RE = re.compile(
     r"oda-|ask me something|add summary|work-summary|honey.?pot|"
-    r"g-recaptcha-response|h-captcha-response", re.I)
+    r"g-recaptcha-response|h-captcha-response|"
+    r"vendor-search-handler|"           # SR city autocomplete sub-widget
+    r"upload.profile.image",            # SR avatar photo uploader — not a document upload
+    re.I)
 
 
 def suppress_noise(fields):
@@ -25,8 +28,20 @@ def suppress_noise(fields):
     return out
 
 
-_DECLINE = ["Decline", "Reject all", "Reject", "Only necessary", "Necessary only", "Refuse"]
-_ACCEPT = ["Accept all", "Accept", "Agree", "Allow", "OK", "Got it", "I understand"]
+# Prefer the privacy-preserving option; fall back to accepting if needed to unblock.
+# Ordered most-specific first so "Reject all" beats "Reject" etc.
+_DECLINE = [
+    "Reject all", "Decline all", "Decline all cookies", "Reject all cookies",
+    "Use necessary cookies only", "Necessary cookies only", "Only necessary cookies",
+    "Only essential", "Essential only",
+    "Decline", "Reject", "Only necessary", "Necessary only", "Refuse",
+]
+_ACCEPT = [
+    "Allow all cookies", "Accept all cookies", "Accept all",
+    "Allow all", "Allow cookies", "Accept cookies",
+    "Accept", "Agree", "Allow", "OK", "Got it", "I understand",
+    "I agree", "I accept",
+]
 _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Dismiss", "Close"]
 
 
@@ -49,20 +64,26 @@ def _click_first(page, names, within=None):
 def _looks_consent(page) -> bool:
     try:
         return bool(page.evaluate(
-            "() => /cookie|consent|privacy preferences|we use/i"
-            ".test(document.body.innerText.slice(0,3000))"))
+            "() => /cookie|consent|privacy preferences|we use cookies/i"
+            ".test(document.body.innerText.slice(0,4000))"))
     except Exception:
         return False
 
 
 def dismiss_consent(page) -> bool:
     """Decline a cookie/consent overlay if offered, else OK/Accept to unblock.
+    Retries after a short wait so async-loaded banners (Workable, Cookiebot) are caught.
     Site cookie banners ONLY — never an application T&C/attestation."""
-    if not _looks_consent(page):
-        return False
-    if _click_first(page, _DECLINE):
-        return True
-    return _click_first(page, _ACCEPT) is not None
+    # Two passes: immediate + 1.5s wait for JS-injected banners
+    for attempt in range(2):
+        if _looks_consent(page):
+            if _click_first(page, _DECLINE):
+                return True
+            if _click_first(page, _ACCEPT):
+                return True
+        if attempt == 0:
+            page.wait_for_timeout(1500)
+    return False
 
 
 def dismiss_dialogs(page) -> bool:
@@ -78,7 +99,8 @@ def dismiss_dialogs(page) -> bool:
 
 _CLOSED_RE = re.compile(
     r"job (not found|you requested was not found)|no longer available"
-    r"|could ?n'?t find anything|posting[^.]{0,40}(closed|removed)|404 error",
+    r"|could ?n'?t find anything|posting[^.]{0,40}(closed|removed)|404 error"
+    r"|job board[^.]{0,40}no longer active|page not found",
     re.I)
 
 
@@ -108,18 +130,24 @@ def classify_entry(page, status=None) -> str:
     (a different problem: a second hop / login / render), not 'closed'."""
     if status in (404, 410):
         return "closed"
+    # Darwinbox uses shadow-DOM inputs that querySelectorAll can't see;
+    # detect its auth pages by URL instead of DOM probing.
+    _u = page.url
+    if "darwinbox.com/cookie-policy" in _u or "/ms/candidatev2/main/auth/" in _u:
+        return "password"
     try:
         d = page.evaluate("""() => {
           const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
           const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
           const txt = document.body.innerText.slice(0, 4000);
           const hasPw = ins.some(e => e.type === 'password')
-                        || /create a password|sign in with password/i.test(txt);
+                        || /create a password|sign in with password/i.test(txt)
+                        || /you do not have access/i.test(txt);
           const email = ins.find(e => e.type === 'email' || /mail/i.test(e.name||e.id||''));
           const fillable = ins.filter(e => !['hidden','submit','button','password'].includes(e.type)
             && !/search/i.test(e.getAttribute('aria-label')||e.name||'')).length;
           return { hasPw, hasEmail: !!email,
-            verify: /verify|one-time|we'll send|continue with email|create .*profile|confirm your identity|start application|begin.*apply/i.test(txt),
+            verify: /verify|one-time|we'll send|continue with email|create .*profile|create an account|confirm your identity|start application|begin.*apply|sign.?in/i.test(txt),
             fillable };
         }""")
     except Exception:
@@ -146,8 +174,19 @@ def classify_entry(page, status=None) -> str:
 # A search box, filter checkboxes, or a chatbot input score zero — that's what
 # separates the application form from a JD/search/SPA landing.
 _REAL_FIELDS_JS = r"""() => {
-  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
-  const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
+  function shadowAll(root, sel) {
+    const r = [];
+    function walk(n) {
+      try { if (n.matches && n.matches(sel)) r.push(n); } catch(e){}
+      if (n.shadowRoot) walk(n.shadowRoot);
+      for (const c of (n.children || [])) walk(c);
+    }
+    walk(root); return r;
+  }
+  const vis = e => { try { const r=e.getBoundingClientRect(); return r.width>4&&r.height>4; } catch(e){ return false; } };
+  // file inputs are styled invisible (display:none) but are real upload fields
+  const ins = shadowAll(document.body, 'input,select,textarea').filter(e =>
+    e.type === 'file' || vis(e));
   const seen = new Set();
   for (const e of ins) {
     if (['hidden','submit','button'].includes(e.type)) continue;
@@ -156,8 +195,8 @@ _REAL_FIELDS_JS = r"""() => {
     let k = null;
     if (e.type==='email' || /\be-?mail\b/.test(hay)) k='email';
     else if (e.type==='file' || /resume|\bcv\b|upload/.test(hay)) k='resume';
-    else if (/first name|last name|full name|your name|given name|family name|surname/.test(hay)) k='name';
-    else if (/phone|mobile/.test(hay)) k='phone';
+    else if (/first.?name|last.?name|full.?name|your.?name|given.?name|family.?name|surname/.test(hay)) k='name';
+    else if (/phone|mobile/.test(hay) || e.type==='tel') k='phone';
     if (k) seen.add(k);
   }
   return seen.size;
@@ -171,7 +210,7 @@ _CLICKABLES_JS = r"""() => {
   const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
   if (window.__affN === undefined) window.__affN = 0;
   const out = [];
-  for (const e of document.querySelectorAll('button, a[href], [role=button], input[type=submit]')) {
+  for (const e of document.querySelectorAll('button, a[href], [role=button], input[type=submit], input[type=button]')) {
     if (!vis(e)) continue;
     const name = (e.getAttribute('aria-label') || e.value || e.textContent || '').trim().replace(/\s+/g,' ');
     if (!name) continue;
@@ -233,16 +272,13 @@ def clear_auth_wall(page, credential_provider=None) -> bool:
 _APPLY_ALLOW = (
     "apply for this job", "apply for this role", "apply to this job",
     "apply now", "apply online", "submit application", "start application",
-    "apply", "get started",
+    "apply", "get started", "i'm interested", "im interested",
 )
-# "interested" ("I'm interested") is the common trigger for a CONVERSATIONAL
-# (chatbot) apply — a different interaction mode, not the form. Denying it keeps
-# the drill on the real "Apply" when both are present; a chatbot-only page is
-# handled by the dialog tool, not by pretending it's a form.
 _APPLY_DENY = (
     "save", "search", "sign in", "sign up", "log in", "login", "register",
     "create account", "filter", "refer", "subscribe", "share", "print",
-    "easy apply", "interested", "job alert", "view all", "back to", "learn more",
+    "job alert", "view all", "back to", "learn more",
+    "apply with",      # blocks "Apply With LinkedIn/Indeed/SEEK/Google" OAuth buttons
 )
 
 
@@ -255,7 +291,7 @@ def _best_apply(cands, exclude=()):
         if c.get("ref") in exclude:
             continue
         name = (c.get("name") or "").strip().lower()
-        if not name or len(name) > 40 or any(d in name for d in _APPLY_DENY):
+        if not name or len(name) > 80 or any(d in name for d in _APPLY_DENY):
             continue
         for rank, allow in enumerate(_APPLY_ALLOW):
             if allow in name:
@@ -287,10 +323,21 @@ _ADVANCE_WORDS = ("save and continue", "save & continue", "continue", "next", "r
 
 # Count of visible, non-search fillable fields (mirrors classify_entry's filter).
 _FILLABLE_JS = r"""() => {
-  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
-  return Array.from(document.querySelectorAll('input,select,textarea')).filter(e => {
-    if (!vis(e)) return false;
+  function shadowAll(root, sel) {
+    const r = [];
+    function walk(n) {
+      try { if (n.matches && n.matches(sel)) r.push(n); } catch(e){}
+      if (n.shadowRoot) walk(n.shadowRoot);
+      for (const c of (n.children || [])) walk(c);
+    }
+    walk(root); return r;
+  }
+  const vis = e => { try { const r=e.getBoundingClientRect(); return r.width>4&&r.height>4; } catch(e){ return false; } };
+  return shadowAll(document.body, 'input,select,textarea').filter(e => {
     const t = (e.getAttribute('type') || 'text').toLowerCase();
+    // file inputs are always styled invisible but are real upload fields — count them regardless
+    if (t === 'file') return true;
+    if (!vis(e)) return false;
     if (['hidden','submit','button','password'].includes(t)) return false;
     return !/search/i.test((e.getAttribute('aria-label') || e.name || ''));
   }).length;
@@ -368,16 +415,22 @@ def _hop(page, aff):
                 clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000)
             except Exception:
                 return page
-    page.wait_for_timeout(1000)
+    page.wait_for_timeout(3000)   # settle: page/SPA may navigate after apply click
     active = ctx.pages[-1] if len(ctx.pages) > before else page
     for _ in range(6):
         try:
             active.wait_for_load_state("domcontentloaded", timeout=2000)
         except Exception:
-            pass
+            # page closed (e.g. OAuth popup dismissed) — switch to newest live page
+            active = ctx.pages[-1] if ctx.pages else page
+            break
         if _real_field_count(active) >= 2:
             break
-        active.wait_for_timeout(1000)
+        try:
+            active.wait_for_timeout(1000)
+        except Exception:
+            active = ctx.pages[-1] if ctx.pages else page
+            break
     return active
 
 
@@ -410,7 +463,13 @@ def reach_application_form(page, max_hops=4):
         aff = find_apply_affordance(active, exclude=clicked)
         if aff is None:
             for _ in range(6):
-                active.wait_for_timeout(1000)
+                try:
+                    active.wait_for_timeout(1000)
+                except Exception:
+                    # page navigated/closed mid-poll; switch to newest page
+                    ctx = active.context
+                    active = ctx.pages[-1] if ctx.pages else active
+                    break
                 if is_application_form(active):
                     return active, "form"
                 aff = find_apply_affordance(active, exclude=clicked)
@@ -454,6 +513,9 @@ def _apply_url_variants(url: str) -> list:
     if u.endswith(("/apply", "/application")):
         return []
     out = []
+    if "career.infosys.com/jobdesc" in url:
+        qs = url.split("?")[1] if "?" in url else ""
+        out.append(f"https://career.infosys.com/jobs/jobapply?{qs}")
     if "ashbyhq.com" in url:
         out.append(u + "/application")
     if "lever.co" in url:
@@ -546,3 +608,19 @@ def prepare(page) -> None:
     except Exception: pass
     try: dismiss_dialogs(page)
     except Exception: pass
+    # Taleo: dismiss stale "already attached" overwrite modal (plain HTML, not [role=dialog])
+    try:
+        clicked = page.evaluate("""() => {
+            if (!document.body.innerText.includes('already been attached')) return false;
+            for (const el of document.querySelectorAll(
+                    'input[type=button], input[type=submit], button')) {
+                const v = (el.value || el.textContent || '').trim();
+                if (/^no$/i.test(v)) { el.click(); return true; }
+            }
+            return false;
+        }""")
+        if clicked:
+            page.wait_for_timeout(800)
+            print("[prep] dismissed stale Taleo overwrite modal", flush=True)
+    except Exception:
+        pass

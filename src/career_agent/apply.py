@@ -262,6 +262,15 @@ def main() -> None:
         # kind=="none" = clear JD page; kind=="form" can false-positive on pages
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
         if kind == "none" or (kind == "form" and not is_application_form(page)):
+            # Close stale ATS tabs from previous runs so pages[-1] after Apply
+            # click reliably points to the new (fresh-session) login tab.
+            _ATS_HOSTS = ("taleo.net", "greenhouse.io", "icims.com", "workday.com",
+                          "darwinbox.in", "successfactors.com", "ashbyhq.com",
+                          "lever.co", "recruitee.com", "jobvite.com")
+            for _sp in list(page.context.pages):
+                if _sp is not page and any(h in (_sp.url or "") for h in _ATS_HOSTS):
+                    try: _sp.close()
+                    except Exception: pass
             enter_application(page)
             page = page.context.pages[-1]      # adopt a new tab if one opened
             prepare(page); kind = classify_entry(page)
@@ -305,6 +314,7 @@ def main() -> None:
         if kind == "password":
             print("[password] attempting credential provider...")
             clear_auth_wall(page, credential_provider=_provide_url)
+            page = page.context.pages[-1]  # adopt new tab if guest-apply opened one
             kind = classify_entry(page)
             # After Darwinbox registration the provider navigates back to the JD
             # page; re-enter the application so walk() lands on the form.

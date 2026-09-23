@@ -15,6 +15,38 @@ _STORE = Path.home() / ".career_agent" / "credentials.json"
 # SAP SuccessFactors allows only alphanumeric + a limited special set; avoid
 # characters that trigger extra escaping or clipboard issues.
 _SPECIALS = "!#$%-+=@"  # @ required by Darwinbox
+
+
+def _fill_otp_generic(page, code: str) -> bool:
+    """Fill a numeric OTP into individual digit boxes or a single input."""
+    digits = "".join(c for c in str(code) if c.isdigit())
+    # Try multi-box (Phenom/eightfold: 6 boxes with class "numberInput", no maxlength)
+    for sel in (
+        'input[class*="numberInput" i]',      # Phenom/eightfold OTP boxes
+        'input[name^="pin-code"]',
+        'input[aria-label*="digit" i]',
+        'input[inputmode="numeric"][maxlength="1"]',
+        'input[type="tel"][maxlength="1"]',
+        'input[maxlength="1"]',
+    ):
+        boxes = [el for el in page.query_selector_all(sel) if el.is_visible()]
+        if boxes:
+            for b, ch in zip(boxes, digits):
+                try:
+                    b.click()
+                    page.keyboard.type(ch, delay=50)
+                except Exception:
+                    pass
+            return True
+    single = page.query_selector(
+        'input[name*="otp" i], input[id*="otp" i], '
+        'input[name*="code" i], input[id*="code" i], '
+        'input[inputmode="numeric"]'
+    )
+    if single and single.is_visible():
+        _type_into(page, single, digits)
+        return True
+    return False
 _ALPHABET = string.ascii_letters + string.digits + _SPECIALS
 
 
@@ -77,71 +109,228 @@ def _type_into(page, el, value: str) -> None:
     page.wait_for_timeout(300)
 
 
-def _fill_wall(page, gate: str, cred: dict) -> None:
-    """Fill the login/signup wall fields and submit.
+import hashlib as _hashlib
+import re as _re
+import time as _time
 
-    Uses native keyboard events only (isTrusted=True) so framework validators accept
-    them. Handles both simple login forms and registration forms with confirmation
-    fields (e.g. SAP SuccessFactors).
-    """
+
+def _classify_page_state(page) -> str:
+    """Read DOM + URL → return next-action hint."""
     try:
-        # Email — try strict type first, then name/id heuristics (SF uses type=text)
-        email_sel = (
-            'input[type="email"],'
-            'input[name*="email" i], input[id*="email" i],'
-            'input[name*="userName" i], input[id*="userName" i],'
-            'input[name*="user_name" i]'
-        )
-        email_filled = False
-        for el in page.query_selector_all(email_sel):
-            if el.is_visible():
-                _type_into(page, el, cred["username"])
-                email_filled = True
-        if not email_filled:
-            # Fallback: accessible-name label search (covers Workday id="input-N" style)
-            try:
-                el = page.get_by_label("email", exact=False).first
-                if el.count() > 0 and el.is_visible():
-                    _type_into(page, el, cred["username"])
-            except Exception:
-                pass
-
-        if gate == "password":
-            for el in page.query_selector_all('input[type="password"]'):
-                if el.is_visible():
-                    _type_into(page, el, cred["password"])
-
-        # First / last name (registration forms)
-        for name_sel, val in [
-            ('input[name*="fName" i], input[id*="first" i], input[name*="firstName" i]',
-             cred.get("first_name", "")),
-            ('input[name*="lName" i], input[id*="last" i], input[name*="lastName" i]',
-             cred.get("last_name", "")),
-        ]:
-            if not val:
-                continue
-            el = page.query_selector(name_sel)
-            if el and el.is_visible():
-                _type_into(page, el, val)
-
-        page.wait_for_timeout(800)   # let async validators settle before submit
-        # Try type="submit" first; many ATSs (Workday, etc.) use type="button" instead
-        submit = page.query_selector('button[type="submit"], input[type="submit"]')
-        if not submit or not submit.is_visible():
-            for btn_name in ("Create Account", "Sign In", "Log In", "Sign Up",
-                             "Register", "Submit", "Continue"):
-                try:
-                    btn = page.get_by_role("button", name=btn_name, exact=False).first
-                    if btn.count() > 0 and btn.is_visible():
-                        submit = btn
-                        break
-                except Exception:
-                    pass
-        if submit:
-            submit.click()
-            page.wait_for_timeout(2500)
+        txt = (page.inner_text("body") or "").lower()
+        url = page.url.lower()
     except Exception:
-        pass
+        return "unknown"
+    if any(d in url for d in ("accounts.google.com", "accounts.facebook.com", "linkedin.com/oauth")):
+        return "oauth"
+    # OTP input present
+    otp_el = page.query_selector(
+        'input[name*="otp" i], input[id*="otp" i],'
+        'input[name*="code" i][maxlength], input[inputmode="numeric"][maxlength="1"]'
+    )
+    if otp_el and otp_el.is_visible():
+        return "otp"
+    if _re.search(r"enter.*code|verification code|check your email|one.?time password|otp", txt):
+        return "otp"
+    if _re.search(r"verify your email|confirm your email|verification link|click the link|we sent", txt):
+        return "verify_email"
+    # Registration fields (first + last name inputs visible) — check BEFORE password
+    # so that account-creation forms (name + password) are classified as registration
+    fname_el = page.query_selector('input[name*="first" i], input[id*="first" i],'
+                                   'input[name*="fName" i], input[placeholder*="first" i]')
+    if fname_el and fname_el.is_visible():
+        return "registration"
+    # Password field now visible (email-first: Continue was clicked, step 2 appeared)
+    pw_els = page.query_selector_all('input[type="password"]')
+    if any(el.is_visible() for el in pw_els):
+        return "password"
+    return "unknown"
+
+
+def _observe_until_change(page, label: str, max_wait_s: int = 30, interval_s: int = 5) -> str:
+    """Poll every interval_s sec; snapshot each tick; stop and classify when DOM changes.
+
+    Returns the _classify_page_state result at the moment the change is detected,
+    or 'unknown' if nothing changed within max_wait_s.
+    """
+    def _sig():
+        try:
+            return _hashlib.md5((page.inner_text("body") or "").encode()).hexdigest()
+        except Exception:
+            return ""
+
+    initial_sig = _sig()
+    elapsed = 0
+    while elapsed < max_wait_s:
+        _time.sleep(interval_s)
+        elapsed += interval_s
+        try:
+            path = f"/tmp/career_agent_cred_{label}_{elapsed}s.png"
+            page.screenshot(path=path, full_page=False)
+            print(f"[cred] snapshot @{elapsed}s ({label}): {path}", flush=True)
+        except Exception:
+            pass
+        current_sig = _sig()
+        if current_sig != initial_sig:
+            state = _classify_page_state(page)
+            print(f"[cred] page changed at {elapsed}s → {state}", flush=True)
+            return state
+    print(f"[cred] no change after {max_wait_s}s ({label})", flush=True)
+    return _classify_page_state(page)  # classify anyway even if no DOM change detected
+
+
+def _is_email_first(page) -> bool:
+    """True if page has visible email field but NO visible password field (email-first form)."""
+    try:
+        email_sel = ('input[type="email"], input[name*="email" i], input[id*="email" i],'
+                     'input[name*="userName" i]')
+        has_email = any(el.is_visible() for el in page.query_selector_all(email_sel))
+        if not has_email:
+            return False
+        has_pw = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
+        return not has_pw
+    except Exception:
+        return False
+
+
+def _click_non_social_submit(page, btn_names=("Continue", "Create Account", "Sign Up",
+                                               "Register", "Sign In", "Log In", "Submit")) -> bool:
+    """Click the first visible non-social submit button and return True if found."""
+    submit = page.query_selector('button[type="submit"], input[type="submit"]')
+    if submit and submit.is_visible():
+        txt = (submit.text_content() or "").lower()
+        if not any(s in txt for s in _SOCIAL_KEYWORDS):
+            submit.click()
+            return True
+    for btn_name in btn_names:
+        try:
+            btn = page.get_by_role("button", name=btn_name, exact=False).first
+            if btn.count() > 0 and btn.is_visible():
+                txt = (btn.text_content() or "").lower()
+                if not any(s in txt for s in _SOCIAL_KEYWORDS):
+                    btn.click()
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def _fill_visible_fields(page, cred: dict) -> None:
+    """Fill all currently visible auth fields (email, passwords, name)."""
+    email_sel = (
+        'input[type="email"],'
+        'input[name*="email" i], input[id*="email" i],'
+        'input[name*="userName" i], input[id*="userName" i],'
+        'input[name*="user_name" i]'
+    )
+    email_filled = False
+    for el in page.query_selector_all(email_sel):
+        if el.is_visible():
+            _type_into(page, el, cred["username"])
+            email_filled = True
+    if not email_filled:
+        try:
+            el = page.get_by_label("email", exact=False).first
+            if el.count() > 0 and el.is_visible():
+                _type_into(page, el, cred["username"])
+        except Exception:
+            pass
+    for el in page.query_selector_all('input[type="password"]'):
+        if el.is_visible():
+            _type_into(page, el, cred["password"])
+    for name_sel, val in [
+        ('input[name*="fName" i], input[id*="first" i], input[name*="firstName" i],'
+         'input[placeholder*="first" i]', cred.get("first_name", "")),
+        ('input[name*="lName" i], input[id*="last" i], input[name*="lastName" i],'
+         'input[placeholder*="last" i]', cred.get("last_name", "")),
+    ]:
+        if not val:
+            continue
+        el = page.query_selector(name_sel)
+        if el and el.is_visible():
+            _type_into(page, el, val)
+
+
+def _handle_otp_state(page, site: str, cred: dict) -> None:
+    """Get OTP from Gmail, fill it, then continue handling whatever page comes next."""
+    from ..integrations.gmail_otp import poll_otp, available
+    if not available():
+        print("[cred] Gmail OTP not available", flush=True)
+        return
+    try:
+        code = poll_otp(timeout_s=1800, sender_hint=site)
+        if not code:
+            print(f"[cred] OTP timeout for {site}", flush=True)
+            return
+        print(f"[cred] got OTP code={code!r}, filling now", flush=True)
+        if code.startswith("http"):
+            page.goto(code, wait_until="domcontentloaded")
+            next_state = _observe_until_change(page, "otp_link")
+        else:
+            filled = _fill_otp_generic(page, code)
+            print(f"[cred] OTP fill result: {filled}", flush=True)
+            page.wait_for_timeout(500)
+            clicked = _click_non_social_submit(page, ("Verify", "Continue", "Submit", "Sign In"))
+            print(f"[cred] OTP submit clicked: {clicked}", flush=True)
+            next_state = _observe_until_change(page, "otp_submit")
+        print(f"[cred] post-OTP state: {next_state}", flush=True)
+        # Keep the chain going — Phenom shows password/registration step after OTP
+        if next_state not in ("unknown", "otp"):
+            _handle_state(page, next_state, cred, site)
+    except Exception as e:
+        print(f"[cred] _handle_otp_state error: {e}", flush=True)
+
+
+def _handle_state(page, state: str, cred: dict, site: str) -> None:
+    """Act on an observed page state: fill what's now visible, then re-observe."""
+    if state == "otp":
+        _handle_otp_state(page, site, cred)
+    elif state == "verify_email":
+        _handle_otp_state(page, site, cred)  # poll_otp returns link or code
+        # If we landed on a login form after email verify, fill it
+        new_state = _classify_page_state(page)
+        if new_state in ("password", "registration"):
+            _fill_visible_fields(page, cred)
+            page.wait_for_timeout(500)
+            _click_non_social_submit(page)
+            _observe_until_change(page, "post_verify_login")
+    elif state == "password":
+        # Email-first: password step appeared — fill password and submit
+        for el in page.query_selector_all('input[type="password"]'):
+            if el.is_visible():
+                _type_into(page, el, cred["password"])
+        page.wait_for_timeout(500)
+        _click_non_social_submit(page, ("Sign In", "Log In", "Continue", "Submit"))
+        _observe_until_change(page, "pw_submit")
+    elif state == "registration":
+        # Registration fields appeared — fill name + password
+        _fill_visible_fields(page, cred)
+        page.wait_for_timeout(500)
+        _click_non_social_submit(page)
+        next_state = _observe_until_change(page, "post_register")
+        if next_state in ("otp", "verify_email"):
+            _handle_state(page, next_state, cred, site)
+    elif state == "oauth":
+        print("[cred] OAuth page detected — cannot complete programmatically, going back", flush=True)
+        try:
+            page.go_back()
+            page.wait_for_timeout(2000)
+        except Exception:
+            pass
+
+
+def _fill_wall(page, gate: str, cred: dict, site: str = "") -> None:
+    """Fill all visible auth fields, submit, then observe and handle the resulting state."""
+    try:
+        _fill_visible_fields(page, cred)
+        page.wait_for_timeout(800)
+        clicked = _click_non_social_submit(page)
+        if clicked:
+            state = _observe_until_change(page, "wall_submit")
+            if state not in ("unknown",):
+                _handle_state(page, state, cred, site)
+    except Exception as e:
+        print(f"[cred] _fill_wall error: {e}", flush=True)
 
 
 def _dbx_type(page, formcontrolname: str, value: str) -> bool:
@@ -439,6 +628,102 @@ def _infosys_login(page, cred: dict, original_url: str | None = None) -> None:
         print(f"[infosys] login error: {e}", flush=True)
 
 
+def _ibm_login(page, cred: dict, original_url: str | None = None) -> None:
+    """IBM Security Verify two-step login: IBMid → Continue → password → Sign in."""
+    try:
+        # Step 1: fill IBMid field (id="uid") and click Continue
+        uid = (page.query_selector('input[id="uid"]')
+               or page.query_selector('input[name="uid"]')
+               or page.query_selector('input[autocomplete="username"]'))
+        if uid and uid.is_visible():
+            _type_into(page, uid, cred["username"])
+            print(f"[ibm] filled IBMid with {cred['username']}", flush=True)
+        else:
+            print("[ibm] IBMid field not found", flush=True)
+            return
+
+        cont = page.query_selector('button[id="continue-button"]') or \
+               page.query_selector('button[type="submit"]')
+        if not cont:
+            try:
+                cont = page.get_by_role("button", name="Continue").first
+            except Exception:
+                pass
+        if cont and cont.is_visible():
+            cont.click()
+            print("[ibm] clicked Continue", flush=True)
+            page.wait_for_timeout(3000)
+        else:
+            print("[ibm] Continue button not found", flush=True)
+            return
+
+        # Step 2: password page
+        pw = page.query_selector('input[type="password"]')
+        if pw and pw.is_visible():
+            _type_into(page, pw, cred["password"])
+            print("[ibm] filled password", flush=True)
+            sign_in = page.query_selector('button[id="signinbutton"]') or \
+                      page.query_selector('button[type="submit"]')
+            if sign_in and sign_in.is_visible():
+                sign_in.click()
+                print("[ibm] clicked Sign in", flush=True)
+                page.wait_for_timeout(5000)
+        else:
+            print("[ibm] password field not found after Continue", flush=True)
+
+        print(f"[ibm] after login URL: {page.url}", flush=True)
+        if original_url and page.url != original_url:
+            page.goto(original_url, wait_until="domcontentloaded")
+            page.wait_for_timeout(3000)
+    except Exception as e:
+        print(f"[ibm] login error: {e}", flush=True)
+
+
+def _ibm_register(page, cred: dict, original_url: str | None = None) -> None:
+    """Create a new IBMid account via the 'Create an IBMid' link."""
+    try:
+        for sel in ['a:has-text("Create an IBMid")', 'a[href*="register"]']:
+            el = page.query_selector(sel)
+            if el and el.is_visible():
+                el.click()
+                print("[ibm] clicked Create an IBMid", flush=True)
+                page.wait_for_timeout(3000)
+                break
+
+        # Registration form fields
+        for field_sel, val in [
+            ('input[name="firstName"], input[id*="first" i]', cred.get("first_name", "")),
+            ('input[name="lastName"], input[id*="last" i]', cred.get("last_name", "")),
+            ('input[name="emailAddress"], input[type="email"]', cred["username"]),
+            ('input[name="password"]', cred["password"]),
+            ('input[name="confirmPassword"], input[id*="confirm" i]', cred["password"]),
+        ]:
+            el = page.query_selector(field_sel)
+            if el and el.is_visible() and val:
+                _type_into(page, el, val)
+
+        page.wait_for_timeout(500)
+        submit = page.query_selector('button[type="submit"]')
+        if submit and submit.is_visible():
+            submit.click()
+            print("[ibm] submitted registration form", flush=True)
+            page.wait_for_timeout(5000)
+        print(f"[ibm] after register URL: {page.url}", flush=True)
+    except Exception as e:
+        print(f"[ibm] register error: {e}", flush=True)
+
+
+_IBM_HOSTS = ("login.ibm.com", "w3id.sso.ibm.com", "iam.cloud.ibm.com", "ibm.com")
+
+
+def _is_ibm_page(page) -> bool:
+    """Detect IBM Security Verify by page content (catches UHG SSO redirect)."""
+    try:
+        txt = (page.query_selector("body") or page).inner_text() or ""
+        return "IBMid" in txt or "IBM Security Verify" in txt
+    except Exception:
+        return False
+
 _LOGIN_TEXTS = [
     "sign in", "log in", "login", "already have an account",
     "existing user", "have an account", "back to login", "returning user",
@@ -448,26 +733,68 @@ _SIGNUP_TEXTS = [
     "new user", "don't have an account", "no account", "new here",
     "join now", "get started", "new to",
 ]
+# Keywords that, if present in ANY visible link/button text, aria-label, or title
+# on a login/signup wall, indicate an account-free path. Checked as substrings.
+_GUEST_KEYWORDS = ["guest", "without account", "without sign", "without log",
+                   "without register", "skip sign", "skip log", "skip reg",
+                   "no account", "quick apply", "apply directly",
+                   "apply as visitor", "one-time", "anonymous",
+                   "proceed without", "continue without", "apply without"]
+
+
+_SOCIAL_KEYWORDS = ("google", "facebook", "linkedin", "github", "twitter", "microsoft", "apple")
 
 
 def _navigate_to_form(page, link_texts: list[str], label: str) -> bool:
     try:
-        for el in page.query_selector_all("a, button"):
+        sel = "a, button, input[type='button'], input[type='submit']"
+        for el in page.query_selector_all(sel):
             if not el.is_visible():
                 continue
-            text = (el.text_content() or "").strip().lower()
+            text = (el.text_content() or el.get_attribute("value") or "").strip().lower()
+            # Skip social-login buttons (e.g. "Sign in with Google")
+            if any(s in text for s in _SOCIAL_KEYWORDS):
+                continue
             if any(t in text for t in link_texts):
                 print(f"[cred] navigating to {label}: {text!r}", flush=True)
                 el.click()
-                page.wait_for_timeout(2000)
+                state = _observe_until_change(page, "navigate_form")
+                print(f"[cred] after nav click state: {state}", flush=True)
                 return True
     except Exception:
         pass
     return False
 
 
+def _try_guest_apply(page) -> bool:
+    """Click any visible link/button that offers an account-free path.
+
+    Checks element text, aria-label, and title — the label can be anything.
+    """
+    try:
+        sel = "a, button, input[type='button'], input[type='submit'], [role='button'], [role='link']"
+        for el in page.query_selector_all(sel):
+            if not el.is_visible():
+                continue
+            # Gather all text signals for this element (input uses .value, others use textContent)
+            signals = [
+                (el.text_content() or el.get_attribute("value") or "").lower(),
+                (el.get_attribute("aria-label") or "").lower(),
+                (el.get_attribute("title") or "").lower(),
+            ]
+            combined = " ".join(signals)
+            if any(kw in combined for kw in _GUEST_KEYWORDS):
+                label = (el.text_content() or "").strip()[:60]
+                print(f"[cred] guest path found: {label!r} — clicking", flush=True)
+                el.click()
+                page.wait_for_timeout(2000)
+                return True
+    except Exception as _e:
+        print(f"[cred] guest apply scan error: {_e!r}", flush=True)
+    return False
+
+
 def _ensure_login_form(page) -> None:
-    """If on a sign-up page but have credentials, click through to login."""
     _navigate_to_form(page, _LOGIN_TEXTS, "login form")
 
 
@@ -477,10 +804,21 @@ def _ensure_signup_form(page) -> None:
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
             email: str = "") -> bool:
-    """Fill an account/login wall using stored or freshly-generated credentials."""
+    """Fill an account/login wall using stored or freshly-generated credentials.
+
+    Flow:
+      1. Guest apply available → click it, done (no account needed).
+      2. Credentials already stored → go to login form and fill.
+      3. No credentials yet → go to REGISTER form, fill, then login.
+    """
     if "infosys" in site or "intapidm" in site:
-        site = "career.infosys.com"   # canonical key regardless of which domain triggered
+        site = "career.infosys.com"
+
+    # Step 1 — guest apply (always try first; no account needed)
+    if _try_guest_apply(page):
+        return True
     cred = load_credential(site, label=gate)
+
     is_new = cred is None
     if cred is None:
         username = _email_on_page(page) or email or _default_email()
@@ -489,10 +827,21 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             "first_name": os.getenv("CAREER_AGENT_FIRST_NAME", "Rakshit"),
             "last_name": os.getenv("CAREER_AGENT_LAST_NAME", "Singh"),
         }
-        save_credential(site, username, password, label=gate, **extra)
+        # For SPECIALS, save now (they manage their own flow); generic path saves after confirm
         cred = {"username": username, "password": password, "label": gate, **extra}
 
-    if "darwinbox" in site:
+    # Step 2 / 3 — ATS-specific handlers (they know register vs login distinction)
+    _is_special = (any(h in site for h in _IBM_HOSTS) or _is_ibm_page(page)
+                   or "darwinbox" in site or "infosys" in site)
+    if is_new and _is_special:
+        save_credential(site, cred["username"], cred["password"], label=gate,
+                        first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+
+    if any(h in site for h in _IBM_HOSTS) or _is_ibm_page(page):
+        if is_new:
+            _ibm_register(page, cred, original_url=original_url)
+        _ibm_login(page, cred, original_url=original_url)
+    elif "darwinbox" in site:
         if is_new:
             _darwinbox_register(page, cred, original_url=original_url)
         _darwinbox_login(page, cred, original_url=original_url)
@@ -500,21 +849,40 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
         if is_new:
             _infosys_register(page, cred, original_url=None)
         _infosys_login(page, cred, original_url=original_url)
-    elif "smartrecruiters" in site:
-        # SR non-OneClick: account modal appears on the JD page after clicking Apply.
-        # Generic _fill_wall covers login (email+password) and registration
-        # (click "Create an account" → fill name+email+password+confirm).
-        # ponytail: if SR requires email OTP for new accounts, wire _sr_register() here.
-        print(f"[sr] {'registering' if is_new else 'logging in'} on {site}", flush=True)
-        if is_new:
-            _ensure_signup_form(page)
-        else:
-            _ensure_login_form(page)
-        _fill_wall(page, gate, cred)
     else:
-        if is_new:
-            _ensure_signup_form(page)
+        # Generic path — observation-driven: look at the page, then act.
+        if _is_email_first(page):
+            # Email-only form visible (no password field yet).
+            # Fill email, click Continue, then observe and handle whatever appears.
+            print(f"[cred] email-first form detected on {site}", flush=True)
+            email_sel = ('input[type="email"], input[name*="email" i], input[id*="email" i],'
+                         'input[name*="userName" i]')
+            for el in page.query_selector_all(email_sel):
+                if el.is_visible():
+                    _type_into(page, el, cred["username"])
+                    break
+            page.wait_for_timeout(500)
+            _click_non_social_submit(page, ("Continue", "Next", "Sign In", "Log In", "Submit"))
+            state = _observe_until_change(page, "email_first_continue")
+            print(f"[cred] after email+Continue: {state}", flush=True)
+            # Save credential as soon as the email is accepted (OTP, verify_email, or
+            # direct registration all confirm Phenom accepted this email address)
+            if is_new and state in ("registration", "otp", "verify_email"):
+                save_credential(site, cred["username"], cred["password"],
+                                label=gate, first_name=cred.get("first_name", ""),
+                                last_name=cred.get("last_name", ""))
+                print(f"[cred] saved credential for {site}", flush=True)
+            _handle_state(page, state, cred, site)
+        elif is_new:
+            # Traditional form (email+password together) — need to register first
+            print(f"[cred] no stored cred for {site} — navigating to signup", flush=True)
+            found = _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
+            if not found:
+                print(f"[cred] no signup form found on {site} — escalating", flush=True)
+                return False
+            _fill_wall(page, gate, cred, site=site)
         else:
+            # Traditional form, have credentials — login
             _ensure_login_form(page)
-        _fill_wall(page, gate, cred)
+            _fill_wall(page, gate, cred, site=site)
     return True

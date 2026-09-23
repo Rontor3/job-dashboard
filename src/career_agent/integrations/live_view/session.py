@@ -117,7 +117,7 @@ class RemoteSolveSession:
             # install the token observer (add_init_script re-runs it on every
             # navigation; evaluate covers the already-loaded page).
             body = _observer_body(self._watch_g, self._watch_h)
-            self.page.evaluate("() => { try { localStorage.removeItem('__cca_cleared'); } catch (e) {} }")
+            self.page.evaluate("() => { try { localStorage.removeItem('__cca_cleared'); } catch (e) {} window.__cca_cleared = false; }")
             self.page.add_init_script("(function () {%s})();" % body)
             self.page.evaluate("() => {%s}" % body)
         except Exception:
@@ -134,6 +134,7 @@ class RemoteSolveSession:
         self._last_activity = start
         last_check = 0.0
         gone_since = None
+        captcha_was_seen = False   # only start absence timer once captcha confirmed present
         while True:
             # Apply queued taps immediately (low input latency).
             self._drain_pointers(forward_pointer, vp)
@@ -153,7 +154,8 @@ class RemoteSolveSession:
             # view between polls, so taps landed on stale/refreshed tiles.
             try:
                 self.page.wait_for_timeout(self._frame_slice_ms)
-            except Exception:
+            except Exception as _pe:
+                print(f"[lv] page pump error: {_pe!r}", flush=True)
                 return False   # page / browser gone
             if self.interactive:
                 continue       # edit session: only the human's "Done" (checked above) completes
@@ -174,10 +176,13 @@ class RemoteSolveSession:
                 except Exception:
                     present = True   # navigating / uncertain -> assume present
                 if present:
+                    captcha_was_seen = True
                     if gone_since is not None and _DEBUG:
                         print("[lv] captcha reappeared — resolve timer reset", flush=True)
                     gone_since = None
-                else:
+                elif captcha_was_seen:
+                    # Only fire absence timer after captcha was confirmed present at least
+                    # once — avoids false-positive when classify_gate can't see the captcha
                     if gone_since is None:
                         gone_since = now
                         if _DEBUG:
@@ -205,8 +210,12 @@ class RemoteSolveSession:
                 " || (function(){ try { return localStorage.getItem('__cca_cleared') === '1'; }"
                 " catch (e) { return false; } })()")
             if latched:
+                if _DEBUG:
+                    print("[lv] _cleared() TRUE via observer latch", flush=True)
                 return True
             if self.is_cleared(self.page):   # fallback: token still in the DOM
+                if _DEBUG:
+                    print("[lv] _cleared() TRUE via DOM token fallback", flush=True)
                 return True
         except Exception:
             return False   # a transient/navigation error is NOT proof of a solve

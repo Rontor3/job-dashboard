@@ -12,6 +12,7 @@ class JudgmentContext:
     profile_text: str = ""
     research: object = None        # ResearchBundle or None (draft handles None)
     resume_text: str = ""
+    ats_notes: str = ""            # vendor notes from ats-graph (e.g. "Direct, no-login")
 
 
 _SENSITIVE_RE = re.compile(
@@ -104,7 +105,15 @@ from ..orchestrator.mapper import FillDecision, _action_for_kind
 
 _SELECT_KINDS = {"select", "radio_group"}
 # Not application questions — never draft an answer into these (search/nav boxes).
-_NOT_A_QUESTION = re.compile(r"\bsearch\b|\bfilter\b|\bkeyword", re.I)
+# Fields that expect a raw value (number, URL, ID) — draft_screening_answer would
+# generate a narrative answer which is wrong. Escalate these directly to human.
+_NOT_A_QUESTION = re.compile(
+    r"\bsearch\b|\bfilter\b|\bkeyword"          # search/nav boxes
+    r"|\burl\b|\blink\b|\bprofile\s*(url|link)"  # URL fields (LinkedIn, Naukri, portfolio)
+    r"|\bcompensation\b|\bctc\b|\bsalary\b|\bpackage\b"  # salary inputs (number, not essay)
+    r"|\bnaukri\b|\bgithub\b|\bportfolio\b",     # specific platform URL fields
+    re.I
+)
 
 
 def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
@@ -118,29 +127,29 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
     answered, still_need, flagged = [], [], set()
     calls = 0
     hard = []                                  # weak free-text -> tier-3 orchestrator
+    profile_text = (f"[ATS: {ctx.ats_notes}]\n" if ctx.ats_notes else "") + (ctx.profile_text or "")
     for f in needs_human:
+        # Rule: non-required, non-text/textarea fields have no asterisk → skip, not escalate
+        if not f.required and f.kind not in ("text", "textarea"):
+            continue
         if _is_sensitive(f):
             still_need.append(f); continue
         if calls >= cap:
             still_need.append(f); continue
         if f.kind in _SELECT_KINDS:
             calls += 1
-            opt = map_option(f.label, f.options, ctx.profile_text, llm)
+            opt = map_option(f.label, f.options, profile_text, llm)
             if opt is None:
                 still_need.append(f)
             else:
                 answered.append(FillDecision(f.ref, f.kind, f.label, opt,
                                              _action_for_kind(f.kind), "judgment"))
             continue
-        if f.kind == "textarea":
-            # Essays are personal — never auto-commit them. Escalate so the
-            # collector can hand the human an editable draft to approve/edit.
-            still_need.append(f); continue
-        if f.kind == "text" and f.purpose is None:
+        if f.kind in ("textarea", "text") and f.purpose is None:
             if _NOT_A_QUESTION.search(f.label or "") or draft_screening_answer is None:
                 still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
-            res = draft_screening_answer(ctx.job, f.label, ctx.profile_text,
+            res = draft_screening_answer(ctx.job, f.label, profile_text,
                                          ctx.research, ctx.resume_text, llm=llm)
             weak = res.get("flags") or res.get("unsupported_company_claims")
             if weak and orchestrator is not None:

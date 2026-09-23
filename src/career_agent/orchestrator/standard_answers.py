@@ -12,9 +12,10 @@ _COUNTRY_NO_CI = re.compile(
     r"united states|united kingdom|\bamerica\b|\bcanada\b|\baustralia\b|"
     r"\bgermany\b|\bsingapore\b|\bireland\b|\bnetherlands\b|\beurope\b", re.I)
 _COUNTRY_NO_CS = re.compile(r"\bU\.?S\.?A?\.?\b|\bU\.?K\.?\b|\bEU\b")
-# A combined "authorized to work … without sponsorship" question is really an
-# authorization question — too ambiguous to answer as plain sponsorship.
-_COMBINED = re.compile(r"\bauthoriz|\beligib|\bwithout\b", re.I)
+# "Authorized without sponsorship?" conflates two questions — escalate.
+# Plain "will you require sponsorship?" is answerable even if it mentions
+# "work authorization" as context — only escalate when "without" is present.
+_COMBINED = re.compile(r"\bwithout\b|\beligib", re.I)
 
 
 def answer(purpose: str, label: str) -> str | None:
@@ -25,6 +26,10 @@ def answer(purpose: str, label: str) -> str | None:
         return "Yes"                      # would need a visa for onsite/relocation
     if purpose == "prior_contact":
         return "No"
+    if purpose == "phone_type":
+        return "Mobile"
+    if purpose == "referral_source":
+        return "Job Board"
     if purpose == "work_authorization":
         yes = _COUNTRY_YES.search(text)
         no = _COUNTRY_NO_CI.search(text) or _COUNTRY_NO_CS.search(text)
@@ -35,4 +40,8 @@ def answer(purpose: str, label: str) -> str | None:
         if no:
             return "No"
         return None                       # no determinable country -> escalate
+    if purpose == "conflict_of_interest":
+        return "No"
+    if purpose == "file_comment":
+        return "Resume"
     return None

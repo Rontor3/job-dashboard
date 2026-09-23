@@ -10,7 +10,9 @@ from ..orchestrator.profile_resolver import resolve
 from ..orchestrator import standard_answers
 
 _SELECT_KINDS = {"select", "radio_group"}
-_STD_PURPOSES = {"visa_sponsorship", "prior_contact", "work_authorization"}
+_STD_PURPOSES = {"visa_sponsorship", "prior_contact", "work_authorization",
+                  "phone_type", "referral_source", "conflict_of_interest",
+                  "file_comment"}
 # Full-word tokens only — single letters ("y"/"n") mis-coerce "N/A"-style
 # options (M-1).
 _YES = {"yes", "true"}
@@ -67,6 +69,10 @@ def _coerce_option(value, options):
             ol = o.strip().lower()
             if any(re.search(r"\b" + t + r"\b", ol) for t in toks):
                 return o
+            # "I am not a protected veteran" / "I do not have a disability" — option
+            # text uses "not" not "no"; skip "prefer not to answer" / "decline" options.
+            if toks is _NO and re.search(r"\bnot\b", ol) and not re.search(r"\bprefer\b|\bdecline\b", ol):
+                return o
     vnums = re.findall(r"\d+", v)                        # 3. numeric range
     if len(vnums) == 1:
         n = int(vnums[0])
@@ -96,11 +102,15 @@ def _coerce_option(value, options):
 def _place(f, value, source, decisions, needs_human):
     value = _normalize(value)
     if f.kind in _SELECT_KINDS:
-        opt = _coerce_option(value, f.options or [])
-        if opt is None:
-            needs_human.append(f)
-            return
-        value = opt
+        if f.options:
+            # Options known: coerce to a real option or escalate.
+            opt = _coerce_option(value, f.options)
+            if opt is None:
+                needs_human.append(f)
+                return
+            value = opt
+        # Empty options = lazy-loaded DOM; pass raw value and let filler
+        # attempt select_option(label=value) — fails softly if no match.
     decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action(f.kind), source))
 
 
@@ -108,6 +118,10 @@ def map_screen(form, profile, resume_pdf=None):
     decisions, needs_human = [], []
     for f in form:
         if f.kind == "button":
+            continue
+        if f.purpose in ("password", "password_new", "password_confirm"):
+            # Auth-wall credential fields — credential_provider handles these.
+            # Never fill or escalate; pretend they don't exist.
             continue
         if f.purpose == "attestation":
             # Tick REQUIRED attestations (T&C / e-signature) in the DRAFT — a tick
@@ -121,10 +135,22 @@ def map_screen(form, profile, resume_pdf=None):
             continue
         if f.purpose == "resume_upload" or f.kind == "file":
             is_resume = f.purpose == "resume_upload" or not _NON_RESUME_FILE.search(f.label or "")
-            if is_resume and resume_pdf:
-                decisions.append(FillDecision(f.ref, f.kind, f.label, resume_pdf, "upload", "resume"))
+            if not is_resume or not resume_pdf:
+                needs_human.append(f)
+                continue
+            if f.kind in ("radio_group", "radio"):
+                # Upload-selection radio (Taleo page 1): each option is its own radio group.
+                # Click only the radio whose option text mentions "upload" or "file".
+                # Skip LinkedIn and "Skip" radios.
+                upload_opt = next(
+                    (o for o in (f.options or []) if re.search(r"\bupload\b|\bfile\b", o, re.I)),
+                    None,
+                )
+                if upload_opt:
+                    decisions.append(FillDecision(f.ref, f.kind, f.label, upload_opt, "check_group", "resume"))
+                # else: LinkedIn or Skip radio — leave it, the upload radio handles it
             else:
-                needs_human.append(f)   # non-résumé file, or no résumé available
+                decisions.append(FillDecision(f.ref, f.kind, f.label, resume_pdf, "upload", "resume"))
             continue
         if f.purpose in _STD_PURPOSES:
             ans = standard_answers.answer(f.purpose, f.label)
@@ -136,8 +162,8 @@ def map_screen(form, profile, resume_pdf=None):
         value = resolve(f.purpose, profile) if f.purpose else None
         if value is not None:
             _place(f, value, "resume", decisions, needs_human)
-        elif f.required or (f.purpose is None and f.kind == "text"):
-            needs_human.append(f)     # optional catch-all textareas -> left blank
+        elif f.required or (f.purpose is None and f.kind in ("text", "textarea")):
+            needs_human.append(f)
     return decisions, needs_human
 
 

@@ -4,7 +4,9 @@
 thin browser-bound collectors."""
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from dataclasses import replace
 
 from .form_model import Field, guess_purpose
@@ -63,10 +65,12 @@ def to_form_model(raw: list[dict]) -> list[Field]:
         if kind == "radio" and r.get("group"):
             g = radio_groups.setdefault(
                 r["group"],
-                {"labels": [], "required": False, "label": r["group"]},
+                {"labels": [], "required": False, "label": r["group"], "group_label": ""},
             )
             g["labels"].append(r["label"])
             g["required"] = g["required"] or bool(r.get("required"))
+            if r.get("group_label") and not g["group_label"]:
+                g["group_label"] = r["group_label"]
             continue
         fields.append(Field(
             ref=r["ref"], kind=kind, label=r["label"],
@@ -77,10 +81,11 @@ def to_form_model(raw: list[dict]) -> list[Field]:
         ))
 
     for name, g in radio_groups.items():
+        label = g.get("group_label") or name
         fields.append(Field(
-            ref=f"group:{name}", kind="radio_group", label=name,
+            ref=f"group:{name}", kind="radio_group", label=label,
             required=g["required"], options=g["labels"], group=name,
-            purpose=guess_purpose(name, "radio_group"),
+            purpose=guess_purpose(label, "radio_group"),
         ))
     return fields
 
@@ -95,7 +100,12 @@ _INPUT_JS = r"""
     const res = [];
     const walk = (root) => {
       root.querySelectorAll(sel).forEach(e => res.push(e));
-      root.querySelectorAll('*').forEach(e => { if (e.shadowRoot) walk(e.shadowRoot); });
+      // Only custom elements (tag names with '-') legitimately use shadow DOM for
+      // form fields. Walking querySelectorAll('*') (all elements) to find shadow roots
+      // is O(n) over the entire DOM and hangs on pages with large job-description blobs.
+      root.querySelectorAll('*').forEach(e => {
+        if (e.shadowRoot && e.tagName && e.tagName.includes('-')) walk(e.shadowRoot);
+      });
     };
     walk(document);
     return res;
@@ -107,8 +117,10 @@ _INPUT_JS = r"""
     const root = el.getRootNode();
     const v = el.getAttribute(attr);
     if (!v) return '';
-    return v.split(/\s+/).map(id => { const n = byId(root, id); return n ? n.innerText : ''; })
-            .join(' ').replace(/\s+/g, ' ').trim();
+    return v.split(/\s+/).map(id => {
+      const n = byId(root, id);
+      return n ? (n.textContent || '').trim().slice(0, 200) : '';
+    }).join(' ').replace(/\s+/g, ' ').trim();
   };
   // Accessible NAME in the W3C accname priority order — this is what a screen
   // reader announces. Priority is the fix: aria-labelledby and aria-label come
@@ -123,21 +135,28 @@ _INPUT_JS = r"""
     if (al) return al;
     if (el.id) {                                             // 3: <label for>
       const l = root.querySelector(`label[for="${el.id}"]`);
-      if (l && l.innerText.trim()) return l.innerText.trim();
+      if (l) { const t = (l.textContent || '').trim().slice(0, 200); if (t) return t; }
     }
     const wrap = el.closest('label');                        // 3: wrapping <label>
-    if (wrap && wrap.innerText.trim()) return wrap.innerText.trim();
+    if (wrap) { const t = (wrap.textContent || '').trim().slice(0, 200); if (t) return t; }
     const fs = el.closest('fieldset');                       // 3: fieldset legend
-    if (fs) { const lg = fs.querySelector('legend'); if (lg && lg.innerText.trim()) return lg.innerText.trim(); }
+    if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (t) return t; } }
     const title = (el.getAttribute('title') || '').trim();   // 4
     if (title) return title;
     // ---- fallbacks below are NOT accname; only for forms with no association ----
-    let prev = el.previousElementSibling;
-    while (prev) { const t = (prev.innerText || '').trim(); if (t) return t; prev = prev.previousElementSibling; }
+    // Limit sibling walk to 3 and use textContent (no layout forcing) capped at
+    // 200 chars — calling innerText on a large sibling (e.g. a job-description div)
+    // forces full layout and can block the browser for minutes.
+    let prev = el.previousElementSibling, sc = 0;
+    while (prev && sc++ < 3) {
+      const t = (prev.textContent || '').trim().slice(0, 200);
+      if (t) return t;
+      prev = prev.previousElementSibling;
+    }
     const container = el.closest('div,section,fieldset,li');
     if (container) {
       const lbl = container.querySelector('label,legend,.label,[class*=label]');
-      if (lbl && (lbl.innerText || '').trim()) return lbl.innerText.trim();
+      if (lbl) { const t = (lbl.textContent || '').trim().slice(0, 200); if (t) return t; }
     }
     return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
   };
@@ -145,6 +164,48 @@ _INPUT_JS = r"""
   // we used to drop; it carries hints like "type 'relocating'" that change what
   // a field means.
   const describedBy = (el) => idRefsText(el, 'aria-describedby');
+  // For radio/checkbox groups the question heading is a sibling element of the
+  // options container, not an ancestor of the individual input (so labelFor
+  // returns the option text "Male" instead of the question "Gender"). Walk up
+  // to 8 levels looking for a known ATS question-container class, then return
+  // the first child text that isn't the options list itself.
+  const groupLabel = (el) => {
+    let node = el.parentElement;
+    for (let i = 0; i < 8 && node; i++, node = node.parentElement) {
+      const cls = (node.className || '');
+      if (/\b(question|form[-_]?(group|row|item)|field[-_]?wrapper|application-question|card[-_]?body)\b/.test(cls)) {
+        for (const ch of node.children) {
+          if (/\b(field|option|choice|answer|radio|check|ul|list)\b/.test(ch.className || '')) continue;
+          // Prefer a label-class descendant (avoids pulling in options that follow)
+          const lbl = ch.querySelector && ch.querySelector('[class*=label],[class*=heading],legend,h1,h2,h3,h4,h5');
+          const raw = lbl ? lbl.textContent : ch.textContent;
+          const t = (raw || '').replace(/[✱*✶†]\s*$/, '').trim().slice(0, 200);
+          if (t && t.length > 1) return t;
+        }
+      }
+    }
+    // Structural fallback: CSS-module ATSes (Workable etc.) use hashed class names
+    // that don't match the known-class list above. Find the nearest container that
+    // has BOTH text-only children AND radio/checkbox children — that's the question
+    // block — and return the text-only part.
+    let node2 = el.parentElement;
+    for (let i = 0; i < 8 && node2; i++, node2 = node2.parentElement) {
+      const kids = Array.from(node2.children);
+      if (kids.length < 2) continue;
+      const radioKids = kids.filter(k => k.querySelector('input[type=radio],input[type=checkbox]'));
+      if (radioKids.length === 0) continue;
+      const textKids = kids.filter(k => {
+        if (k.querySelector('input[type=radio],input[type=checkbox]')) return false;
+        const t = (k.textContent || '').trim();
+        return t.length > 3 && t.length < 300;
+      });
+      if (textKids.length > 0) {
+        const t = (textKids[0].textContent || '').replace(/[✱*✶†✳＊]\s*$/, '').replace(/^\s*[*✱]\s*/, '').trim().slice(0, 200);
+        if (t && t.length > 3) return t;
+      }
+    }
+    return '';
+  };
   // Stamp a unique handle on every field so it's addressable even with no id and
   // no name (custom widgets share [name=""] otherwise). Prefer #id when present
   // (stable, readable); else use the stamped [data-cref="fN"].
@@ -153,12 +214,18 @@ _INPUT_JS = r"""
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
     if (type === 'hidden' || type === 'submit' || type === 'button') continue;
+    // Skip inputs inside page chrome (header, nav, search bar) — they are site
+    // navigation controls, not application form fields (Phenom/Mastercard has
+    // a jobs-search bar in the header whose selects navigate the page if filled).
+    if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     let kind = tag === 'textarea' ? 'textarea'
              : tag === 'select' ? 'select'
              : ['email','tel','file','checkbox','radio'].includes(type) ? type
              : 'text';
     const options = tag === 'select'
-      ? Array.from(el.options).map(o => o.text.trim()).filter(Boolean) : [];
+      ? Array.from(el.options).map(o => o.text.trim())
+          .filter(t => t && !/^(please select|select an option|select|choose|--|n\/a|none|select\.\.\.)$/i.test(t))
+      : [];
     const role = (el.getAttribute('role') || '').toLowerCase();
     const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
     // A combobox is interacted with by clicking, not typing, so readOnly is
@@ -170,6 +237,7 @@ _INPUT_JS = r"""
       ref: el.id ? `#${el.id}` : `[data-cref="${cref}"]`,
       kind, label: labelFor(el), description: describedBy(el), required: !!el.required,
       options, group: (kind === 'radio') ? (el.name || null) : null,
+      group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : '',
       disabled: !!el.disabled || (!!el.readOnly && !isCombo),
       role, haspopup,
     });
@@ -179,7 +247,7 @@ _INPUT_JS = r"""
   // (no fillable purpose, not required).
   for (const el of deepQuery(
         'button, a[href], input[type=submit], input[type=button], [role=button]')) {
-    const label = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
+    const label = ((el.textContent || el.value || el.getAttribute('aria-label') || '')).trim().slice(0, 100);
     if (!label) continue;
     out.push({
       ref: el.id ? `#${el.id}` : `button:${label}`,
@@ -255,15 +323,36 @@ def enrich_with_vision(page, form, vision_fn, shot_path=None):
     return apply_vision_labels(form, labels)
 
 
+# Child frames are scanned ONLY when they come from a known embedded ATS.
+# Scanning any other frame (hcaptcha, GTM, analytics, LinkedIn widgets) can
+# block indefinitely — fr.evaluate() has no timeout and will wait for a
+# still-loading or cross-origin frame without throwing.
+_ATS_FRAME_HOSTS = (
+    "greenhouse.io", "ashbyhq.com", "recruitee.com",
+    "workable.com", "lever.co",
+    "talentrecruit.com", "darwinbox.in",
+    "successfactors.com", "taleo.net", "icims.com",
+    "jobvite.com", "smartrecruiters.com",
+    "keka.com", "freshteam.com",
+)
+
+
 def collect_raw(page) -> list[dict]:
     """Scan the main frame AND every child frame (embedded ATS iframes). Child
     frames' refs are frame-qualified so the filler targets the right frame."""
     out = []
-    for idx, fr in enumerate(page.frames):        # frames[0] is the main frame
+    frames = page.frames
+    print(f"[perc] {len(frames)} frames", flush=True)
+    for idx, fr in enumerate(frames):        # frames[0] is the main frame
+        print(f"[perc] frame {idx}: {fr.url[:60]!r}", flush=True)
         try:
+            if idx > 0:
+                url = fr.url or ""
+                if not any(h in url for h in _ATS_FRAME_HOSTS):
+                    continue                      # not an ATS embed — skip to avoid blocking
             rows = fr.evaluate(_INPUT_JS)
         except Exception:
-            continue                              # detached / blocked frame -> skip
+            continue                              # detached / cross-origin / blocked
         if idx == 0:
             out.extend(rows)
         else:
@@ -273,6 +362,37 @@ def collect_raw(page) -> list[dict]:
     return out
 
 
-def snapshot_form(page) -> list[Field]:
+def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:
+    """Scroll top→bottom→top in small steps so lazy/virtualized fields
+    render into the DOM before we snapshot. Abrupt full-page jumps skip
+    intersection-observer triggers and miss fields that only exist on scroll."""
+    try:
+        total = page.evaluate("document.body.scrollHeight")
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(200)
+        pos = 0
+        while pos < total:
+            pos = min(pos + step_px, total)
+            page.evaluate("(p) => window.scrollTo(0, p)", pos)
+            page.wait_for_timeout(delay_ms)
+        page.evaluate("window.scrollTo(0, 0)")   # back to top before fill
+        page.wait_for_timeout(200)
+    except Exception:
+        pass   # non-scrollable page / framed page — proceed anyway
+
+
+def snapshot_form(page, verify_shot: str | None = None) -> list[Field]:
+    """Scroll through the page to trigger all lazy-rendered fields, snapshot
+    the DOM, then optionally save a screenshot for visual verification."""
+    _slow_scroll_pass(page)
     from .page_prep import suppress_noise
-    return suppress_noise(to_form_model(collect_raw(page)))
+    fields = suppress_noise(to_form_model(collect_raw(page)))
+    # Screenshot after snapshot so a human (or next run) can verify nothing
+    # visible was missed. Saved to /tmp by default; caller can override.
+    shot = verify_shot or os.path.join(tempfile.gettempdir(), "career_agent_perception.png")
+    try:
+        page.screenshot(path=shot, full_page=True)
+        print(f"[perc] snapshot: {len(fields)} fields — verify screenshot → {shot}", flush=True)
+    except Exception:
+        print(f"[perc] snapshot: {len(fields)} fields", flush=True)
+    return fields

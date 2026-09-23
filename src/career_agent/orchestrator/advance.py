@@ -6,12 +6,14 @@ import re
 from urllib.parse import urlparse
 
 ADVANCE_NAMES = ["save and continue", "continue", "next", "review", "save & continue"]
-SUBMIT_NAMES = ["submit application", "submit", "apply", "finish", "confirm"]
+SUBMIT_NAMES = ["submit application", "submit", "send application", "send", "apply", "finish", "confirm"]
 NEVER_NAMES = ["back", "cancel", "previous", "logout", "sign out",
                # session / idle dialogs and the Oracle chat widget — never
                # advance targets (e.g. "Continue Working" contains "continue").
                "continue working", "end session", "discard", "add summary",
-               "skip to main", "back to job"]
+               "skip to main", "back to job",
+               # OAuth/SSO shortcuts — not the real application submit button
+               "apply with"]
 
 
 def screen_signature(url, form):

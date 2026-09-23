@@ -119,7 +119,7 @@ def main() -> None:
     human = HumanLoop(approver, remote_solve_factory=remote_solve_factory,
                       deadline_s=settings.remote_solve_ttl)
 
-    pw, context, page = launch(settings)
+    pw, context, page, _cdp_browser = launch(settings)
     try:
         page.goto(args.url)
         # Let async widgets settle before we perceive/classify — reCAPTCHA,
@@ -136,7 +136,7 @@ def main() -> None:
         print(f"\n[gate={out['gate']}] remote_solve_attempted={out['remote_solve_attempted']} "
               f"gate_after_solve={out['gate_after_solve']} submitted={out['submitted']}")
     finally:
-        close(pw, context)
+        close(pw, context, page=page, cdp_browser=_cdp_browser)
 
 
 if __name__ == "__main__":
