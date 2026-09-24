@@ -92,3 +92,11 @@ test("clicking Apply with agent calls onApplyAgent without selecting the row", (
   expect(onApplyAgent).toHaveBeenCalledWith(1);
   expect(onSelect).not.toHaveBeenCalled();
 });
+
+test("no separate + Track button when Apply with agent is available (it tracks on its own)", () => {
+  const jobs = [{ id: 1, title: "External ATS", company: "Acme", status: null,
+                  apply_type: { kind: "external-ats", label: "ATS form", fill: "easy" } }];
+  render(<Feed jobs={jobs} selectedId={null} onSelect={() => {}} onTrack={() => {}} />);
+  expect(screen.getByRole("button", { name: /apply with agent/i })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^\+ track$/i })).toBeNull();
+});

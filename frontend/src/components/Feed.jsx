@@ -105,7 +105,7 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent
               <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>Ranking…</span>
             )}
             <ScoreBadge value={j.llm_score != null ? j.llm_score / 100 : j.embed_score} />
-            {["saved","applied","interviewing","offer","rejected"].includes(j.status) ? null : (
+            {["saved","applied","interviewing","offer","rejected"].includes(j.status) || j.apply_type?.fill === "easy" ? null : (
               <button
                 onClick={(e) => { e.stopPropagation(); onTrack && onTrack(j.id); }}
                 style={{ ...PILL, background: "transparent", border: "1px solid var(--green)",
