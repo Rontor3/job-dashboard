@@ -1,69 +1,147 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { fetchTracker, patchStatus } from "../api.js";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { fetchTracker, patchStatus, fetchApplyAgentStatus } from "../api.js";
 
-const COLS = [
-  { key: "saved", label: "Saved" },
-  { key: "applied", label: "Applied" },
-  { key: "interviewing", label: "Interviewing" },
-  { key: "offer", label: "Offer" },
-];
 const STAGE_OPTS = ["saved", "applied", "interviewing", "offer", "rejected"];
-const PILL = { fontSize: 10, padding: "2px 8px", borderRadius: "var(--radius-pill)", background: "#F1EBE0", color: "var(--ink-soft)" };
-const CARD = { background: "var(--card)", border: "0.5px solid var(--hairline)", borderRadius: 10, padding: 8, marginBottom: 8 };
+const STAGE_LABEL = { saved: "Saved", applied: "Applied", interviewing: "Interviewing", offer: "Offer", rejected: "Rejected" };
+const STAGE_COLOR = {
+  saved: { bg: "#F1EBE0", fg: "var(--ink-soft)" },
+  applied: { bg: "var(--gold)", fg: "var(--gold-ink)" },
+  interviewing: { bg: "var(--green-tint)", fg: "var(--green-mid)" },
+  offer: { bg: "var(--green)", fg: "#FFFFFF" },
+  rejected: { bg: "var(--dupe-bg)", fg: "var(--dupe-ink)" },
+};
+// Row order: earlier stages first, so a freshly-tracked job doesn't get
+// buried under everything already further along.
+const STAGE_ORDER = ["saved", "applied", "interviewing", "offer"];
+
+function StagePill({ jobId, status }) {
+  const c = STAGE_COLOR[status] || STAGE_COLOR.saved;
+  return (
+    <span data-testid={`status-pill-${jobId}`}
+          style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: "var(--radius-pill)",
+                   background: c.bg, color: c.fg, whiteSpace: "nowrap" }}>
+      {STAGE_LABEL[status] || status}
+    </span>
+  );
+}
+
+function AgentLiveTag({ jobId, agentStatus }) {
+  if (!agentStatus || !agentStatus.running) return null;
+  return (
+    <span data-testid={`status-pill-${jobId}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600,
+                   padding: "3px 10px", borderRadius: "var(--radius-pill)",
+                   background: "var(--green-tint)", color: "var(--green-mid)", whiteSpace: "nowrap" }}>
+      <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)",
+                                        animation: "breathe 2.2s ease-in-out infinite" }} />
+      Filling{agentStatus.title ? ` — ${agentStatus.title}` : "…"}
+    </span>
+  );
+}
+
+function Row({ job, agentStatus, onSelect, onMove }) {
+  const running = agentStatus && agentStatus.running && agentStatus.job_id === job.id;
+  return (
+    <div
+      onClick={() => onSelect(job.id)}
+      style={{
+        display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer",
+        background: "var(--card)", border: running ? "1.5px solid var(--green)" : "0.5px solid var(--hairline)",
+        borderRadius: 10, transition: "transform var(--dur-quick) ease-out",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.transform = "translateX(3px)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.transform = "none"; }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {job.title}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--ink-soft)", overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {job.company}{job.industry ? ` · ${job.industry}` : ""}
+        </div>
+      </div>
+      {running ? <AgentLiveTag jobId={job.id} agentStatus={agentStatus} /> : <StagePill jobId={job.id} status={job.status} />}
+      <select
+        data-testid={`stage-${job.id}`}
+        value={job.status}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          const val = e.target.value;
+          e.stopPropagation();
+          onMove(job.id, val === "__remove__" ? null : val);
+        }}
+        style={{ fontSize: 11, border: "0.5px solid var(--hairline)", borderRadius: 6,
+                 padding: "3px 6px", background: "var(--canvas)", color: "var(--ink-soft)" }}
+      >
+        {STAGE_OPTS.map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
+        <option value="__remove__">Remove from board</option>
+      </select>
+    </div>
+  );
+}
 
 export default function TrackerBoard({ onSelect, refreshTick }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
+  const [agentStatus, setAgentStatus] = useState(null);
+  const alive = useRef(true);
+  const timer = useRef(null);
+
   const load = useCallback(() => { fetchTracker().then(setBoard).catch((e) => setErr(String(e))); }, []);
   useEffect(() => { load(); }, [load, refreshTick]);
+
+  useEffect(() => {
+    const poll = () => {
+      fetchApplyAgentStatus().then((s) => {
+        if (!alive.current) return;
+        setAgentStatus(s);
+        timer.current = setTimeout(poll, 1000);
+      }).catch(() => { if (alive.current) timer.current = setTimeout(poll, 1000); });
+    };
+    poll();
+    return () => { alive.current = false; clearTimeout(timer.current); };
+  }, []);
 
   const move = (id, status) => patchStatus(id, status).then(load);
 
   if (err) return <div role="alert" style={{ color: "var(--dupe-ink)", padding: 16 }}>{err}</div>;
   if (!board) return <div style={{ padding: 24, color: "var(--ink-soft)" }}>Loading board…</div>;
 
-  const Card = (j) => (
-    <div key={j.id} draggable
-      onDragStart={(e) => e.dataTransfer.setData("text/plain", String(j.id))}
-      onClick={() => onSelect(j.id)} style={{ ...CARD, cursor: "grab" }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink)" }}>{j.title}</div>
-      <div style={{ fontSize: 10, color: "var(--ink-soft)" }}>{j.company}</div>
-      {j.industry && <span style={{ ...PILL, display: "inline-block", marginTop: 4 }}>{j.industry}</span>}
-      <select data-testid={`stage-${j.id}`} value={j.status}
-        onClick={(e) => e.stopPropagation()}
-        onChange={(e) => { const val = e.target.value; e.stopPropagation();
-          move(j.id, val === "__remove__" ? null : val); }}
-        style={{ display: "block", marginTop: 6, fontSize: 10, width: "100%" }}>
-        {STAGE_OPTS.map((s) => <option key={s} value={s}>{s}</option>)}
-        <option value="__remove__">Remove from board</option>
-      </select>
-    </div>
-  );
+  const rows = STAGE_ORDER.flatMap((stage) => (board[stage] || []).map((j) => ({ ...j, status: stage })));
+  const archived = board.archived || [];
+
+  if (rows.length === 0 && archived.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "48px 0", color: "var(--ink-soft)" }}>
+        Nothing tracked yet — hit + Track or Apply with agent on a job.
+      </div>
+    );
+  }
 
   return (
     <div style={{ marginTop: 14 }}>
-      <div style={{ display: "flex", gap: 10 }}>
-        {COLS.map((c) => (
-          <div key={c.key} data-testid={`col-${c.key}`}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); const id = Number(e.dataTransfer.getData("text/plain")); if (id) move(id, c.key); }}
-            style={{ flex: 1, background: "var(--ring-track)", borderRadius: 12, padding: 8, minHeight: 120 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--green)", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
-              <span>{c.label}</span><span>{(board[c.key] || []).length}</span>
-            </div>
-            <div style={{ maxHeight: "64vh", overflowY: "auto" }}>
-              {(board[c.key] || []).length === 0
-                ? <div style={{ fontSize: 10, color: "var(--ink-faint)" }}>—</div>
-                : board[c.key].map(Card)}
-            </div>
+      {rows.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 }}>{rows.length} tracked</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {rows.map((j) => (
+              <Row key={j.id} job={j} agentStatus={agentStatus} onSelect={onSelect} onMove={move} />
+            ))}
           </div>
-        ))}
-      </div>
-      <details style={{ marginTop: 12 }}>
+        </>
+      )}
+      <details style={{ marginTop: 14 }}>
         <summary style={{ fontSize: 12, color: "var(--ink-soft)", cursor: "pointer" }}>
-          Archived ({(board.archived || []).length})
+          Archived ({archived.length})
         </summary>
-        <div style={{ marginTop: 8 }}>{(board.archived || []).map(Card)}</div>
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+          {archived.map((j) => (
+            <Row key={j.id} job={{ ...j, status: j.status || "rejected" }}
+                 agentStatus={agentStatus} onSelect={onSelect} onMove={move} />
+          ))}
+        </div>
       </details>
     </div>
   );

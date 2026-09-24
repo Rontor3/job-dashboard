@@ -23,7 +23,7 @@ test("renders feed and stats from the API", async () => {
 test("switches between Browse and Tracker tabs", async () => {
   render(<App />);
   fireEvent.click(screen.getByRole("button", { name: /tracker/i }));
-  expect(await screen.findByText(/Archived/)).toBeInTheDocument();
+  expect(await screen.findByText(/Nothing tracked yet/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /browse/i }));
   expect(screen.getByTestId("feed-slot")).toBeInTheDocument();
 });

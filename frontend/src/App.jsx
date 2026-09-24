@@ -12,7 +12,6 @@ import ThemeToggle from "./components/ThemeToggle.jsx";
 import HeaderScene from "./components/HeaderScene.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
 import ResumeLibrary from "./components/ResumeLibrary.jsx";
-import AgentStatusBadge from "./components/AgentStatusBadge.jsx";
 
 function TabButton({ active, onClick, label }) {
   return (
@@ -109,7 +108,6 @@ export default function App() {
         ) : (
           <div>
             <Overview stats={stats} />
-            <AgentStatusBadge />
             <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} />
           </div>
         )}

@@ -26,6 +26,7 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent
             animation: "rowIn var(--dur-enter) var(--ease-out) both",
             animationDelay: `${i * 80}ms`,
             display: "flex", alignItems: "center", justifyContent: "space-between",
+            flexWrap: "wrap", rowGap: 10,
             padding: "14px 18px", cursor: "pointer",
             background: "var(--card)",
             border: j.id === selectedId ? "1.5px solid var(--green)" : "0.5px solid var(--hairline)",
@@ -86,7 +87,7 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent
               )}
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
             {j.verdict ? (
               <span
                 style={{

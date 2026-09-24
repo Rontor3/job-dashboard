@@ -160,11 +160,26 @@ def create_app(
     def refresh_status():
         return state.snapshot()
 
-    # Mount frontend static files (SPA with fallback to index.html)
+    # Mount frontend static files (SPA with fallback to index.html).
+    # index.html (and any other non-hashed file) must never be cached without
+    # revalidation — Vite's build hashes asset filenames, so a stale cached
+    # index.html is the one thing that can keep serving an old bundle after a
+    # rebuild. Everything under assets/ is safe to cache forever since its
+    # filename changes whenever its content does.
     dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
     if dist.is_dir():
         from fastapi.staticfiles import StaticFiles
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="frontend")
+
+        class _FrontendStaticFiles(StaticFiles):
+            async def get_response(self, path, scope):
+                response = await super().get_response(path, scope)
+                if path.startswith("assets/"):
+                    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                else:
+                    response.headers["Cache-Control"] = "no-cache"
+                return response
+
+        app.mount("/", _FrontendStaticFiles(directory=str(dist), html=True), name="frontend")
 
     return app
 
