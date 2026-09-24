@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -63,6 +64,74 @@ class AgentRunState:
             job_id = self._job_id
             return {"running": False, "job_id": job_id,
                     "status": "done" if code == 0 else "error", "exit_code": code}
+
+
+def _cdp_reachable(cdp_url: str, timeout: float = 1.5) -> bool:
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"{cdp_url}/json/version", timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _any_chrome_running() -> bool:
+    """True if any Google Chrome process is running — including ones without
+    the debug port. Used to decide whether auto-launching the career-agent
+    Chrome is safe (nothing open to disturb)."""
+    try:
+        return subprocess.run(["pgrep", "-x", "Google Chrome"],
+                              capture_output=True).returncode == 0
+    except Exception:
+        return True  # can't tell -> assume yes, the non-destructive default
+
+
+_CDP_CHROME_PROFILE_DIR = Path.home() / ".career_agent" / "chrome-p3"
+_CDP_CHROME_PROFILE_NAME = "Profile 3"
+_CDP_CHROME_APP = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+
+def _launch_cdp_chrome(port: int) -> None:
+    subprocess.Popen(
+        [_CDP_CHROME_APP, f"--remote-debugging-port={port}",
+         f"--user-data-dir={_CDP_CHROME_PROFILE_DIR}",
+         f"--profile-directory={_CDP_CHROME_PROFILE_NAME}",
+         "--no-first-run", "--no-default-browser-check"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def _ensure_cdp_chrome(cdp_url: str) -> Optional[str]:
+    """Make the career-agent Chrome reachable before launching the agent
+    against it. Returns None once it's ready (or already was), or an error
+    message if it couldn't be made ready — never raises.
+
+    Only auto-launches when NO Chrome process is running at all. macOS
+    treats Chrome as single-instance: launching a second one with
+    --remote-debugging-port while another Chrome window is already open just
+    focuses that window and silently ignores the flag, so the documented
+    manual recovery (career_agent/CLAUDE.md) does `pkill -x "Google Chrome"`
+    first. Killing the user's existing Chrome closes their tabs/windows —
+    a real, disruptive action — so this never does that automatically; it
+    surfaces a clear error with the manual command instead.
+    """
+    if _cdp_reachable(cdp_url):
+        return None
+    if _any_chrome_running():
+        return (f"career-agent Chrome isn't reachable at {cdp_url}, and Chrome is "
+                "already running without the debug port. Auto-restarting it would "
+                "close your existing Chrome windows, so that wasn't done — close "
+                "Chrome yourself and try again, or run the launch command from "
+                "career_agent/CLAUDE.md.")
+    from urllib.parse import urlparse
+    port = urlparse(cdp_url).port or 9222
+    _launch_cdp_chrome(port)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if _cdp_reachable(cdp_url):
+            return None
+        time.sleep(0.5)
+    return f"Launched career-agent Chrome but it didn't come up at {cdp_url} within 10s."
 
 
 def _live_screenshot_path(job_id: int) -> Path:
@@ -127,6 +196,13 @@ def build_agent_router(db_path) -> APIRouter:
         job_url = detail.get("job_url")
         if not job_url:
             raise HTTPException(status_code=422, detail="job has no job_url")
+
+        from career_agent.config.settings import load_settings
+        cdp_url = load_settings().cdp_url
+        if cdp_url:
+            problem = _ensure_cdp_chrome(cdp_url)
+            if problem:
+                raise HTTPException(status_code=503, detail=problem)
 
         cmd = [sys.executable, "-m", "career_agent.apply",
                "--job-id", str(job_id), "--url", job_url]
