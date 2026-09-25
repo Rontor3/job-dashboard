@@ -48,8 +48,12 @@ result line. Adapters are pure with respect to storage: they never read or write
 - connects with `connect_over_cdp`, opens **its own tab**, and on exit closes only that tab and detaches
   (`browser.close()` detaches; verified not to close Chrome or other tabs);
 - exposes only `goto`, `capture_responses(url_pattern)`, `scroll`, `wait`, and `page_fetch(url, headers)`
-  (same-origin fetch from inside the tab). **It exposes no click, type or form API**, so an adapter cannot
-  apply, save, follow or message;
+  (same-origin fetch from inside the tab). **It exposes no general click, type or form API**, so an adapter
+  cannot apply, save, follow or message. The single exception is `click_pagination(selector)`: it works only
+  for a selector the adapter has declared in an allowlist, and at runtime it refuses unless the element sits
+  inside a pagination landmark (`nav`, `[role=navigation]`, `aria-label*=pagination`) and its label is a page
+  number / "next". It refuses anything whose text or href matches apply / interested / save / follow /
+  message / send. Adapters prefer `goto` / API offsets and use this only when a site has no other way;
 - `nap()` = random 3-7s (LinkedIn 6-12s) before every navigation or replayed call;
 - counts page loads and replayed calls against per-site caps and raises `CapReached`;
 - classifies a page or response as blocked and raises `Blocked(reason)`: login redirect, captcha /
@@ -133,6 +137,20 @@ Caps are per run. "Detail" = the extra fetch needed for a full description of a 
 - **Terms:** few broad terms (`machine learning engineer`, `data scientist`, `ai engineer`, `llm engineer`)
   x deep pages, **untested for coverage** (a follow-up experiment under `jobAge=1|3` decides).
 - **Caps:** <=12 API/UI calls per run (below the ~16 that tripped the check) + detail loads for new jobs.
+- **Recommended-jobs feeds (second source, term-independent).** The logged-in recommended-jobs page
+  (`/mnjuser/recommendedjobs`) has **four sections, each a different personalised feed**: jobs based on
+  your **applies**, your **profile**, your **preferences**, and **"you might like"**. The adapter walks all four,
+  each with its own pagination, until the section is exhausted or its cap is hit, and dedupes across sections
+  by `jobId` (the same job can appear in several). Because these feeds are driven by the account, not by our
+  search terms, they are **not subject to the 20-results-per-search cap** and may replace most of the term
+  searches; the term search stays as a small complement. The section name is recorded in the run note only.
+  **Not yet researched** (the earlier Naukri pass covered search only): the endpoint and params behind each
+  section, page sizes and depth, whether the response already carries the description / `applyRedirectUrl`,
+  whether the feeds are ordered newest-first, and how they overlap with search. This is a
+  **verify-before-build gate**. Incremental mode has no server-side time filter here, so it relies on
+  skip-known and reads the first few pages of each section.
+- **Cap for the feeds:** page loads and calls counted against the same per-run budget; sections are visited
+  round-robin so no single feed uses the whole cap.
 
 ### Wellfound
 - **List:** in-page replay of the persisted graphql query `JobSearchResultsX`
@@ -157,6 +175,12 @@ Caps are per run. "Detail" = the extra fetch needed for a full description of a 
 - **Apply:** all `native`; no external URL exposed.
 - **Terms:** `machine learning engineer`, `data scientist`, `ai engineer`, `llm engineer`, `mlops engineer`,
   `applied scientist`; backfill 10-15 pages each (relevance decays after ~offset 400), incremental 2-3 pages.
+- **Pagination.** The site shows numbered pages at the bottom of the results, and page 2, 3, ... give
+  different jobs (the research found page 2 shares none with page 1). The adapter reads them through the
+  underlying `job_search` offset (`offset = 20 * (page - 1)`), which needs no click. **Gate:** confirm that
+  UI page N returns the same jobs as offset `20*(N-1)`. If it does not (or the API stops working), fall back
+  to `click_pagination` on the allowlisted page-number / "next" control, moving one page at a time with the
+  normal pacing.
 - **Caps:** backfill 90 requests, incremental 30.
 
 ### IIMJobs
@@ -177,13 +201,14 @@ No adapter. jobspy continues to supply it.
 Core set replacing the 24 in `source_registry.SEARCH_TERMS` **for browser sources only** (jobspy keeps its
 own list until re-measured): `machine learning engineer`, `ai engineer`, `data scientist`, `llm engineer`,
 `mlops engineer`, `applied scientist`, `senior data scientist`, `generative ai engineer`,
-`risk data scientist`, `fraud data scientist`. Each adapter uses the subset above. Dropped for adding almost
+`risk data scientist`, `fraud data scientist`. Each adapter uses the subset above. On Naukri the recommended-jobs feeds are the primary source and the
+terms are a complement; on Wellfound no terms are needed. Dropped for adding almost
 nothing anywhere: `forward deployed engineer`, `nlp engineer`, `deep learning engineer`, `data scientist iii`,
 `staff data scientist`.
 
 ## Guardrails (summary)
 
-Own tab only; no click/type API; pacing 3-12s; per-site page/call caps; **stop on any block**, never retry
+Own tab only; no general click/type API (only the allowlisted pagination click); pacing 3-12s; per-site page/call caps; **stop on any block**, never retry
 a block; no login, no captcha solving; Chrome never launched or restarted by the fetcher; auth headers
 memory-only; per-site enable switch; 48h minimum interval with a force flag on the refresh API (no new
 button yet); one run at a time (Refresh is already single-flight).
@@ -212,9 +237,10 @@ Each adapter needs its live gate passed **before** it is enabled by default.
 
 1. **Framework + LinkedIn + schema (`apply_url`, `fetch_state`) + pipeline integration.** Gate: verify
    `r172800` (or keep `r604800`), and one supervised real run.
-2. **Naukri.** Gate: UI-triggered search avoids the 406; term-coverage experiment under `jobAge`.
+2. **Naukri.** Gates: (a) research the four recommended-jobs feeds (endpoints, pagination, payload,
+   ordering, overlap); (b) UI-triggered search avoids the 406; (c) term-coverage experiment under `jobAge`.
 3. **Wellfound.** Gate: re-capture headers on a fresh session; confirm `LAST_POSTED` cutoff on a second day.
-4. **Instahyre.** Gate: confirm `id >= anchor` still holds after a few days.
+4. **Instahyre.** Gates: UI page N equals offset `20*(N-1)`; `id >= anchor` still holds after a few days.
 5. **IIMJobs** (disabled by default).
 
 ## Known ceilings and risks
