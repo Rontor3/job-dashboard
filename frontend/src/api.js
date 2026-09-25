@@ -180,3 +180,11 @@ export const fetchAgentSettings = () => fetch("/api/agent-settings").then(json);
 export const saveAgentSettings = (answer_confidence_min) =>
   fetch("/api/agent-settings", jsonBody("PUT", { answer_confidence_min })).then(json);
 export const fetchIngredients = () => fetch("/api/ingredients").then(json);
+
+export const fetchRetrievalStats = () => fetch("/api/retrieval/stats").then(json);
+export const fetchRetrievalRecent = (limit = 30) =>
+  fetch(`/api/retrieval/recent?limit=${limit}`).then(json).then((d) => d.recent || []);
+export const fetchAnswersUsed = (id) =>
+  fetch(`/api/jobs/${id}/answers-used`).then(json).then((d) => d.answers || []);
+export const reviewAnswer = (rowId, verdict, answer) =>
+  fetch(`/api/application-qa/${rowId}/review`, jsonBody("POST", { verdict, answer })).then(json);

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import AgentLiveView from "./AgentLiveView.jsx";
 import AgentRunHistory from "./AgentRunHistory.jsx";
 import QuestionsPanel from "./QuestionsPanel.jsx";
+import AnswersUsed from "./AnswersUsed.jsx";
 import { fetchTracker, patchStatus, fetchApplyAgentStatus, fetchOpenCounts } from "../api.js";
 
 const STAGE_OPTS = ["saved", "applied", "interviewing", "offer", "rejected"];
@@ -101,6 +102,7 @@ function Row({ job, agentStatus, onSelect, onMove, expanded, onToggle, openCount
           Details
         </button></div>
         <QuestionsPanel jobId={job.id} onChanged={onChanged} />
+        <AnswersUsed jobId={job.id} />
         <AgentRunHistory jobId={job.id} />
       </div>
     )}

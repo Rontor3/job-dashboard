@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import RetrievalPanel from "./RetrievalPanel.jsx";
 import {
   fetchAnswers, saveAnswer, deleteAnswer, fetchAnswerApps,
   fetchAgentSettings, saveAgentSettings, fetchIngredients,
@@ -92,6 +93,7 @@ export default function AnswersTab() {
   return (
     <div style={{ marginTop: 14 }}>
       <Threshold />
+      <RetrievalPanel />
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         <input aria-label="Search answers" placeholder="Search questions and answers…" value={q}
                onChange={(e) => setQ(e.target.value)} style={INPUT} />
