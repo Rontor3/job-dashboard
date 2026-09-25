@@ -49,11 +49,11 @@ result line. Adapters are pure with respect to storage: they never read or write
   (`browser.close()` detaches; verified not to close Chrome or other tabs);
 - exposes only `goto`, `capture_responses(url_pattern)`, `scroll`, `wait`, and `page_fetch(url, headers)`
   (same-origin fetch from inside the tab). **It exposes no general click, type or form API**, so an adapter
-  cannot apply, save, follow or message. The only exceptions are `click_pagination(selector)` and `click_tab(selector)`: each works only for a selector
-  the adapter has declared in an allowlist, and at runtime refuses unless the element sits inside a matching
-  landmark (a pagination `nav`/`[role=navigation]`/`aria-label*=pagination`, or a `[role=tab]` inside a
-  `[role=tablist]`) and its label is a page number / "next" / a tab title. Both refuse anything whose text or
-  href matches apply / interested / save / follow / message / send / share. Adapters prefer `goto` / API offsets and use this only when a site has no other way;
+  cannot apply, save, follow or message. The one exception is `click_pagination(selector)`: it works only for a selector the adapter has declared in
+  an allowlist, and at runtime refuses unless the element sits inside a pagination landmark (`nav`,
+  `[role=navigation]`, `aria-label*=pagination`) and its label is a page number / "next"; it refuses anything
+  whose text or href matches apply / interested / save / follow / message / send / share. (A tab-control
+  variant was designed for Naukri's recommended feeds; it is not built until those are un-deferred.) Adapters prefer `goto` / API offsets and use this only when a site has no other way;
 - `nap()` = random 3-7s (LinkedIn 6-12s) before every navigation or replayed call;
 - counts page loads and replayed calls against per-site caps and raises `CapReached`;
 - classifies a page or response as blocked and raises `Blocked(reason)`: login redirect, captcha /
@@ -127,20 +127,17 @@ Caps are per run. "Detail" = the extra fetch needed for a full description of a 
 - **Caps:** backfill 60 page loads, incremental 30. Pacing 6-12s. Hard stop on any checkpoint / authwall.
 
 ### Naukri
-Two term-independent-or-not sources, both read **passively**: the adapter navigates (or makes an allowlisted
-tab/pagination click) and captures the responses the *page itself* issues. **It never replays an API call**:
+Read **passively**: the adapter navigates (or makes an allowlisted pagination click) and captures the responses the *page itself* issues. **It never replays an API call**:
 replaying `jobapi/v3/search` from the tab is what triggered `406 recaptcha` after ~16 calls in the first pass;
 the second pass made 23 loads, 3 tab clicks and 2 pagination clicks with no challenge.
 
-- **Source 1: recommended-jobs page** (`https://www.naukri.com/mnjuser/recommendedjobs`). Four **tabs**, each
-  a different personalised feed: `Applies` (40), `Profile` (53), `Preferences` (75), `You might like` (75); the
-  counts are the whole lists. Loading the page fires only the Applies call; clicking each other tab fires its
-  own `POST /jobapi/v2/search/recom-jobs` (body `clusterId` null / `profile` / `preference` / `similar_jobs`,
-  `src: recommClusterApi`). **Each response returns the entire list; there is no paging**, so this source
-  costs 1 page load + 3 `click_tab` (4 requests). Order is relevance. Distinct jobs across the four: 183
-  (overlap: Applies&Profile 20, Applies&Preferences 24, Profile&Preferences 29, "You might like" 0-3 with any
-  other). Not known: whether jobs already applied to are filtered out (no applied flag in the payload).
-- **Source 2: term search with paging.** Numbered pages are real: URL `/<term-dashes>-jobs`, `-jobs-2`,
+- **Deferred (not in v1): the recommended-jobs page** (`/mnjuser/recommendedjobs`, four tabs Applies /
+  Profile / Preferences / You might like, 183 distinct jobs, each tab one whole-list call
+  `POST /jobapi/v2/search/recom-jobs`). Researched but parked: it needs a tab-click allowlist and an answer to
+  whether the feeds include jobs the candidate already applied to on Naukri (the payload has no applied flag,
+  so unchecked, they could be imported as fresh jobs and applied to twice). Only 11 relevant jobs overlap
+  with search, so it is a real additional source when it is picked up.
+- **v1 source: term search with paging.** Numbered pages are real: URL `/<term-dashes>-jobs`, `-jobs-2`,
   `-jobs-3`, ...; the bar shows pages 1-10 + Next; **20 jobs per page, no overlap between pages**. The
   earlier "no search call on plain load" was wrong: in 20 of 21 loads the page itself fired
   `GET /jobapi/v3/search?...&pageNo=N`, which the adapter captures passively (one cold load fired nothing:
@@ -149,10 +146,9 @@ the second pass made 23 loads, 3 tab clicks and 2 pagination clicks with no chal
   relevance, so **a window cannot be exhausted**: depth is capped per term (backfill 5 pages, incremental 2)
   and `jobAge=1` is used where the cadence allows. UI paging (`click_pagination`) issues `pageNo=N` with
   `sort=p` and `sid` added and also returned 200; it is the fallback if a URL-load stops firing the call.
-- **Coverage.** Search gave 167 jobs (165 relevant) and the recommended tabs 183 (150 relevant), with **only
-  11 relevant jobs in both**: 139 relevant jobs exist only in the recommended feeds, 154 only in search. Both
-  sources are needed; neither replaces the other. The term-reduction question for Naukri stays open.
-- **Payload.** Both give `jobId`, `title`, `companyName`, `createdDate` (ms), `jdURL`, `companyApplyJob`,
+- **Coverage.** Search pages 1-3 of three terms gave 167 jobs (165 relevant). Term reduction for Naukri stays
+  open (relevance ordering means even a windowed result set can't be fully read).
+- **Payload.** The search response gives `jobId`, `title`, `companyName`, `createdDate` (ms), `jdURL`, `companyApplyJob`,
   `applyRedirectUrl` and a `jobDescription` HTML of ~1k characters. That is not the full description: new jobs
   still need the detail page (JSON-LD), one load each.
 - **Key.** `jobId` (12 digits, first six DDMMYY), identical across tabs and search pages. Canonical URL =
@@ -160,13 +156,12 @@ the second pass made 23 loads, 3 tab clicks and 2 pagination clicks with no chal
   dedupe additionally on normalized title+company+location before the detail step.
 - **Apply.** `companyApplyJob == true` always carries `applyRedirectUrl` (the employer's ATS link), in the list
   itself: `external` + `apply_url`; otherwise `native`. Observed 181 native / 93 external of 274 jobs.
-- **Window / modes.** Recommended feeds have no time filter: skip-known only. Search: backfill `jobAge=30`,
+- **Window / modes.** Backfill `jobAge=30`,
   incremental `jobAge=3` (day granularity; `createdDate` in ms for exactness).
 - **Terms (search only):** `machine learning engineer`, `data scientist`, `ai engineer`, `llm engineer`.
-- **Caps.** ~60 page loads per run (feeds 4 + search terms x pages + detail loads for new jobs), 6-12s pacing,
-  at most once or twice a day; stop at once on any 403/406/429/captcha.
-- **Still to verify:** whether the feeds hide already-applied jobs; search depth beyond page 3; that a
-  `click_tab` on the recommended page still works after a Naukri front-end change.
+- **Caps.** ~60 page loads per run (4 terms x up to 5 pages, plus detail loads for new jobs; fewer in
+  incremental), 6-12s pacing, at most once or twice a day; stop at once on any 403/406/429/captcha.
+- **Still to verify:** search depth beyond page 3; the near-duplicate collapse on real data.
 
 ### Wellfound
 - **List:** in-page replay of the persisted graphql query `JobSearchResultsX`
@@ -217,8 +212,8 @@ No adapter. jobspy continues to supply it.
 Core set replacing the 24 in `source_registry.SEARCH_TERMS` **for browser sources only** (jobspy keeps its
 own list until re-measured): `machine learning engineer`, `ai engineer`, `data scientist`, `llm engineer`,
 `mlops engineer`, `applied scientist`, `senior data scientist`, `generative ai engineer`,
-`risk data scientist`, `fraud data scientist`. Each adapter uses the subset above. On Naukri the recommended-jobs feeds are the primary source and the
-terms are a complement; on Wellfound no terms are needed. Dropped for adding almost
+`risk data scientist`, `fraud data scientist`. Each adapter uses the subset above. On Naukri the term search with paging is the v1 source (the recommended feeds are deferred); on Wellfound
+no terms are needed. Dropped for adding almost
 nothing anywhere: `forward deployed engineer`, `nlp engineer`, `deep learning engineer`, `data scientist iii`,
 `staff data scientist`.
 
