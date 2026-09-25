@@ -12,6 +12,8 @@ const BOARD = {
 function mockFetch({ agentStatus = { running: false, job_id: null } } = {}) {
   return vi.fn((url, opts) => {
     const u = String(url);
+    if (u.includes("/agent-runs/log"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 1, lines: ["[step] snapshot...", "[fill] step 1: 4 filled"] }) });
     if (u.includes("/api/apply-agent/status"))
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(agentStatus) });
     if (u.includes("/api/tracker"))
@@ -80,4 +82,13 @@ test("clicking a row selects it, but clicking the stage select does not", async 
   expect(onSelect).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText("DS"));
   expect(onSelect).toHaveBeenCalledWith(1);
+});
+
+test("running row shows live screenshot and streaming log; other rows don't", async () => {
+  global.fetch = mockFetch({ agentStatus: { running: true, job_id: 1, title: "Form", screenshot: "/api/jobs/1/agent-runs/live-screenshot" } });
+  render(<TrackerBoard onSelect={() => {}} />);
+  expect(await screen.findByTestId("live-view-1")).toBeInTheDocument();
+  expect(await screen.findByText(/\[fill\] step 1: 4 filled/)).toBeInTheDocument();
+  expect(screen.getByAltText(/Live view/)).toBeInTheDocument();
+  expect(screen.queryByTestId("live-view-2")).toBeNull();
 });

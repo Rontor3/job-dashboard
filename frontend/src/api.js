@@ -145,6 +145,8 @@ export const dismissHiring = (id) =>
 export const launchApplyAgent = (id) =>
   fetch(`/api/jobs/${id}/apply-agent`, { method: "POST" }).then(json);
 export const fetchApplyAgentStatus = () => fetch("/api/apply-agent/status").then(json);
+export const fetchAgentLog = (id, lines = 80) =>
+  fetch(`/api/jobs/${id}/agent-runs/log?lines=${lines}`).then((r) => (r.status === 404 ? null : json(r)));
 export const fetchAgentRunHistory = (id) =>
   fetch(`/api/jobs/${id}/agent-runs/latest`).then((r) => (r.status === 404 ? null : json(r)));
 

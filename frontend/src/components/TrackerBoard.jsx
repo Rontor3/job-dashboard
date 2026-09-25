@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import AgentLiveView from "./AgentLiveView.jsx";
 import { fetchTracker, patchStatus, fetchApplyAgentStatus } from "../api.js";
 
 const STAGE_OPTS = ["saved", "applied", "interviewing", "offer", "rejected"];
@@ -42,6 +43,7 @@ function AgentLiveTag({ jobId, agentStatus }) {
 function Row({ job, agentStatus, onSelect, onMove }) {
   const running = agentStatus && agentStatus.running && agentStatus.job_id === job.id;
   return (
+    <div>
     <div
       onClick={() => onSelect(job.id)}
       style={{
@@ -78,6 +80,8 @@ function Row({ job, agentStatus, onSelect, onMove }) {
         {STAGE_OPTS.map((s) => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
         <option value="__remove__">Remove from board</option>
       </select>
+    </div>
+    {running && <AgentLiveView jobId={job.id} status={agentStatus} />}
     </div>
   );
 }

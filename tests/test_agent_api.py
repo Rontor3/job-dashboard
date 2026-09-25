@@ -192,3 +192,20 @@ def test_history_rewrites_screenshot_paths_to_urls(tmp_path, monkeypatch):
     body = r.json()
     assert body["steps"][0]["screenshot"] == f"/api/jobs/{jid}/agent-runs/screenshot/1"
     assert body["steps"][1]["screenshot"] is None
+
+
+def test_log_404_when_none(tmp_path, monkeypatch):
+    c, jid = _client(tmp_path)
+    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    assert c.get(f"/api/jobs/{jid}/agent-runs/log").status_code == 404
+
+
+def test_log_returns_tail(tmp_path, monkeypatch):
+    c, jid = _client(tmp_path)
+    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    p = tmp_path / "data" / "agent_runs"
+    p.mkdir(parents=True)
+    (p / f"{jid}.log").write_text("\n".join(f"line {i}" for i in range(200)) + "\n")
+    r = c.get(f"/api/jobs/{jid}/agent-runs/log?lines=5")
+    assert r.status_code == 200
+    assert r.json()["lines"] == [f"line {i}" for i in range(195, 200)]

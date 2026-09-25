@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import AgentRunHistory from "../components/AgentRunHistory.jsx";
 
@@ -64,4 +64,20 @@ test("gate_notice reports when Telegram was never attempted", async () => {
   });
   render(<AgentRunHistory jobId={1} />);
   await waitFor(() => expect(screen.getByText(/not notified/i)).toBeDefined());
+});
+
+test("Run log loads lazily when expanded", async () => {
+  global.fetch = vi.fn((url) => {
+    const u = String(url);
+    if (u.includes("/agent-runs/log"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ lines: ["[gate] hcaptcha_image"] }) });
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 1, steps: [
+      { step: 0, kind: "form", cred_action: null, stopped_reason: "stuck", pending_human: [], gate_notice: null, screenshot: null } ] }) });
+  });
+  const { container } = render(<AgentRunHistory jobId={1} />);
+  await waitFor(() => expect(screen.getByText("Run log")).toBeDefined());
+  const details = container.querySelector("details");
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+  await waitFor(() => expect(screen.getByText(/\[gate\] hcaptcha_image/)).toBeDefined());
 });

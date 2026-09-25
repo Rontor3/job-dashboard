@@ -134,6 +134,29 @@ def _ensure_cdp_chrome(cdp_url: str) -> Optional[str]:
     return f"Launched career-agent Chrome but it didn't come up at {cdp_url} within 10s."
 
 
+def _log_path(job_id: int) -> Path:
+    return REPO_ROOT / "data" / "agent_runs" / f"{job_id}.log"
+
+
+def _tail_log(job_id: int, lines: int = 80, max_bytes: int = 65536) -> Optional[list[str]]:
+    """Last `lines` lines of the agent subprocess's stdout/stderr, or None if
+    no log exists. Reads only the final `max_bytes`, so a long run stays cheap
+    to poll every second."""
+    path = _log_path(job_id)
+    if not path.exists():
+        return None
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        f.seek(max(0, size - max_bytes))
+        data = f.read()
+    text = data.decode("utf-8", errors="replace")
+    out = text.splitlines()
+    if size > max_bytes and out:
+        out = out[1:]  # first line is likely cut mid-line
+    return out[-lines:]
+
+
 def _live_screenshot_path(job_id: int) -> Path:
     return REPO_ROOT / "data" / "agent_runs" / str(job_id) / "live.png"
 
@@ -206,8 +229,8 @@ def build_agent_router(db_path) -> APIRouter:
 
         cmd = [sys.executable, "-m", "career_agent.apply",
                "--job-id", str(job_id), "--url", job_url]
-        env = {**os.environ, "PYTHONPATH": "src"}
-        log_path = REPO_ROOT / "data" / "agent_runs" / f"{job_id}.log"
+        env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
+        log_path = _log_path(job_id)
         started = state.start(job_id, cmd, str(REPO_ROOT), env, log_path)
         if not started:
             raise HTTPException(status_code=409, detail="agent already running")
@@ -225,6 +248,14 @@ def build_agent_router(db_path) -> APIRouter:
         screenshot = (f"/api/jobs/{snapshot['job_id']}/agent-runs/live-screenshot"
                      if live["screenshot_path"] else None)
         return {**snapshot, "url": live["url"], "title": live["title"], "screenshot": screenshot}
+
+    @router.get("/api/jobs/{job_id}/agent-runs/log")
+    def agent_log(job_id: int, lines: int = 80):
+        lines = max(1, min(lines, 500))
+        tail = _tail_log(job_id, lines)
+        if tail is None:
+            raise HTTPException(status_code=404, detail="no log for this job")
+        return {"job_id": job_id, "lines": tail}
 
     @router.get("/api/jobs/{job_id}/agent-runs/live-screenshot")
     def agent_live_screenshot(job_id: int):

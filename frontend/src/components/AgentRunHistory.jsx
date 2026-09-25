@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchAgentRunHistory } from "../api.js";
+import { fetchAgentRunHistory, fetchAgentLog } from "../api.js";
 
 const KIND_LABEL = {
   password: "Login wall",
@@ -30,6 +30,25 @@ function gateNoticeLabel(notice) {
   if (!notice.attempted) return "Telegram: not notified (not configured)";
   if (!notice.sent) return "Telegram: send failed";
   return notice.resolved ? "Telegram: sent, resolved" : "Telegram: sent, unresolved";
+}
+
+function RunLog({ jobId }) {
+  const [lines, setLines] = useState(null);
+  const load = (e) => {
+    if (e.target.open && lines === null) {
+      fetchAgentLog(jobId, 300).then((b) => setLines(b ? b.lines : [])).catch(() => setLines([]));
+    }
+  };
+  return (
+    <details onToggle={load} style={{ marginTop: 10 }}>
+      <summary style={{ fontSize: 12, color: "var(--ink-soft)", cursor: "pointer" }}>Run log</summary>
+      <pre aria-label="Agent run log" style={{ margin: "6px 0 0", padding: "8px 10px", background: "var(--canvas)",
+        border: "0.5px solid var(--hairline)", borderRadius: 8, fontSize: 11, lineHeight: 1.5, maxHeight: 260,
+        overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--ink-soft)" }}>
+        {lines === null ? "Loading…" : lines.length ? lines.join("\n") : "No log output."}
+      </pre>
+    </details>
+  );
 }
 
 export default function AgentRunHistory({ jobId }) {
@@ -89,6 +108,7 @@ export default function AgentRunHistory({ jobId }) {
           );
         })}
       </ul>
+      <RunLog jobId={jobId} />
     </div>
   );
 }
