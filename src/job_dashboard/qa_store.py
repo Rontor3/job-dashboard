@@ -1,0 +1,160 @@
+"""Per-application question/answer records and agent settings, in jobs.db.
+
+One `application_qa` row per field per run (keyed by run_key + ref): what was
+asked, what was filled and by which tier, the LLM's confidence/basis and the
+exact context it was given, and — for retrieval analytics — what memory
+retrieved. Written by career_agent during a run, read by the dashboard API.
+Every writer here is best-effort at the call site: recording must never abort
+an application run.
+"""
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timezone
+
+DEFAULT_SETTINGS = {"answer_confidence_min": "60"}
+
+_COLS = (
+    "qkey", "label", "kind", "purpose", "answer", "source", "status",
+    "confidence", "basis", "context_json", "unsupported_claims",
+    "retrieval_kind", "retrieved_qkey", "retrieval_score", "candidates_json",
+    "outcome",
+)
+
+
+def norm_key(label: str) -> str:
+    """Same normalization as learned_answers.qkey, so the two join cleanly."""
+    return re.sub(r"\s+", " ", (label or "").strip().lower()).strip(" ?:.")
+
+
+def ensure(conn) -> None:
+    conn.execute("""CREATE TABLE IF NOT EXISTS application_qa (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER, run_key TEXT NOT NULL, ref TEXT NOT NULL,
+        qkey TEXT, label TEXT, kind TEXT, purpose TEXT,
+        answer TEXT, source TEXT, status TEXT,
+        confidence INTEGER, basis TEXT, context_json TEXT, unsupported_claims TEXT,
+        retrieval_kind TEXT, retrieved_qkey TEXT, retrieval_score REAL,
+        candidates_json TEXT, outcome TEXT,
+        created_at TEXT, updated_at TEXT,
+        UNIQUE(run_key, ref))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_job_status ON application_qa(job_id, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_qkey ON application_qa(qkey)")
+    conn.execute("CREATE TABLE IF NOT EXISTS agent_settings (key TEXT PRIMARY KEY, value TEXT)")
+    conn.commit()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _enc(v):
+    return json.dumps(v) if isinstance(v, (list, dict)) else v
+
+
+def record(conn, *, job_id, run_key: str, ref: str, label: str, **fields) -> None:
+    """Insert or update the row for (run_key, ref); only the given fields change
+    on update, so a later stage (e.g. human answered) doesn't wipe earlier data."""
+    ensure(conn)
+    fields["label"] = label
+    fields["qkey"] = norm_key(label)
+    unknown = set(fields) - set(_COLS)
+    if unknown:
+        raise ValueError(f"unknown application_qa fields: {sorted(unknown)}")
+    now = _now()
+    vals = {k: _enc(v) for k, v in fields.items()}
+    cols = list(vals)
+    conn.execute(
+        f"INSERT INTO application_qa (job_id, run_key, ref, {', '.join(cols)}, created_at, updated_at) "
+        f"VALUES (?, ?, ?, {', '.join('?' * len(cols))}, ?, ?) "
+        f"ON CONFLICT(run_key, ref) DO UPDATE SET "
+        f"{', '.join(f'{c}=excluded.{c}' for c in cols)}, updated_at=excluded.updated_at",
+        [job_id, run_key, ref, *vals.values(), now, now],
+    )
+    conn.commit()
+
+
+def _row(cur, r) -> dict:
+    d = dict(zip([c[0] for c in cur.description], r))
+    for k in ("context_json", "unsupported_claims", "candidates_json"):
+        if d.get(k):
+            try:
+                d[k] = json.loads(d[k])
+            except ValueError:
+                pass
+    return d
+
+
+def open_questions(conn, job_id: int) -> list[dict]:
+    """Questions still needing an answer for this job: the newest row per
+    question, and only if that newest row is still `needs_answer` (a later run
+    that filled it, or a reply, closes it)."""
+    ensure(conn)
+    cur = conn.execute(
+        """SELECT * FROM application_qa a WHERE job_id = ? AND status = 'needs_answer'
+           AND id = (SELECT MAX(id) FROM application_qa b
+                     WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
+           ORDER BY id""", (job_id,))
+    return [_row(cur, r) for r in cur.fetchall()]
+
+
+def open_counts(conn) -> dict[int, int]:
+    ensure(conn)
+    rows = conn.execute(
+        """SELECT job_id, COUNT(*) FROM application_qa a WHERE status = 'needs_answer'
+           AND job_id IS NOT NULL
+           AND id = (SELECT MAX(id) FROM application_qa b
+                     WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
+           GROUP BY job_id""").fetchall()
+    return {j: n for j, n in rows}
+
+
+def mark_answered(conn, job_id: int, qkey: str, answer: str) -> int:
+    """Close every open row for this job+question. Returns rows changed."""
+    ensure(conn)
+    cur = conn.execute(
+        "UPDATE application_qa SET status='answered', answer=?, source='human', "
+        "updated_at=? WHERE job_id=? AND qkey=? AND status='needs_answer'",
+        (answer, _now(), job_id, qkey))
+    conn.commit()
+    return cur.rowcount
+
+
+def asked_in_counts(conn) -> dict[str, int]:
+    """qkey -> number of distinct jobs that asked it."""
+    ensure(conn)
+    return {k: n for k, n in conn.execute(
+        "SELECT qkey, COUNT(DISTINCT job_id) FROM application_qa "
+        "WHERE job_id IS NOT NULL GROUP BY qkey")}
+
+
+def applications_for(conn, qkey: str) -> list[dict]:
+    ensure(conn)
+    cur = conn.execute(
+        """SELECT j.id AS job_id, j.title, j.company, MAX(a.updated_at) AS last_asked
+           FROM application_qa a JOIN jobs j ON j.id = a.job_id
+           WHERE a.qkey = ? GROUP BY j.id ORDER BY last_asked DESC""", (qkey,))
+    return [_row(cur, r) for r in cur.fetchall()]
+
+
+def get_setting(conn, key: str) -> str:
+    ensure(conn)
+    r = conn.execute("SELECT value FROM agent_settings WHERE key=?", (key,)).fetchone()
+    return r[0] if r else DEFAULT_SETTINGS[key]
+
+
+def set_setting(conn, key: str, value) -> None:
+    if key not in DEFAULT_SETTINGS:
+        raise KeyError(key)
+    ensure(conn)
+    conn.execute("INSERT INTO agent_settings (key, value) VALUES (?, ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
+    conn.commit()
+
+
+def confidence_min(conn) -> int:
+    try:
+        return max(0, min(100, int(get_setting(conn, "answer_confidence_min"))))
+    except (TypeError, ValueError):
+        return int(DEFAULT_SETTINGS["answer_confidence_min"])
