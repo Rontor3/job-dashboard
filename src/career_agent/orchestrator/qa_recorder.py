@@ -11,8 +11,27 @@ class QARecorder:
     def __init__(self, conn, job_id, run_key=None):
         self.conn, self.job_id = conn, job_id
         self.run_key = run_key or uuid.uuid4().hex
+        self.tracer = None      # f -> retrieval fields (memory.retrieval_trace.explain)
+        self._labels: dict = {}
+        self._meta: dict = {}   # ref -> retrieval fields, merged into that ref's row
+
+    def trace_all(self, fields):
+        """Snapshot what memory retrieval sees for each field. Called before any
+        answer is recorded, so the trace reflects the state retrieval used."""
+        if self.tracer is None:
+            return
+        for f in fields:
+            try:
+                self._meta[f.ref] = self.tracer(f)
+            except Exception as e:
+                print(f"[qa] trace failed: {e!r}", flush=True)
+
+    def outcome(self, ref, outcome):
+        self._rec(ref, self._labels.get(ref, ref), outcome=outcome)
 
     def _rec(self, ref, label, **fields):
+        self._labels[ref] = label
+        fields = {**self._meta.get(ref, {}), **fields}
         try:
             qa_store.record(self.conn, job_id=self.job_id, run_key=self.run_key,
                             ref=ref, label=label, **fields)

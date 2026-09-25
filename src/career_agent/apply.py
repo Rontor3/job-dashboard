@@ -192,12 +192,14 @@ def main() -> None:
         from pathlib import Path as _Path
         from .memory.exact_tech import ExactTechVault
         from .memory.semantic_behavior import SemanticBehaviorVault
+    _qa_vault = None
         from .routers.memory_router import MemoryRouter
         _semantic_dir = str(_Path(args.db).parent / "semantic_behavior")
         memory_router = MemoryRouter(
             profile=contact,
             exact_tech=ExactTechVault(),
-            semantic=SemanticBehaviorVault(persist_dir=_semantic_dir),
+            semantic=_qa_vault,
+        _qa_vault = SemanticBehaviorVault(persist_dir=_semantic_dir)
             answer_memory=learn,
         )
     except Exception as _me:
@@ -206,6 +208,8 @@ def main() -> None:
     settings = load_settings()
 
     # Telegram wiring: upgrade approver/collector and enable remote captcha solve
+    from .memory.retrieval_trace import explain as _explain
+    qa_rec.tracer = lambda f: _explain(conn, _qa_vault, f)
     # when TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set; otherwise fall back to CLI.
     on_link = None
     remote_solve_factory = None

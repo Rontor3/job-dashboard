@@ -330,6 +330,8 @@ def fill_node(state: AgentState, config) -> dict:
 
     form = [_d2f(d) for d in state["form"]]
     fillable = [f for f in form if f.kind != "button"]
+    if c.get("qa"):
+        c["qa"].trace_all(fillable)
 
     recalled, remaining = [], fillable
     if learn:
@@ -499,7 +501,13 @@ def advance_node(state: AgentState, config) -> dict:
         if learn and hasattr(deps, "read_back"):
             all_dec = [_d2dec(d) for d in (state.get("decisions") or [])]
             try:
-                learn.record_corrections(form, all_dec, deps.read_back(page, all_dec))
+                finals = deps.read_back(page, all_dec)
+                learn.record_corrections(form, all_dec, finals)
+                if c.get("qa"):     # the agent-controlled submit is the one automatic outcome signal
+                    for d in all_dec:
+                        fin = finals.get(d.ref)
+                        if fin is not None and d.value is not None and d.action in ("fill", "select", "combobox"):
+                            c["qa"].outcome(d.ref, "kept" if str(fin).strip() == str(d.value).strip() else "edited")
             except Exception:
                 pass
         deps.click(page, pick_advance_label(form, is_last=True))
