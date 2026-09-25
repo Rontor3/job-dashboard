@@ -106,8 +106,57 @@ title+company+location; `mark_duplicates` still catches cross-site reposts after
 | Ends | `backfill_done` set only when the feed is exhausted (empty page / window end) | after `stop_after_known` consecutive known jobs (only where the order is newest-first) or the window end |
 
 Correctness depends only on skip-known. Time filters and stop-early are optimisations; **stop-early is used
-only where ordering was verified newest-first** (LinkedIn `sortBy=DD` roughly, Wellfound `LAST_POSTED`, not
-Instahyre).
+only where round-2 replay showed it holds** (see the next section): Naukri date sort, Wellfound `LAST_POSTED`,
+LinkedIn `sortBy=DD` (with a wider window as the safety net). Not Instahyre or IIMJobs.
+
+## Round 2: day-2 dedupe, tested per platform
+
+The plan is one fresh scrape, then a daily refresh that skips known jobs. Each site was tested on: key
+stability (same query twice, >=10 min apart), a saved baseline (`data/research_baselines/<site>_2026-09-25.json`,
+gitignored, for a **genuine day-2 comparison the next day**), and an offline replay (treat jobs older than a
+cutoff as known, read in the site's real order, stop after N consecutive known, measure pages and recall).
+Baselines: LinkedIn 450 rows (272 unique jobs), Wellfound 434, Instahyre 417, Naukri 160 rows (114 unique),
+IIMJobs 50.
+
+| Site | Key stable | Skip-known + stop-early | Daily cost (measured) | Verdict |
+|---|---|---|---|---|
+| **Wellfound** | yes (141/141) | **exact**: stop at the first page whose newest job is older than the cutoff (+ small margin); N=10 recalled 70/70 | ~7 pages + ~8 keyword queries, ~25 calls, hard cap 40 | **viable** |
+| **Naukri** | yes (Jaccard 0.9, new jobs shift in at the top) | works at N=10 in a small sample (recall 1.00, timestamps spanned only 2.7h) | ~3 pages/term, 12-15 loads for 4 terms | **viable, first scrape is expensive** |
+| **LinkedIn** | yes (Jaccard 1.0) | N=10 recalls ~92-95% (scaled cutoffs; order violated newest-first on 45-52% of adjacent pairs) | 2-3 pages/term, 6-9 loads for 3 terms | **partly**: the ~5-8% missed are caught next day because the window is wider than the cadence |
+| **Instahyre** | yes (Jaccard 1.0) | **stop-early does not work** (recall 0/3: each term's pool is 7-9k jobs and new ones land at random ranks) | fixed ~15 pages x ~6 terms (~90 list calls) + 5-30 detail fetches | **partly**: skip-known works at the detail step only |
+| **IIMJobs** | yes (Jaccard 1.0) | not needed: the whole `posting=3` window is 4 requests | 4 requests + ~15 detail calls | viable, **low value** (~27 real roles/week) |
+| Indeed | n/a | n/a | n/a | not applicable (jobspy) |
+
+Findings that change the per-site design:
+- **Naukri.** The date sort is `?jobAge=1&sort=f` (works on cold URLs and `-N` page suffixes), newest-first with no
+  pinned items. `createdDate` is the **last renew time**, not the first post time (18 of 60 jobs had an old jobId
+  date but a fresh `createdDate`); skip-known by `jobId` treats renewed jobs as known, which is what we want.
+  One term-day is ~2,700-3,300 results (~137 pages) except `llm engineer` (136); narrowing helps but does not
+  fix it (`experience=3` 527; city slug 643; the role-category UI filter 477 has no reproducible URL param).
+  Pages past 10 work. There is no title-only search. **Unresolved:** one agent reported the list payload
+  carries the full description, contradicting two earlier passes (~1k-character snippet); keep the detail
+  fetch until a real job's payload length is compared with its detail page.
+- **LinkedIn.** `f_TPR=r172800` (48h) **works** (1,093 results vs 900 for 24h, 1,428 for 7d). Reposts are 33% of
+  cards and keep the same id and listed time across loads. Descriptions arrive only for the first ~24 cards per
+  page (216 of 450), so skip-known **does** save the detail loads for the rest. A 7-day window is ~900-1,900
+  results per term, so the backfill is capped and partial, not exhaustive.
+- **Wellfound (reverses the earlier "no terms needed").** The feed shows at most **3 jobs per startup**, and 95 of
+  200 startups are at that cap; relevant jobs are hidden (a startup showing 3 has 7+; its "NLP Engineer" and
+  "Data Scientist L1" appeared only when searched by title). The daily procedure is the unfiltered
+  `LAST_POSTED` walk **plus ~8 keyword/title queries** (1-3 pages each, same stop rule). Reposts keep their id
+  (liveStartAt refreshed on 1 of 102), so dedupe by id, never by time.
+- **Instahyre.** UI numbered pages call the same API (`offset=20`, `offset=40`): identical ids and order, so
+  no click is needed. Job id vs date: Pearson 0.9965, **0 violations in 3,081 pairs** over 79 dated jobs, ~205
+  ids/day; a safe anchor is the first id of the cutoff date minus ~250 (`datePosted` is date-only, so the
+  boundary is fuzzy by about a day). There is no server-side recency signal. `id >= anchor` avoided 390 of 400
+  detail fetches in the replay. **Budget concern:** ~90 list calls a day is more than any other site; the
+  adapter starts with fewer terms and pages (3-4 terms) and raises depth only if the measured new-job density
+  justifies it.
+- **IIMJobs.** Read the whole `posting=3` window every time; stop-early lost a job at N=5. `posting=1` works.
+  0 reposts-under-new-id in the window. ~27% of relevance-filter passes are false positives.
+
+Not verified anywhere: a real day 2 (the saved baselines allow it), reposts on a later day, and the true 48h
+recall (the replays used cutoffs scaled down to the timestamps each site's sample spanned).
 
 ## Per-site adapters
 
@@ -168,14 +217,15 @@ the second pass made 23 loads, 3 tab clicks and 2 pagination clicks with no chal
 - **Terms (search only):** `machine learning engineer`, `data scientist`, `ai engineer`, `llm engineer`.
 - **Caps.** ~60 page loads per run (4 terms x up to 5 pages, plus detail loads for new jobs; fewer in
   incremental), 6-12s pacing, at most once or twice a day; stop at once on any 403/406/429/captcha.
-- **Still to verify:** the date-sort gates above; search depth beyond page 3; the near-duplicate collapse on
-  real data. Until (b)/(c) are measured, Naukri incremental is best-effort, not exhaustive.
+- **Round-2 status:** gate (a) done (`sort=f`, newest-first); (b) measured (~2,700-3,300 results per term per
+  day); (c) partly (filters exist, none title-only). Still to verify: the full-description claim, the
+  near-duplicate collapse on real data, and a real day 2.
 
 ### Wellfound
 - **List:** in-page replay of the persisted graphql query `JobSearchResultsX`
   (`filterConfigurationInput{page, sortBy:LAST_POSTED, hideOffPlatformJobs:false, ...}`), using the page's own
   `x-apollo-signature` / `x-wf-cfp` / `x-apollo-operation-name` captured at runtime. ~22 jobs/page.
-  **Fail closed on any 4xx** (the operation id and signature can rotate on deploys). One walk; **no terms**.
+  **Fail closed on any 4xx** (the operation id and signature can rotate on deploys). The daily run is the unfiltered walk **plus keyword/title queries** (see Round 2).
 - **Window:** client-side cutoff on `liveStartAt`: backfill 30 days, incremental `anchor` (newest seen) minus
   1 day; stop after 2 consecutive empty pages.
 - **Key:** numeric `id`; canonical `https://wellfound.com/jobs/<id>-<slug>`; key on `id` only.
@@ -220,8 +270,7 @@ No adapter. jobspy continues to supply it.
 Core set replacing the 24 in `source_registry.SEARCH_TERMS` **for browser sources only** (jobspy keeps its
 own list until re-measured): `machine learning engineer`, `ai engineer`, `data scientist`, `llm engineer`,
 `mlops engineer`, `applied scientist`, `senior data scientist`, `generative ai engineer`,
-`risk data scientist`, `fraud data scientist`. Each adapter uses the subset above. On Naukri the term search with paging is the v1 source (the recommended feeds are deferred); on Wellfound
-no terms are needed. Dropped for adding almost
+`risk data scientist`, `fraud data scientist`. Each adapter uses the subset above. On Naukri the term search with paging is the v1 source (the recommended feeds are deferred); on Wellfound the unfiltered walk is supplemented by ~8 keyword/title queries because of the 3-jobs-per-startup cap. Dropped for adding almost
 nothing anywhere: `forward deployed engineer`, `nlp engineer`, `deep learning engineer`, `data scientist iii`,
 `staff data scientist`.
 
@@ -254,12 +303,14 @@ its `last_error` is shown on the next Refresh.
 
 Each adapter needs its live gate passed **before** it is enabled by default.
 
-1. **Framework + LinkedIn + schema (`apply_url`, `fetch_state`) + pipeline integration.** Gate: verify
-   `r172800` (or keep `r604800`), and one supervised real run.
-2. **Naukri.** Gates: the two passive sources work end to end on a supervised run with no 406; the
+1. **Framework + LinkedIn + schema (`apply_url`, `fetch_state`) + pipeline integration.** Gate: one supervised real
+   run. (`r172800` is verified to work.)
+2. **Naukri.** Gates: the passive search source works end to end on a supervised run with no 406; the
    near-duplicate collapse is checked on real data; term-coverage under `jobAge`.
-3. **Wellfound.** Gate: re-capture headers on a fresh session; confirm `LAST_POSTED` cutoff on a second day.
-4. **Instahyre.** Gates: UI page N equals offset `20*(N-1)`; `id >= anchor` still holds after a few days.
+3. **Wellfound.** Gates: re-capture headers on a fresh session; confirm the `LAST_POSTED` cutoff on a second day
+   (baseline saved); measure how many hidden jobs the keyword queries recover.
+4. **Instahyre.** Gates: `id >= anchor` still holds after a few days (page/offset equivalence is verified);
+   new-job density per term to set depth.
 5. **IIMJobs** (disabled by default).
 
 ## Known ceilings and risks

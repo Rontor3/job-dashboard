@@ -119,6 +119,13 @@ The first search in a fresh CDP-driven tab returned a Cloudflare Turnstile chall
 the rules. It looks like fingerprinting of the automated tab, not rate limiting. Indeed already flows through
 jobspy (11,618 rows), so nothing is lost by skipping CDP for it.
 
+## 2b. Round 2: baselines and day-2 dedupe (2026-09-25 evening)
+Per-site results, the offline replay method and the verdict table are in
+`2026-09-25-cdp-job-fetching-design.md` ("Round 2"). Headlines: dedupe by stable id works on every site;
+stop-early works on Wellfound, Naukri (date sort) and, with a wider safety window, LinkedIn; it does **not**
+work on Instahyre (relevance order, 7-9k jobs per term) and is unnecessary on IIMJobs (whole window = 4
+requests). Wellfound's 3-jobs-per-startup cap reverses the round-1 conclusion that no terms were needed.
+
 ## 3. Reducing the 24 search terms
 
 Greedy set-cover over each site's raw results (recomputed independently of the agents):
