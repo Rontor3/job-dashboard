@@ -125,3 +125,48 @@ def test_vault_down_still_lists_learned_answers(tmp_path):
 def test_ingredients_missing_file_is_empty(env):
     c, _, _ = env
     assert c.get("/api/ingredients").json() == {"units": [], "skills_pool": []}
+
+
+def _seed_filled(db, **kw):
+    conn = init_db(db)
+    qa_store.record(conn, job_id=1, run_key="r", ref="#a", label="Years of Python?", kind="text",
+                    status="filled", answer="2", source="learned", retrieval_kind="fts_fuzzy",
+                    retrieved_qkey="years of java", retrieval_score=0.6, **kw)
+    rid = conn.execute("select id from application_qa").fetchone()[0]
+    conn.close()
+    return rid
+
+
+def test_review_wrong_with_fix_teaches_memory_and_marks_edited(env):
+    c, vault, db = env
+    rid = _seed_filled(db)
+    (used,) = c.get("/api/jobs/1/answers-used").json()["answers"]
+    assert used["retrieved_qkey"] == "years of java" and used["outcome"] is None
+    assert c.post(f"/api/application-qa/{rid}/review", json={"verdict": "wrong", "answer": "4"}).status_code == 200
+    assert _learned(db) == {"years of python": "4"}          # the right answer is now in memory
+    assert c.get("/api/jobs/1/answers-used").json()["answers"][0]["outcome"] == "edited"
+    stats = c.get("/api/retrieval/stats").json()
+    assert stats["reviewed"] == {"kept": 0, "edited": 1, "wrong_rate": 1.0}
+    assert stats["top_wrong_entries"][0]["qkey"] == "years of java"
+
+
+def test_review_correct_marks_kept_without_touching_memory(env):
+    c, vault, db = env
+    rid = _seed_filled(db)
+    assert c.post(f"/api/application-qa/{rid}/review", json={"verdict": "correct"}).status_code == 200
+    assert _learned(db) == {} and vault.d == {}
+    assert c.get("/api/retrieval/stats").json()["reviewed"]["kept"] == 1
+
+
+def test_review_validation(env):
+    c, _, _ = env
+    assert c.post("/api/application-qa/1/review", json={"verdict": "meh"}).status_code == 422
+    assert c.post("/api/application-qa/99/review", json={"verdict": "correct"}).status_code == 404
+
+
+def test_recent_and_empty_stats(env):
+    c, _, db = env
+    assert c.get("/api/retrieval/stats").json()["total_fields"] == 0
+    _seed_filled(db)
+    (r,) = c.get("/api/retrieval/recent").json()["recent"]
+    assert (r["label"], r["retrieval_kind"], r["title"]) == ("Years of Python?", "fts_fuzzy", "ML Eng")

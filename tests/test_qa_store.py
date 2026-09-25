@@ -67,3 +67,54 @@ def test_settings_default_set_and_clamp(conn):
     assert qa_store.confidence_min(conn) == 100
     with pytest.raises(KeyError):
         qa_store.set_setting(conn, "nope", 1)
+
+
+def _seed(conn):
+    kw = dict(kind="text", status="filled")
+    _q(conn, 1, "a", "#1", "Notice period?", source="learned", retrieval_kind="label_exact",
+       retrieved_qkey="notice period", retrieval_score=1.0, outcome="kept", **kw)
+    _q(conn, 1, "a", "#2", "Years of Python?", source="learned", retrieval_kind="fts_fuzzy",
+       retrieved_qkey="years of java", retrieval_score=0.6, outcome="edited", **kw)
+    _q(conn, 2, "b", "#2", "Years of Rust?", source="learned", retrieval_kind="fts_fuzzy",
+       retrieved_qkey="years of java", retrieval_score=0.5, outcome="edited", **kw)
+    _q(conn, 2, "b", "#3", "Why us?", source="judgment", confidence=80, outcome="kept", **kw)
+    _q(conn, 2, "b", "#4", "Describe a project", source="judgment", confidence=40, outcome="edited", **kw)
+    _q(conn, 2, "b", "#5", "Favourite colour", status="needs_answer", kind="text", retrieval_kind="none")
+    _q(conn, 2, "b", "#6", "Tell me more", source="human", retrieval_kind="semantic",     # hit, but not used
+       retrieved_qkey="tell us more", retrieval_score=0.3, **kw)
+
+
+def test_retrieval_stats(conn):
+    _seed(conn)
+    s = qa_store.retrieval_stats(conn)
+    assert s["total_fields"] == 7 and s["retrieval_hits"] == 4
+    assert s["by_tier"] == {"label_exact": 1, "fts_fuzzy": 2, "semantic": 1}
+    assert s["answered_by_memory"] == 3 and s["retrieved_not_used"] == 1
+    assert s["reviewed"] == {"kept": 1, "edited": 2, "wrong_rate": 0.667}
+    assert s["top_wrong_entries"] == [{"qkey": "years of java", "edited": 2, "kept": 0}]
+    assert s["by_source"]["unanswered"] == 1
+    g = s["generation"]
+    assert (g["kept"]["avg_confidence"], g["edited"]["avg_confidence"]) == (80.0, 40.0)
+
+
+def test_retrieval_stats_empty_db(conn):
+    s = qa_store.retrieval_stats(conn)
+    assert s["total_fields"] == 0 and s["hit_rate"] is None and s["reviewed"]["wrong_rate"] is None
+
+
+def test_answers_used_newest_per_question_and_set_outcome(conn):
+    _q(conn, 1, "r1", "#1", "Notice period?", status="filled", answer="old")
+    _q(conn, 1, "r2", "#1", "Notice period?", status="filled", answer="new")
+    _q(conn, 1, "r2", "#2", "Why?", status="needs_answer")
+    (row,) = qa_store.answers_used(conn, 1)
+    assert row["answer"] == "new"
+    assert qa_store.set_outcome(conn, row["id"], "edited")
+    assert qa_store.answers_used(conn, 1)[0]["outcome"] == "edited"
+    with pytest.raises(ValueError):
+        qa_store.set_outcome(conn, row["id"], "maybe")
+
+
+def test_recent_retrievals_newest_first_with_job(conn):
+    _seed(conn)
+    r = qa_store.recent_retrievals(conn, 3)
+    assert len(r) == 3 and r[0]["label"] == "Tell me more" and r[0]["title"] == "T2"

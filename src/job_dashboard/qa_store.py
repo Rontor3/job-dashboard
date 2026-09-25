@@ -158,3 +158,80 @@ def confidence_min(conn) -> int:
         return max(0, min(100, int(get_setting(conn, "answer_confidence_min"))))
     except (TypeError, ValueError):
         return int(DEFAULT_SETTINGS["answer_confidence_min"])
+
+
+# ── review + retrieval analytics ─────────────────────────────────────────────
+
+_MEMORY = ("learned", "semantic")      # sources meaning "memory answered this"
+
+
+def answers_used(conn, job_id: int) -> list[dict]:
+    """What the agent filled for this job (newest row per question), so each
+    can be reviewed: was the retrieved answer right?"""
+    ensure(conn)
+    cur = conn.execute(
+        """SELECT * FROM application_qa a WHERE job_id = ? AND status IN ('filled', 'answered')
+           AND id = (SELECT MAX(id) FROM application_qa b WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
+           ORDER BY id""", (job_id,))
+    return [_row(cur, r) for r in cur.fetchall()]
+
+
+def set_outcome(conn, row_id: int, outcome: str) -> bool:
+    if outcome not in ("kept", "edited"):
+        raise ValueError(outcome)
+    ensure(conn)
+    cur = conn.execute("UPDATE application_qa SET outcome=?, updated_at=? WHERE id=?",
+                       (outcome, _now(), row_id))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def retrieval_stats(conn) -> dict:
+    """Every field of every run counts once (a re-run is another attempt).
+    hit = retrieval found a usable entry; memory-answered = that entry actually
+    filled the field (a semantic match below the autonomy bar is a hit that
+    isn't used). wrong_rate is over reviewed memory-answered fields only."""
+    ensure(conn)
+    q = lambda sql, *a: conn.execute(sql, a).fetchall()
+    total = q("SELECT COUNT(*) FROM application_qa")[0][0]
+    mem_in = ",".join("?" * len(_MEMORY))
+    hits = q("SELECT COUNT(*) FROM application_qa WHERE retrieval_kind IS NOT NULL AND retrieval_kind != 'none'")[0][0]
+    by_tier = dict(q("SELECT retrieval_kind, COUNT(*) FROM application_qa WHERE retrieval_kind IS NOT NULL "
+                     "AND retrieval_kind != 'none' GROUP BY retrieval_kind"))
+    by_source = dict(q("SELECT CASE WHEN status='needs_answer' THEN 'unanswered' ELSE COALESCE(source,'unknown') END, "
+                       "COUNT(*) FROM application_qa GROUP BY 1"))
+    answered = q(f"SELECT COUNT(*) FROM application_qa WHERE source IN ({mem_in}) AND status != 'needs_answer'", *_MEMORY)[0][0]
+    kept, edited = [q(f"SELECT COUNT(*) FROM application_qa WHERE source IN ({mem_in}) AND outcome=?", *_MEMORY, o)[0][0]
+                    for o in ("kept", "edited")]
+    wrong = q(f"""SELECT retrieved_qkey, SUM(outcome='edited'), SUM(outcome='kept') FROM application_qa
+                  WHERE source IN ({mem_in}) AND outcome IS NOT NULL AND retrieved_qkey IS NOT NULL
+                  GROUP BY retrieved_qkey HAVING SUM(outcome='edited') > 0
+                  ORDER BY SUM(outcome='edited') DESC LIMIT 5""", *_MEMORY)
+
+    def avg(outcome):
+        r = q("SELECT AVG(confidence), COUNT(*) FROM application_qa WHERE source='judgment' "
+              "AND confidence IS NOT NULL AND outcome=?", outcome)[0]
+        return {"avg_confidence": round(r[0], 1) if r[0] is not None else None, "count": r[1]}
+
+    gen = q("SELECT status, COUNT(*) FROM application_qa WHERE source='judgment' GROUP BY status")
+    return {
+        "total_fields": total,
+        "retrieval_hits": hits, "hit_rate": round(hits / total, 3) if total else None,
+        "by_tier": by_tier, "by_source": by_source,
+        "answered_by_memory": answered,
+        "retrieved_not_used": max(hits - answered, 0),
+        "reviewed": {"kept": kept, "edited": edited,
+                     "wrong_rate": round(edited / (kept + edited), 3) if kept + edited else None},
+        "top_wrong_entries": [{"qkey": k, "edited": e, "kept": kp or 0} for k, e, kp in wrong],
+        "generation": {"by_status": dict(gen), "kept": avg("kept"), "edited": avg("edited")},
+    }
+
+
+def recent_retrievals(conn, limit: int = 50) -> list[dict]:
+    ensure(conn)
+    cur = conn.execute(
+        """SELECT a.id, a.job_id, j.title, j.company, a.label, a.answer, a.source, a.status, a.confidence,
+                  a.retrieval_kind, a.retrieved_qkey, a.retrieval_score, a.candidates_json, a.outcome, a.created_at
+           FROM application_qa a LEFT JOIN jobs j ON j.id = a.job_id
+           ORDER BY a.id DESC LIMIT ?""", (max(1, min(limit, 200)),))
+    return [_row(cur, r) for r in cur.fetchall()]

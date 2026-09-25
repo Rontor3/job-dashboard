@@ -32,6 +32,11 @@ class ReplyBody(BaseModel):
     answer: str
 
 
+class ReviewBody(BaseModel):
+    verdict: str                       # "correct" | "wrong"
+    answer: Optional[str] = None       # the right answer, when wrong
+
+
 class SettingsBody(BaseModel):
     answer_confidence_min: int
 
@@ -186,6 +191,48 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
         finally:
             conn.close()
         return {"ok": True}
+
+    @router.get("/api/jobs/{job_id}/answers-used")
+    def answers_used(job_id: int):
+        conn = db()
+        try:
+            return {"answers": qa_store.answers_used(conn, job_id)}
+        finally:
+            conn.close()
+
+    @router.post("/api/application-qa/{row_id}/review")
+    def review(row_id: int, body: ReviewBody):
+        """Mark a filled answer correct/wrong. Wrong + a corrected answer also
+        teaches memory, so the bad entry is replaced, not just flagged."""
+        if body.verdict not in ("correct", "wrong"):
+            raise HTTPException(status_code=422, detail="verdict must be correct or wrong")
+        conn = db()
+        try:
+            row = conn.execute("SELECT label, kind, purpose FROM application_qa WHERE id=?", (row_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="not found")
+            if body.verdict == "wrong" and (body.answer or "").strip():
+                teach(conn, row[0], body.answer.strip(), row[2], essay=(row[1] == "textarea"))
+            qa_store.set_outcome(conn, row_id, "kept" if body.verdict == "correct" else "edited")
+        finally:
+            conn.close()
+        return {"ok": True}
+
+    @router.get("/api/retrieval/stats")
+    def retrieval_stats():
+        conn = db()
+        try:
+            return qa_store.retrieval_stats(conn)
+        finally:
+            conn.close()
+
+    @router.get("/api/retrieval/recent")
+    def retrieval_recent(limit: int = 50):
+        conn = db()
+        try:
+            return {"recent": qa_store.recent_retrievals(conn, limit)}
+        finally:
+            conn.close()
 
     @router.get("/api/agent-settings")
     def get_settings():
