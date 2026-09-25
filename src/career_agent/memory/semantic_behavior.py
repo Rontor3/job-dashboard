@@ -125,3 +125,14 @@ class SemanticBehaviorVault:
 
     def delete(self, question: str) -> None:
         self._col.delete(ids=[_qid(question)])
+
+    def candidates(self, question: str, n: int = 3) -> list[dict]:
+        """Nearest entries with their distance and whether each clears the
+        match gate — what `semantic_match` looked at, not just what it chose."""
+        total = self._col.count()
+        if total == 0:
+            return []
+        r = self._col.query(query_texts=[question], n_results=min(n, total))
+        return [{"question": d, "distance": dist, "confidence": m.get("confidence", 0.0),
+                 "accepted": dist <= _MATCH_DISTANCE}
+                for d, dist, m in zip(r["documents"][0], r["distances"][0], r["metadatas"][0])]
