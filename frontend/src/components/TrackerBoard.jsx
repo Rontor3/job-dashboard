@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import AgentLiveView from "./AgentLiveView.jsx";
-import { fetchTracker, patchStatus, fetchApplyAgentStatus } from "../api.js";
+import AgentRunHistory from "./AgentRunHistory.jsx";
+import QuestionsPanel from "./QuestionsPanel.jsx";
+import { fetchTracker, patchStatus, fetchApplyAgentStatus, fetchOpenCounts } from "../api.js";
 
 const STAGE_OPTS = ["saved", "applied", "interviewing", "offer", "rejected"];
 const STAGE_LABEL = { saved: "Saved", applied: "Applied", interviewing: "Interviewing", offer: "Offer", rejected: "Rejected" };
@@ -40,12 +42,13 @@ function AgentLiveTag({ jobId, agentStatus }) {
   );
 }
 
-function Row({ job, agentStatus, onSelect, onMove }) {
+function Row({ job, agentStatus, onSelect, onMove, expanded, onToggle, openCount, onChanged }) {
   const running = agentStatus && agentStatus.running && agentStatus.job_id === job.id;
   return (
     <div>
     <div
-      onClick={() => onSelect(job.id)}
+      onClick={() => onToggle(job.id)}
+      aria-expanded={!!expanded}
       style={{
         display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer",
         background: "var(--card)", border: running ? "1.5px solid var(--green)" : "0.5px solid var(--hairline)",
@@ -64,6 +67,13 @@ function Row({ job, agentStatus, onSelect, onMove }) {
           {job.company}{job.industry ? ` · ${job.industry}` : ""}
         </div>
       </div>
+      {openCount > 0 && (
+        <span data-testid={`open-badge-${job.id}`}
+              style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: "var(--radius-pill)",
+                       background: "var(--warm-tint)", color: "var(--warm-ink)", whiteSpace: "nowrap" }}>
+          {openCount} to answer
+        </span>
+      )}
       {running ? <AgentLiveTag jobId={job.id} agentStatus={agentStatus} /> : <StagePill jobId={job.id} status={job.status} />}
       <select
         data-testid={`stage-${job.id}`}
@@ -82,6 +92,18 @@ function Row({ job, agentStatus, onSelect, onMove }) {
       </select>
     </div>
     {running && <AgentLiveView jobId={job.id} status={agentStatus} />}
+    {expanded && (
+      <div data-testid={`expand-${job.id}`}
+           style={{ margin: "6px 0 2px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div><button onClick={() => onSelect(job.id)}
+                     style={{ border: "none", cursor: "pointer", fontSize: 11, padding: "4px 12px",
+                              borderRadius: "var(--radius-pill)", background: "var(--canvas)", color: "var(--ink-soft)" }}>
+          Details
+        </button></div>
+        <QuestionsPanel jobId={job.id} onChanged={onChanged} />
+        <AgentRunHistory jobId={job.id} />
+      </div>
+    )}
     </div>
   );
 }
@@ -90,10 +112,18 @@ export default function TrackerBoard({ onSelect, refreshTick }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
   const [agentStatus, setAgentStatus] = useState(null);
+  const [openCounts, setOpenCounts] = useState({});
+  const [expandedId, setExpandedId] = useState(null);
   const alive = useRef(true);
   const timer = useRef(null);
 
-  const load = useCallback(() => { fetchTracker().then(setBoard).catch((e) => setErr(String(e))); }, []);
+  const loadCounts = useCallback(() => {
+    fetchOpenCounts().then((c) => setOpenCounts(c || {})).catch(() => {});
+  }, []);
+  const load = useCallback(() => {
+    fetchTracker().then(setBoard).catch((e) => setErr(String(e)));
+    loadCounts();
+  }, [loadCounts]);
   useEffect(() => { load(); }, [load, refreshTick]);
 
   useEffect(() => {
@@ -131,7 +161,9 @@ export default function TrackerBoard({ onSelect, refreshTick }) {
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 }}>{rows.length} tracked</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {rows.map((j) => (
-              <Row key={j.id} job={j} agentStatus={agentStatus} onSelect={onSelect} onMove={move} />
+              <Row key={j.id} job={j} agentStatus={agentStatus} onSelect={onSelect} onMove={move}
+              expanded={expandedId === j.id} onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
+              openCount={openCounts[j.id] || 0} onChanged={loadCounts} />
             ))}
           </div>
         </>
@@ -143,7 +175,9 @@ export default function TrackerBoard({ onSelect, refreshTick }) {
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
           {archived.map((j) => (
             <Row key={j.id} job={{ ...j, status: j.status || "rejected" }}
-                 agentStatus={agentStatus} onSelect={onSelect} onMove={move} />
+                 agentStatus={agentStatus} onSelect={onSelect} onMove={move}
+              expanded={expandedId === j.id} onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
+              openCount={openCounts[j.id] || 0} onChanged={loadCounts} />
           ))}
         </div>
       </details>

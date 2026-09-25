@@ -9,9 +9,21 @@ const BOARD = {
   archived: [{ id: 3, title: "AI", company: "Soylent", status: "rejected" }],
 };
 
-function mockFetch({ agentStatus = { running: false, job_id: null } } = {}) {
-  return vi.fn((url, opts) => {
+const OPEN_Q = { id: 7, label: "Why do you want to work here?", source: "judgment", confidence: 30,
+  basis: "guessed", answer: "Draft answer", unsupported_claims: ["Series B"], context_json: { prompt: "PROMPT TEXT" } };
+
+function mockFetch({ agentStatus = { running: false, job_id: null }, questions = [OPEN_Q], counts = { 1: 1 } } = {}) {
+  const state = { questions: [...questions], counts: { ...counts } };
+  const fn = vi.fn((url, opts) => {
     const u = String(url);
+    if (u.includes("/questions/7/reply")) {
+      state.questions = []; state.counts = {};
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+    }
+    if (u.includes("/api/questions/open-counts"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(state.counts) });
+    if (u.includes("/api/jobs/1/questions"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ questions: state.questions }) });
     if (u.includes("/agent-runs/log"))
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 1, lines: ["[step] snapshot...", "[fill] step 1: 4 filled"] }) });
     if (u.includes("/api/apply-agent/status"))
@@ -20,6 +32,7 @@ function mockFetch({ agentStatus = { running: false, job_id: null } } = {}) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(BOARD) });
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
   });
+  return fn;
 }
 
 beforeEach(() => {
@@ -74,14 +87,46 @@ test("a row for the currently-running job shows a live Filling tag instead of it
   expect(screen.getByTestId("status-pill-2")).toHaveTextContent("Applied");
 });
 
-test("clicking a row selects it, but clicking the stage select does not", async () => {
+test("clicking a row expands it inline (no drawer); Details opens the drawer; stage select doesn't toggle", async () => {
   const onSelect = vi.fn();
   render(<TrackerBoard onSelect={onSelect} />);
   await screen.findByText("DS");
   fireEvent.click(screen.getByTestId("stage-1"));
-  expect(onSelect).not.toHaveBeenCalled();
+  expect(screen.queryByTestId("expand-1")).toBeNull();
   fireEvent.click(screen.getByText("DS"));
+  expect(await screen.findByTestId("expand-1")).toBeInTheDocument();
+  expect(onSelect).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Details" }));
   expect(onSelect).toHaveBeenCalledWith(1);
+  fireEvent.click(screen.getByText("DS"));
+  expect(screen.queryByTestId("expand-1")).toBeNull();
+});
+
+test("row shows an open-questions badge; expanded panel shows draft confidence, basis, context", async () => {
+  render(<TrackerBoard onSelect={() => {}} />);
+  expect(await screen.findByTestId("open-badge-1")).toHaveTextContent("1 to answer");
+  expect(screen.queryByTestId("open-badge-2")).toBeNull();
+  fireEvent.click(screen.getByText("DS"));
+  expect(await screen.findByText("Why do you want to work here?")).toBeInTheDocument();
+  expect(screen.getByText(/30\/100 — guessed/)).toBeInTheDocument();
+  expect(screen.getByText(/not found in context: Series B/)).toBeInTheDocument();
+  expect(screen.getByText("PROMPT TEXT")).toBeInTheDocument();
+});
+
+test("replying posts the answer, and the question leaves the tracker", async () => {
+  render(<TrackerBoard onSelect={() => {}} />);
+  await screen.findByText("DS");
+  fireEvent.click(screen.getByText("DS"));
+  const box = await screen.findByLabelText(/Answer for Why do you want/);
+  expect(box.value).toBe("Draft answer");                  // draft prefilled to edit
+  fireEvent.change(box, { target: { value: "Because fraud ML." } });
+  fireEvent.click(screen.getByRole("button", { name: "Save to memory" }));
+  await waitFor(() => {
+    const post = global.fetch.mock.calls.find(([u]) => String(u).includes("/questions/7/reply"));
+    expect(JSON.parse(post[1].body)).toEqual({ answer: "Because fraud ML." });
+  });
+  expect(await screen.findByText("No open questions.")).toBeInTheDocument();
+  await waitFor(() => expect(screen.queryByTestId("open-badge-1")).toBeNull());
 });
 
 test("running row shows live screenshot and streaming log; other rows don't", async () => {

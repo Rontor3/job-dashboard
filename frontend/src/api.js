@@ -160,3 +160,23 @@ export const saveBlock = (body) =>
   }).then((r) => r.json());
 export const deleteSavedBlock = (id) =>
   fetch(`/api/resume/blocks/${id}`, { method: "DELETE" }).then((r) => r.json());
+
+const jsonBody = (method, body) => ({
+  method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+});
+export const fetchAnswers = (q = "") =>
+  fetch(`/api/answers?q=${encodeURIComponent(q)}`).then(json).then((d) => d.answers || []);
+export const saveAnswer = (body) => fetch("/api/answers", jsonBody("PUT", body)).then(json);
+export const deleteAnswer = (qkey) =>
+  fetch(`/api/answers?qkey=${encodeURIComponent(qkey)}`, { method: "DELETE" }).then(json);
+export const fetchAnswerApps = (qkey) =>
+  fetch(`/api/answers/applications?qkey=${encodeURIComponent(qkey)}`).then(json).then((d) => d.applications || []);
+export const fetchJobQuestions = (id) =>
+  fetch(`/api/jobs/${id}/questions`).then(json).then((d) => d.questions || []);
+export const fetchOpenCounts = () => fetch("/api/questions/open-counts").then(json);
+export const replyQuestion = (jobId, rowId, answer) =>
+  fetch(`/api/jobs/${jobId}/questions/${rowId}/reply`, jsonBody("POST", { answer })).then(json);
+export const fetchAgentSettings = () => fetch("/api/agent-settings").then(json);
+export const saveAgentSettings = (answer_confidence_min) =>
+  fetch("/api/agent-settings", jsonBody("PUT", { answer_confidence_min })).then(json);
+export const fetchIngredients = () => fetch("/api/ingredients").then(json);
