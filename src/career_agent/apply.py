@@ -145,6 +145,10 @@ def main() -> None:
     option_matcher = None
     if not args.no_llm:
         try:
+    from job_dashboard import qa_store
+    from .orchestrator.qa_recorder import QARecorder
+    qa_rec = QARecorder(conn, args.job_id)
+    qa_min_conf = qa_store.confidence_min(conn)     # editable on the dashboard
             from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
             from .browser.ats_lookup import lookup as _ats_lookup
             from job_dashboard.db import get_job
@@ -162,7 +166,8 @@ def main() -> None:
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes)
-            judge_fn = lambda needs: judge(needs, ctx, llm, cap=20)
+            judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
+                                           min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
             print(f"[warn] judgment tier unavailable ({type(e).__name__}: {e})")
 
@@ -367,7 +372,7 @@ def main() -> None:
             "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
             "on_link": on_link, "memory_router": memory_router,
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text
-            "run_dir": run_dir,
+            "run_dir": run_dir, "qa": qa_rec,
         }}
 
         def _walk():

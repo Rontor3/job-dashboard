@@ -115,3 +115,28 @@ def test_judge_tier3_orchestrator_answers_weak_freetext():
     answered, still_need, flagged = judge([q], ctx, boom, cap=6, orchestrator=orch)
     d = {x.ref: x for x in answered}
     assert d["#q"].source == "orchestrator" and "Orchestrator" in d["#q"].value
+
+
+def _conf_llm(conf):
+    return lambda p: '{"answer": "Because fraud ML.", "confidence": %s, "basis": "x"}' % conf
+
+
+def test_judge_low_confidence_is_not_filled_but_recorded():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#q", "What interests you about this role?", kind="text", required=True)
+    seen = []
+    answered, still_need, _ = judge([q], ctx, _conf_llm(30), min_conf=60,
+                                    on_draft=lambda f, res, filled: seen.append((f.ref, res["confidence"], filled)))
+    assert answered == [] and [f.ref for f in still_need] == ["#q"]
+    assert seen == [("#q", 30, False)]
+
+
+def test_judge_confident_answer_fills_and_unknown_confidence_does_not():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#q", "What interests you about this role?", kind="text", required=True)
+    ok, need, _ = judge([q], ctx, _conf_llm(80), min_conf=60)
+    assert [d.ref for d in ok] == ["#q"] and need == []
+    ok, need, _ = judge([q], ctx, lambda p: "plain prose", min_conf=60)   # unknown -> untrusted
+    assert ok == [] and [f.ref for f in need] == ["#q"]
+    ok, _, _ = judge([q], ctx, lambda p: "plain prose")                    # gate off -> as before
+    assert [d.ref for d in ok] == ["#q"]

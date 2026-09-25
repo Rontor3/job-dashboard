@@ -116,10 +116,15 @@ _NOT_A_QUESTION = re.compile(
 )
 
 
-def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
+def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_draft=None):
     """Answer the fields map_screen escalated. Returns (answered, still_need,
     flagged). Never raises; never answers a sensitive field; never exceeds `cap`
-    model calls; option fields fill a real option or escalate."""
+    model calls; option fields fill a real option or escalate.
+
+    `min_conf` (0-100, None = off): a drafted free-text answer whose own
+    reported confidence is below it — or unknown — is NOT filled; the field
+    escalates like any unanswerable one. `on_draft(field, res, filled)` sees
+    every drafted answer, for recording."""
     try:
         from job_dashboard.apply.screening import draft_screening_answer
     except Exception:
@@ -173,3 +178,9 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None):
             else:
                 still_need.append(f)
     return answered, still_need, flagged
+            conf = res.get("confidence")
+            low = min_conf is not None and (conf is None or conf < min_conf)
+            if on_draft:
+                on_draft(f, res, not low)
+            if low:
+                still_need.append(f); continue      # untrusted -> never filled silently

@@ -347,6 +347,13 @@ def fill_node(state: AgentState, config) -> dict:
         answered, needs, _ = judge_fn(needs)
         decisions += answered
 
+    qa = c.get("qa")
+    if qa:
+        for d in decisions:
+            qa.decision(d)
+        for f in needs:
+            qa.needs(f)
+
     deps.fill(page, decisions)
 
     # Taleo/ATS two-step attachment widgets: after set_input_files, click "Attach"
@@ -419,6 +426,11 @@ def human_gate_node(state: AgentState, config) -> dict:
     from ..orchestrator.screen_review import apply_answers
     new_decisions = apply_answers(fields, answers)
     deps.fill(page, new_decisions)
+    qa = c.get("qa")
+    if qa:
+        for f in fields:
+            if str(answers.get(f.ref) or "").strip():
+                qa.answered(f, answers[f.ref])
 
     mem_router = c.get("memory_router")
     # Events from TelegramCollector: {ref: "approve"|"edit"}; empty for CLI
