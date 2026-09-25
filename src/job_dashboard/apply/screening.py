@@ -10,6 +10,8 @@ general, truthful answer assembled from the profile. This function NEVER raises.
 """
 from __future__ import annotations
 
+import json
+import re
 from typing import Callable
 
 from job_dashboard.letter.draft import make_default_llm
@@ -50,8 +52,31 @@ def _build_prompt(job, question, profile_text, research, resume_text) -> str:
         f"RESUME EXCERPT:\n{(resume_text or '')[:_MAX_RESUME_CHARS]}\n\n"
         f"VERIFIED COMPANY FACTS (the ONLY source for company specifics):\n"
         f"{_facts_block(research)}\n\n"
-        "Write only the answer text."
+        'Reply with ONLY a JSON object: {"answer": "<the answer text>", '
+        '"confidence": <0-100, how sure you are this answers the question '
+        'correctly from the material above; low if you had to guess>, '
+        '"basis": "<one short line: what the answer rests on>"}'
     )
+
+
+def _parse_reply(raw: str):
+    """(answer, confidence, basis). A reply that isn't the requested JSON keeps
+    its raw text as the answer with confidence None (unknown)."""
+    text = re.sub(r"<think>.*?</think>", "", raw, flags=re.S).strip()
+    m = re.search(r"\{.*\}", text, flags=re.S)
+    try:
+        d = json.loads(m.group(0)) if m else None
+        ans = d["answer"].strip() if isinstance(d, dict) and isinstance(d.get("answer"), str) else None
+    except ValueError:
+        ans = d = None
+    if not ans:
+        return text, None, None
+    try:
+        conf = max(0, min(100, int(d.get("confidence"))))
+    except (TypeError, ValueError):
+        conf = None
+    basis = d.get("basis") if isinstance(d.get("basis"), str) else None
+    return ans, conf, basis
 
 
 def _general_answer(job, profile_text) -> str:
@@ -74,17 +99,19 @@ def _general_answer(job, profile_text) -> str:
 def draft_screening_answer(job, question, profile_text, research, resume_text="", llm=None):
     """Draft a grounded answer to a single screening question.
 
-    Returns ``{"answer": str, "flags": list}``. ``flags`` carries
+    Returns ``{"answer", "flags", "unsupported_company_claims", "confidence"
+    (0-100 or None=unknown), "basis", "prompt"}``. ``flags`` carries
     ``"general_fallback"`` when the llm was unavailable/unusable and a general
     (still truthful) answer was returned instead. Never raises.
     """
     llm_fn = llm or make_default_llm()
-    answer, flags = None, []
+    answer, flags, confidence, basis, prompt = None, [], None, None, ""
     try:
         prompt = _build_prompt(job, question, profile_text, research, resume_text)
         candidate = llm_fn(prompt)
         if isinstance(candidate, str) and candidate.strip():
-            answer = candidate.strip()
+            answer, confidence, basis = _parse_reply(candidate)
+            answer = answer or None
     except Exception:
         answer = None
     if answer is None:
@@ -105,4 +132,5 @@ def draft_screening_answer(job, question, profile_text, research, resume_text=""
                                       ).unsupported_company_claims
     except Exception:
         unsupported = []
-    return {"answer": answer, "flags": flags, "unsupported_company_claims": unsupported}
+    return {"answer": answer, "flags": flags, "unsupported_company_claims": unsupported,
+            "confidence": confidence, "basis": basis, "prompt": prompt}

@@ -91,3 +91,24 @@ def test_live_smoke_real_qwen_screening_answer():
     assert out["answer"]
     print("\nLIVE OLLAMA SCREENING ANSWER:\n", out["answer"])
     print("flags:", out["flags"])
+
+
+def test_json_reply_yields_confidence_and_basis():
+    r = draft_screening_answer(
+        JOB, "Why us?", "profile", ResearchBundle([], [], True),
+        llm=lambda p: '<think>hm</think>{"answer": "Fraud work fits.", "confidence": 82, "basis": "Tata AIG project"}')
+    assert (r["answer"], r["confidence"], r["basis"]) == ("Fraud work fits.", 82, "Tata AIG project")
+    assert "Why us?" in r["prompt"]
+
+
+def test_plain_reply_keeps_text_with_unknown_confidence():
+    r = draft_screening_answer(JOB, "Why us?", "profile", ResearchBundle([], [], True),
+                               llm=lambda p: "Just prose.")
+    assert r["answer"] == "Just prose." and r["confidence"] is None
+
+
+def test_confidence_clamped_and_bad_value_unknown():
+    mk = lambda c: (lambda p: '{"answer": "a", "confidence": %s}' % c)
+    b = ResearchBundle([], [], True)
+    assert draft_screening_answer(JOB, "q", "p", b, llm=mk(250))["confidence"] == 100
+    assert draft_screening_answer(JOB, "q", "p", b, llm=mk('"high"'))["confidence"] is None
