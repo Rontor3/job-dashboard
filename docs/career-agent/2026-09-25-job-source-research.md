@@ -48,7 +48,11 @@ expose the employer URL without a click. The other sites are discovery sources. 
   `sort=f` (newest) is noisy; use default order + `jobAge`.
 - **Apply.** Of 229 relevant jobs: 161 native (70%), 68 external (30%); `applyRedirectUrl` present for all 77
   external jobs seen, so no click needed. 80 native jobs carry screening questions.
-- **Not verified:** pagination cap, reposts, 9 of 24 terms (stopped at the 406), logged-out baseline.
+- **Not verified:** how deep pagination goes, reposts, 9 of 24 terms (stopped at the 406), logged-out baseline.
+- **Correction (from the user):** search results have numbered pages 2, 3, 4, ... The research fetched only
+  page 1 per term, so "20 jobs per term" below is a page-1 figure, not a cap on the search.
+- **Also (from the user):** the logged-in recommended-jobs page has four personalised feeds (applies, profile,
+  preferences, you-might-like); not researched, see the fetch design.
 
 ### Wellfound (logged in)
 - **Fetch.** `/jobs` is client-rendered; jobs come from `POST /graphql` persisted query
@@ -110,11 +114,11 @@ Greedy set-cover over each site's raw results (recomputed independently of the a
 | LinkedIn | 12 | 70 | **7** | 10 | fair (page 2 added +41%: depth matters) |
 | IIMJobs (7-day) | 24 | 37 | **3** | 3 | yes: the result set was exhaustible |
 | Wellfound | 24 (title search) | 68 | 10 | 13 | moot: one walk needs no terms |
-| Naukri | 15 | 229 | 13 | 15 | **no**: capped at 20/term |
-| Instahyre | 24 | 366 | 20 | 24 | **no**: capped at 20/term |
+| Naukri | 15 | 229 | 13 | 15 | **no**: page 1 only (20/term) |
+| Instahyre | 24 | 366 | 20 | 24 | **no**: page 1 (+ a few page 2) only |
 
-**Caveat.** Naukri and Instahyre "need every term" only because each search returns 20 of thousands of
-matches, so every term looks unique. The data cannot prove that fewer terms lose nothing there; the honest
+**Caveat.** Naukri and Instahyre "need every term" only because only **page 1 (20 jobs)** of each search was
+read out of thousands of matches (both sites have numbered pages 2, 3, ...), so every term looks unique. The data cannot prove that fewer terms lose nothing there; the honest
 plan is few broad terms x deep pages x a time window small enough to exhaust. **Untested.**
 
 Terms that added almost nothing anywhere: `forward deployed engineer`, `nlp engineer`, `deep learning engineer`,

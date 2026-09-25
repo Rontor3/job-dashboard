@@ -136,7 +136,17 @@ Caps are per run. "Detail" = the extra fetch needed for a full description of a 
 - **Apply:** `applyRedirectUrl` present => `external` + `apply_url`; else `native`.
 - **Terms:** few broad terms (`machine learning engineer`, `data scientist`, `ai engineer`, `llm engineer`)
   x deep pages, **untested for coverage** (a follow-up experiment under `jobAge=1|3` decides).
+- **Search pagination.** Search results have numbered pages (2, 3, 4, ...) at the bottom. The research read
+  only page 1 of each term (it stopped before page 2 at the recaptcha), so the "20 per term" it saw is a
+  page-1 limit, **not a cap on the search**; how deep the pages go is unmeasured. The adapter walks pages
+  until a page returns no new/in-window jobs or the per-term depth cap is hit (backfill up to 5 pages,
+  incremental 2). Two ways to load page N, both **verify-before-build gates**: (a) the server-rendered page
+  URL (`.../<term>-jobs-<N>`), which the research found fires no search API call on load and so should avoid
+  the replay-count trigger, if it carries enough data; (b) the site's own UI paging via `click_pagination`,
+  which makes the page issue the API call itself. API replay is the last resort.
 - **Caps:** <=12 API/UI calls per run (below the ~16 that tripped the check) + detail loads for new jobs.
+  Every extra page is one more call against that budget, which is why depth is capped per term and the
+  recommended feeds are visited round-robin with the term pages.
 - **Recommended-jobs feeds (second source, term-independent).** The logged-in recommended-jobs page
   (`/mnjuser/recommendedjobs`) has **four sections, each a different personalised feed**: jobs based on
   your **applies**, your **profile**, your **preferences**, and **"you might like"**. The adapter walks all four,
