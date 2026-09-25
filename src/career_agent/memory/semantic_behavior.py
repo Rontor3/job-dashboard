@@ -116,3 +116,12 @@ class SemanticBehaviorVault:
 
         self._col.upsert(ids=[qid], documents=[question], metadatas=[new_meta])
         return new_meta
+
+    # ── introspection (dashboard Answers tab) ────────────────────────────────
+
+    def list_all(self) -> list[dict]:
+        r = self._col.get(include=["documents", "metadatas"])
+        return [{"question": d, **m} for d, m in zip(r["documents"], r["metadatas"])]
+
+    def delete(self, question: str) -> None:
+        self._col.delete(ids=[_qid(question)])

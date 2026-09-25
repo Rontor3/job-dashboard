@@ -9,6 +9,7 @@ from job_dashboard.api.agent_routes import build_agent_router
 from job_dashboard.api.apply_routes import build_apply_router
 from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
+from job_dashboard.api.qa_routes import build_qa_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
@@ -26,7 +27,7 @@ class StatusPatch(BaseModel):
 def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
-    screening_engine=None, hiring_fetcher=None, embed_model=None,
+    screening_engine=None, hiring_fetcher=None, embed_model=None, qa_vault=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -74,6 +75,7 @@ def create_app(
     app.include_router(build_letter_router(db_path, letter_engine))
     app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model))
     app.include_router(build_agent_router(db_path))
+    app.include_router(build_qa_router(db_path, qa_vault))
 
     @contextmanager
     def db():
