@@ -209,3 +209,14 @@ def test_log_returns_tail(tmp_path, monkeypatch):
     r = c.get(f"/api/jobs/{jid}/agent-runs/log?lines=5")
     assert r.status_code == 200
     assert r.json()["lines"] == [f"line {i}" for i in range(195, 200)]
+
+
+def test_log_clips_huge_lines(tmp_path, monkeypatch):
+    c, jid = _client(tmp_path)
+    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    p = tmp_path / "data" / "agent_runs"
+    p.mkdir(parents=True)
+    (p / f"{jid}.log").write_text("short\n" + "x" * 5000 + "\n")
+    lines = c.get(f"/api/jobs/{jid}/agent-runs/log").json()["lines"]
+    assert lines[0] == "short"
+    assert len(lines[1]) < 500 and lines[1].endswith("[+4600 chars]")

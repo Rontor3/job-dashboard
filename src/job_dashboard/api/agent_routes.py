@@ -154,7 +154,13 @@ def _tail_log(job_id: int, lines: int = 80, max_bytes: int = 65536) -> Optional[
     out = text.splitlines()
     if size > max_bytes and out:
         out = out[1:]  # first line is likely cut mid-line
-    return out[-lines:]
+    return [_clip(l) for l in out[-lines:]]
+
+
+def _clip(line: str, limit: int = 400) -> str:
+    """The agent sometimes prints its whole state dict on one line (JD HTML,
+    every form control) — kilobytes that make a live log unreadable."""
+    return line if len(line) <= limit else f"{line[:limit]}… [+{len(line) - limit} chars]"
 
 
 def _live_screenshot_path(job_id: int) -> Path:
