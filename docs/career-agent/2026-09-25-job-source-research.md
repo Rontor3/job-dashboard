@@ -54,6 +54,20 @@ expose the employer URL without a click. The other sites are discovery sources. 
 - **Also (from the user):** the logged-in recommended-jobs page has four personalised feeds (applies, profile,
   preferences, you-might-like); not researched, see the fetch design.
 
+### Naukri, second pass (feeds and pagination; no API replays)
+23 page loads, 3 tab clicks, 2 pagination clicks; no 403/406/429/captcha. It corrects parts of the first pass.
+- **Recommended page** = four tabs (Applies 40, Profile 53, Preferences 75, You might like 75), each filled
+  by `POST /jobapi/v2/search/recom-jobs` (`clusterId` null/profile/preference/similar_jobs) returning the
+  **whole list at once**: no paging. 183 distinct jobs; overlap between tabs is 20-29 except "You might like".
+- **Search pages** `<term>-jobs-N` (bar shows 1-10), 20 jobs/page, no overlap between pages. **Correction:**
+  the page itself fires `GET /jobapi/v3/search?...&pageNo=N` on load (20 of 21 loads), so it can be captured
+  passively. `?jobAge=3` works with page N (48,427 -> 5,228), but results are relevance-ordered: the oldest
+  job on pages 1-2 was 80h old.
+- **Apply:** 181 native / 93 external of 274; `applyRedirectUrl` in the list payload for every external job.
+- **Coverage:** search 167 jobs (165 relevant), feeds 183 (150 relevant), only 11 relevant in both.
+- **Payload:** `jobDescription` HTML ~1k chars (not the full JD); the detail page still holds the full text.
+- **Not verified:** whether applied jobs are hidden from the feeds; search depth beyond page 3.
+
 ### Wellfound (logged in)
 - **Fetch.** `/jobs` is client-rendered; jobs come from `POST /graphql` persisted query
   `JobSearchResultsX` (variables `filterConfigurationInput{page, equity, remotePreference, salary,
