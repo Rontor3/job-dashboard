@@ -143,8 +143,15 @@ the second pass made 23 loads, 3 tab clicks and 2 pagination clicks with no chal
   `GET /jobapi/v3/search?...&pageNo=N`, which the adapter captures passively (one cold load fired nothing:
   retry once by reloading, else skip the page). `?jobAge=3` combines with page N (machine-learning-engineer
   fell from 48,427 to 5,228 results); the oldest job on pages 1-2 was still 80h old, and results are ordered by
-  relevance, so **a window cannot be exhausted**: depth is capped per term (backfill 5 pages, incremental 2)
-  and `jobAge=1` is used where the cadence allows. UI paging (`click_pagination`) issues `pageNo=N` with
+  relevance by default. The site's sort menu has a **Date** option (seen in the first pass as `sort=f`; a
+  UI-paged click added `sort=p`, presumably relevance): **use the date sort**, so order is newest-first and
+  stop-at-known / stop-at-cutoff are valid on Naukri. That fixes the *order*, not the *volume*: a broad term is
+  large even per day (5,228 results in 3 days for "machine learning engineer", roughly 1,700/day, i.e. ~85
+  pages/day/term against a ~60-load budget), and the first pass called the date sort noisy (test / .NET roles
+  mixed in). So depth is still capped per term (backfill 5 pages, incremental 3) and `jobAge=1` is used where
+  the cadence allows. **Verify-before-build gates:** (a) the exact sort parameter and that order is really
+  monotonic by date; (b) the real per-day volume per term under `sort=f&jobAge=1`; (c) whether the search
+  can be narrowed (title-only matching, experience or location filters) to make a day readable. UI paging (`click_pagination`) issues `pageNo=N` with
   `sort=p` and `sid` added and also returned 200; it is the fallback if a URL-load stops firing the call.
 - **Coverage.** Search pages 1-3 of three terms gave 167 jobs (165 relevant). Term reduction for Naukri stays
   open (relevance ordering means even a windowed result set can't be fully read).
@@ -161,7 +168,8 @@ the second pass made 23 loads, 3 tab clicks and 2 pagination clicks with no chal
 - **Terms (search only):** `machine learning engineer`, `data scientist`, `ai engineer`, `llm engineer`.
 - **Caps.** ~60 page loads per run (4 terms x up to 5 pages, plus detail loads for new jobs; fewer in
   incremental), 6-12s pacing, at most once or twice a day; stop at once on any 403/406/429/captcha.
-- **Still to verify:** search depth beyond page 3; the near-duplicate collapse on real data.
+- **Still to verify:** the date-sort gates above; search depth beyond page 3; the near-duplicate collapse on
+  real data. Until (b)/(c) are measured, Naukri incremental is best-effort, not exhaustive.
 
 ### Wellfound
 - **List:** in-page replay of the persisted graphql query `JobSearchResultsX`
