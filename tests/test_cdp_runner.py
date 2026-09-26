@@ -175,3 +175,15 @@ def test_anchor_is_passed_in_and_saved_immediately():
     c.execute("UPDATE fetch_state SET last_success_at='2000-01-01T00:00:00+00:00'"); c.commit()   # make it due
     go(c, run)
     assert got == {"in": 100, "mid": 250}
+
+
+def test_all_sites_registered_with_limits_windows_and_off_by_default():
+    for site in ("wellfound", "instahyre", "iimjobs"):
+        assert site in runner.ADAPTERS and site in runner.LIMITS_BY_SITE and site in runner.WINDOWS
+    assert runner.LIMITS_BY_SITE["wellfound"]["incremental"][1] == 25
+    assert runner.LIMITS_BY_SITE["instahyre"]["backfill"][1] == 90
+    assert runner.WINDOWS["iimjobs"] == (24, 72, 168, 720)
+    c = conn()                                               # only linkedin switched on by the helper
+    _, results = runner.fetch_browser_sources(c, adapters={k: v for k, v in runner.ADAPTERS.items() if k != "linkedin"},
+                                              reachable=lambda u: True, session_factory=None)
+    assert results == []
