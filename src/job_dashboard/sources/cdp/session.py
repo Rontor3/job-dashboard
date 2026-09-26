@@ -73,6 +73,14 @@ class Capture:
             except Exception:
                 continue
 
+    def texts(self):
+        """(url, status, text) for each captured response whose body text reads (documents, not just JSON)."""
+        for r in self.responses:
+            try:
+                yield r.url, getattr(r, "status", 200), r.text()
+            except Exception:
+                continue
+
     def exchanges(self):
         """(request headers, request body parsed, response json or None if it does not parse) per captured exchange."""
         for r in self.responses:

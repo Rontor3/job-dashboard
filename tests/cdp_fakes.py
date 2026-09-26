@@ -1,3 +1,6 @@
+import json
+
+
 class FakeRequest:
     def __init__(self, url, headers, body=None):
         self.url, self.headers, self.post_data_buffer = url, headers, body
@@ -10,6 +13,11 @@ class FakeResponse:
     def __init__(self, url, body, status=200):
         self.url, self._body, self.status = url, body, status
         self.request = None
+
+    def text(self):
+        if isinstance(self._body, Exception):
+            raise self._body
+        return self._body if isinstance(self._body, str) else json.dumps(self._body)
 
     def json(self):
         if isinstance(self._body, Exception):

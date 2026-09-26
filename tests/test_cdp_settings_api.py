@@ -24,3 +24,11 @@ def test_new_site_switches_default_off_and_toggle(tmp_path):
         assert c.get("/api/agent-settings").json()[key] is False
         assert c.put("/api/agent-settings", json={key: True}).status_code == 200
         assert c.get("/api/agent-settings").json()[key] is True
+
+
+def test_indeed_switch_defaults_off_and_toggles(tmp_path):
+    c = TestClient(create_app(str(tmp_path / "j.db"), pipeline_runner=lambda p, s: {}))
+    assert c.get("/api/agent-settings").json()["browser_indeed_enabled"] is False
+    assert c.put("/api/agent-settings", json={"browser_indeed_enabled": True}).status_code == 200
+    assert c.get("/api/agent-settings").json()["browser_indeed_enabled"] is True
+    assert c.get("/api/agent-settings").json()["browser_naukri_enabled"] is False
