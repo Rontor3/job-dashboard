@@ -13,7 +13,8 @@ import json
 import re
 from datetime import datetime, timezone
 
-DEFAULT_SETTINGS = {"answer_confidence_min": "60", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0"}
+DEFAULT_SETTINGS = {"answer_confidence_min": "60", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
+                    "browser_naukri_enabled": "0"}
 
 _COLS = (
     "qkey", "label", "kind", "purpose", "answer", "source", "status",

@@ -22,6 +22,7 @@ class AdapterContext:
     max_pages: int
     stop_after_known: int
     redate: Optional[Callable[[str, str, str], bool]] = None  # (external_id, url, iso) -> bumped posted_date of a known job
+    known_text: Optional[Callable[[str, str, str], bool]] = None  # (title, company, location) -> same-source text duplicate
     hours: int = 48                            # incremental look-back window (a linkedin.TPR key)
     stats: dict = field(default_factory=lambda: {"skipped_known": 0, "pages": 0})
 
@@ -38,3 +39,7 @@ class SiteResult:
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+def norm_text(s):
+    return " ".join("".join(ch if ch.isalnum() else " " for ch in (s or "").lower()).split())

@@ -5,12 +5,14 @@ from datetime import datetime, timezone
 
 from job_dashboard.sources.cdp import linkedin, state
 from job_dashboard.sources.cdp.session import CdpSession, cdp_reachable
-from job_dashboard.sources.cdp.types import AdapterContext, Blocked, SiteResult
+from job_dashboard.sources.cdp.types import AdapterContext, Blocked, SiteResult, norm_text
 
 ADAPTERS = {linkedin.SITE: (linkedin.run, linkedin.TERMS)}
 CDP_URL = "http://localhost:9222"
 # mode -> (max search pages per term, page-load cap, stop after N consecutive known)
 LIMITS = {"incremental": (3, 30, 10), "backfill": (2, 60, 10**9)}
+WINDOWS = {"linkedin": tuple(sorted(linkedin.TPR))}      # site -> look-back buckets (hours)
+LIMITS_BY_SITE = {}          # site -> {mode: (max_pages, load_cap, stop_after_known)}; missing -> LIMITS
 
 
 def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_factory=None,
@@ -27,10 +29,11 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
             results.append(SiteResult(site, note="Chrome CDP not reachable"))
             continue
         mode = state.mode_for(conn, site)
-        pages, cap, stop_known = LIMITS[mode]
+        pages, cap, stop_known = LIMITS_BY_SITE.get(site, LIMITS)[mode]
         known, redate = _known_fn(conn, site), _redate_fn(conn, site)
         ctx = AdapterContext(mode=mode, known=known, redate=redate, terms=terms, max_pages=pages, stop_after_known=stop_known,
-                             hours=_window(mode, state.get(conn, site), now))
+                             known_text=_known_text_fn(conn, site),
+                             hours=_window(mode, state.get(conn, site), now, WINDOWS.get(site, WINDOWS["linkedin"])))
         res = SiteResult(site, mode=mode)
         try:
             factory = session_factory or (lambda c: CdpSession(cdp_url, max_loads=c))
@@ -58,15 +61,24 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
     return listings, results
 
 
-def _window(mode, row, now):
-    """Incremental look-back: at least 48h, widened to cover the gap since the last success."""
+def _window(mode, row, now, windows):
+    """Incremental look-back: at least the smallest bucket >= 48h, widened to cover the gap since the last success."""
     if mode == "backfill":
-        return 720
+        return max(windows)
+    floor = next((b for b in windows if b >= 48), max(windows))
     last = (row or {}).get("last_success_at")
     if not last:
-        return 48
+        return floor
     h = max(48, ((now or datetime.now(timezone.utc)) - datetime.fromisoformat(last)).total_seconds() / 3600)
-    return next((b for b in sorted(linkedin.TPR) if b >= h), 720)
+    return next((b for b in windows if b >= h), max(windows))
+
+
+def _known_text_fn(conn, site):
+    def known_text(title, company, location):
+        want = (norm_text(title), norm_text(company), norm_text(location))
+        return any((norm_text(t), norm_text(c), norm_text(l)) == want for t, c, l in conn.execute(
+            "SELECT title, company, location FROM jobs WHERE source=? AND LOWER(company)=LOWER(?)", (site, company or "")))
+    return known_text
 
 
 def _known_fn(conn, site):

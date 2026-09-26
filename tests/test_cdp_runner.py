@@ -129,3 +129,26 @@ def test_redate_only_moves_posted_date_forward():
     go(c, run)
     assert got == {"newer": True, "older": False, "missing": False}
     assert c.execute("SELECT posted_date FROM jobs").fetchone()[0].startswith("2026-09-20")
+
+
+def test_known_text_matches_normalized_title_company_location():
+    c = conn(); c.execute("ALTER TABLE jobs ADD COLUMN title TEXT"); c.execute("ALTER TABLE jobs ADD COLUMN company TEXT")
+    c.execute("ALTER TABLE jobs ADD COLUMN location TEXT")
+    c.execute("INSERT INTO jobs (source, external_id, job_url, title, company, location) "
+              "VALUES ('linkedin','7','u7','Data  Scientist','Consult Asia','Bengaluru')"); c.commit()
+    got = {}
+    def run(s, ctx):
+        got["dup"] = ctx.known_text(" data scientist ", "CONSULT ASIA", "bengaluru")
+        got["other_city"] = ctx.known_text("Data Scientist", "Consult Asia", "Pune")
+        return []
+    go(c, run)
+    assert got == {"dup": True, "other_city": False}
+
+
+def test_window_uses_the_sites_own_buckets():
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    row = {"last_success_at": (now - timedelta(hours=100)).isoformat()}
+    assert runner._window("incremental", row, now, (24, 72, 168, 360, 720)) == 168
+    assert runner._window("incremental", None, now, (24, 72, 168, 360, 720)) == 72
+    assert runner._window("backfill", None, now, (24, 72, 168, 360, 720)) == 720

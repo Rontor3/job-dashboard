@@ -41,6 +41,7 @@ class ReviewBody(BaseModel):
 class SettingsBody(BaseModel):
     answer_confidence_min: Optional[int] = None
     browser_linkedin_enabled: Optional[bool] = None
+    browser_naukri_enabled: Optional[bool] = None
 
 
 def build_qa_router(db_path, vault=None) -> APIRouter:
@@ -242,6 +243,7 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
         try:
             return {"answer_confidence_min": qa_store.confidence_min(conn),
                     "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1",
+                    "browser_naukri_enabled": qa_store.get_setting(conn, "browser_naukri_enabled") == "1",
                     "browser_min_interval_hours": cdp_state.interval_hours(conn)}
         finally:
             conn.close()
@@ -257,8 +259,12 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
             if body.browser_linkedin_enabled is not None:
                 qa_store.set_setting(conn, "browser_linkedin_enabled",
                                      "1" if body.browser_linkedin_enabled else "0")
+            if body.browser_naukri_enabled is not None:
+                qa_store.set_setting(conn, "browser_naukri_enabled",
+                                     "1" if body.browser_naukri_enabled else "0")
             return {"answer_confidence_min": qa_store.confidence_min(conn),
-                    "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1"}
+                    "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1",
+                    "browser_naukri_enabled": qa_store.get_setting(conn, "browser_naukri_enabled") == "1"}
         finally:
             conn.close()
 
