@@ -96,6 +96,18 @@ Settings (`agent_settings`, editable later): `browser_min_interval_hours` (48), 
 `UNIQUE` URL (tracking params stripped) as a second guard. Naukri additionally dedupes on normalized
 title+company+location; `mark_duplicates` still catches cross-site reposts after ingest.
 
+## Retention rule (decided 2026-09-26)
+
+Jobs older than **30 days** are deleted, and the fetcher never asks for more than 30 days back, so a deleted job
+cannot be re-imported and no "seen keys" list is needed. Every backfill window is therefore capped at 30 days:
+LinkedIn `f_TPR=r2592000`, Naukri `jobAge=30`, IIMJobs `posting=30`, Wellfound a 30-day `liveStartAt` cutoff,
+Instahyre `id >= anchor` for the date 30 days back. Known residual: a job posted >30 days ago but *renewed*
+(LinkedIn, Naukri) looks fresh and is re-imported; that is a live listing, so it is accepted.
+The one-off prune on 2026-09-26 removed 13,123 of 22,220 rows (older than 30 days by posted date, falling back to
+first fetched; no tracker status; no application/résumé/letter/question/run history), with their match scores,
+and reset 1,612 duplicate markers. Backup: `data/backups/jobs_2026-09-26_pre-prune.db`. A recurring prune is not
+built yet; it would apply the same rule.
+
 ## Modes
 
 | | Backfill (first run, until the feed is exhausted) | Incremental |
