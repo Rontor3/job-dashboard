@@ -80,8 +80,10 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None) -> APIRo
                 # rest (role details, about, real apply page).
                 info = research_role(post, role, extract_contacts(post["text"], post["url"]))
                 job.description = enriched_description(job.description, info)
-                if info["apply_url"] and (job.apply_kind == "dm" or "linkedin.com" in (job.apply_url or "")):
-                    job.apply_url, job.apply_kind = info["apply_url"], "external"
+                if info["apply_url"] and (job.apply_kind == "dm" or any(
+                        h in (job.apply_url or "") for h in ("linkedin.com", "licdn.com", "lnkd.in"))):
+                    job.apply_url = info["apply_url"]
+                    job.apply_kind = "form" if extract_contacts(info["apply_url"])["forms"] else "external"
                 insert_job(conn, job)
                 row = conn.execute("SELECT id FROM jobs WHERE job_url = ?", (post["url"],)).fetchone()
         return {"job_id": row[0]}

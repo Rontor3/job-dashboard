@@ -88,3 +88,42 @@ def test_research_role_never_raises():
     info = research_role({"text": POST}, {"company": "X"}, C.extract_contacts(POST),
                          search=boom, fetch=boom, post_fn=boom)
     assert info["role_details"] == "" and info["sources"] == []
+
+
+def test_degree_abbrev_is_not_a_link_and_lnkd_skips_static_assets():
+    assert C.extract_contacts("Eligibility: http://B.Tech or M.Sc")["links"] == []
+
+    class R:
+        url = "https://lnkd.in/abc"
+        text = ('<link href="https://static.licdn.com/aero/x.css">'
+                '<a href="https://docs.google.com/forms/d/e/XYZ/viewform">go</a>')
+    assert C.resolve_link("https://lnkd.in/abc", get=lambda u: R()) == \
+        "https://docs.google.com/forms/d/e/XYZ/viewform"
+
+
+def test_enrich_skips_offtopic_search_hits_and_survives_a_dead_site():
+    from job_dashboard.linkedin.enrich import research_role
+    search = lambda q: [{"url": "https://roberthalf.com/jobs/ml", "title": "ML jobs"},  # noqa: E731
+                        {"url": "https://fship.in/about", "title": "About Fship"}]
+    fetched = []
+
+    def fetch(urls):
+        fetched.extend(urls)
+        if urls[0] == "https://fship.in":
+            raise RuntimeError("dead site")
+        return [{"url": urls[0], "text": "x" * 300}]
+    llm = lambda url, body: {"response": json.dumps({"company_about": "ok"})}  # noqa: E731
+    info = research_role({"text": POST}, {"title": "ML", "company": "Fship"}, C.extract_contacts(POST),
+                         search=search, fetch=fetch, post_fn=llm)
+    assert not any("roberthalf" in u for u in fetched)
+    assert info["company_about"] == "ok" and "https://fship.in/about" in info["sources"]
+
+
+def test_short_link_to_form_is_form_and_entities_unescaped():
+    c = C.extract_contacts("Apply https://lnkd.in/abc")
+    assert C.apply_channel(c, lambda u: "https://forms.gle/q") == ("https://forms.gle/q", "form")
+
+    class R:
+        url = "https://lnkd.in/abc"
+        text = '<a href="https://jobs.x.ai/p?a=1&amp;b=2">go</a>'
+    assert C.resolve_link("https://lnkd.in/abc", get=lambda u: R()) == "https://jobs.x.ai/p?a=1&b=2"

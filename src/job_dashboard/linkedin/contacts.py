@@ -8,9 +8,11 @@ a regex fallback. Nothing here sends anything.
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import re
+from urllib.parse import urlparse
 
 from job_dashboard.models import JobListing
 
@@ -34,6 +36,10 @@ def extract_contacts(text: str, url: str | None = None) -> dict:
     links = []
     for u in raw:
         u = u if u.startswith("http") else "https://" + u
+        host = urlparse(u).hostname or ""
+        # "B.Tech", "M.Sc" — degree abbreviations read as bare hosts
+        if not host or len(host.split(".")[0]) < 2:
+            continue
         if u not in links and not any(n in u for n in _NOISE_LINK):
             links.append(u)
     forms = [u for u in links if any(h in u for h in _FORM_HOSTS)]
@@ -58,9 +64,10 @@ def resolve_link(url: str, get=None) -> str:
         r = get(url)
         final = str(r.url)
         if "lnkd.in" in final or "linkedin.com/safety" in final:
-            m = re.search(r'href="(https?://(?!www\.linkedin|lnkd\.in)[^"]+)"', r.text or "")
+            m = re.search(r'href="(https?://(?![^"/]*(?:linkedin\.com|lnkd\.in|licdn\.com))[^"]+)"',
+                          r.text or "")
             if m:
-                final = m.group(1)
+                final = html.unescape(m.group(1))
         return final
     except Exception:  # noqa: BLE001
         return url
@@ -119,6 +126,9 @@ def apply_channel(contacts: dict, resolve=resolve_link) -> tuple[str | None, str
     if contacts["forms"]:
         return resolve(contacts["forms"][0]), "form"
     resolved = [resolve(u) for u in contacts["links"]]
+    forms = [u for u in resolved if any(h in u for h in _FORM_HOSTS)]
+    if forms:  # a short link that lands on a form is a form
+        return forms[0], "form"
     ext = [u for u in resolved if "linkedin.com" not in u]
     if ext:
         return ext[0], "external"

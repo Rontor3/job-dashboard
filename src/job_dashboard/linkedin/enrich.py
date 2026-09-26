@@ -40,9 +40,13 @@ def _candidate_urls(contacts: dict, role: dict, search) -> list[str]:
     if company:
         for q in (f'{company} careers {title or ""}'.strip(), f"{company} company about"):
             try:
-                urls += [r.get("url") for r in (search(q) or [])[:3] if r.get("url")]
+                hits = search(q) or []
             except Exception:  # noqa: BLE001
                 continue
+            # keep only results about THIS company, not generic job boards
+            tok = company.lower().split()[0]
+            urls += [r["url"] for r in hits if r.get("url") and tok in
+                     " ".join(str(r.get(k) or "") for k in ("url", "title", "snippet")).lower()][:3]
     return list(dict.fromkeys(u for u in urls if u))[:_MAX_PAGES + 2]
 
 
@@ -66,7 +70,13 @@ def research_role(post: dict, role: dict, contacts: dict, *, search=None, fetch=
         if not urls:
             return empty
         pages = []
-        for item in fetch(urls) or []:
+        fetched = []
+        for u in urls:  # one at a time: a single dead site must not blank the rest
+            try:
+                fetched += fetch([u]) or []
+            except Exception:  # noqa: BLE001
+                continue
+        for item in fetched:
             text = item.get("text") or item.get("content") or item.get("markdown") or ""
             url = item.get("url") or item.get("final_url")
             if url and len(text) > 200:
