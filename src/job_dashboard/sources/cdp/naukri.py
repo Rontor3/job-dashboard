@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 
 from job_dashboard.models import JobListing
-from job_dashboard.sources.cdp.types import html_to_text, norm_text
+from job_dashboard.sources.cdp.types import Blocked, CapReached, html_to_text, norm_text
 
 SITE = "naukri"
 BASE = "https://www.naukri.com"
@@ -62,3 +62,71 @@ def to_listing(card, description) -> JobListing:
         posted_date=datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat() if ms else None,
         apply_url=card.get("apply_url"), apply_kind="external" if card.get("external") and card.get("apply_url") else
         ("unknown" if card.get("external") else "native"))
+
+
+_BLOCK = (403, 406, 429)
+
+
+def _captured(session, url, needle):
+    with session.capture(needle) as cap:
+        session.goto(url)
+    if any(getattr(r, "status", 200) in _BLOCK for r in cap.responses):
+        raise Blocked(f"HTTP block on {needle}")
+    return list(cap.bodies())
+
+
+def _search(session, url):
+    bodies = _captured(session, url, "jobapi/v3/search")
+    if not bodies:                                   # cold load sometimes fires nothing: reload once
+        bodies = _captured(session, url, "jobapi/v3/search")
+    cards = []
+    for _, b in bodies:
+        cards.extend(parse_search(b)[0])
+    return cards
+
+
+def _iso(ms):
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat()
+
+
+def run(session, ctx):
+    hours = 720 if ctx.mode == "backfill" else ctx.hours
+    seen_ids, seen_text, pending, found = set(), set(), {}, {}
+    ctx.stats.setdefault("collapsed", 0)
+    try:
+        for term in ctx.terms:
+            queue = pending.setdefault(term, [])
+            for p in range(1, ctx.max_pages + 1):
+                cards = _search(session, search_url(term, hours, p))
+                if not cards:
+                    break
+                ctx.stats["pages"] += 1
+                for c in cards:
+                    if c["id"] in seen_ids or not c["company"]:
+                        continue
+                    seen_ids.add(c["id"])
+                    url = job_url(c["jd_url"])
+                    if ctx.known(c["id"], url):
+                        ctx.stats["skipped_known"] += 1
+                        if ctx.redate and c.get("posted_ms") and ctx.redate(c["id"], url, _iso(c["posted_ms"])):
+                            ctx.stats["redated"] = ctx.stats.get("redated", 0) + 1
+                        continue
+                    key = collapse_key(c)
+                    if key in seen_text or (ctx.known_text and ctx.known_text(c["title"], c["company"], c["location"] or "")):
+                        ctx.stats["collapsed"] += 1
+                        continue
+                    seen_text.add(key)
+                    queue.append(c)
+        queues = [q for q in pending.values() if q]
+        while queues:
+            for q in list(queues):
+                c = q.pop(0)
+                for _, body in _captured(session, job_url(c["jd_url"]), "jobapi/v4/job/"):
+                    d = parse_detail(body)
+                    if d and d["job_id"] == c["id"]:
+                        found[c["id"]] = to_listing(c, d["description"])
+                if not q:
+                    queues.remove(q)
+    except CapReached:
+        ctx.stats["capped"] = True
+    return list(found.values())
