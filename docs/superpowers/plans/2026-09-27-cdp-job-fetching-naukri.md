@@ -209,7 +209,7 @@ import re
 from datetime import datetime, timezone
 
 from job_dashboard.models import JobListing
-from job_dashboard.sources.cdp.types import norm_text
+from job_dashboard.sources.cdp.types import html_to_text, norm_text
 
 SITE = "naukri"
 BASE = "https://www.naukri.com"
@@ -241,12 +241,6 @@ def parse_search(body):
     return out, body.get("noOfJobs")
 
 
-def html_to_text(s: str) -> str:
-    s = re.sub(r"(?i)<\s*(br|/p|/li|/div|/h\d)\s*/?>", "\n", s or "")
-    s = _html.unescape(re.sub(r"<[^>]+>", "", s))
-    return re.sub(r"\n\s*\n+", "\n", re.sub(r"[ \t]+", " ", s)).strip()
-
-
 def parse_detail(body):
     d = body.get("jobDetails")
     if not isinstance(d, dict) or not d.get("description") or not d.get("jobId"):
@@ -272,7 +266,14 @@ def to_listing(card, description) -> JobListing:
         apply_url=card.get("apply_url"), apply_kind="external" if card.get("external") and card.get("apply_url") else
         ("unknown" if card.get("external") else "native"))
 ```
-`norm_text` already exists in `types.py` (added in Task 1):
+`norm_text` already exists in `types.py` (added in Task 1). Also add `html_to_text` to `types.py` (it is shared with the Wellfound/Instahyre/IIMJobs plan; add `import html as _html` and `import re` at the top of `types.py`):
+```python
+def html_to_text(s: str) -> str:
+    s = re.sub(r"(?i)<\s*(br|/p|/li|/div|/h\d)\s*/?>", "\n", s or "")
+    s = _html.unescape(re.sub(r"<[^>]+>", "", s))
+    return re.sub(r"\n\s*\n+", "\n", re.sub(r"[ \t]+", " ", s)).strip()
+```
+and `norm_text` for reference:
 ```python
 def norm_text(s):
     return " ".join("".join(ch if ch.isalnum() else " " for ch in (s or "").lower()).split())

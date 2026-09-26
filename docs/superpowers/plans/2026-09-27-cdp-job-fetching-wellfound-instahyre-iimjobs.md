@@ -6,7 +6,7 @@
 
 **Architecture:** `CdpSession.fetch(url, *, hosts, ...)` runs a `fetch()` inside the session's own tab (cookies included), host-allowlisted, capped, paced, and **any non-200 raises `Blocked`**. `Capture.exchanges()` lets an adapter read the page's own request headers/body once (Wellfound's signed operation). Three adapters (`wellfound.py`, `instahyre.py`, `iimjobs.py`) follow the shape of `linkedin.py`/`naukri.py`: `run(session, ctx) -> list[JobListing]`. Spec: `docs/career-agent/2026-09-25-cdp-job-fetching-design.md` (per-site sections + "Round 3").
 
-**Prerequisite:** the Naukri plan's Task 1 is done first (`docs/superpowers/plans/2026-09-27-cdp-job-fetching-naukri.md`): it adds `runner.WINDOWS`, `runner.LIMITS_BY_SITE`, `AdapterContext.known_text`, `norm_text` in `types.py`, and the generalised `_window`. This plan reuses them. (`html_to_text` is defined in the Naukri plan's Task 2 in `naukri.py`; this plan's Task 1 moves it to `types.py` and Naukri imports it from there — if Naukri is not built yet, define it in `types.py` only.)
+**Prerequisite:** the Naukri plan's Task 1 is done first (`docs/superpowers/plans/2026-09-27-cdp-job-fetching-naukri.md`): it adds `runner.WINDOWS`, `runner.LIMITS_BY_SITE`, `AdapterContext.known_text`, `norm_text` in `types.py`, and the generalised `_window`. This plan reuses them. (`html_to_text` lives in `types.py`; the Naukri plan's Task 2 adds it. If Naukri Task 2 is not built yet when you reach this plan's Task 1, add it there — it is defined once.)
 
 **Tech Stack:** Python 3, sqlite3, Playwright via `CdpSession`, FastAPI, pytest.
 
@@ -122,7 +122,7 @@ def html_to_text(s: str) -> str:
     s = _html.unescape(re.sub(r"<[^>]+>", "", s))
     return re.sub(r"\n\s*\n+", "\n", re.sub(r"[ \t]+", " ", s)).strip()
 ```
-(If the Naukri plan's `naukri.py` already defines `html_to_text`, delete that copy and `from job_dashboard.sources.cdp.types import html_to_text` there; its tests keep passing.)
+(Skip this block if the Naukri plan's Task 2 already added `html_to_text` to `types.py`.)
 
 `session.py`:
 ```python
