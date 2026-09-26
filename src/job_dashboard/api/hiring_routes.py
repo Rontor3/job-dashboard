@@ -19,7 +19,7 @@ from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.match.profile_text import compose_profile_text
 
 
-def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None) -> APIRouter:
+def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=None) -> APIRouter:
     router = APIRouter()
 
     @contextmanager
@@ -45,6 +45,7 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None) -> APIRo
                     conn, hiring_fetcher, KEYWORDS, profile_text,
                     embed_model=embed_model,
                     fetched_at=datetime.now(timezone.utc).isoformat(),
+                    role_fn=role_fn,
                 )
         except LinkedInAuthError as e:
             raise HTTPException(status_code=503, detail=str(e))

@@ -28,6 +28,7 @@ def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_vault=None,
+    hiring_role_fn=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -73,7 +74,7 @@ def create_app(
         build_resume_router(db_path, resume_engine, resume_llm, jd_keyword_extractor)
     )
     app.include_router(build_letter_router(db_path, letter_engine))
-    app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model))
+    app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model, hiring_role_fn))
     app.include_router(build_agent_router(db_path))
     app.include_router(build_qa_router(db_path, qa_vault))
 

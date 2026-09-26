@@ -59,8 +59,22 @@ def rank_post(text, profile_vec, model):
         return 0.0
 
 
+def is_target_post(post, role_fn=None):
+    """Keep a post only if the role it hires for is in the ML/AI/DS family
+    (``match.relevance.is_target_role``). Title comes from ``role_fn`` (local
+    Ollama); a post naming no clear role is judged by its opening lines."""
+    from job_dashboard.match.relevance import is_target_role
+    title = ""
+    if role_fn is not None:
+        try:
+            title = role_fn({"text": post.text, "poster_headline": post.poster_headline}).get("title") or ""
+        except Exception:  # noqa: BLE001
+            title = ""
+    return is_target_role(title) if title else is_target_role(post.text[:300])
+
+
 def run_digest(conn, fetcher, keywords, profile_text, *,
-               embed_model=None, fetched_at, on_progress=None):
+               embed_model=None, fetched_at, on_progress=None, role_fn=None):
     model = embed_model
     profile_vec = model.encode([profile_text])[0] if model else None
 
@@ -80,7 +94,7 @@ def run_digest(conn, fetcher, keywords, profile_text, *,
             continue
         for d in found:
             post = to_hiring_post(d, kw)
-            if post is None or post.url in by_url:
+            if post is None or post.url in by_url or not is_target_post(post, role_fn):
                 continue
             if profile_vec is not None:
                 post.fit_score = rank_post(post.text, profile_vec, model)

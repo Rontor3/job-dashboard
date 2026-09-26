@@ -26,3 +26,13 @@ def test_word_boundary_no_substring_false_hit():
 def test_none_title_safe():
     assert nuisance_match(None) is None
     assert nuisance_match("") is None
+
+
+def test_target_role_plurals_aiml_and_forward_deployed():
+    from job_dashboard.match.relevance import is_target_role
+    for t in ("AIML Engineer", "Data Scientists – Pharma Analytics", "Forward Deployed Engineer",
+              "AI/ML Engineers – Multiple Levels", "Applied Scientists"):
+        assert is_target_role(t), t
+    for t in ("Civil Engineer", "Founding Engineer, Frontend", "Senior Software Engineer – Full Stack",
+              "Graduate Engineer Trainee (GET) – Mechanical Engineering"):
+        assert not is_target_role(t), t

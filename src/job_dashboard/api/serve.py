@@ -21,6 +21,7 @@ load_env_file()
 
 from job_dashboard.api.app import create_app  # noqa: E402
 from job_dashboard.linkedin.cdp_fetch import CdpHiringFetcher  # noqa: E402
+from job_dashboard.linkedin.contacts import extract_role  # noqa: E402
 from job_dashboard.match.embedder import load_default_model  # noqa: E402
 
 # Hiring posts come through the user's own logged-in Chrome over CDP (port 9222).
@@ -32,6 +33,7 @@ try:
 except Exception:
     _model = None
 
-app = create_app(hiring_fetcher=_fetcher, embed_model=_model)
+# Title gate on hiring posts: local Ollama extracts the role, is_target_role filters.
+app = create_app(hiring_fetcher=_fetcher, embed_model=_model, hiring_role_fn=extract_role)
 
 __all__ = ["app"]

@@ -85,3 +85,29 @@ def test_run_digest_dedups_and_stores(tmp_path):
     assert len(stored) == 1                       # same url from 2 keywords deduped
     assert f.seen == ["hiring ML engineer", "hiring data scientist"]
     assert isinstance(out, list)
+
+
+def test_title_gate_drops_off_target_roles():
+    from job_dashboard.linkedin.hiring_digest import is_target_post
+    civil = HiringPost(url="u", poster_name="n", poster_headline="HR", text="Hiring Civil Engineer, site work",
+                       posted_at=None, keyword="k")
+    ml = HiringPost(url="u", poster_name="n", poster_headline="HR", text="We are hiring!", posted_at=None, keyword="k")
+    assert not is_target_post(civil, lambda p: {"title": "Civil Engineer"})
+    assert is_target_post(ml, lambda p: {"title": "Senior ML Engineer"})
+    # no title from the model → judge by the post's opening
+    assert not is_target_post(civil, lambda p: {"title": ""})
+    assert is_target_post(HiringPost(url="u", poster_name="n", poster_headline="", posted_at=None, keyword="k",
+                                     text="Hiring a Data Scientist in Pune"), None)
+
+
+def test_run_digest_skips_off_target_posts(tmp_path):
+    from job_dashboard.db import init_db, hiring_posts
+
+    class F:
+        def search_posts(self, kw, **k):
+            return [dict(DICT_OK, url="a", text="Hiring an ML Engineer!"),
+                    dict(DICT_OK, url="b", text="Hiring Mechanical GET trainees")]
+    conn = init_db(str(tmp_path / "t.db"))
+    run_digest(conn, F(), ["k"], "", fetched_at="2099-01-01T00:00:00+00:00",
+               role_fn=lambda p: {"title": "ML Engineer" if "ML" in p["text"] else "Mechanical GET"})
+    assert [p["url"] for p in hiring_posts(conn, within_hours=10**6)] == ["a"]

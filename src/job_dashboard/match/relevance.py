@@ -43,12 +43,13 @@ def nuisance_match(title):
 # at ingest. Kept broad enough not to miss real target roles.
 _TARGET_RE = re.compile(
     r"\b("
-    r"machine learning|ml engineer|ml scientist|ml ops|mlops|"
-    r"a\.?i\.? engineer|ai/ml|ml/ai|artificial intelligence|"
-    r"data scientist|data science|data engineer|deep learning|neural network|"
-    r"nlp|natural language|llm|large language model|generative ai|genai|"
-    r"applied scientist|research scientist|computer vision|"
-    r"recommendation system|ml platform|ai platform|ml infrastructure"
+    r"machine learning|ml engineers?|ml scientists?|ml ops|mlops|"
+    r"a\.?i\.? engineers?|ai/ml|ml/ai|aiml|artificial intelligence|"
+    r"data scientists?|data science|data engineers?|deep learning|neural network|"
+    r"nlp|natural language|llms?|large language models?|generative ai|genai|"
+    r"applied scientists?|research scientists?|computer vision|"
+    r"recommendation systems?|ml platform|ai platform|ml infrastructure|"
+    r"forward deployed"
     r")\b",
     re.IGNORECASE,
 )
