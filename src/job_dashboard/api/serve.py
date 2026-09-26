@@ -18,19 +18,15 @@ from job_dashboard.env import load_env_file
 # request handler (company_research reads it lazily at call time).
 load_env_file()
 
-import os  # noqa: E402  (import after env load, intentional)
 
 from job_dashboard.api.app import create_app  # noqa: E402
-from job_dashboard.linkedin.browser_fetch import LinkedInBrowserFetcher  # noqa: E402
+from job_dashboard.linkedin.cdp_fetch import CdpHiringFetcher  # noqa: E402
 from job_dashboard.match.embedder import load_default_model  # noqa: E402
 
-_li, _js = os.getenv("LINKEDIN_LI_AT"), os.getenv("LINKEDIN_JSESSIONID")
-# headless=True so Refresh runs behind the scenes — no Chrome window steals
-# focus. undetected-chromedriver's stealth still returns real posts headless
-# (verified). Set LINKEDIN_HEADLESS=0 to watch the browser for debugging.
-_headless = os.getenv("LINKEDIN_HEADLESS", "1") != "0"
-_fetcher = (LinkedInBrowserFetcher(_li, _js, headless=_headless)
-            if _li and _js else None)
+# Hiring posts come through the user's own logged-in Chrome over CDP (port 9222).
+# The cookie-based LinkedInBrowserFetcher (li_at/JSESSIONID in .env) is
+# superseded; kept in linkedin/browser_fetch.py for reference only.
+_fetcher = CdpHiringFetcher()
 try:
     _model = load_default_model()
 except Exception:

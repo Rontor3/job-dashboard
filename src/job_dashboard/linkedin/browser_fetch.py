@@ -1,4 +1,7 @@
-"""Selenium-driven LinkedIn content-search fetcher (read-only).
+"""SUPERSEDED (2026-09-27) by ``cdp_fetch.CdpHiringFetcher`` — no cookies, uses the
+user's own Chrome over CDP. Kept for history.
+
+Selenium-driven LinkedIn content-search fetcher (read-only).
 
 Raw HTTP to LinkedIn is Cloudflare-bot-walled; a real Chrome executes the JS
 challenge and loads normally. We authenticate with the candidate's own cookies

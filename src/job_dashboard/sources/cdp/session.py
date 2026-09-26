@@ -155,6 +155,15 @@ class CdpSession:
             raise Blocked(f"redirected to {final_host}")
         return text
 
+    def scroll(self, times: int = 3) -> None:
+        """Scroll to the bottom ``times`` times so lazy feeds render more (no clicks)."""
+        for _ in range(times):
+            self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            self._page.wait_for_timeout(2500)
+
+    def html(self) -> str:
+        return self._page.content()
+
     def _check(self, status):
         if status in (401, 403, 429) or BAD_URL.search(self._page.url or ""):
             raise Blocked(f"{self._page.url} status={status}")

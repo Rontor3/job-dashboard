@@ -64,3 +64,14 @@ def test_garbage_html_returns_empty_never_raises():
     assert parse_posts_html("") == []
     assert parse_posts_html("<html><body>nothing</body></html>") == []
     assert parse_posts_html("<div role='listitem'></div>") == []
+
+
+def test_2026_layout_splits_body_after_time_and_follow():
+    html = ('<div role="listitem"><img alt="View George Schnabel\'s profile">'
+            '<a href="https://www.linkedin.com/in/george/"></a>'
+            "Feed post George Schnabel • 3rd+ Sr. Data Science Manager at LinkedIn 19h • Edited Follow "
+            "The Trust &amp; Safety Data Science team at LinkedIn is #hiring a Sr. Data Scientist!</div>")
+    post = parse_posts_html(html)[0]
+    assert post["text"].startswith("The Trust & Safety")
+    assert post["poster_headline"] == "Sr. Data Science Manager at LinkedIn"
+    assert post["posted_at"] == "19h"

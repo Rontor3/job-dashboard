@@ -22,7 +22,12 @@ from bs4 import BeautifulSoup
 # Relative time token LinkedIn renders on a post ("4h", "13h", "2d", "1w"...).
 _TIME = re.compile(r"\b(\d+)\s*(mo|yr|h|d|w|m)\b")
 
-# The actor line ends with a connection-degree / follow control; the post body
+# Current layout: "<name> • 3rd+ <headline> 18h [• Edited] [•] Follow <body>".
+_TIME_CONTROL = re.compile(
+    r"\b\d+\s*(?:mo|yr|h|d|w|m)\b(?:\s*•\s*Edited)?\s*•?\s*"
+    r"(?:Follow|Following|Connect|Message)\s+")
+
+# Older layout: the actor line ends with a connection-degree / follow control; the post body
 # begins after it. Longest/most-specific first.
 _ACTOR_SEP = (" • Connect ", " • Following ", " • Follow ", " • Message ",
               " • 3rd+ ", " • 3rd ", " • 2nd ", " • 1st ")
@@ -79,10 +84,14 @@ def _one(card) -> dict | None:
 
         # Body = the text after the actor line's degree/follow control.
         body = text
-        for sep in _ACTOR_SEP:
-            if sep in text:
-                body = text.split(sep, 1)[1].strip()
-                break
+        m = _TIME_CONTROL.search(text)
+        if m:  # "… headline 18h • Edited Follow <body>" — split after the control
+            body = text[m.end():].strip()
+        else:
+            for sep in _ACTOR_SEP:
+                if sep in text:
+                    body = text.split(sep, 1)[1].strip()
+                    break
         if not body or len(body) < 15:
             return None
 
@@ -91,7 +100,7 @@ def _one(card) -> dict | None:
         tm = _TIME.search(actor) or _TIME.search(text)
         headline = actor
         for chunk in ("Feed post", name, f"{name}’s profile", f"{name}'s profile",
-                      "3rd+", "1st", "2nd", "3rd", "Connect", "Following",
+                      "3rd+", "1st", "2nd", "3rd", "Connect", "Following", "Edited",
                       "Follow", "Message", "•", "·"):
             headline = headline.replace(chunk, " ")
         if tm:
