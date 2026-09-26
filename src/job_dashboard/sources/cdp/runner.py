@@ -28,8 +28,8 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
             continue
         mode = state.mode_for(conn, site)
         pages, cap, stop_known = LIMITS[mode]
-        known = _known_fn(conn, site)
-        ctx = AdapterContext(mode=mode, known=known, terms=terms, max_pages=pages, stop_after_known=stop_known,
+        known, redate = _known_fn(conn, site), _redate_fn(conn, site)
+        ctx = AdapterContext(mode=mode, known=known, redate=redate, terms=terms, max_pages=pages, stop_after_known=stop_known,
                              hours=_window(mode, state.get(conn, site), now))
         res = SiteResult(site, mode=mode)
         try:
@@ -41,6 +41,7 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
                     res.pages = getattr(session, "loads", 0)
             capped = bool(ctx.stats.get("capped"))
             res.new, res.skipped_known = len(found), ctx.stats["skipped_known"]
+            res.redated = ctx.stats.get("redated", 0)
             if capped:
                 res.note = "cap reached (resumes next run)"
             done = (not capped and bool(found or ctx.stats["pages"])) if mode == "backfill" else None
@@ -74,3 +75,14 @@ def _known_fn(conn, site):
             "SELECT 1 FROM jobs WHERE (source=? AND external_id=?) OR job_url=? LIMIT 1",
             (site, external_id, url)).fetchone() is not None
     return known
+
+
+def _redate_fn(conn, site):
+    def redate(external_id, url, iso):
+        """Only ever moves posted_date forward (reposts); returns True if a row changed."""
+        cur = conn.execute(
+            "UPDATE jobs SET posted_date=? WHERE ((source=? AND external_id=?) OR job_url=?) "
+            "AND (posted_date IS NULL OR posted_date < ?)", (iso, site, external_id, url, iso))
+        conn.commit()
+        return cur.rowcount > 0
+    return redate

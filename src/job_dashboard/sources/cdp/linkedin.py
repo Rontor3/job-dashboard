@@ -82,9 +82,13 @@ def apply_kind(card, detail) -> str:
     return "native" if card.get("easy_apply_card") else "external"
 
 
+def _iso(ms):
+    return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat() if ms else None
+
+
 def to_listing(card, detail) -> JobListing:
     ms = card.get("listed_ms") or detail.get("created_ms")
-    posted = datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat() if ms else None
+    posted = _iso(ms)
     return JobListing(
         source=SITE, external_id=card["id"], title=card["title"], company=card.get("company") or "",
         location=card.get("location"), job_url=job_url(card["id"]),
@@ -137,6 +141,9 @@ def run(session, ctx):
                     if ctx.known(jid, job_url(jid)):
                         ctx.stats["skipped_known"] += 1
                         consecutive_known += 1
+                        # A repost keeps its id but gets a fresh listed time: move the stored date up.
+                        if ctx.redate and c.get("listed_ms") and ctx.redate(jid, job_url(jid), _iso(c["listed_ms"])):
+                            ctx.stats["redated"] = ctx.stats.get("redated", 0) + 1
                         continue
                     d = details.get(jid) or {}
                     if d.get("description"):

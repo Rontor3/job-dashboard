@@ -139,3 +139,16 @@ def test_incremental_uses_ctx_hours():
     with make_session(page) as s:
         out = li.run(s, ctx(hours=168, max_pages=1))
     assert len(out) == 1 and page.visited == [u]
+
+
+def test_known_repost_bumps_posted_date_but_is_not_a_new_job():
+    u0 = li.search_url("ml", 48)
+    page = page_for({u0: ["1", "2"], li.search_url("ml", 48, start=50): []}, details=["2"])
+    bumped = []
+    c = ctx(known={"1"})
+    c.redate = lambda jid, url, iso: bumped.append((jid, url, iso)) or True
+    with make_session(page) as s:
+        out = li.run(s, c)
+    assert [j.external_id for j in out] == ["2"]
+    assert bumped == [("1", li.job_url("1"), "2026-09-21T14:13:20+00:00")]
+    assert c.stats["redated"] == 1 and c.stats["skipped_known"] == 1

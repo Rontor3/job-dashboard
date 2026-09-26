@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Callable
+from typing import Callable, Optional
 
 
 class Blocked(Exception):
@@ -21,6 +21,7 @@ class AdapterContext:
     terms: list
     max_pages: int
     stop_after_known: int
+    redate: Optional[Callable[[str, str, str], bool]] = None  # (external_id, url, iso) -> bumped posted_date of a known job
     hours: int = 48                            # incremental look-back window (a linkedin.TPR key)
     stats: dict = field(default_factory=lambda: {"skipped_known": 0, "pages": 0})
 
@@ -31,6 +32,7 @@ class SiteResult:
     mode: str = ""
     new: int = 0
     skipped_known: int = 0
+    redated: int = 0
     pages: int = 0
     note: str = ""
 

@@ -115,3 +115,17 @@ def test_incremental_window_widens_to_next_bucket_and_backfill_is_720():
     go(c, run, now=T0 + timedelta(hours=48))                  # incremental, gap 48h -> 48
     go(c, run, now=T0 + timedelta(hours=48 + 100))            # gap 100h -> 168
     assert hours == [720, 48, 168]
+
+
+def test_redate_only_moves_posted_date_forward():
+    c = conn(); c.execute("ALTER TABLE jobs ADD COLUMN posted_date TEXT")
+    c.execute("INSERT INTO jobs (source, external_id, job_url, posted_date) VALUES ('linkedin','7','u7','2026-09-01T00:00:00+00:00')")
+    c.commit(); got = {}
+    def run(s, ctx):
+        got["newer"] = ctx.redate("7", "u7", "2026-09-20T00:00:00+00:00")
+        got["older"] = ctx.redate("7", "u7", "2026-09-10T00:00:00+00:00")
+        got["missing"] = ctx.redate("8", "u8", "2026-09-20T00:00:00+00:00")
+        return []
+    go(c, run)
+    assert got == {"newer": True, "older": False, "missing": False}
+    assert c.execute("SELECT posted_date FROM jobs").fetchone()[0].startswith("2026-09-20")
