@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 
 from job_dashboard.api.app import create_app
@@ -43,6 +45,8 @@ def test_promote_then_draft_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(C, "extract_role", lambda p, post_fn=None: C._regex_role(p))
     import job_dashboard.api.hiring_routes as R
     monkeypatch.setattr(R, "extract_role", lambda p: C._regex_role(p))
+    monkeypatch.setattr(R, "research_role", lambda *a, **k: {
+        "company_about": "Logistics.", "role_details": "", "apply_url": "", "website": "", "sources": ["s"]})
     app = create_app(db_path=str(tmp_path / "t.db"), hiring_fetcher=_Fetcher(), embed_model=None)
     c = TestClient(app)
     c.post("/api/hiring/refresh")
@@ -52,7 +56,35 @@ def test_promote_then_draft_gate(tmp_path, monkeypatch):
     job_id = c.post(f"/api/hiring/posts/{post['id']}/promote").json()["job_id"]
     assert c.post(f"/api/hiring/posts/{post['id']}/promote").json()["job_id"] == job_id  # idempotent
     detail = c.get(f"/api/jobs/{job_id}").json()
-    assert detail["company"] == "Fship" and detail["description"] == POST
+    assert detail["company"] == "Fship" and detail["description"].startswith(POST)
+    assert "Logistics." in detail["description"]
 
     # no tailored résumé yet → refuse to draft
     assert c.post(f"/api/hiring/posts/{post['id']}/email-draft").status_code == 409
+
+
+def test_research_role_reads_company_pages():
+    from job_dashboard.linkedin.enrich import research_role, enriched_description
+    searched, fetched = [], []
+    search = lambda q: searched.append(q) or [{"url": "https://fship.in/careers/ml"}]  # noqa: E731
+    fetch = lambda urls: fetched.extend(urls) or [{"url": u, "text": "Fship careers. " * 30} for u in urls]  # noqa: E731
+    llm = lambda url, body: {"response": json.dumps({  # noqa: E731
+        "company_about": "Fship is a logistics platform.", "role_details": "Build ETA models.",
+        "apply_url": "https://fship.in/careers/ml", "website": "https://fship.in"})}
+    role = {"title": "ML Engineer", "company": "Fship"}
+    info = research_role({"text": POST}, role, C.extract_contacts(POST), search=search, fetch=fetch, post_fn=llm)
+    assert "https://fship.in" in fetched                    # company domain from recruiter email
+    assert any("Fship careers" in q for q in searched)
+    assert info["role_details"] == "Build ETA models." and info["sources"]
+    desc = enriched_description(POST, info)
+    assert desc.startswith(POST) and "Build ETA models." in desc and "logistics platform" in desc
+
+
+def test_research_role_never_raises():
+    from job_dashboard.linkedin.enrich import research_role
+
+    def boom(*a, **k):
+        raise RuntimeError("down")
+    info = research_role({"text": POST}, {"company": "X"}, C.extract_contacts(POST),
+                         search=boom, fetch=boom, post_fn=boom)
+    assert info["role_details"] == "" and info["sources"] == []

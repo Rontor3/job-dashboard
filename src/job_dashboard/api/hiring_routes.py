@@ -13,6 +13,7 @@ from job_dashboard.db_hiring import hiring_post
 from job_dashboard.artifacts_store import resumes_for_job, cover_letters_for_job
 from job_dashboard.apply import gmail_draft
 from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post_to_job
+from job_dashboard.linkedin.enrich import research_role, enriched_description
 from job_dashboard.linkedin.hiring_digest import KEYWORDS, run_digest
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.match.profile_text import compose_profile_text
@@ -73,7 +74,15 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None) -> APIRo
                 raise HTTPException(status_code=404, detail="post not found")
             row = conn.execute("SELECT id FROM jobs WHERE job_url = ?", (post["url"],)).fetchone()
             if row is None:
-                insert_job(conn, post_to_job(post, extract_role(post)))
+                role = extract_role(post)
+                job = post_to_job(post, role)
+                # Requirements-only posts: read the company's own pages for the
+                # rest (role details, about, real apply page).
+                info = research_role(post, role, extract_contacts(post["text"], post["url"]))
+                job.description = enriched_description(job.description, info)
+                if info["apply_url"] and (job.apply_kind == "dm" or "linkedin.com" in (job.apply_url or "")):
+                    job.apply_url, job.apply_kind = info["apply_url"], "external"
+                insert_job(conn, job)
                 row = conn.execute("SELECT id FROM jobs WHERE job_url = ?", (post["url"],)).fetchone()
         return {"job_id": row[0]}
 

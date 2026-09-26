@@ -36,7 +36,7 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
   const [note, setNote] = useState({});
   const say = (id, msg) => setNote((n) => ({ ...n, [id]: msg }));
   const onTailor = (id) =>
-    promoteHiring(id).then((d) => onOpenJob(d.job_id)).catch((e) => say(id, e.message));
+    say(id, "Reading company pages…") || promoteHiring(id).then((d) => onOpenJob(d.job_id)).catch((e) => say(id, e.message));
   const onDraft = (id) => {
     say(id, "Drafting…");
     draftHiringEmail(id).then((d) => say(id, `Draft saved in Gmail → ${d.to}`)).catch((e) => say(id, e.message));
