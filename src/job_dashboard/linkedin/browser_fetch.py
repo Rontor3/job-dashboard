@@ -40,7 +40,12 @@ def _default_driver_factory(headless: bool):
             import undetected_chromedriver as uc
             opts = uc.ChromeOptions()
             opts.add_argument("--window-size=1280,900")
-            return uc.Chrome(options=opts, headless=headless)
+            # uc's own headless mode dies on Chrome 155 ("target window already
+            # closed"), so "headless" = a real window parked off-screen.
+            # ponytail: off-screen window still shows in the Dock; revisit if uc fixes headless.
+            if headless:
+                opts.add_argument("--window-position=-3000,0")
+            return uc.Chrome(options=opts)
         except Exception:  # noqa: BLE001 — uc missing/failed → plain Selenium
             from selenium import webdriver
             opts = webdriver.ChromeOptions()
@@ -85,7 +90,10 @@ class LinkedInBrowserFetcher:
                 "https://www.linkedin.com/search/results/content/"
                 f"?keywords={kw}&datePosted=%22{date_posted}%22&origin=FACETED_SEARCH")
             self._nap()
-            if any(m in (driver.current_url or "") for m in _LOGIN_MARKERS):
+            # Stale cookies show either a login redirect or Chrome's
+            # ERR_TOO_MANY_REDIRECTS page (LinkedIn loops on a dead li_at).
+            if (any(m in (driver.current_url or "") for m in _LOGIN_MARKERS)
+                    or "ERR_TOO_MANY_REDIRECTS" in (driver.page_source or "")):
                 raise LinkedInAuthError(
                     "LinkedIn session expired — re-paste li_at/JSESSIONID from your browser")
             for _ in range(self._max_scrolls):

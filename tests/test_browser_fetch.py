@@ -50,3 +50,9 @@ def test_driver_always_quit_even_if_parse_empty():
     d = FakeDriver("<html>no cards</html>")
     assert _fetcher(d).search_posts("x") == []
     assert ("quit",) in d.calls
+
+
+def test_redirect_loop_page_raises_auth_error():
+    d = FakeDriver("<html>ERR_TOO_MANY_REDIRECTS</html>")
+    with pytest.raises(LinkedInAuthError):
+        _fetcher(d).search_posts("hiring ML engineer")
