@@ -18,9 +18,17 @@ export default function RefreshButton({ onDone }) {
     });
   };
 
-  useEffect(() => () => {
-    alive.current = false;
-    clearTimeout(timer.current);
+  useEffect(() => {
+    // A refresh started earlier (before a page reload) keeps running server-side: pick it back up.
+    refreshStatus().then((s) => {
+      if (!alive.current) return;
+      setStatus(s);
+      if (s.running) timer.current = setTimeout(poll, 1000);
+    }).catch(() => {});
+    return () => {
+      alive.current = false;
+      clearTimeout(timer.current);
+    };
   }, []);
 
   const click = () =>
