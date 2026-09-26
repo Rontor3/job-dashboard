@@ -95,7 +95,10 @@ def to_listing(card, detail) -> JobListing:
 # Spec terms (docs/career-agent/2026-09-25-cdp-job-fetching-design.md, LinkedIn section).
 TERMS = ["machine learning engineer", "ai engineer", "data scientist", "llm engineer",
          "mlops engineer", "senior data scientist", "risk data scientist"]
-_NEEDLES = ("voyagerJobsDashJobCards", "jobPostingDetailDescription")
+# 2026-09-27 live check: LinkedIn now carries JobDescription/JobSeekerApplicationDetail inside the
+# JobCards responses and in ...JobPostingDetailSections (JOB_DESCRIPTION_CARD); the old
+# jobPostingDetailDescription query no longer fires.
+_NEEDLES = ("voyagerJobsDashJobCards", "voyagerJobsDashJobPostingDetailSections")
 
 
 def _load(session, url):
@@ -106,8 +109,8 @@ def _load(session, url):
     for u, body in cap.bodies():
         if "voyagerJobsDashJobCards" in u:
             cards.update(parse_cards(body)[0])
-        else:
-            details.update(parse_details(body))
+        for jid, d in parse_details(body).items():
+            details.setdefault(jid, {}).update({k: v for k, v in d.items() if v is not None})
     return cards, details
 
 

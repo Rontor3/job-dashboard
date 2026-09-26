@@ -5,7 +5,7 @@ from job_dashboard.sources.cdp.types import AdapterContext, Blocked
 from tests.cdp_fakes import FakePage, make_session
 
 CARD_URL = "https://x/voyager/api/voyagerJobsDashJobCards?q=1"
-DET_URL = "https://x/voyager/api/graphql?queryId=jobPostingDetailDescription"
+DET_URL = "https://x/voyager/api/graphql?queryId=voyagerJobsDashJobPostingDetailSections"
 
 
 def card(i, easy=False):
