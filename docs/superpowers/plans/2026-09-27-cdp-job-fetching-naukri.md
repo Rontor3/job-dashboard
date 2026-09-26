@@ -117,18 +117,18 @@ def _window(mode, row, now, windows):
 ```
 and
 ```python
-def _norm(s):
-    return " ".join("".join(ch if ch.isalnum() else " " for ch in (s or "").lower()).split())
-
-
 def _known_text_fn(conn, site):
     def known_text(title, company, location):
-        want = (_norm(title), _norm(company), _norm(location))
-        return any((_norm(t), _norm(c), _norm(l)) == want for t, c, l in conn.execute(
+        want = (norm_text(title), norm_text(company), norm_text(location))
+        return any((norm_text(t), norm_text(c), norm_text(l)) == want for t, c, l in conn.execute(
             "SELECT title, company, location FROM jobs WHERE source=? AND LOWER(company)=LOWER(?)", (site, company or "")))
     return known_text
 ```
-(`_norm` is exported for the adapter's in-run collapse: Task 2 imports it as `from job_dashboard.sources.cdp.runner import ...` would be circular, so put `_norm` in `types.py` as `norm_text` and import it in both; update the snippet accordingly.) In the test conn helper the `jobs` table lacks title/company/location for older tests: `_known_text_fn` is only built lazily and never invoked in those tests, so no change is needed to existing tests.
+Add `norm_text` to `types.py` (below) and import it in `runner.py` (`from job_dashboard.sources.cdp.types import ..., norm_text`); Task 2 reuses it.
+```python
+def norm_text(s):
+    return " ".join("".join(ch if ch.isalnum() else " " for ch in (s or "").lower()).split())
+``` In the test conn helper the `jobs` table lacks title/company/location for older tests: `_known_text_fn` is only built lazily and never invoked in those tests, so no change is needed to existing tests.
 
 - [ ] **Step 4:** Run `tests/test_cdp_runner.py tests/test_cdp_settings_api.py tests/test_qa_api.py tests/test_pipeline_browser.py -q` → PASS.
 - [ ] **Step 5: Commit** — `git add src/job_dashboard/sources/cdp/types.py src/job_dashboard/sources/cdp/runner.py src/job_dashboard/qa_store.py src/job_dashboard/api/qa_routes.py tests/test_cdp_runner.py tests/test_cdp_settings_api.py`; message `feat(cdp): per-site windows/limits, text-duplicate check, naukri enable flag`.
@@ -272,12 +272,12 @@ def to_listing(card, description) -> JobListing:
         apply_url=card.get("apply_url"), apply_kind="external" if card.get("external") and card.get("apply_url") else
         ("unknown" if card.get("external") else "native"))
 ```
-`types.py` gains `norm_text` (moved from Task 1's `_norm`):
+`norm_text` already exists in `types.py` (added in Task 1):
 ```python
 def norm_text(s):
     return " ".join("".join(ch if ch.isalnum() else " " for ch in (s or "").lower()).split())
 ```
-- [ ] **Step 4:** Run → PASS. **Step 5: Commit** `git add src/job_dashboard/sources/cdp/naukri.py tests/test_cdp_naukri_parse.py` (+ `types.py` if `norm_text` was added here instead of Task 1); message `feat(cdp): Naukri search/detail parsing and JobListing mapping`.
+- [ ] **Step 4:** Run → PASS. **Step 5: Commit** `git add src/job_dashboard/sources/cdp/naukri.py tests/test_cdp_naukri_parse.py` ; message `feat(cdp): Naukri search/detail parsing and JobListing mapping`.
 
 ---
 
@@ -541,5 +541,5 @@ def test_one_term_two_pages_with_details():
 ## Self-review
 
 - **Spec coverage:** passive capture only, never replay (constraints, T3); relevance order + `jobAge` windows (T2/T4); pages per term 5, caps 40/80 (T4); near-duplicate collapse before detail, within run and vs DB (T1 `known_text`, T3); `createdDate` = renew → redate (T3); apply mapping `companyApplyJob`/`applyRedirectUrl` (T2); detail via `jobapi/v4/job` passively (T3, live-verified); block on 403/406/429 (T3); reload-once on silent cold load (T3); off by default (T1); live gate (T5).
-- **Placeholders:** none; the snippet in Task 1 about `_norm` is resolved by placing `norm_text` in `types.py` (Task 2 Step 3 shows it) — Task 1 must import it from there, so implement `norm_text` in Task 1 and reference it from Task 2.
+- **Placeholders:** none; the snippet in Task 1 about `_norm` is resolved by placing `norm_text` in `types.py` (Task 2 Step 3 shows it) — `norm_text` lives in `types.py`, added in Task 1 and reused by Tasks 2-3.
 - **Type consistency:** `AdapterContext.known_text(title, company, location)`; `parse_search` returns `(cards, total)` cards use `jd_url`/`posted_ms`/`external`; `to_listing(card, description)`; `WINDOWS`/`LIMITS_BY_SITE` keys are site names matching `ADAPTERS`.
