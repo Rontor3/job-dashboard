@@ -166,8 +166,12 @@ candidate's résumé and return ONLY JSON:
   "fit": 0-100, "reason": "one short sentence: the main match or mismatch"}}
 Score fit on: same role family (ML/AI/data science), required years vs the candidate's,
 skills overlap, and whether the location/work mode is open to the candidate.
-Use 0-30 when the role family differs, the post needs far more experience, or the
-location excludes the candidate. {constraints}
+Hard caps (apply them even if the skills match perfectly):
+- role family differs, or needs far more experience than the candidate has -> fit <= 30
+- on-site/hybrid in a country the candidate is not authorized for, or the post
+  requires that country's work authorization, and it does not offer visa
+  sponsorship -> fit <= 30
+Remote-worldwide and India-based roles are open to the candidate. {constraints}
 
 Résumé:
 {resume}
