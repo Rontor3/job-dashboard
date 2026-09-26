@@ -220,3 +220,34 @@ def test_log_clips_huge_lines(tmp_path, monkeypatch):
     lines = c.get(f"/api/jobs/{jid}/agent-runs/log").json()["lines"]
     assert lines[0] == "short"
     assert len(lines[1]) < 500 and lines[1].endswith("[+4600 chars]")
+
+
+def _launch_cmd(tmp_path, monkeypatch, **job_kw):
+    db = str(tmp_path / "t.db")
+    conn = init_db(db)
+    insert_job(conn, JobListing(source="s", title="T", company="C",
+                                job_url="https://www.linkedin.com/jobs/view/1", description="jd", **job_kw))
+    jid = conn.execute("SELECT id FROM jobs LIMIT 1").fetchone()[0]
+    conn.close()
+    seen = {}
+
+    def fake_popen(cmd, **kw):
+        seen["cmd"] = cmd
+        return FakePopen()
+
+    monkeypatch.setattr(agent_routes.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr("career_agent.config.settings.load_settings",
+                        lambda: type("S", (), {"cdp_url": None})())
+    assert TestClient(create_app(db_path=db)).post(f"/api/jobs/{jid}/apply-agent").status_code == 200
+    return seen["cmd"]
+
+
+def test_launch_uses_apply_url_when_external(tmp_path, monkeypatch):
+    cmd = _launch_cmd(tmp_path, monkeypatch, apply_kind="external",
+                      apply_url="https://boards.greenhouse.io/x/1")
+    assert cmd[cmd.index("--url") + 1] == "https://boards.greenhouse.io/x/1"
+
+
+def test_launch_uses_job_url_without_apply_url(tmp_path, monkeypatch):
+    cmd = _launch_cmd(tmp_path, monkeypatch)
+    assert cmd[cmd.index("--url") + 1] == "https://www.linkedin.com/jobs/view/1"

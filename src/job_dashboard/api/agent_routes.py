@@ -222,7 +222,8 @@ def build_agent_router(db_path) -> APIRouter:
             conn.close()
         if detail is None:
             raise HTTPException(status_code=404, detail="job not found")
-        job_url = detail.get("job_url")
+        job_url = (detail["apply_url"] if detail.get("apply_kind") == "external" and detail.get("apply_url")
+                   else detail.get("job_url"))
         if not job_url:
             raise HTTPException(status_code=422, detail="job has no job_url")
 

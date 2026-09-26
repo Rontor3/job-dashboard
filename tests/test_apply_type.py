@@ -20,3 +20,22 @@ def test_source_defaults():
 def test_never_raises_on_junk():
     assert c(None, None)["kind"] == "other"
     assert c("", "")["fill"] == "manual"
+
+
+def test_native_easy_apply_is_manual():
+    r = c("linkedin", "https://www.linkedin.com/jobs/view/1", apply_kind="native")
+    assert r["kind"] == "easy-apply" and r["fill"] == "manual"
+
+
+def test_external_uses_apply_url_host():
+    r = c("linkedin", "https://www.linkedin.com/jobs/view/1", "external", "https://boards.greenhouse.io/x/1")
+    assert r["kind"] == "external-ats" and r["fill"] == "easy"
+
+
+def test_external_unknown_host_is_company_site_maybe():
+    r = c("linkedin", "https://www.linkedin.com/jobs/view/1", "external", "https://acme.com/apply")
+    assert r == {"kind": "external", "label": "Company site", "fill": "maybe"}
+
+
+def test_null_apply_kind_falls_back_to_old_heuristic():
+    assert c("linkedin", "https://www.linkedin.com/jobs/view/1")["kind"] == "linkedin"

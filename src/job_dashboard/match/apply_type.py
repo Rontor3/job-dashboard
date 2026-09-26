@@ -30,8 +30,14 @@ _ATS_HOST = re.compile(
 _LINKS_OUT = ("himalayas", "remoteok", "remotive")
 
 
-def classify_apply_type(source, job_url):
+def classify_apply_type(source, job_url, apply_kind=None, apply_url=None):
     """Return ``{"kind", "label", "fill"}`` for a job. Never raises."""
+    if apply_kind == "native":  # LinkedIn shadow-DOM Easy Apply: agent can't drive it
+        return {"kind": "easy-apply", "label": "Easy Apply", "fill": "manual"}
+    if apply_kind == "external" and apply_url:
+        if _ATS_HOST.search(apply_url):
+            return {"kind": "external-ats", "label": "ATS form", "fill": "easy"}
+        return {"kind": "external", "label": "Company site", "fill": "maybe"}
     src = (source or "").lower()
     url = job_url or ""
 
