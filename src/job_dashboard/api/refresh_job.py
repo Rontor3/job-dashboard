@@ -2,6 +2,7 @@ import threading
 
 from job_dashboard.db import init_db
 from job_dashboard.pipeline import run_pipeline
+from job_dashboard.sources.cdp.runner import fetch_browser_sources
 from job_dashboard.source_registry import company_sources, job_sources
 
 
@@ -60,12 +61,15 @@ def _summarize(result):
              f"{result.get('embed_scored', 0)} scored"]
     if result.get("embed_skipped"):
         parts.append(f"scoring skipped: {result['embed_skipped']}")
+    for b in result.get("browser") or []:
+        parts.append(f"{b['site']}: {b['note']}" if b.get("note") else f"{b['site']} +{b.get('new', 0)}")
     return ", ".join(parts)
 
 
 def default_pipeline_runner(db_path, on_stage):
     conn = init_db(db_path)  # own connection: sqlite is per-thread
     try:
-        return run_pipeline(conn, job_sources(), company_sources(), on_stage=on_stage)
+        return run_pipeline(conn, job_sources(), company_sources(), on_stage=on_stage,
+                            browser_fetch=fetch_browser_sources)
     finally:
         conn.close()

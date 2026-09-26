@@ -38,7 +38,8 @@ class ReviewBody(BaseModel):
 
 
 class SettingsBody(BaseModel):
-    answer_confidence_min: int
+    answer_confidence_min: Optional[int] = None
+    browser_linkedin_enabled: Optional[bool] = None
 
 
 def build_qa_router(db_path, vault=None) -> APIRouter:
@@ -238,20 +239,27 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
     def get_settings():
         conn = db()
         try:
-            return {"answer_confidence_min": qa_store.confidence_min(conn)}
+            return {"answer_confidence_min": qa_store.confidence_min(conn),
+                    "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1",
+                    "browser_min_interval_hours": float(qa_store.get_setting(conn, "browser_min_interval_hours"))}
         finally:
             conn.close()
 
     @router.put("/api/agent-settings")
     def put_settings(body: SettingsBody):
-        if not 0 <= body.answer_confidence_min <= 100:
+        if body.answer_confidence_min is not None and not 0 <= body.answer_confidence_min <= 100:
             raise HTTPException(status_code=422, detail="must be 0-100")
         conn = db()
         try:
-            qa_store.set_setting(conn, "answer_confidence_min", body.answer_confidence_min)
+            if body.answer_confidence_min is not None:
+                qa_store.set_setting(conn, "answer_confidence_min", body.answer_confidence_min)
+            if body.browser_linkedin_enabled is not None:
+                qa_store.set_setting(conn, "browser_linkedin_enabled",
+                                     "1" if body.browser_linkedin_enabled else "0")
+            return {"answer_confidence_min": qa_store.confidence_min(conn),
+                    "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1"}
         finally:
             conn.close()
-        return {"answer_confidence_min": body.answer_confidence_min}
 
     @router.get("/api/ingredients")
     def ingredients():

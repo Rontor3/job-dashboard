@@ -104,7 +104,7 @@ def test_reply_404_and_blank_422(env):
 
 def test_settings_default_update_and_bounds(env):
     c, _, _ = env
-    assert c.get("/api/agent-settings").json() == {"answer_confidence_min": 60}
+    assert c.get("/api/agent-settings").json()["answer_confidence_min"] == 60
     assert c.put("/api/agent-settings", json={"answer_confidence_min": 75}).status_code == 200
     assert c.get("/api/agent-settings").json()["answer_confidence_min"] == 75
     assert c.put("/api/agent-settings", json={"answer_confidence_min": 101}).status_code == 422

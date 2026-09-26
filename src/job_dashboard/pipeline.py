@@ -1,4 +1,4 @@
-from job_dashboard.db import suspected_duplicates
+from job_dashboard.db import insert_job, suspected_duplicates
 from job_dashboard.ingest import run_ingest
 from job_dashboard.match.dedup import mark_duplicates
 from job_dashboard.match.embedder import compute_embed_scores, load_default_model
@@ -9,7 +9,7 @@ from job_dashboard.match.profile_text import (
 
 def run_pipeline(conn, job_sources, company_sources,
                  profile_file=None, evaluation_file=None,
-                 model_loader=load_default_model, on_stage=None):
+                 model_loader=load_default_model, on_stage=None, browser_fetch=None):
     """ingest -> dedup -> embed-score. Embedding problems of any kind
     (missing dependency, missing profile, model errors) never abort ingest/dedup
     — they surface in embed_skipped."""
@@ -19,6 +19,21 @@ def run_pipeline(conn, job_sources, company_sources,
 
     _stage("ingesting")
     ingest_result = run_ingest(conn, job_sources, company_sources)
+    browser = []
+    if browser_fetch is not None:
+        _stage("browser sources")
+        try:
+            listings, site_results = browser_fetch(conn)
+            by_site = {r.site: r for r in site_results}
+            inserted = {}
+            for job in listings:
+                if insert_job(conn, job):
+                    inserted[job.source] = inserted.get(job.source, 0) + 1
+            for r in site_results:
+                r.new = inserted.get(r.site, 0)
+            browser = [r.as_dict() for r in by_site.values()]
+        except Exception as exc:
+            browser = [{"site": "browser", "new": 0, "note": f"error: {exc}"}]
     _stage("deduping")
     duplicates_marked = mark_duplicates(conn)
 
@@ -49,4 +64,5 @@ def run_pipeline(conn, job_sources, company_sources,
         "companies_classified": classified,
         "embed_scored": embed_scored,
         "embed_skipped": embed_skipped,
+        "browser": browser,
     }
