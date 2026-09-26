@@ -170,6 +170,41 @@ Findings that change the per-site design:
 Not verified anywhere: a real day 2 (the saved baselines allow it), reposts on a later day, and the true 48h
 recall (the replays used cutoffs scaled down to the timestamps each site's sample spanned).
 
+## Round 3: live recon of Wellfound, Instahyre, IIMJobs (2026-09-27) and the `fetch` extension
+
+Live loads through the framework's `CdpSession` (no challenge). What a plain page load fires, and so what can
+be read **passively**:
+
+| Site | Page load fires | Consequence |
+|---|---|---|
+| Instahyre | `search-jobs?skills=<term>` fires `GET /api/v1/job_search?...&offset=0` (7,415 results for one term, 20/page). `?page=2` in the page URL is ignored (the API call still says `offset=0`). | Page 1 is passive; later pages need a same-origin `offset=20*(N-1)` call (or a click, which the framework does not have). |
+| IIMJobs | `/k/<term>-jobs` fires only auth/profile calls (`auth/validate`, `user/profile`, ...), **no** `job/search` (page is SSR). | The search and detail calls (`gladiator.iimjobs.com/job/search`, `/job/detail`) must be same-origin `fetch`es with header `version: 2`. |
+| Wellfound | `/jobs` fires `JobSearchResultsX` (page 1, sorted, ~22 jobs) with the signed headers (`x-apollo-signature`, `x-wf-cfp`, ...). | Page 1 is passive; later pages replay the app's own operation with the captured headers, in memory only. |
+
+So Wellfound, Instahyre and IIMJobs need one framework capability that LinkedIn and Naukri did not:
+**`CdpSession.fetch(url, *, hosts, method="GET", headers=None, body=None) -> (status, text)`**, a same-origin
+`fetch()` run inside the session's own tab. Guardrails (all enforced in the session, not the adapters):
+the URL host must be in the adapter-declared `hosts` (else `ValueError`); every call counts against the
+per-run cap and is paced like a page load; **any non-200 status raises `Blocked`** (no retry, no back-off);
+headers captured from the page stay in memory. `Capture.requests()` exposes the page's own request
+`(url, headers, body)` so an adapter can learn a header/operation template. There is still no click API.
+
+Shapes seen live: IIMJobs search item `{id, title, jobdesignation, createdTimeMs, jobDetailUrl, applyStatus,
+applyUrl, companyData.companyName, locations[].name, workFromHome}`, list returns `hasMore`; detail
+`data.introText` (HTML, ~3.6k chars). Instahyre list object `{id, title, employer.company_name, locations,
+keywords, public_url}` (no date); detail `/job-<id>-x/` HTML with JSON-LD `datePosted` (YYYY-MM-DD) and the
+description.
+
+Decisions taken for v1 (defaults, no user preference stated):
+- **Instahyre stale-id anchor.** The list has no dates and each term's pool is ~7k jobs, some years old. Rejecting
+  a stale job after its detail fetch would repeat every run, so the adapter walks candidates by id descending
+  and stores the largest stale id seen in `fetch_state.anchor`; ids at or below it are skipped without a fetch
+  (ids rise with date: 0 violations in 3,081 pairs). Skip-known by DB stays the correctness layer.
+- **Instahyre and IIMJobs** read every term the same way each day (no stop-early; the IIMJobs window is small,
+  Instahyre's order is relevance). IIMJobs ships disabled by default.
+- **Wellfound** cutoff is on `liveStartAt`; ids are the key (reposts keep their id); details are never opened
+  (they emit a tracked view on the real account), descriptions come from the list payload.
+
 ## Per-site adapters
 
 Caps are per run. "Detail" = the extra fetch needed for a full description of a **new** job only.
