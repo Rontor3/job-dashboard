@@ -24,7 +24,7 @@ def test_fetch_rejects_foreign_host_without_calling():
     assert p.fetches == []
 
 
-@pytest.mark.parametrize("status", [401, 403, 404, 406, 429, 500])
+@pytest.mark.parametrize("status", [0, 401, 403, 404, 406, 429, 500])
 def test_any_non_200_is_blocked(status):
     with make_session(page_with(lambda u, m, h, b: (status, "no"))) as s:
         with pytest.raises(Blocked):
@@ -53,3 +53,17 @@ def test_exchanges_parse_json_and_gzip_request_bodies():
 
 def test_html_to_text():
     assert html_to_text("<p>Build <b>models</b></p><ul><li>Python</li></ul>&amp; more") == "Build models\nPython\n& more"
+
+
+def test_fetch_does_not_follow_redirects():
+    from job_dashboard.sources.cdp.session import _FETCH_JS
+    assert "redirect: 'manual'" in _FETCH_JS
+
+
+def test_exchanges_yield_request_when_response_json_fails():
+    req = FakeRequest("https://wellfound.com/graphql", {"h": "v"}, b'{"operationName": "X"}')
+    p = FakePage({"https://a/": [("https://wellfound.com/graphql", ValueError("not json"), req)]})
+    with make_session(p) as s:
+        with s.capture("graphql") as cap:
+            s.goto("https://a/")
+    assert list(cap.exchanges()) == [({"h": "v"}, {"operationName": "X"}, None)]

@@ -17,7 +17,7 @@ BAD_TEXT = re.compile(
     r"unusual activity|verify you.re a human|security verification|"
     r"let.s do a quick security check|temporarily restricted", re.I)
 
-_FETCH_JS = ("async ([u, m, h, b]) => { const r = await fetch(u, {method: m, credentials: 'include', "
+_FETCH_JS = ("async ([u, m, h, b]) => { const r = await fetch(u, {method: m, credentials: 'include', redirect: 'manual', "
              "headers: h || {}, body: b}); return [r.status, await r.text()]; }")
 
 
@@ -74,7 +74,7 @@ class Capture:
                 continue
 
     def exchanges(self):
-        """(request headers, request body parsed, response json) for each captured exchange that parses."""
+        """(request headers, request body parsed, response json or None if it does not parse) per captured exchange."""
         for r in self.responses:
             try:
                 rq = r.request
@@ -85,7 +85,11 @@ class Capture:
                     body = json.loads(raw) if raw else None
                 except ValueError:
                     body = raw.decode("utf-8", "replace") if raw else None
-                yield dict(rq.all_headers()), body, r.json()
+                try:
+                    resp = r.json()
+                except Exception:
+                    resp = None
+                yield dict(rq.all_headers()), body, resp
             except Exception:
                 continue
 

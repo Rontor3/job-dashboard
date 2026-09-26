@@ -20,6 +20,10 @@ def L(i):
     return JobListing(source="linkedin", title="t", company="c", job_url=f"u{i}", description="d", external_id=str(i))
 
 
+def _no_session(cap):
+    raise AssertionError('must not open a session')
+
+
 def go(c, run, **kw):
     adapters = {"linkedin": (run, ["t"])}
     return runner.fetch_browser_sources(
@@ -158,12 +162,12 @@ def test_naukri_is_registered_but_off_by_default():
     assert "naukri" in runner.ADAPTERS
     c = conn()
     _, results = runner.fetch_browser_sources(c, adapters={"naukri": runner.ADAPTERS["naukri"]},
-                                              reachable=lambda u: True, session_factory=None)
+                                              reachable=lambda u: True, session_factory=_no_session)
     assert results == []
 
 
 def test_naukri_limits_and_windows():
-    assert runner.LIMITS_BY_SITE["naukri"]["incremental"] == (5, 40, 10**9)
+    assert runner.LIMITS_BY_SITE["naukri"]["incremental"] == (3, 40, 10**9)
     assert runner.WINDOWS["naukri"] == (24, 72, 168, 360, 720)
 
 
@@ -180,10 +184,22 @@ def test_anchor_is_passed_in_and_saved_immediately():
 def test_all_sites_registered_with_limits_windows_and_off_by_default():
     for site in ("wellfound", "instahyre", "iimjobs"):
         assert site in runner.ADAPTERS and site in runner.LIMITS_BY_SITE and site in runner.WINDOWS
-    assert runner.LIMITS_BY_SITE["wellfound"]["incremental"][1] == 25
+    assert runner.LIMITS_BY_SITE["wellfound"]["incremental"] == (4, 25, 10**9)
+    assert runner.LIMITS_BY_SITE["wellfound"]["backfill"] == (15, 40, 10**9)
     assert runner.LIMITS_BY_SITE["instahyre"]["backfill"][1] == 90
     assert runner.WINDOWS["iimjobs"] == (24, 72, 168, 720)
     c = conn()                                               # only linkedin switched on by the helper
     _, results = runner.fetch_browser_sources(c, adapters={k: v for k, v in runner.ADAPTERS.items() if k != "linkedin"},
-                                              reachable=lambda u: True, session_factory=None)
+                                              reachable=lambda u: True, session_factory=_no_session)
     assert results == []
+
+
+def test_exact_window_sites_get_exact_hours_others_buckets():
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    row = {"last_success_at": (now - timedelta(hours=55)).isoformat()}
+    assert runner._window("incremental", row, now, (24, 48, 168, 720), exact=True) == 55
+    assert runner._window("incremental", row, now, (24, 48, 168, 720), exact=False) == 168
+    assert runner._window("incremental", None, now, (24, 48, 168, 720), exact=True) == 48
+    assert runner._window("incremental", {"last_success_at": (now - timedelta(hours=5000)).isoformat()}, now, (720,), exact=True) == 720
+    assert runner._window("backfill", None, now, (24, 720), exact=True) == 720
+    assert runner.EXACT_WINDOW == {"wellfound"}

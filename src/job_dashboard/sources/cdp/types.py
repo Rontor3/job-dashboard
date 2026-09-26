@@ -27,7 +27,7 @@ class AdapterContext:
     known_text: Optional[Callable[[str, str, str], bool]] = None  # (title, company, location) -> same-source text duplicate
     anchor: int = 0                            # per-site persisted cursor (e.g. highest id seen)
     save_anchor: Optional[Callable[[int], None]] = None  # persists the anchor immediately
-    hours: int = 48                            # incremental look-back window (a linkedin.TPR key)
+    hours: float = 48                          # incremental look-back window: a site bucket, or exact hours (EXACT_WINDOW sites)
     stats: dict = field(default_factory=lambda: {"skipped_known": 0, "pages": 0})
 
 

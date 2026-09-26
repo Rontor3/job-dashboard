@@ -74,3 +74,10 @@ def test_unsupported_window_rounds_up_to_next_posting_bucket():
     with make_session(p) as s:
         im.run(s, ctx(hours=48))
     assert "posting=3" in p.fetches[0][0]
+
+
+def test_page_filtered_to_nothing_but_has_more_keeps_walking():
+    p = make({0: ([{"i": 9, "companyData": {}}], True), 1: ([3], False)}, {3: "<p>three</p>"})
+    with make_session(p) as s:
+        out = im.run(s, ctx())
+    assert [j.external_id for j in out] == ["3"]

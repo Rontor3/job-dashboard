@@ -18,7 +18,7 @@ KEEP = {"x-apollo-signature", "x-wf-cfp", "x-angellist-dd-client-referrer-resour
 # Wellfound shows <= 3 jobs per startup, so relevant jobs hide behind the cap: also query by title.
 TITLES = ["Data Scientist", "Machine Learning Engineer", "AI Engineer", "NLP Engineer",
           "LLM Engineer", "MLOps Engineer", "Applied Scientist", "Data Scientist L1"]
-TITLE_PAGES = 3
+TITLE_PAGES = 2
 
 
 def parse_results(body):
@@ -50,7 +50,7 @@ def to_listing(j) -> JobListing:
 def _template(session):
     with session.capture("graphql") as cap:
         session.goto("https://wellfound.com/jobs")
-    for headers, body, _ in cap.exchanges():
+    for headers, body, _resp in cap.exchanges():
         if isinstance(body, dict) and body.get("operationName") == "JobSearchResultsX":
             return {"headers": {k: v for k, v in headers.items() if k.lower() in KEEP},
                     "op": (body.get("extensions") or {}).get("operationId")}
@@ -86,14 +86,14 @@ def run(session, ctx):
         for pg in range(1, max_pages + 1):
             jobs, has_next = _query(session, tpl, pg, title)
             ctx.stats["pages"] += 1
-            fresh = [j for j in jobs if (j["live"] or 0) >= cutoff]
+            fresh = [j for j in jobs if j["live"] is None or j["live"] >= cutoff]
             for j in fresh:
                 if j["id"] in seen:
                     continue
                 seen.add(j["id"])
                 if ctx.known(j["id"], job_url(j)):
                     ctx.stats["skipped_known"] += 1
-                    if ctx.redate and ctx.redate(j["id"], job_url(j), _iso(j["live"])):
+                    if ctx.redate and j["live"] and ctx.redate(j["id"], job_url(j), _iso(j["live"])):
                         ctx.stats["redated"] = ctx.stats.get("redated", 0) + 1
                 else:
                     found.append(to_listing(j))

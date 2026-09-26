@@ -69,9 +69,12 @@ def run(session, ctx, today=None):
     ctx.stats.setdefault("skipped_stale", 0)
     try:
         for term in ctx.terms:
-            with session.capture("api/v1/job_search") as cap:
-                session.goto(f"https://www.instahyre.com/search-jobs?skills={quote(term)}")
-            first = [c for _, b in cap.bodies() for c in parse_list(b)[0]]
+            for _ in range(2):                      # the page's own call can be missed: reload once
+                with session.capture("api/v1/job_search") as cap:
+                    session.goto(f"https://www.instahyre.com/search-jobs?skills={quote(term)}")
+                first = [c for _, b in cap.bodies() for c in parse_list(b)[0]]
+                if first:
+                    break
             for p in range(1, ctx.max_pages + 1):
                 cards = first if p == 1 else parse_list(json.loads(
                     session.fetch(_list_path(term, 20 * (p - 1)), hosts=HOSTS)))[0]
@@ -79,6 +82,7 @@ def run(session, ctx, today=None):
                     break
                 ctx.stats["pages"] += 1
                 cands.update({c["id"]: c for c in cards})
+        streak = []                                 # consecutive stale ids; one stale outlier must not move the anchor
         for cid in sorted(cands, reverse=True):
             c = cands[cid]
             if ctx.known(str(cid), c["url"]):
@@ -88,11 +92,17 @@ def run(session, ctx, today=None):
                 ctx.stats["skipped_stale"] += 1
                 continue
             detail = parse_detail(session.fetch(f"/job-{cid}-x/", hosts=HOSTS))
-            if detail["date"] and detail["date"] < cutoff:
-                ctx.anchor = max(ctx.anchor, cid)
-                if ctx.save_anchor:
-                    ctx.save_anchor(ctx.anchor)
+            if detail["date"] is None:                # retention unverifiable: don't insert, don't mark known
+                ctx.stats["undated"] = ctx.stats.get("undated", 0) + 1
                 continue
+            if detail["date"] < cutoff:
+                streak.append(cid)
+                if len(streak) >= 3:
+                    ctx.anchor = max(ctx.anchor, streak[0])
+                    if ctx.save_anchor:
+                        ctx.save_anchor(ctx.anchor)
+                continue
+            streak = []
             if detail["description"]:
                 found.append(to_listing(c, detail))
     except CapReached:

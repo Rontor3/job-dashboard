@@ -110,3 +110,25 @@ def test_cap_returns_partial():
     with make_session(p, max_loads=2) as s:                # goto + one fetch
         out = wf.run(s, c)
     assert c.stats["capped"] is True and [j.external_id for j in out] == ["1"]
+
+
+def test_all_title_queries_fit_the_incremental_budget_when_feed_never_dries_up():
+    from job_dashboard.sources.cdp.runner import LIMITS_BY_SITE
+    pages, cap, _ = LIMITS_BY_SITE["wellfound"]["incremental"]
+    n = [0]
+    def handler(url, m, h, b):
+        n[0] += 1
+        return 200, json.dumps(result([job(n[0])], True))
+    p = feed_page(handler)
+    c = ctx(max_pages=pages)
+    with make_session(p, max_loads=cap) as s:
+        wf.run(s, c)
+    titles = {tuple(json.loads(f[3])["variables"]["filterConfigurationInput"].get("customJobTitles") or []) for f in p.fetches}
+    assert not c.stats.get("capped") and {t for t in titles if t} == {(t,) for t in wf.TITLES}
+
+
+def test_job_without_live_start_counts_as_fresh():
+    p = feed_page(lambda u, m, h, b: (200, json.dumps(result([job(1, liveStartAt=None)], False))))
+    with make_session(p) as s:
+        out = wf.run(s, ctx())
+    assert [j.external_id for j in out] == ["1"] and out[0].posted_date is None

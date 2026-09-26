@@ -15,10 +15,13 @@ CDP_URL = "http://localhost:9222"
 LIMITS = {"incremental": (3, 30, 10), "backfill": (2, 60, 10**9)}
 WINDOWS = {"linkedin": tuple(sorted(linkedin.TPR)), "naukri": tuple(sorted(naukri.AGES)),
            "wellfound": (24, 48, 168, 720), "iimjobs": (24, 72, 168, 720), "instahyre": (24, 48, 168, 720)}      # site -> look-back buckets (hours)
-LIMITS_BY_SITE = {"naukri": {"incremental": (5, 40, 10**9), "backfill": (5, 80, 10**9)},
-                  "wellfound": {"incremental": (10, 25, 10**9), "backfill": (30, 40, 10**9)},
+LIMITS_BY_SITE = {"naukri": {"incremental": (3, 40, 10**9), "backfill": (5, 80, 10**9)},
+                  "wellfound": {"incremental": (4, 25, 10**9), "backfill": (15, 40, 10**9)},
                   "instahyre": {"incremental": (3, 30, 10**9), "backfill": (10, 90, 10**9)},
                   "iimjobs": {"incremental": (5, 40, 10**9), "backfill": (5, 40, 10**9)}}        # site -> {mode: (max_pages, load_cap, stop_after_known)}; missing -> LIMITS
+
+
+EXACT_WINDOW = {"wellfound"}          # sites whose API takes an exact cutoff, not a bucket
 
 
 def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_factory=None,
@@ -40,7 +43,8 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
         ctx = AdapterContext(mode=mode, known=known, redate=redate, terms=terms, max_pages=pages, stop_after_known=stop_known,
                              known_text=_known_text_fn(conn, site),
                              anchor=state.get_anchor(conn, site), save_anchor=_save_anchor_fn(conn, site),
-                             hours=_window(mode, state.get(conn, site), now, WINDOWS.get(site, WINDOWS["linkedin"])))
+                             hours=_window(mode, state.get(conn, site), now, WINDOWS.get(site, WINDOWS["linkedin"]),
+                                          exact=site in EXACT_WINDOW))
         res = SiteResult(site, mode=mode)
         try:
             factory = session_factory or (lambda c: CdpSession(cdp_url, max_loads=c))
@@ -74,16 +78,16 @@ def _save_anchor_fn(conn, site):
     return save
 
 
-def _window(mode, row, now, windows):
+def _window(mode, row, now, windows, exact=False):
     """Incremental look-back: at least the smallest bucket >= 48h, widened to cover the gap since the last success."""
     if mode == "backfill":
         return max(windows)
     floor = next((b for b in windows if b >= 48), max(windows))
     last = (row or {}).get("last_success_at")
     if not last:
-        return floor
+        return 48 if exact else floor
     h = max(48, ((now or datetime.now(timezone.utc)) - datetime.fromisoformat(last)).total_seconds() / 3600)
-    return next((b for b in windows if b >= h), max(windows))
+    return min(h, 720) if exact else next((b for b in windows if b >= h), max(windows))
 
 
 def _known_text_fn(conn, site):

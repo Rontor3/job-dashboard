@@ -51,7 +51,7 @@ def run(session, ctx):
                 body = json.loads(session.fetch(
                     f"{API}/search?query={quote(term)}&page={pg}&posting={days}", hosts=HOSTS, headers=_HDR))
                 cards, more = parse_search(body)
-                if not cards:
+                if not cards and not more:
                     break
                 ctx.stats["pages"] += 1
                 for c in cards:
