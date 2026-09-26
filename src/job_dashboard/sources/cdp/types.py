@@ -1,6 +1,8 @@
 """Shared types for browser (CDP) job sources."""
 from __future__ import annotations
 
+import html as _html
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Optional
 
@@ -43,3 +45,9 @@ class SiteResult:
 
 def norm_text(s):
     return " ".join("".join(ch if ch.isalnum() else " " for ch in (s or "").lower()).split())
+
+
+def html_to_text(s: str) -> str:
+    s = re.sub(r"(?i)<\s*(br|/p|/li|/div|/h\d)\s*/?>", "\n", s or "")
+    s = _html.unescape(re.sub(r"<[^>]+>", "", s))
+    return re.sub(r"\n\s*\n+", "\n", re.sub(r"[ \t]+", " ", s)).strip()
