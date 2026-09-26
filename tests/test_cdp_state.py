@@ -38,10 +38,24 @@ def test_failed_run_keeps_last_success_and_records_error():
     state.record_run(c, "linkedin", ok=False, error="Blocked: authwall", now=T0 + timedelta(hours=60))
     row = state.get(c, "linkedin")
     assert row["last_error"] == "Blocked: authwall" and row["last_success_at"] == T0.isoformat()
-    assert state.due(c, "linkedin", now=T0 + timedelta(hours=61))
+    assert state.due(c, "linkedin", now=T0 + timedelta(hours=109))
 
 
 def test_failed_first_run_stays_backfill():
     c = conn()
     state.record_run(c, "linkedin", ok=False, error="x", now=T0)
     assert state.mode_for(c, "linkedin") == "backfill"
+
+
+def test_failure_cools_down_for_interval_from_last_run():
+    c = conn()
+    state.record_run(c, "linkedin", ok=True, backfill_done=True, now=T0)
+    state.record_run(c, "linkedin", ok=False, error="Blocked: x", now=T0 + timedelta(hours=60))
+    assert not state.due(c, "linkedin", now=T0 + timedelta(hours=61))
+    assert state.due(c, "linkedin", now=T0 + timedelta(hours=109))
+
+
+def test_failed_first_run_cools_down():
+    c = conn()
+    state.record_run(c, "linkedin", ok=False, error="x", now=T0)
+    assert not state.due(c, "linkedin", now=T0 + timedelta(hours=1))

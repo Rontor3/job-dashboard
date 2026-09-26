@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from job_dashboard import qa_store
 from job_dashboard.models import JobListing
 from job_dashboard.sources.cdp import runner, state
@@ -68,3 +69,49 @@ def test_cdp_down_changes_nothing():
     _, results = runner.fetch_browser_sources(c, adapters={"linkedin": (lambda s, x: [], ["t"])},
                                               reachable=lambda u: False, session_factory=None)
     assert results[0].note == "Chrome CDP not reachable" and state.get(c, "linkedin") is None
+
+
+T0 = datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc)
+
+
+def test_capped_backfill_stays_backfill_and_notes_it():
+    c = conn()
+    def run(s, ctx): ctx.stats["capped"] = True; ctx.stats["pages"] = 3; return [L(1)]
+    _, results = go(c, run)
+    assert results[0].note == "cap reached (resumes next run)" and state.mode_for(c, "linkedin") == "backfill"
+
+
+def test_backfill_with_no_results_stays_backfill():
+    c = conn(); go(c, lambda s, ctx: [])
+    assert state.mode_for(c, "linkedin") == "backfill"
+
+
+def test_backfill_with_pages_and_no_new_jobs_completes():
+    c = conn()
+    def run(s, ctx): ctx.stats["pages"] = 2; return []
+    go(c, run)
+    assert state.mode_for(c, "linkedin") == "incremental"
+
+
+def test_blocked_not_retried_immediately_and_note_has_error():
+    c = conn()
+    def boom(s, ctx): raise Blocked("authwall")
+    go(c, boom, now=T0)
+    _, results = go(c, lambda s, ctx: [L(1)], now=T0 + timedelta(hours=1))
+    assert results[0].new == 0 and "not due" in results[0].note and "authwall" in results[0].note
+
+
+def test_pages_is_session_loads():
+    c = conn()
+    def run(s, ctx): s.goto("https://x/a"); s.goto("https://x/b"); return []
+    _, results = go(c, run)
+    assert results[0].pages == 2
+
+
+def test_incremental_window_widens_to_next_bucket_and_backfill_is_720():
+    c = conn(); hours = []
+    def run(s, ctx): hours.append(ctx.hours); ctx.stats["pages"] = 1; return []
+    go(c, run, now=T0)                                        # backfill
+    go(c, run, now=T0 + timedelta(hours=48))                  # incremental, gap 48h -> 48
+    go(c, run, now=T0 + timedelta(hours=48 + 100))            # gap 100h -> 168
+    assert hours == [720, 48, 168]

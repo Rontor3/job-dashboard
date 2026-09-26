@@ -1,6 +1,8 @@
 """Runs each enabled, due browser adapter in isolation and records its state."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from job_dashboard.sources.cdp import linkedin, state
 from job_dashboard.sources.cdp.session import CdpSession, cdp_reachable
 from job_dashboard.sources.cdp.types import AdapterContext, Blocked, SiteResult
@@ -18,7 +20,8 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
         if not state.enabled(conn, site):
             continue
         if not state.due(conn, site, now=now):
-            results.append(SiteResult(site, note="not due"))
+            err = (state.get(conn, site) or {}).get("last_error")
+            results.append(SiteResult(site, note=f"not due (last error: {err})" if err else "not due"))
             continue
         if not reachable(cdp_url):
             results.append(SiteResult(site, note="Chrome CDP not reachable"))
@@ -26,16 +29,24 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
         mode = state.mode_for(conn, site)
         pages, cap, stop_known = LIMITS[mode]
         known = _known_fn(conn, site)
-        ctx = AdapterContext(mode=mode, known=known, terms=terms, max_pages=pages, stop_after_known=stop_known)
+        ctx = AdapterContext(mode=mode, known=known, terms=terms, max_pages=pages, stop_after_known=stop_known,
+                             hours=_window(mode, state.get(conn, site), now))
         res = SiteResult(site, mode=mode)
         try:
             factory = session_factory or (lambda c: CdpSession(cdp_url, max_loads=c))
             with factory(cap) as session:
-                found = run(session, ctx)
-            res.new, res.skipped_known, res.pages = len(found), ctx.stats["skipped_known"], ctx.stats["pages"]
+                try:
+                    found = run(session, ctx)
+                finally:
+                    res.pages = getattr(session, "loads", 0)
+            capped = bool(ctx.stats.get("capped"))
+            res.new, res.skipped_known = len(found), ctx.stats["skipped_known"]
+            if capped:
+                res.note = "cap reached (resumes next run)"
+            done = (not capped and bool(found or ctx.stats["pages"])) if mode == "backfill" else None
             listings.extend(found)
             state.record_run(conn, site, ok=True, new=res.new, skipped=res.skipped_known,
-                             backfill_done=True, now=now)
+                             backfill_done=done, now=now)
         except Blocked as exc:
             res.note = f"blocked: {exc}"
             state.record_run(conn, site, ok=False, error=f"Blocked: {exc}", now=now)
@@ -44,6 +55,17 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
             state.record_run(conn, site, ok=False, error=f"{type(exc).__name__}: {exc}", now=now)
         results.append(res)
     return listings, results
+
+
+def _window(mode, row, now):
+    """Incremental look-back: at least 48h, widened to cover the gap since the last success."""
+    if mode == "backfill":
+        return 720
+    last = (row or {}).get("last_success_at")
+    if not last:
+        return 48
+    h = max(48, ((now or datetime.now(timezone.utc)) - datetime.fromisoformat(last)).total_seconds() / 3600)
+    return next((b for b in sorted(linkedin.TPR) if b >= h), 720)
 
 
 def _known_fn(conn, site):

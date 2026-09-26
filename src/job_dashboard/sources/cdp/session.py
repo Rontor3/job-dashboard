@@ -27,8 +27,12 @@ def _playwright_connect(cdp_url: str):
     """(page, closer). closer detaches Playwright; it does not close Chrome or other tabs."""
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
-    browser = pw.chromium.connect_over_cdp(cdp_url)
-    page = browser.contexts[0].new_page()
+    try:
+        browser = pw.chromium.connect_over_cdp(cdp_url)
+        page = browser.contexts[0].new_page()
+    except Exception:
+        pw.stop()
+        raise
 
     def closer():
         try:
@@ -98,7 +102,7 @@ class CdpSession:
         self._check(None)
 
     def _check(self, status):
-        if status in (403, 429) or BAD_URL.search(self._page.url or ""):
+        if status in (401, 403, 429) or BAD_URL.search(self._page.url or ""):
             raise Blocked(f"{self._page.url} status={status}")
         text = self._page.evaluate("document.body ? document.body.innerText.slice(0, 3000) : ''")
         if BAD_TEXT.search(text or ""):

@@ -35,10 +35,13 @@ def get(conn, site: str):
 
 def due(conn, site: str, now=None) -> bool:
     row = get(conn, site)
-    if not row or not row["last_success_at"]:
+    if not row:
+        return True
+    ref = row["last_run_at"] if row["last_error"] else row["last_success_at"]   # failures cool down too
+    if not ref:
         return True
     now = now or datetime.now(timezone.utc)
-    return now - datetime.fromisoformat(row["last_success_at"]) >= timedelta(hours=interval_hours(conn))
+    return now - datetime.fromisoformat(ref) >= timedelta(hours=interval_hours(conn))
 
 
 def mode_for(conn, site: str) -> str:

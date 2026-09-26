@@ -112,32 +112,46 @@ def _load(session, url):
 
 
 def run(session, ctx):
-    hours = 720 if ctx.mode == "backfill" else 48
-    found = {}
+    """Phase 1: every search page of every term (cheap, carries prefetched details).
+    Phase 2: spend what is left of the load budget on detail loads, round-robin across terms."""
+    hours = 720 if ctx.mode == "backfill" else ctx.hours
+    found, pending = {}, {}            # pending: term -> [(card, detail)] lacking a description
+    seen = set()
     try:
         for term in ctx.terms:
-            consecutive_known = 0
+            consecutive_known, queue = 0, pending.setdefault(term, [])
             for p in range(ctx.max_pages):
-                cards, details = _load(session, search_url(term, hours, start=25 * p))
-                ctx.stats["pages"] += 1
+                cards, details = _load(session, search_url(term, hours, start=50 * p))
                 if not cards:
                     break
+                ctx.stats["pages"] += 1
                 for jid, c in cards.items():
-                    if jid in found:
+                    if jid in seen:
                         continue
+                    seen.add(jid)
+                    if not c.get("company"):
+                        continue                        # insert_job would reject it anyway
                     if ctx.known(jid, job_url(jid)):
                         ctx.stats["skipped_known"] += 1
                         consecutive_known += 1
                         continue
                     d = details.get(jid) or {}
-                    if not d.get("description"):
-                        d = _load(session, job_url(jid))[1].get(jid) or {}
-                    if not d.get("description"):
-                        continue                        # retried next run; deliberately not "known"
-                    found[jid] = to_listing(c, d)
+                    if d.get("description"):
+                        found[jid] = to_listing(c, d)
+                    else:
+                        queue.append((c, d))
                     consecutive_known = 0
                 if ctx.mode == "incremental" and consecutive_known >= ctx.stop_after_known:
                     break
+        queues = [q for q in pending.values() if q]
+        while queues:
+            for q in list(queues):
+                c, _ = q.pop(0)
+                d = _load(session, job_url(c["id"]))[1].get(c["id"]) or {}
+                if d.get("description"):                # else retried next run; deliberately not "known"
+                    found[c["id"]] = to_listing(c, d)
+                if not q:
+                    queues.remove(q)
     except CapReached:
-        pass
+        ctx.stats["capped"] = True
     return list(found.values())

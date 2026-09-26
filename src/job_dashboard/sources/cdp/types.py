@@ -21,6 +21,7 @@ class AdapterContext:
     terms: list
     max_pages: int
     stop_after_known: int
+    hours: int = 48                            # incremental look-back window (a linkedin.TPR key)
     stats: dict = field(default_factory=lambda: {"skipped_known": 0, "pages": 0})
 
 

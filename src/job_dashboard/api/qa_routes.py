@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from job_dashboard import qa_store
 from job_dashboard.db import init_db
+from job_dashboard.sources.cdp import state as cdp_state
 
 _SHORT = 200        # longer / multi-line replies are essays -> vault only
 
@@ -241,7 +242,7 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
         try:
             return {"answer_confidence_min": qa_store.confidence_min(conn),
                     "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1",
-                    "browser_min_interval_hours": float(qa_store.get_setting(conn, "browser_min_interval_hours"))}
+                    "browser_min_interval_hours": cdp_state.interval_hours(conn)}
         finally:
             conn.close()
 
