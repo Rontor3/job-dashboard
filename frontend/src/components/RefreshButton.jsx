@@ -38,6 +38,12 @@ export default function RefreshButton({ onDone }) {
           scoring skipped: {status.last_result.embed_skipped}
         </span>
       )}
+      {(status.last_result?.browser || []).map((b) => (
+        <span key={b.site} role={b.note?.startsWith("blocked") || b.note?.startsWith("error") ? "alert" : "status"}
+          style={{ fontSize: 11, background: "var(--warm-tint)", color: "var(--warm-ink)", borderRadius: 8, padding: "3px 8px" }}>
+          {b.note ? `${b.site}: ${b.note}` : `${b.site} +${b.new}`}
+        </span>
+      ))}
       <button
         onClick={click}
         disabled={status.running}
