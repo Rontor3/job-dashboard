@@ -35,6 +35,7 @@ class HiringPost:
     posted_at: str | None
     keyword: str
     fit_score: float = 0.0
+    fit_reason: str = ""
 
 
 def to_hiring_post(d, keyword):
@@ -59,18 +60,33 @@ def rank_post(text, profile_vec, model):
         return 0.0
 
 
-def is_target_post(post, role_fn=None):
-    """Keep a post only if the role it hires for is in the ML/AI/DS family
-    (``match.relevance.is_target_role``). Title comes from ``role_fn`` (local
-    Ollama); a post naming no clear role is judged by its opening lines."""
+# Posts the résumé judge scores below this are dropped (0-100 scale).
+MIN_FIT = 50
+
+
+def judge(post, role_fn=None):
+    """(keep, fit_0_1_or_None, reason). Keeps a post only if its role title is in
+    the ML/AI/DS family (``is_target_role``) and, when ``role_fn`` scores it
+    against the résumé, the fit is >= MIN_FIT. No title -> judge the opening."""
     from job_dashboard.match.relevance import is_target_role
-    title = ""
+    got = {}
     if role_fn is not None:
         try:
-            title = role_fn({"text": post.text, "poster_headline": post.poster_headline}).get("title") or ""
+            got = role_fn({"text": post.text, "poster_headline": post.poster_headline,
+                           "poster_name": post.poster_name}) or {}
         except Exception:  # noqa: BLE001
-            title = ""
-    return is_target_role(title) if title else is_target_role(post.text[:300])
+            got = {}
+    title = got.get("title") or ""
+    if not (is_target_role(title) if title else is_target_role(post.text[:300])):
+        return False, None, ""
+    fit = got.get("fit")
+    if fit is None:
+        return True, None, got.get("reason") or ""
+    return fit >= MIN_FIT, fit / 100, got.get("reason") or ""
+
+
+def is_target_post(post, role_fn=None):
+    return judge(post, role_fn)[0]
 
 
 def run_digest(conn, fetcher, keywords, profile_text, *,
@@ -94,9 +110,14 @@ def run_digest(conn, fetcher, keywords, profile_text, *,
             continue
         for d in found:
             post = to_hiring_post(d, kw)
-            if post is None or post.url in by_url or not is_target_post(post, role_fn):
+            if post is None or post.url in by_url:
                 continue
-            if profile_vec is not None:
+            keep, fit, post.fit_reason = judge(post, role_fn)
+            if not keep:
+                continue
+            if fit is not None:
+                post.fit_score = fit          # résumé judge beats embedding cosine
+            elif profile_vec is not None:
                 post.fit_score = rank_post(post.text, profile_vec, model)
             by_url[post.url] = post
 

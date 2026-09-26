@@ -115,23 +115,27 @@ def main() -> None:
 
     resume_pdf = args.resume_pdf
     if resume_pdf is None:
+        # The manually-maintained résumé is the source of truth — prefer it
+        # over re-rendering from the (possibly stale) DB layout every run.
+        from pathlib import Path
+        _static = Path(args.db).parent / "resumes" / "resume.pdf"
+        if _static.exists():
+            resume_pdf = str(_static)
         try:
-            from pathlib import Path
-            from job_dashboard.db import get_resume_layout
-            from job_dashboard.resume.engine import render_layout_pdf
-            from job_dashboard.resume.render import render_pdf
-            from job_dashboard.resume.segments import load_segments
-            rec = get_resume_layout(conn, args.resume_version)
-            out_dir = Path(args.db).parent / "resumes"
-            out_dir.mkdir(parents=True, exist_ok=True)
-            res = render_layout_pdf(rec["layout"], segments=load_segments(),
-                                    render_pdf=render_pdf, out_dir=out_dir)
-            resume_pdf = str(res["pdf_path"])
+            if resume_pdf is None:
+                from job_dashboard.db import get_resume_layout
+                from job_dashboard.resume.engine import render_layout_pdf
+                from job_dashboard.resume.render import render_pdf
+                from job_dashboard.resume.segments import load_segments
+                rec = get_resume_layout(conn, args.resume_version)
+                out_dir = Path(args.db).parent / "resumes"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                res = render_layout_pdf(rec["layout"], segments=load_segments(),
+                                        render_pdf=render_pdf, out_dir=out_dir)
+                resume_pdf = str(res["pdf_path"])
         except Exception as e:
-            from pathlib import Path
-            _fallback = Path(args.db).parent / "resumes" / "resume.pdf"
-            if _fallback.exists():
-                resume_pdf = str(_fallback)
+            if _static.exists():
+                resume_pdf = str(_static)
                 print(f"[resume] render failed ({type(e).__name__}), using pre-built {resume_pdf}")
             else:
                 print(f"[warn] résumé render unavailable ({type(e).__name__}: {e}); "
@@ -141,14 +145,14 @@ def main() -> None:
     # Judgment tier (Phase E): answer free-text/enum fields the rules escalate,
     # grounded in the JD (--job-id) + profile, via local qwen. Degrades to None
     # (rules + human only) if unavailable. --no-llm skips both for fast dry-runs.
-    judge_fn = None
-    option_matcher = None
-    if not args.no_llm:
-        try:
     from job_dashboard import qa_store
     from .orchestrator.qa_recorder import QARecorder
     qa_rec = QARecorder(conn, args.job_id)
     qa_min_conf = qa_store.confidence_min(conn)     # editable on the dashboard
+    judge_fn = None
+    option_matcher = None
+    if not args.no_llm:
+        try:
             from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
             from .browser.ats_lookup import lookup as _ats_lookup
             from job_dashboard.db import get_job
@@ -188,28 +192,28 @@ def main() -> None:
     learn = AnswerMemory(conn)
 
     memory_router = None
+    _qa_vault = None
     try:
         from pathlib import Path as _Path
         from .memory.exact_tech import ExactTechVault
         from .memory.semantic_behavior import SemanticBehaviorVault
-    _qa_vault = None
         from .routers.memory_router import MemoryRouter
         _semantic_dir = str(_Path(args.db).parent / "semantic_behavior")
+        _qa_vault = SemanticBehaviorVault(persist_dir=_semantic_dir)
         memory_router = MemoryRouter(
             profile=contact,
             exact_tech=ExactTechVault(),
             semantic=_qa_vault,
-        _qa_vault = SemanticBehaviorVault(persist_dir=_semantic_dir)
             answer_memory=learn,
         )
     except Exception as _me:
         print(f"[warn] memory router unavailable ({type(_me).__name__}: {_me})")
+    from .memory.retrieval_trace import explain as _explain
+    qa_rec.tracer = lambda f: _explain(conn, _qa_vault, f)
 
     settings = load_settings()
 
     # Telegram wiring: upgrade approver/collector and enable remote captcha solve
-    from .memory.retrieval_trace import explain as _explain
-    qa_rec.tracer = lambda f: _explain(conn, _qa_vault, f)
     # when TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set; otherwise fall back to CLI.
     on_link = None
     remote_solve_factory = None

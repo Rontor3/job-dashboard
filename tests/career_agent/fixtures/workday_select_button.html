@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <button id="address--countryRegion" aria-haspopup="listbox" aria-label="State Select One Required" type="button">Select One</button>
+  <div id="cb1" role="listbox" hidden>
+    <div role="option">Maharashtra</div>
+    <div role="option">Karnataka</div>
+  </div>
+  <input id="source--source" data-uxi-widget-type="selectinput" placeholder="Search">
+  <!-- aria-label carries no field name (just "Select One Required") — the real
+       question text is a fieldset sibling, matching Workday's questionnaire
+       pattern where a fieldset groups the question with its Select One control. -->
+  <fieldset>
+    <div>Does the Legal Name you provided match the name on your legal ID?*</div>
+    <button id="primaryQuestionnaire--legalName" aria-haspopup="listbox" aria-label=" Select One Required" type="button">Select One</button>
+  </fieldset>
+</body>
+</html>

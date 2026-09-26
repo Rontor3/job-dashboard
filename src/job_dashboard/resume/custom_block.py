@@ -72,7 +72,17 @@ def block_to_tex(kind, title, bullets) -> str:
     lead = escape_tex(title) if title else ""
 
     if k == "experience":
-        head = rf"\textbf{{{lead}}}" if lead else ""
+        # A role-header title carries its date/location after an em-dash
+        # (e.g. "Data Scientist, Tata AIG — July 2023 – Present, Mumbai,
+        # India"). Split it so the date right-aligns via \hfill, matching
+        # every other role header — otherwise an edited block (bullets
+        # reworded from the segment) loses that alignment and the date just
+        # trails the bold text at whatever column it happens to land on.
+        if title and " — " in title:
+            name, _, date = title.partition(" — ")
+            head = rf"\textbf{{{escape_tex(name)}}}\hfill {escape_tex(date)}"
+        else:
+            head = rf"\textbf{{{lead}}}" if lead else ""
         # Drop bullets that are ONLY a bold heading (e.g. a sub-project name
         # duplicated from the block title) — they render as redundant headings.
         if lead:

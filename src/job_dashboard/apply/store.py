@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timezone
 
 _PROFILE_COLS = (
-    "full_name", "email", "phone", "location", "linkedin_url", "github_url",
+    "full_name", "email", "phone", "location", "postal_code", "linkedin_url", "github_url",
     "portfolio_url", "work_authorization", "years_experience",
     "willing_to_relocate", "notice_period", "salary_expectation",
     "current_ctc", "reason_for_change",

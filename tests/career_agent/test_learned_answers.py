@@ -31,6 +31,19 @@ def test_purpose_recall_across_wording():
     assert not still and decisions[0].value == "5"
 
 
+def test_address_purpose_never_reused_across_wording():
+    # "address" questions vary too much in intent across ATSs (a real street
+    # address vs. a conditional "type relocating" screening answer) to reuse
+    # blindly like a scalar purpose (years_experience, salary). Same purpose,
+    # different wording -> must NOT recall; must escalate instead.
+    m = _mem()
+    m.record(_f("#a", "What is the address from which you plan on working? "
+                       "If you would need to relocate, please type \"relocating\".",
+                purpose="address"), "relocating")
+    decisions, still = m.recall([_f("#b", "Address Line 1", purpose="address")])
+    assert decisions == [] and [f.ref for f in still] == ["#b"]
+
+
 def test_fts_fuzzy_recall_on_shared_tokens():
     m = _mem()
     m.record(_f("#s", "Expected salary in USD"), "120000")

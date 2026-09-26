@@ -164,7 +164,6 @@ apply.py
 
 ```
 apply.py                  CLI entrypoint; builds deps; runs graph or walk
-run.py                    Thin runner used by bulk scripts
 
 browser/
   perception.py           A11y-tree → Field list (shadow DOM aware)

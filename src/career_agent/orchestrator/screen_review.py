@@ -12,7 +12,7 @@ from ..orchestrator import standard_answers
 _SELECT_KINDS = {"select", "radio_group"}
 _STD_PURPOSES = {"visa_sponsorship", "prior_contact", "work_authorization",
                   "phone_type", "referral_source", "conflict_of_interest",
-                  "file_comment"}
+                  "file_comment", "prior_employment"}
 # Full-word tokens only — single letters ("y"/"n") mis-coerce "N/A"-style
 # options (M-1).
 _YES = {"yes", "true"}

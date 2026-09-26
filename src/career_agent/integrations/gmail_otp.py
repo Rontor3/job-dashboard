@@ -35,9 +35,9 @@ def _all_token_paths() -> list[pathlib.Path]:
 # Matches 4–8 digit OTP codes; avoids matching years, phone fragments, etc.
 _OTP_RE = re.compile(r"\b([0-9]{4,8})\b")
 
-# Matches email verification / magic links
+# Matches email verification / magic / password-reset links
 _VERIFY_LINK_RE = re.compile(
-    r'https?://[^\s<>"\')]+(?:verify|confirm|activate|validate|magic)[^\s<>"\')]*',
+    r'https?://[^\s<>"\')]+(?:verify|confirm|activate|validate|magic|reset|forgot)[^\s<>"\')]*',
     re.I
 )
 

@@ -95,6 +95,19 @@ def test_wizard_step_is_the_form_but_search_page_is_not():
         b.close()
 
 
+def test_is_application_form_resolves_aria_labelledby():
+    """Custom-widget forms (Google Forms among them) label inputs via
+    aria-labelledby pointing at sibling text, not aria-label/name/id — the real-
+    field detector must resolve that indirection or it undercounts every such
+    form as 'not a form' and the drill wanders off to a bogus /apply URL."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import is_application_form
+    with sync_playwright() as pw:
+        b, p = _page(pw, "entry_form_labelledby.html")
+        assert is_application_form(p)
+        b.close()
+
+
 def test_email_auth_email_to_otp_to_form():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.page_prep import email_auth

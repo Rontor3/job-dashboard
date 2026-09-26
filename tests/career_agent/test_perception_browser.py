@@ -64,3 +64,26 @@ def test_scans_and_fills_inside_iframe():
         target, sel = frame_target(page, email.ref)
         assert target.input_value(sel) == "me@example.com"
         browser.close()
+
+
+def test_aria_role_radio_buttons_group_with_clean_labels():
+    """Typeform-style <button role=radio> choice buttons (no native <input
+    type=radio>) must group into one radio_group Field, and the aria-hidden
+    keyboard-shortcut badge ("KeyA") must not pollute the option/question text."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    url = (Path(__file__).parent / "fixtures" / "aria_radio_choice.html").resolve().as_uri()
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page()
+        page.goto(url)
+        fm = snapshot_form(page)
+        browser.close()
+
+    groups = [f for f in fm if f.kind == "radio_group"]
+    assert len(groups) == 1
+    g = groups[0]
+    assert g.label == "What's your total experience?"
+    assert g.options == ["0-1 year", "2-3 year", "4-5 year"]
+    assert g.required is True

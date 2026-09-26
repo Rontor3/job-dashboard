@@ -97,12 +97,17 @@ def _compose_kind_aware(blocks: list[Segment]) -> str:
     parts: list[str] = [b.text for b in passthrough]
     ordered_sections.sort(key=lambda t: _SECTION_ORDER.get(t, 99))
     for title in ordered_sections:
+        # Skills lines are otherwise-identical bare \items sharing one
+        # itemize (no sub-heading of their own to separate them visually),
+        # so that itemize alone gets a touch of itemsep to keep its
+        # categories from reading as one run-on line.
+        itemize_open = r"\begin{itemize}[itemsep=3pt]" if title == "Skills" else r"\begin{itemize}"
         section_lines = [f"\\section{{{title}}}"]
         buf: list[str] = []
 
         def flush():
             if buf:
-                section_lines.append("\\begin{itemize}")
+                section_lines.append(itemize_open)
                 section_lines.extend(buf)
                 section_lines.append("\\end{itemize}")
                 buf.clear()
@@ -116,6 +121,12 @@ def _compose_kind_aware(blocks: list[Segment]) -> str:
                 buf.append(block.text)
             else:
                 flush()
+                # A small gap before each subsequent sub-heading (e.g. a
+                # second Tata AIG sub-project) so they don't run together —
+                # skipped before the section's first block, which already
+                # gets breathing room from \titlespacing's after-skip.
+                if len(section_lines) > 1:
+                    section_lines.append(r"\vspace{4pt}")
                 section_lines.append(block.text)
         flush()
         parts.append("\n".join(section_lines))

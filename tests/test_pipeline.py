@@ -6,7 +6,7 @@ PROFILE_MD = "# Profile\n- python ml\n"
 
 
 class FakeModel:
-    def encode(self, texts):
+    def encode(self, texts, **kwargs):
         return [[1.0, 0.0] for _ in texts]
 
 

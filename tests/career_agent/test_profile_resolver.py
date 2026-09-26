@@ -21,3 +21,20 @@ def test_scalar_and_indexed_resolution():
 def test_missing_returns_none():
     assert resolve("employer", P, 5) is None
     assert resolve("gpa", P, 0) is None
+
+def test_graduation_year_extracted_from_education_end():
+    assert resolve("graduation_year", P, 0) == "2022"
+    no_dates = CandidateProfile(education=[Education("IIT", "B.Tech")])
+    assert resolve("graduation_year", no_dates, 0) is None    # escalate, don't guess
+
+def test_phone_strips_country_code_prefix():
+    p = CandidateProfile(contact={"phone": "+91 7565052330"})
+    assert resolve("phone", p) == "7565052330"
+
+def test_phone_without_country_code_unchanged():
+    p = CandidateProfile(contact={"phone": "7565052330"})
+    assert resolve("phone", p) == "7565052330"
+
+def test_phone_extension_never_guessed_from_phone_number():
+    # extension has no dedicated profile field — must never reuse the phone value
+    assert resolve("phone_extension", P) is None

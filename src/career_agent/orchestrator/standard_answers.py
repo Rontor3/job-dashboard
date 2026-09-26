@@ -26,6 +26,8 @@ def answer(purpose: str, label: str) -> str | None:
         return "Yes"                      # would need a visa for onsite/relocation
     if purpose == "prior_contact":
         return "No"
+    if purpose == "prior_employment":
+        return "No"
     if purpose == "phone_type":
         return "Mobile"
     if purpose == "referral_source":

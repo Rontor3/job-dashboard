@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-ADVANCE_NAMES = ["save and continue", "continue", "next", "review", "save & continue"]
+ADVANCE_NAMES = ["save and continue", "continue", "next", "review", "save & continue", "start"]
 SUBMIT_NAMES = ["submit application", "submit", "send application", "send", "apply", "finish", "confirm"]
 NEVER_NAMES = ["back", "cancel", "previous", "logout", "sign out",
                # session / idle dialogs and the Oracle chat widget — never

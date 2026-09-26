@@ -16,7 +16,7 @@ from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post
 from job_dashboard.linkedin.enrich import research_role, enriched_description
 from job_dashboard.linkedin.hiring_digest import KEYWORDS, run_digest
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
-from job_dashboard.match.profile_text import compose_profile_text
+from job_dashboard.match.profile_text import current_resume_text
 
 
 def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=None) -> APIRouter:
@@ -36,7 +36,7 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
             raise HTTPException(status_code=503,
                                 detail="LinkedIn fetcher not configured — set cookies in .env")
         try:
-            profile_text = compose_profile_text().text
+            profile_text = current_resume_text()
         except Exception:
             profile_text = ""
         try:

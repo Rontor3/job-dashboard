@@ -17,7 +17,8 @@ class JudgmentContext:
 
 _SENSITIVE_RE = re.compile(
     r"\bgender\b|\bethnic|\brace\b|\bhispanic\b|\blatino\b|\bveteran\b|"
-    r"\barmed forces\b|\bdisab|\bsexual orientation\b|\bpronoun", re.I)
+    r"\barmed forces\b|\bdisab|\bsexual orientation\b|\bpronoun|"
+    r"\bage\b|\bage category\b|\bdate of birth\b|\bbirth ?date\b", re.I)
 _SENSITIVE_PURPOSES = {"veteran", "attestation"}
 
 
@@ -116,6 +117,38 @@ _NOT_A_QUESTION = re.compile(
 )
 
 
+def _looks_like_question(label: str) -> bool:
+    """A real essay prompt is phrased as a question or a multi-word instruction
+    ("Why do you want...?", "Tell us about a challenge you faced"). A bare short
+    label ("India", "Select One", "Postal Code") is virtually always a mis-
+    perceived dropdown's current value or a field name, not a question — and
+    must never be handed to the essay drafter, which would fabricate prose for
+    what is really a structured field. Escalate those to a human instead."""
+    text = (label or "").strip()
+    if "?" in text:
+        return True
+    return len(text.split()) >= 4
+
+
+def judge_combobox_value(label, profile_text, llm) -> str | None:
+    """A combobox whose live options aren't visible yet to Phase E (this tier has
+    no browser access, so it can't open the widget to read them) — ask for a
+    short, direct answer instead of an essay. The filler's option-coercion
+    matches this text to whatever real option is live once the widget opens
+    (same _coerce_option/matcher path already used for resume-resolved values)."""
+    prompt = (
+        "Give the shortest possible direct answer to this job application "
+        "dropdown question — a few words at most, never a paragraph or "
+        "explanation. Your answer will be matched against real dropdown "
+        "options, not typed as free text.\n\n"
+        f"QUESTION: {label}\n\nCANDIDATE:\n{(profile_text or '')[:800]}\n\nShort answer:")
+    try:
+        reply = (llm(prompt) or "").strip()
+    except Exception:
+        return None
+    return reply or None
+
+
 def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_draft=None):
     """Answer the fields map_screen escalated. Returns (answered, still_need,
     flagged). Never raises; never answers a sensitive field; never exceeds `cap`
@@ -150,12 +183,28 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 answered.append(FillDecision(f.ref, f.kind, f.label, opt,
                                              _action_for_kind(f.kind), "judgment"))
             continue
+        if f.kind == "combobox" and not f.options:
+            calls += 1
+            val = judge_combobox_value(f.label, profile_text, llm)
+            if val is None:
+                still_need.append(f)
+            else:
+                answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
+            continue
         if f.kind in ("textarea", "text") and f.purpose is None:
-            if _NOT_A_QUESTION.search(f.label or "") or draft_screening_answer is None:
+            if (_NOT_A_QUESTION.search(f.label or "")
+                    or not _looks_like_question(f.label)
+                    or draft_screening_answer is None):
                 still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
             res = draft_screening_answer(ctx.job, f.label, profile_text,
                                          ctx.research, ctx.resume_text, llm=llm)
+            conf = res.get("confidence")
+            low = min_conf is not None and (conf is None or conf < min_conf)
+            if on_draft:
+                on_draft(f, res, not low)
+            if low:
+                still_need.append(f); continue      # untrusted -> never filled silently
             weak = res.get("flags") or res.get("unsupported_company_claims")
             if weak and orchestrator is not None:
                 hard.append(f); continue       # route the weak ones to tier-3
@@ -178,9 +227,3 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
             else:
                 still_need.append(f)
     return answered, still_need, flagged
-            conf = res.get("confidence")
-            low = min_conf is not None and (conf is None or conf < min_conf)
-            if on_draft:
-                on_draft(f, res, not low)
-            if low:
-                still_need.append(f); continue      # untrusted -> never filled silently

@@ -13,6 +13,13 @@ import re
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 
 _MIN_OVERLAP = 0.5
+# Purposes where "same purpose" does NOT mean "same expected answer" — address
+# questions vary wildly in what they actually want across ATSs (a real street
+# address vs. a conditional placeholder like "type relocating if you'd need
+# to relocate"). Blindly reusing regardless of wording is safe for scalars
+# (years_experience, salary_expectation) but wrong here — require an exact or
+# fuzzy label match instead (rules 2/3) so the two contexts don't cross-pollute.
+_WORDING_SENSITIVE_PURPOSES = {"address"}
 _STOP = {"a", "an", "the", "of", "in", "to", "is", "are", "do", "you", "your",
          "have", "what", "how", "many", "at", "for", "and", "or", "please"}
 
@@ -62,7 +69,7 @@ class AnswerMemory:
         if field.kind in ("textarea", "file") or field.purpose == "attestation":
             return None
         # 1. same purpose -> reuse regardless of wording
-        if field.purpose:
+        if field.purpose and field.purpose not in _WORDING_SENSITIVE_PURPOSES:
             row = self.conn.execute(
                 "SELECT answer FROM learned_answers WHERE purpose=? ORDER BY updated_at DESC LIMIT 1",
                 (field.purpose,)).fetchone()

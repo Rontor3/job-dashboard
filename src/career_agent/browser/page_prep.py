@@ -184,13 +184,25 @@ _REAL_FIELDS_JS = r"""() => {
     walk(root); return r;
   }
   const vis = e => { try { const r=e.getBoundingClientRect(); return r.width>4&&r.height>4; } catch(e){ return false; } };
+  // Accessible label text: aria-labelledby (space-separated ids, resolved in the
+  // element's own root so it works inside shadow DOM too) beats aria-label, since
+  // custom-widget forms (Google Forms among them) label via labelledby only.
+  const labelText = e => {
+    const ids = (e.getAttribute('aria-labelledby')||'').trim();
+    if (!ids) return '';
+    const root = e.getRootNode();
+    return ids.split(/\s+/).map(id => {
+      try { return (root.getElementById ? root.getElementById(id) : document.getElementById(id))?.innerText || ''; }
+      catch(e) { return ''; }
+    }).join(' ');
+  };
   // file inputs are styled invisible (display:none) but are real upload fields
   const ins = shadowAll(document.body, 'input,select,textarea').filter(e =>
     e.type === 'file' || vis(e));
   const seen = new Set();
   for (const e of ins) {
     if (['hidden','submit','button'].includes(e.type)) continue;
-    const hay = ((e.getAttribute('aria-label')||'')+' '+(e.name||'')+' '+(e.id||'')
+    const hay = ((e.getAttribute('aria-label')||'')+' '+labelText(e)+' '+(e.name||'')+' '+(e.id||'')
                  +' '+(e.placeholder||'')+' '+(e.type||'')).toLowerCase();
     let k = null;
     if (e.type==='email' || /\be-?mail\b/.test(hay)) k='email';

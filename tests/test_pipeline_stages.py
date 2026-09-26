@@ -4,7 +4,7 @@ from job_dashboard.models import JobListing
 
 
 class FakeModel:
-    def encode(self, texts):
+    def encode(self, texts, **kwargs):
         return [[1.0, 0.0] for _ in texts]
 
 

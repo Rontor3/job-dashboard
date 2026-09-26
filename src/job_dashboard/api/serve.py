@@ -21,7 +21,10 @@ load_env_file()
 
 from job_dashboard.api.app import create_app  # noqa: E402
 from job_dashboard.linkedin.cdp_fetch import CdpHiringFetcher  # noqa: E402
-from job_dashboard.linkedin.contacts import extract_role  # noqa: E402
+from job_dashboard.linkedin.contacts import judge_post  # noqa: E402
+from job_dashboard.match.profile_text import current_resume_text  # noqa: E402
+from job_dashboard.db import init_db  # noqa: E402
+from job_dashboard.api.app import DEFAULT_DB  # noqa: E402
 from job_dashboard.match.embedder import load_default_model  # noqa: E402
 
 # Hiring posts come through the user's own logged-in Chrome over CDP (port 9222).
@@ -33,7 +36,25 @@ try:
 except Exception:
     _model = None
 
-# Title gate on hiring posts: local Ollama extracts the role, is_target_role filters.
-app = create_app(hiring_fetcher=_fetcher, embed_model=_model, hiring_role_fn=extract_role)
+
+
+def _constraints():
+    try:
+        conn = init_db(DEFAULT_DB)
+        row = conn.execute("SELECT location, work_authorization FROM application_profile").fetchone()
+        conn.close()
+        return f"Candidate is based in {row[0]}. Work authorization: {row[1]}" if row else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _judge(post):
+    # Re-read each call so replacing data/current_resume.pdf needs no restart.
+    return judge_post(post, current_resume_text(), _constraints())
+
+
+# Hiring posts: Ollama extracts the role title and scores it against the current
+# résumé; off-family titles and fits below MIN_FIT are dropped.
+app = create_app(hiring_fetcher=_fetcher, embed_model=_model, hiring_role_fn=_judge)
 
 __all__ = ["app"]

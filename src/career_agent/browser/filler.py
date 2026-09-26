@@ -82,7 +82,17 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                 # [role=option] on the page grabs unrelated widgets (e.g. the
                 # phone-country list has 247 options, one of them "Male").
                 lb_id = target.get_attribute(sel, "aria-controls")
-                scope = target.locator(f"#{lb_id}") if lb_id else target
+                if lb_id:
+                    scope = target.locator(f"#{lb_id}")
+                else:
+                    # No linking id (e.g. Workday's type-ahead multiselect) —
+                    # fall back to whichever [role=listbox] is actually visible,
+                    # not the whole page (other closed listboxes would pollute it).
+                    scope = target
+                    for lb in target.locator("[role=listbox]").all():
+                        if lb.is_visible():
+                            scope = lb
+                            break
                 options = [t.strip() for t in
                            scope.locator("[role=option]").all_text_contents() if t.strip()]
                 opt = _coerce_option(str(d.value), options)

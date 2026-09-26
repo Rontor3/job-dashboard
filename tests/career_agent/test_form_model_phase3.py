@@ -13,6 +13,40 @@ def test_experience_and_education_purposes():
     assert guess_purpose("Key Skills", "textarea") == "skills"
 
 
+def test_job_title_bare_word_only_matches_as_a_short_label():
+    # bare field name -> job_title (common on simpler ATSs)
+    assert guess_purpose("Position", "text") == "job_title"
+    assert guess_purpose("Position*", "text") == "job_title"
+    assert guess_purpose("Title", "text") == "job_title"
+    assert guess_purpose("Position Title", "text") == "job_title"
+    # the same word embedded in a real question -> must NOT be job_title
+    assert guess_purpose(
+        "What is the approximate timeline for beginning a new position with us?",
+        "textarea") != "job_title"
+
+
+def test_bare_name_and_qualification_only_match_as_a_short_label():
+    assert guess_purpose("Name", "text") == "full_name"
+    assert guess_purpose(
+        "Does the Legal Name you provided match the name on your legal ID?",
+        "select") != "full_name"
+    assert guess_purpose(
+        "Do you certify you meet all minimum qualifications for this job "
+        "as outlined in the job posting?", "select") != "degree"
+
+
+def test_bare_employer_and_mobile_only_match_as_a_short_label():
+    assert guess_purpose("Employer", "text") == "employer"
+    assert guess_purpose("Mobile", "tel") == "phone"
+    assert guess_purpose(
+        "Have you signed a non-compete agreement with your current or "
+        "previous employer and/or any other agreement which might "
+        "restrict your employment?", "select") != "employer"
+    assert guess_purpose(
+        "Would you like to receive mobile text message updates from us "
+        "regarding the recruiting process?", "select") != "phone"
+
+
 def test_new_purposes_are_known():
     for lbl, kind in [("Employer", "text"), ("Degree", "text"), ("Key Skills", "textarea")]:
         assert guess_purpose(lbl, kind) in KNOWN_PURPOSES

@@ -580,6 +580,87 @@
       "status": "shipped"
     },
     {
+      "id": "vendor:google_forms",
+      "type": "vendor",
+      "label": "Google Forms",
+      "domains": [
+        "docs.google.com/forms/*"
+      ],
+      "notes": "Single-page direct form, no Apply/Next affordance (only Submit). Questions labeled via aria-labelledby pointing at sibling heading text, NOT aria-label/name/id/placeholder."
+    },
+    {
+      "id": "site:surchlabs",
+      "type": "site",
+      "label": "SurchLabs",
+      "vendor": "vendor:google_forms",
+      "outcome": "Filled + human-submitted 2026-09-23 (Backend/Data/ML engineer role)",
+      "note": "First Google Forms application run; surfaced the labelledby + mapper bugs below."
+    },
+    {
+      "id": "error:labelledby_only_fields",
+      "type": "error",
+      "symptom": "is_application_form/_real_field_count only matched aria-label/name/id/placeholder text; a page labeling every input via aria-labelledby (id -> sibling text) scored 0 real fields despite 20+ visible questions. reach() then found no Apply/Next control and fell through to the generic '<url>/apply' guess, landing on a broken page.",
+      "vendors": [
+        "vendor:google_forms"
+      ],
+      "sites": [
+        "site:surchlabs"
+      ]
+    },
+    {
+      "id": "fix:labelledby_resolve",
+      "type": "fix",
+      "description": "_REAL_FIELDS_JS (page_prep.py) resolves aria-labelledby (space-separated ids, via el.getRootNode().getElementById so it works inside shadow DOM) into label text before the email/resume/name/phone regex match. Generic a11y-name fix, not Google-specific -- helps any custom-widget form that labels via labelledby instead of aria-label.",
+      "code": "code:real_field_count",
+      "status": "shipped"
+    },
+    {
+      "id": "code:real_field_count",
+      "type": "code",
+      "label": "browser/page_prep._real_field_count + _REAL_FIELDS_JS"
+    },
+    {
+      "id": "error:mapper_bare_experience_overmatch",
+      "type": "error",
+      "symptom": "guess_purpose regex \\bexperience\\b matched ANY label containing the word, including long essay prompts (\"talk about relevant experience you have...\") -- the essay textarea got overwritten with a bare years_experience number (\"3\") instead of going to LLM judgment.",
+      "vendors": [
+        "vendor:google_forms"
+      ],
+      "sites": [
+        "site:surchlabs"
+      ]
+    },
+    {
+      "id": "fix:mapper_years_experience_narrow",
+      "type": "fix",
+      "description": "form_model.py years_experience rule requires \"years of/years experience\" phrasing; dropped the bare experience catch-all so essay prompts fall through to judgment.",
+      "code": "code:form_model_rules",
+      "status": "shipped"
+    },
+    {
+      "id": "error:mapper_degree_graduation_year_collision",
+      "type": "error",
+      "symptom": "\"Year of graduation from your undergrad degree\" contains the word \"degree\" and was misclassified as purpose=degree, filling the degree NAME (\"B.Tech\") into a field asking for a YEAR.",
+      "vendors": [
+        "vendor:google_forms"
+      ],
+      "sites": [
+        "site:surchlabs"
+      ]
+    },
+    {
+      "id": "fix:graduation_year_purpose",
+      "type": "fix",
+      "description": "Added purpose=graduation_year with its own rule (ordered before the bare degree rule) + profile_resolver extracts the year from education[index].end via regex.",
+      "code": "code:form_model_rules",
+      "status": "shipped"
+    },
+    {
+      "id": "code:form_model_rules",
+      "type": "code",
+      "label": "browser/form_model._RULES + orchestrator/profile_resolver.resolve"
+    },
+    {
       "id": "board:naukri",
       "type": "board",
       "label": "Naukri",
@@ -1030,6 +1111,26 @@
       "from": "boundary:submit_gated",
       "to": "code:is_wizard_step",
       "rel": "CONSTRAINS"
+    },
+    {
+      "from": "site:surchlabs",
+      "to": "vendor:google_forms",
+      "rel": "INSTANCE_OF"
+    },
+    {
+      "from": "error:labelledby_only_fields",
+      "to": "fix:labelledby_resolve",
+      "rel": "FIXED_BY"
+    },
+    {
+      "from": "error:mapper_bare_experience_overmatch",
+      "to": "fix:mapper_years_experience_narrow",
+      "rel": "FIXED_BY"
+    },
+    {
+      "from": "error:mapper_degree_graduation_year_collision",
+      "to": "fix:graduation_year_purpose",
+      "rel": "FIXED_BY"
     }
   ]
 }

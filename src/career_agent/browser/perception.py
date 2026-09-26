@@ -164,6 +164,24 @@ _INPUT_JS = r"""
   // we used to drop; it carries hints like "type 'relocating'" that change what
   // a field means.
   const describedBy = (el) => idRefsText(el, 'aria-describedby');
+  // textContent, but skipping aria-hidden subtrees — a screen reader (and the
+  // accname algorithm) never announces them, yet plain textContent does. Custom
+  // ARIA radio/checkbox widgets (Typeform, and similar React choice-button
+  // libraries) render a decorative aria-hidden keyboard-shortcut badge right next
+  // to the option text ("KeyA" + "0-1 year"); textContent glues them together
+  // into "KeyA0-1 year", which then matches nothing.
+  const visibleText = (el) => {
+    if (!el) return '';
+    let text = '';
+    const walk = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) { text += node.textContent; return; }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (node.getAttribute('aria-hidden') === 'true') return;
+      for (const child of node.childNodes) walk(child);
+    };
+    walk(el);
+    return text.replace(/\s+/g, ' ').trim().slice(0, 200);
+  };
   // For radio/checkbox groups the question heading is a sibling element of the
   // options container, not an ancestor of the individual input (so labelFor
   // returns the option text "Male" instead of the question "Gender"). Walk up
@@ -218,19 +236,34 @@ _INPUT_JS = r"""
     // navigation controls, not application form fields (Phenom/Mastercard has
     // a jobs-search bar in the header whose selects navigate the page if filled).
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
+    // Skip genuinely invisible fields (display:none, on the element or an
+    // ancestor) — accessible combobox widgets (Workday) pair a visible trigger
+    // button with an invisible shadow <input> carrying the same accessible
+    // label; without this the shadow twin gets independently "filled" with a
+    // resume/judgment value that has nothing to do with what's actually on
+    // screen. getComputedStyle (not offsetParent, which needs layout to have
+    // already run and can false-positive on a fast-loading iframe) is the check.
+    if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+    // Workday's own type-ahead multiselect (data-uxi-widget-type="selectinput")
+    // has NO role/aria-haspopup/aria-controls linking it to its results list —
+    // the only signal is this vendor attribute. It also needs typing (not just
+    // a click) to reveal any options, unlike a plain click-to-open listbox.
+    const uxiWidget = (el.getAttribute('data-uxi-widget-type') || '').toLowerCase();
+    const isUxiSelect = uxiWidget.includes('select');
     let kind = tag === 'textarea' ? 'textarea'
              : tag === 'select' ? 'select'
+             : isUxiSelect ? 'combobox'
              : ['email','tel','file','checkbox','radio'].includes(type) ? type
              : 'text';
     const options = tag === 'select'
       ? Array.from(el.options).map(o => o.text.trim())
           .filter(t => t && !/^(please select|select an option|select|choose|--|n\/a|none|select\.\.\.)$/i.test(t))
       : [];
-    const role = (el.getAttribute('role') || '').toLowerCase();
-    const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
     // A combobox is interacted with by clicking, not typing, so readOnly is
     // normal there and must NOT drop it as if disabled.
-    const isCombo = role === 'combobox' || haspopup === 'listbox';
+    const isCombo = role === 'combobox' || haspopup === 'listbox' || isUxiSelect;
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);          // unique, id/name-independent handle
     out.push({
@@ -242,13 +275,86 @@ _INPUT_JS = r"""
       role, haspopup,
     });
   }
+  // Custom ARIA choice buttons: <button role="radio"> grouped under a
+  // [role="radiogroup"] container (Typeform and similar React choice-button
+  // widgets — no native <input type=radio> to key off, so the type=radio
+  // grouping above never sees them). Same structural pattern, different
+  // markup: group by the nearest radiogroup container, question text is its
+  // preceding sibling (mirrors the native-radio group_label sibling walk).
+  for (const el of deepQuery('[role="radio"]')) {
+    if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
+    const container = el.closest('[role="radiogroup"]') || el.parentElement;
+    if (!container.hasAttribute('data-cref-group')) {
+      container.setAttribute('data-cref-group', 'g' + (_ci++));
+    }
+    const heading = container.previousElementSibling;
+    const headingText = heading ? visibleText(heading) : '';
+    // aria-required lies on some custom widgets (Typeform sets it "false" even
+    // on a visually-required question) — a trailing asterisk in the question
+    // heading is the fallback required signal, same convention groupLabel()
+    // already strips elsewhere.
+    const hasAsterisk = /[✱*✶†✳＊]\s*$/.test(headingText);
+    const cref = 'f' + (_ci++);
+    el.setAttribute('data-cref', cref);
+    out.push({
+      ref: el.id ? `#${el.id}` : `[data-cref="${cref}"]`,
+      kind: 'radio', label: visibleText(el),
+      required: container.getAttribute('aria-required') === 'true' || hasAsterisk,
+      options: [], group: container.getAttribute('data-cref-group'),
+      group_label: headingText.replace(/[✱*✶†✳＊]\s*$/, ''),
+      disabled: el.getAttribute('aria-disabled') === 'true' || !!el.disabled,
+      role: 'radio', haspopup: '',
+    });
+  }
   // Advance controls (Next/Continue/Submit): buttons and link-buttons. Captured
   // as kind 'button' so the step engine can find them; the mapper skips them
   // (no fillable purpose, not required).
   for (const el of deepQuery(
         'button, a[href], input[type=submit], input[type=button], [role=button]')) {
-    const label = ((el.textContent || el.value || el.getAttribute('aria-label') || '')).trim().slice(0, 100);
+    const elRole = (el.getAttribute('role') || '').toLowerCase();
+    if (elRole === 'radio' || elRole === 'checkbox') continue;  // handled above
+    if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;   // invisible (self or ancestor) shadow/duplicate control
+    let label = ((el.textContent || el.value || el.getAttribute('aria-label') || '')).trim().slice(0, 100);
     if (!label) continue;
+    // A native-select stand-in (Workday Canvas Kit, etc.): a <button
+    // aria-haspopup="listbox"> that opens a listbox elsewhere in the DOM.
+    // Its visible text is just the current value/"Select One" — the real
+    // field name is folded into aria-label as "<Name> <Value> [Required]".
+    // Strip the value and trailing "Required" back out to recover it, and
+    // fill it like any other fake dropdown: open + pick, not blind text.
+    const popupHaspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+    if (popupHaspopup === 'listbox') {
+      const ariaLabel = (el.getAttribute('aria-label') || '').trim();
+      const required = /\bRequired\b\s*$/i.test(ariaLabel);
+      let name = ariaLabel;
+      if (label) name = name.replace(label, '').trim();
+      name = name.replace(/\bRequired\b\s*$/i, '').trim();
+      if (name) {
+        label = name;
+      } else {
+        // aria-label carried no field name at all (just "Select One Required")
+        // — the real question is a sibling of the button inside a shared
+        // <fieldset> (Workday groups "question text + Select One control"
+        // together, with no separate accessible label tying the two).
+        const fs = el.closest('fieldset');
+        if (fs) {
+          const legend = fs.querySelector('legend');
+          let t = legend ? (legend.textContent || '')
+                         : (fs.textContent || '').replace(label, '');
+          t = t.replace(/[✱*✶†✳＊]\s*$/, '').trim().slice(0, 200);
+          if (t) label = t;
+        }
+      }
+      const cref = 'f' + (_ci++);
+      el.setAttribute('data-cref', cref);
+      out.push({
+        ref: el.id ? `#${el.id}` : `[data-cref="${cref}"]`,
+        kind: 'combobox', label, required,
+        options: [], group: null, disabled: !!el.disabled,
+        role: (el.getAttribute('role') || '').toLowerCase(), haspopup: popupHaspopup,
+      });
+      continue;
+    }
     out.push({
       ref: el.id ? `#${el.id}` : `button:${label}`,
       kind: 'button', label, required: false,

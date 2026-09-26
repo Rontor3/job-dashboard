@@ -2,6 +2,7 @@ from career_agent.browser.form_model import Field
 from career_agent.memory.candidate_profile import CandidateProfile, Experience, Education
 from career_agent.orchestrator.judgment import (
     JudgmentContext, profile_to_text, _is_sensitive, map_option, judge,
+    _looks_like_question, judge_combobox_value,
 )
 
 
@@ -27,6 +28,41 @@ def test_is_sensitive_flags_demographics_and_attestation():
     assert _is_sensitive(_f("#d", "Disability status"))
     assert _is_sensitive(_f("#a", "I certify this is true", purpose="attestation"))
     assert not _is_sensitive(_f("#q", "Why do you want this role?", kind="textarea"))
+    assert _is_sensitive(_f("#age", "Please select your age category:"))
+    assert _is_sensitive(_f("#dob", "Date of Birth"))
+
+
+def test_judge_combobox_value_returns_short_llm_reply():
+    llm = lambda prompt: "Yes"
+    assert judge_combobox_value("Are you legally authorized to work in India?", "x", llm) == "Yes"
+
+
+def test_judge_combobox_value_none_on_llm_failure():
+    def boom(prompt): raise RuntimeError("down")
+    assert judge_combobox_value("Some question", "x", boom) is None
+
+
+def test_judge_fills_combobox_with_no_known_options_via_short_answer():
+    # Workday-style dropdown-button: kind=combobox but options are unknown
+    # until the browser opens it — judge() must draft a short answer for the
+    # filler to later match against the real live options, not escalate blindly.
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#cb", "Are you legally authorized to work in India?", kind="combobox", required=True)
+    llm = lambda prompt: "Yes"
+    answered, still_need, flagged = judge([q], ctx, llm)
+    d = {x.ref: x for x in answered}
+    assert d["#cb"].value == "Yes" and d["#cb"].action == "combobox"
+    assert still_need == []
+
+
+def test_judge_age_category_combobox_escalates_never_guessed():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#age", "Please select your age category:", kind="combobox", required=True)
+    called = {"n": 0}
+    def llm(prompt): called["n"] += 1; return "18-24"
+    answered, still_need, flagged = judge([q], ctx, llm)
+    assert "#age" in {f.ref for f in still_need}
+    assert answered == [] and called["n"] == 0
 
 
 def test_map_option_picks_a_real_option_or_none():
@@ -56,19 +92,6 @@ def test_judge_answers_freetext_flags_and_escalates_sensitive():
     assert d["#q"].source == "judgment" and "Acme" in d["#q"].value
     assert "#g" in {f.ref for f in still_need}          # sensitive -> escalate
     assert "#q" not in {f.ref for f in still_need}
-
-
-def test_judge_escalates_textarea_for_editable_draft():
-    # Essays (textareas) are never auto-committed — they escalate so the
-    # collector can offer the human an editable draft. llm is never called.
-    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
-    essay = _f("#why", "Why do you want to work here?", kind="textarea", required=True)
-    called = {"n": 0}
-    def llm(prompt): called["n"] += 1; return "auto essay"
-    answered, still_need, flagged = judge([essay], ctx, llm)
-    assert "#why" in {f.ref for f in still_need}
-    assert "#why" not in {x.ref for x in answered}
-    assert called["n"] == 0
 
 
 def test_judge_never_answers_a_search_box():
@@ -105,6 +128,42 @@ def test_judge_never_raises_on_llm_failure():
     def boom(prompt): raise RuntimeError("ollama down")
     answered, still_need, flagged = judge([q], ctx, boom, cap=6)
     assert "#q" in ({x.ref for x in answered} | {f.ref for f in still_need})
+
+
+def test_looks_like_question():
+    assert _looks_like_question("Why do you want to work here?")
+    assert _looks_like_question("Tell us about a challenge you faced")  # no "?", 4+ words
+    assert not _looks_like_question("India")
+    assert not _looks_like_question("Select One")
+    assert not _looks_like_question("Postal Code")
+    assert not _looks_like_question("")
+
+
+def test_judge_never_essay_drafts_a_mislabeled_dropdown():
+    # Mis-perceived dropdowns surface their current value ("India") or
+    # placeholder ("Select One") as the label — must escalate, never essay-draft.
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    bogus = _f("#f3", "India", kind="text", required=True)
+    called = {"n": 0}
+    def llm(prompt): called["n"] += 1; return "a fabricated cover letter paragraph"
+    answered, still_need, flagged = judge([bogus], ctx, llm)
+    assert "#f3" in {f.ref for f in still_need}
+    assert "#f3" not in {x.ref for x in answered}
+    assert called["n"] == 0
+
+
+def test_judge_never_essay_drafts_a_classified_short_field():
+    # A field with a real purpose (postal_code, phone, etc.) must never be
+    # handed to the essay drafter — draft_screening_answer writes prose, which
+    # is wrong for a structured short-answer field. It should escalate instead.
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    postal = _f("#zip", "Postal Code", kind="text", purpose="postal_code", required=True)
+    called = {"n": 0}
+    def llm(prompt): called["n"] += 1; return "prose that should never land here"
+    answered, still_need, flagged = judge([postal], ctx, llm)
+    assert "#zip" in {f.ref for f in still_need}
+    assert "#zip" not in {x.ref for x in answered}
+    assert called["n"] == 0
 
 
 def test_judge_tier3_orchestrator_answers_weak_freetext():

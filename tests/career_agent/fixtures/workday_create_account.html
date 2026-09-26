@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <header>
+    <button id="chrome-signin">Sign In</button>
+  </header>
+  <h1>Create Account</h1>
+  <form>
+    <label for="email">Email Address</label>
+    <input id="email" type="email" name="email">
+    <label for="pw">Password</label>
+    <input id="pw" type="password" name="password">
+    <label for="pw2">Verify New Password</label>
+    <input id="pw2" type="password" name="verifyPassword">
+    <label><input id="consent" type="checkbox"> Yes, I have read and consent to the above Privacy Policy.</label>
+    <button type="submit">Create Account</button>
+    <p>Already have an account? <button id="inform-signin" type="button" onclick="this.dataset.clicked='1'; document.title='clicked'; document.body.appendChild(document.createTextNode('signed-in-panel'))">Sign In</button></p>
+  </form>
+</body>
+</html>

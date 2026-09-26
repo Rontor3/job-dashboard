@@ -14,17 +14,17 @@ def _fixture_url():
 
 def test_fill_then_readback_matches():
     from playwright.sync_api import sync_playwright
-    from career_agent.browser.perception import snapshot_form
     from career_agent.browser.filler import apply_decisions, read_back
-    from career_agent.orchestrator.mapper import map_fields
+    from career_agent.orchestrator.mapper import FillDecision
 
-    profile = {"full_name": "Jane Q", "email": "jane@example.com"}
+    decisions = [
+        FillDecision("#name", "text", "Full name", "Jane Q", "fill", "profile"),
+        FillDecision("#email", "email", "Email", "jane@example.com", "fill", "profile"),
+    ]
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page()
         page.goto(_fixture_url())
-        form = snapshot_form(page)
-        decisions = map_fields(form, profile, None)
         apply_decisions(page, decisions)
         values = read_back(page, decisions)
         browser.close()

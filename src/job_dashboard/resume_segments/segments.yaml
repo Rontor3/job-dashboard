@@ -18,20 +18,26 @@ segments:
     tags: [summary, data-scientist, fraud, genai, llm, rag, lora, mlops, ai-engineer, ml-engineer]
     tex: summary-main.tex
 
-  # --- Default skills: the candidate's real résumé Skills section, verbatim
-  # (Rakshit_Singh-4.pdf), three categories. These load into the editor by
-  # default. The tailored groups below (default: false) are opt-in adds.
+  # --- Default skills: the candidate's real résumé Skills section. These
+  # load into the editor by default. The tailored groups below
+  # (default: false) are opt-in adds for per-job emphasis.
   - id: skills-programming-tech
     kind: skills
     title: "Programming & Technologies"
-    tags: [python, mcp, sql, pandas, numpy, sklearn, sagemaker, langchain]
+    tags: [python, mcp, sql, pandas, numpy, sklearn, sagemaker, langchain, r, cpp, keras, tensorflow, docker, git, ci-cd, mlflow]
     tex: skills-programming-tech.tex
 
   - id: skills-ml-datascience
     kind: skills
     title: "Machine Learning & Data Science"
-    tags: [predictive-modeling, deep-learning, nlp, generative-ai, shap, eda]
+    tags: [predictive-modeling, deep-learning, nlp, generative-ai, shap, eda, llm, genai, claude, rag, xgboost, random-forest, transformers]
     tex: skills-ml-datascience.tex
+
+  - id: skills-domain
+    kind: skills
+    title: "Domain"
+    tags: [fraud-detection, claims-adjudication, risk-modeling, insurance-analytics, bfsi]
+    tex: skills-domain.tex
 
   - id: skills-professional
     kind: skills

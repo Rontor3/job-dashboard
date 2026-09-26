@@ -51,3 +51,21 @@ def _career_goals_block(evaluation_file):
     content = evaluation_file.read_text(encoding="utf-8")
     match = re.search(r"\*\*Career goals:\*\*\n((?:- .*\n)+)", content)
     return match.group(1) if match else ""
+
+
+CURRENT_RESUME = _REPO_ROOT / "data" / "current_resume.pdf"  # gitignored (PII)
+
+
+def current_resume_text(pdf_path=None) -> str:
+    """Plain text of the candidate's current résumé PDF (``CURRENT_RESUME_PDF``
+    env or ``data/current_resume.pdf``); the markdown profile if it is absent."""
+    import os
+    from job_dashboard.resume.ats import _default_extract
+    path = Path(pdf_path or os.getenv("CURRENT_RESUME_PDF") or CURRENT_RESUME)
+    try:
+        text = _default_extract(path)
+        if text.strip():
+            return text
+    except Exception:  # noqa: BLE001 — missing file / no pdftotext
+        pass
+    return compose_profile_text().text

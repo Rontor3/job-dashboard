@@ -1,0 +1,20 @@
+<!doctype html><html><body>
+<!-- Typeform-style custom choice buttons: role="radio" grouped under
+     role="radiogroup", each option carries a decorative aria-hidden
+     keyboard-shortcut badge right next to the visible text. -->
+<!-- aria-required is "false" here on purpose: Typeform sets it false even
+     on a visually-required question — the trailing "*" is the real signal. -->
+<div>What's your total experience?*</div>
+<div role="radiogroup" aria-required="false">
+  <button type="button" role="radio" aria-checked="false" id="opt-a">
+    <span aria-hidden="true">KeyA</span><span>0-1 year</span>
+  </button>
+  <button type="button" role="radio" aria-checked="false" id="opt-b">
+    <span aria-hidden="true">KeyB</span><span>2-3 year</span>
+  </button>
+  <button type="button" role="radio" aria-checked="false" id="opt-c">
+    <span aria-hidden="true">KeyC</span><span>4-5 year</span>
+  </button>
+</div>
+<button type="button">OK</button>
+</body></html>

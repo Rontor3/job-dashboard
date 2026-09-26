@@ -13,7 +13,7 @@ class FakeModel:
         "chef job": [0.0, 1.0],   # orthogonal to profile
     }
 
-    def encode(self, texts):
+    def encode(self, texts, **kwargs):
         return [self.VECTORS[t] for t in texts]
 
 

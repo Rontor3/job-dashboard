@@ -32,3 +32,7 @@ def test_pick_advance_prefers_continue_then_submit():
 def test_never_returns_back_or_cancel():
     form = [Field("#b", "button", "Back", False, [], None, None)]
     assert pick_advance_label(form, is_last=False) is None
+
+def test_pick_advance_matches_welcome_screen_start_button():
+    form = [Field("#b", "button", "Start", False, [], None, None)]
+    assert pick_advance_label(form, is_last=False) == "Start"

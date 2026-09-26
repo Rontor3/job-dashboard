@@ -158,3 +158,44 @@ def text_key(text: str) -> str:
     """Near-duplicate key: same post reshared/re-fetched → same key."""
     norm = re.sub(r"[^a-z0-9]+", "", (text or "").lower())
     return hashlib.sha1(norm[:400].encode()).hexdigest()
+
+
+_JUDGE_PROMPT = """You screen LinkedIn hiring posts for one candidate. Compare the post to the
+candidate's résumé and return ONLY JSON:
+{{"title": "role being hired for, \"\" if none", "company": "hiring company or \"\"",
+  "fit": 0-100, "reason": "one short sentence: the main match or mismatch"}}
+Score fit on: same role family (ML/AI/data science), required years vs the candidate's,
+skills overlap, and whether the location/work mode is open to the candidate.
+Use 0-30 when the role family differs, the post needs far more experience, or the
+location excludes the candidate. {constraints}
+
+Résumé:
+{resume}
+
+Post by {poster} ({headline}):
+{post}"""
+
+
+def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None) -> dict:
+    """{title, company, fit (0-100 or None), reason} via local Ollama. On failure
+    only the regex title guess comes back, with ``fit`` None."""
+    out = {"title": _regex_role(post)["title"], "company": "", "fit": None, "reason": ""}
+    try:
+        if post_fn is None:
+            from job_dashboard.resume.resume_llm import _default_post as post_fn
+        host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        prompt = _JUDGE_PROMPT.format(
+            constraints=constraints, resume=resume_text[:6000], poster=post.get("poster_name") or "",
+            headline=post.get("poster_headline") or "", post=(post.get("text") or "")[:3000])
+        got = json.loads(post_fn(f"{host}/api/generate", {
+            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt, "stream": False,
+            "format": "json", "options": {"temperature": 0.1, "num_ctx": 12288}})["response"])
+        if isinstance(got.get("title"), str) and got["title"].strip():
+            out["title"] = got["title"].strip()
+        out["company"] = str(got.get("company") or "").strip()
+        fit = got.get("fit")
+        out["fit"] = max(0, min(100, int(fit))) if isinstance(fit, (int, float)) else None
+        out["reason"] = str(got.get("reason") or "").strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return out
