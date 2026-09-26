@@ -229,6 +229,18 @@ the second pass made 23 loads, 3 tab clicks and 2 pagination clicks with no chal
 - **Terms (search only):** `machine learning engineer`, `data scientist`, `ai engineer`, `llm engineer`.
 - **Caps.** ~60 page loads per run (4 terms x up to 5 pages, plus detail loads for new jobs; fewer in
   incremental), 6-12s pacing, at most once or twice a day; stop at once on any 403/406/429/captcha.
+- **Live check 2026-09-27 (framework `CdpSession`, 3 loads, no challenge).** URL loads
+  (`/machine-learning-engineer-jobs[-N]?jobAge=1[&sort=f]`) make the page fire `jobapi/v3/search` itself, so
+  passive capture works with no click and no replay. `noOfJobs` = 1,967 for one term for one day (98 pages).
+  `sort=f` is strictly newest-first (monotonic on both pages) but **noisy** (Infosphere DataStage, customer
+  experience, LCMS analyst), so it is complete-but-irrelevant. The default relevance order is relevant but
+  **dominated by consultancy spam**: 20 of 20 rows on page 1 were one Consult Asia job under 20 different
+  `jobId`s; page 3 had 3 repeated jobs across 20 rows. So the near-duplicate collapse (normalized
+  title+company, before any detail load) is required, not optional. `jobDescription` in the list varied
+  from 26 to 3,413 characters: still treat it as a snippet and keep the detail fetch.
+  **Decision needed before build:** relevance order + `jobAge=1`, 4-5 pages/term with the collapse
+  (recommended: the top of the list is where the relevant roles are; the tail is unread) versus the complete
+  date-sorted walk (98 pages/term/day, irrelevant).
 - **Round-2 status:** gate (a) done (`sort=f`, newest-first); (b) measured (~2,700-3,300 results per term per
   day); (c) partly (filters exist, none title-only). Still to verify: the full-description claim, the
   near-duplicate collapse on real data, and a real day 2.
