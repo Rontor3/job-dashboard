@@ -221,3 +221,16 @@ def test_indeed_incremental_window_is_exact_hours():
     row = {"last_success_at": (now - timedelta(hours=100)).isoformat()}
     assert runner._window("incremental", row, now, runner.WINDOWS["indeed"], exact="indeed" in runner.EXACT_WINDOW) == 100
     assert runner._window("backfill", None, now, runner.WINDOWS["indeed"], exact=True) == 720
+
+
+def test_insert_as_you_go_stores_each_site_immediately_and_returns_nothing():
+    from job_dashboard.db import init_db
+    import tempfile, os
+    c = init_db(os.path.join(tempfile.mkdtemp(), "j.db"))
+    qa_store.set_setting(c, "browser_linkedin_enabled", "1")
+    def run(s, ctx): return [L(1), L(2)]
+    listings, results = runner.fetch_browser_sources(
+        c, adapters={"linkedin": (run, ["t"])}, reachable=lambda u: True,
+        session_factory=lambda cap: make_session(FakePage(), max_loads=cap), insert_as_you_go=True)
+    assert listings == [] and results[0].new == 2
+    assert c.execute("SELECT COUNT(*) FROM jobs WHERE source='linkedin'").fetchone()[0] == 2

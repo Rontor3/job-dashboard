@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from job_dashboard.db import insert_job
 from job_dashboard.sources.cdp import iimjobs, indeed, instahyre, linkedin, naukri, state, wellfound
 from job_dashboard.sources.cdp.session import CdpSession, cdp_reachable
 from job_dashboard.sources.cdp.types import AdapterContext, Blocked, SiteResult, norm_text
@@ -28,7 +29,9 @@ EXACT_WINDOW = {"wellfound", "indeed"}          # sites whose API takes an exact
 
 
 def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_factory=None,
-                          reachable=cdp_reachable, now=None):
+                          reachable=cdp_reachable, now=None, insert_as_you_go=False):
+    """insert_as_you_go: store each site's jobs the moment it finishes (Refresh uses this, so the dashboard
+    fills site by site) instead of returning them all at the end."""
     listings, results = [], []
     for site, (run, terms) in adapters.items():
         if not state.enabled(conn, site):
@@ -62,7 +65,10 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
             if capped:
                 res.note = "cap reached (resumes next run)"
             done = (not capped and bool(found or ctx.stats["pages"])) if mode == "backfill" else None
-            listings.extend(found)
+            if insert_as_you_go:
+                res.new = sum(1 for j in found if insert_job(conn, j))
+            else:
+                listings.extend(found)
             state.record_run(conn, site, ok=True, new=res.new, skipped=res.skipped_known,
                              backfill_done=done, now=now)
         except Blocked as exc:

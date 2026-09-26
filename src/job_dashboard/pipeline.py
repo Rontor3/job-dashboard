@@ -29,8 +29,10 @@ def run_pipeline(conn, job_sources, company_sources,
             for job in listings:
                 if insert_job(conn, job):
                     inserted[job.source] = inserted.get(job.source, 0) + 1
+            returned = {j.source for j in listings}
             for r in site_results:
-                r.new = inserted.get(r.site, 0)
+                if r.site in returned:                 # streamed sites already set their own count
+                    r.new = inserted.get(r.site, 0)
             browser = [r.as_dict() for r in by_site.values()]
         except Exception as exc:
             browser = [{"site": "browser", "new": 0, "note": f"error: {exc}"}]

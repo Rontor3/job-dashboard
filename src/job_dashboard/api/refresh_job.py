@@ -1,4 +1,5 @@
 import threading
+from functools import partial
 
 from job_dashboard.db import init_db
 from job_dashboard.pipeline import run_pipeline
@@ -70,6 +71,6 @@ def default_pipeline_runner(db_path, on_stage):
     conn = init_db(db_path)  # own connection: sqlite is per-thread
     try:
         return run_pipeline(conn, job_sources(), company_sources(), on_stage=on_stage,
-                            browser_fetch=fetch_browser_sources)
+                            browser_fetch=partial(fetch_browser_sources, insert_as_you_go=True))
     finally:
         conn.close()
