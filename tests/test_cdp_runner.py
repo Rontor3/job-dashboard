@@ -152,3 +152,16 @@ def test_window_uses_the_sites_own_buckets():
     assert runner._window("incremental", row, now, (24, 72, 168, 360, 720)) == 168
     assert runner._window("incremental", None, now, (24, 72, 168, 360, 720)) == 72
     assert runner._window("backfill", None, now, (24, 72, 168, 360, 720)) == 720
+
+
+def test_naukri_is_registered_but_off_by_default():
+    assert "naukri" in runner.ADAPTERS
+    c = conn()
+    _, results = runner.fetch_browser_sources(c, adapters={"naukri": runner.ADAPTERS["naukri"]},
+                                              reachable=lambda u: True, session_factory=None)
+    assert results == []
+
+
+def test_naukri_limits_and_windows():
+    assert runner.LIMITS_BY_SITE["naukri"]["incremental"] == (5, 40, 10**9)
+    assert runner.WINDOWS["naukri"] == (24, 72, 168, 360, 720)

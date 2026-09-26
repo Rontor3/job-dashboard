@@ -3,16 +3,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from job_dashboard.sources.cdp import linkedin, state
+from job_dashboard.sources.cdp import linkedin, naukri, state
 from job_dashboard.sources.cdp.session import CdpSession, cdp_reachable
 from job_dashboard.sources.cdp.types import AdapterContext, Blocked, SiteResult, norm_text
 
-ADAPTERS = {linkedin.SITE: (linkedin.run, linkedin.TERMS)}
+ADAPTERS = {linkedin.SITE: (linkedin.run, linkedin.TERMS), naukri.SITE: (naukri.run, naukri.TERMS)}
 CDP_URL = "http://localhost:9222"
 # mode -> (max search pages per term, page-load cap, stop after N consecutive known)
 LIMITS = {"incremental": (3, 30, 10), "backfill": (2, 60, 10**9)}
-WINDOWS = {"linkedin": tuple(sorted(linkedin.TPR))}      # site -> look-back buckets (hours)
-LIMITS_BY_SITE = {}          # site -> {mode: (max_pages, load_cap, stop_after_known)}; missing -> LIMITS
+WINDOWS = {"linkedin": tuple(sorted(linkedin.TPR)), "naukri": tuple(sorted(naukri.AGES))}      # site -> look-back buckets (hours)
+LIMITS_BY_SITE = {"naukri": {"incremental": (5, 40, 10**9), "backfill": (5, 80, 10**9)}}        # site -> {mode: (max_pages, load_cap, stop_after_known)}; missing -> LIMITS
 
 
 def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_factory=None,
