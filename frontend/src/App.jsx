@@ -97,7 +97,7 @@ export default function App() {
       {error && <div role="alert" style={{ color: "var(--dupe-ink)", background: "var(--dupe-bg)", borderRadius: 12, padding: "10px 14px", marginTop: 12 }}>{error}</div>}
       <main>
         {activeTab === "hiring" ? (
-          <HiringSignals />
+          <HiringSignals onOpenJob={setSelectedId} />
         ) : activeTab === "resumes" ? (
           <ResumeLibrary />
         ) : activeTab === "answers" ? (

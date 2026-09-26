@@ -1,10 +1,27 @@
 import React, { useEffect, useState } from "react";
-import { hiringPosts, refreshHiring, dismissHiring } from "../api.js";
+import { hiringPosts, refreshHiring, dismissHiring, promoteHiring, draftHiringEmail } from "../api.js";
+
+const CHIP = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)",
+  border: "0.5px solid var(--hairline)", color: "var(--ink-soft)", textDecoration: "none" };
+
+function Contacts({ c }) {
+  if (!c) return null;
+  const host = (u) => { try { return new URL(u).host; } catch { return u; } };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+      {c.forms.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" style={CHIP}>📝 Form · {host(u)}</a>)}
+      {c.emails.map((e) => <a key={e} href={`mailto:${e}`} style={CHIP}>✉️ {e}</a>)}
+      {c.links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" style={CHIP}>🔗 {host(u)}</a>)}
+      {c.phones.map((p) => <a key={p} href={`tel:${p}`} style={CHIP}>📞 {p}</a>)}
+      {c.dm && <span style={CHIP}>💬 DM on LinkedIn</span>}
+    </div>
+  );
+}
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px",
   borderRadius: "var(--radius-pill)", background: "var(--green)", color: "#fff" };
 
-export default function HiringSignals() {
+export default function HiringSignals({ onOpenJob = () => {} }) {
   const [posts, setPosts] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -15,6 +32,14 @@ export default function HiringSignals() {
   const onRefresh = () => {
     setBusy(true); setError(null);
     refreshHiring().then(load).catch((e) => setError(e.message)).finally(() => setBusy(false));
+  };
+  const [note, setNote] = useState({});
+  const say = (id, msg) => setNote((n) => ({ ...n, [id]: msg }));
+  const onTailor = (id) =>
+    promoteHiring(id).then((d) => onOpenJob(d.job_id)).catch((e) => say(id, e.message));
+  const onDraft = (id) => {
+    say(id, "Drafting…");
+    draftHiringEmail(id).then((d) => say(id, `Draft saved in Gmail → ${d.to}`)).catch((e) => say(id, e.message));
   };
   const onDismiss = (id) => {
     setPosts((p) => p.filter((x) => x.id !== id));
@@ -60,6 +85,14 @@ export default function HiringSignals() {
             </div>
           </div>
           <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "8px 0" }}>{p.text}</div>
+          <Contacts c={p.contacts} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <button style={BTN} onClick={() => onTailor(p.id)}>Tailor CV</button>
+            {p.contacts?.emails?.length > 0 && (
+              <button style={{ ...BTN, background: "var(--ink)" }} onClick={() => onDraft(p.id)}>Draft email</button>
+            )}
+            {note[p.id] && <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>{note[p.id]}</span>}
+          </div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-faint)" }}>
             <span>{p.keyword} · {p.posted_at || "recent"}</span>
             <a href={p.url} target="_blank" rel="noreferrer" style={{ color: "var(--green)" }}>View job ↗</a>

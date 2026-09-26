@@ -52,7 +52,24 @@ def hiring_posts(conn, within_hours=24):
             ORDER BY fit_score DESC, id DESC""",
         (cutoff,),
     ).fetchall()
-    return [dict(zip(_HIRING_COLS, r)) for r in rows]
+    from job_dashboard.linkedin.contacts import extract_contacts, text_key
+    out, seen = [], set()
+    for r in rows:
+        post = dict(zip(_HIRING_COLS, r))
+        key = text_key(post["text"])
+        if key in seen:  # same post reshared / fetched under another url
+            continue
+        seen.add(key)
+        post["contacts"] = extract_contacts(post["text"], post["url"])
+        out.append(post)
+    return out
+
+
+def hiring_post(conn, post_id):
+    row = conn.execute(
+        f"SELECT {', '.join(_HIRING_COLS)} FROM hiring_posts WHERE id = ?", (post_id,)
+    ).fetchone()
+    return dict(zip(_HIRING_COLS, row)) if row else None
 
 
 def dismiss_hiring_post(conn, post_id):

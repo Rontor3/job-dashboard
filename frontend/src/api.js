@@ -141,6 +141,14 @@ export const refreshHiring = () =>
   });
 export const dismissHiring = (id) =>
   fetch(`/api/hiring/posts/${id}/dismiss`, { method: "POST" }).then((r) => r.json());
+const postOrThrow = (url) =>
+  fetch(url, { method: "POST" }).then(async (r) => {
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "request failed");
+    return d;
+  });
+export const promoteHiring = (id) => postOrThrow(`/api/hiring/posts/${id}/promote`);
+export const draftHiringEmail = (id) => postOrThrow(`/api/hiring/posts/${id}/email-draft`);
 
 export const launchApplyAgent = (id) =>
   fetch(`/api/jobs/${id}/apply-agent`, { method: "POST" }).then(json);

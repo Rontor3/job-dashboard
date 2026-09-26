@@ -24,7 +24,7 @@ def test_upsert_dedups_on_url(tmp_path):
 def test_list_orders_by_fit_and_filters_window(tmp_path):
     conn = init_db(str(tmp_path / "t.db"))
     now = datetime.now(timezone.utc)
-    upsert_hiring_post(conn, _post("u1", 0.3, now.isoformat()))
+    upsert_hiring_post(conn, _post("u1", 0.3, now.isoformat(), text="Hiring a data scientist"))
     upsert_hiring_post(conn, _post("u2", 0.8, now.isoformat()))
     old = (now - timedelta(hours=48)).isoformat()
     upsert_hiring_post(conn, _post("u3", 0.99, old))  # outside 24h window
