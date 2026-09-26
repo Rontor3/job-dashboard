@@ -42,6 +42,16 @@ class SettingsBody(BaseModel):
     answer_confidence_min: Optional[int] = None
     browser_linkedin_enabled: Optional[bool] = None
     browser_naukri_enabled: Optional[bool] = None
+    browser_wellfound_enabled: Optional[bool] = None
+    browser_instahyre_enabled: Optional[bool] = None
+    browser_iimjobs_enabled: Optional[bool] = None
+
+
+BROWSER_SITES = ("linkedin", "naukri", "wellfound", "instahyre", "iimjobs")
+
+
+def _browser_flags(conn) -> dict:
+    return {f"browser_{s}_enabled": qa_store.get_setting(conn, f"browser_{s}_enabled") == "1" for s in BROWSER_SITES}
 
 
 def build_qa_router(db_path, vault=None) -> APIRouter:
@@ -242,8 +252,7 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
         conn = db()
         try:
             return {"answer_confidence_min": qa_store.confidence_min(conn),
-                    "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1",
-                    "browser_naukri_enabled": qa_store.get_setting(conn, "browser_naukri_enabled") == "1",
+                    **_browser_flags(conn),
                     "browser_min_interval_hours": cdp_state.interval_hours(conn)}
         finally:
             conn.close()
@@ -256,15 +265,12 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
         try:
             if body.answer_confidence_min is not None:
                 qa_store.set_setting(conn, "answer_confidence_min", body.answer_confidence_min)
-            if body.browser_linkedin_enabled is not None:
-                qa_store.set_setting(conn, "browser_linkedin_enabled",
-                                     "1" if body.browser_linkedin_enabled else "0")
-            if body.browser_naukri_enabled is not None:
-                qa_store.set_setting(conn, "browser_naukri_enabled",
-                                     "1" if body.browser_naukri_enabled else "0")
+            for site in BROWSER_SITES:
+                val = getattr(body, f"browser_{site}_enabled")
+                if val is not None:
+                    qa_store.set_setting(conn, f"browser_{site}_enabled", "1" if val else "0")
             return {"answer_confidence_min": qa_store.confidence_min(conn),
-                    "browser_linkedin_enabled": qa_store.get_setting(conn, "browser_linkedin_enabled") == "1",
-                    "browser_naukri_enabled": qa_store.get_setting(conn, "browser_naukri_enabled") == "1"}
+                    **_browser_flags(conn)}
         finally:
             conn.close()
 

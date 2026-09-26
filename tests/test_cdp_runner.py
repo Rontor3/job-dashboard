@@ -165,3 +165,13 @@ def test_naukri_is_registered_but_off_by_default():
 def test_naukri_limits_and_windows():
     assert runner.LIMITS_BY_SITE["naukri"]["incremental"] == (5, 40, 10**9)
     assert runner.WINDOWS["naukri"] == (24, 72, 168, 360, 720)
+
+
+def test_anchor_is_passed_in_and_saved_immediately():
+    c = conn(); state.record_run(c, "linkedin", ok=True, anchor=100, backfill_done=True, now=None)
+    got = {}
+    def run(s, ctx):
+        got["in"] = ctx.anchor; ctx.save_anchor(250); got["mid"] = state.get_anchor(c, "linkedin"); return []
+    c.execute("UPDATE fetch_state SET last_success_at='2000-01-01T00:00:00+00:00'"); c.commit()   # make it due
+    go(c, run)
+    assert got == {"in": 100, "mid": 250}

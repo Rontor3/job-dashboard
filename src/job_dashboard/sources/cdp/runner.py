@@ -33,6 +33,7 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
         known, redate = _known_fn(conn, site), _redate_fn(conn, site)
         ctx = AdapterContext(mode=mode, known=known, redate=redate, terms=terms, max_pages=pages, stop_after_known=stop_known,
                              known_text=_known_text_fn(conn, site),
+                             anchor=state.get_anchor(conn, site), save_anchor=_save_anchor_fn(conn, site),
                              hours=_window(mode, state.get(conn, site), now, WINDOWS.get(site, WINDOWS["linkedin"])))
         res = SiteResult(site, mode=mode)
         try:
@@ -59,6 +60,12 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
             state.record_run(conn, site, ok=False, error=f"{type(exc).__name__}: {exc}", now=now)
         results.append(res)
     return listings, results
+
+
+def _save_anchor_fn(conn, site):
+    def save(value):
+        state.record_run_anchor(conn, site, int(value))
+    return save
 
 
 def _window(mode, row, now, windows):

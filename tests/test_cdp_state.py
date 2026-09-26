@@ -59,3 +59,11 @@ def test_failed_first_run_cools_down():
     c = conn()
     state.record_run(c, "linkedin", ok=False, error="x", now=T0)
     assert not state.due(c, "linkedin", now=T0 + timedelta(hours=1))
+
+
+def test_anchor_roundtrip_and_kept_across_runs():
+    c = conn()
+    assert state.get_anchor(c, "instahyre") == 0
+    state.record_run(c, "instahyre", ok=True, anchor=441000, now=T0)
+    state.record_run(c, "instahyre", ok=True, now=T0 + timedelta(hours=49))
+    assert state.get_anchor(c, "instahyre") == 441000

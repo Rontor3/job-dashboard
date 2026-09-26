@@ -49,18 +49,34 @@ def mode_for(conn, site: str) -> str:
     return "incremental" if row and row["backfill_done"] else "backfill"
 
 
-def record_run(conn, site, *, ok, new=0, skipped=0, error=None, backfill_done=None, now=None):
+def record_run(conn, site, *, ok, new=0, skipped=0, error=None, backfill_done=None, anchor=None, now=None):
     ensure(conn)
     now = (now or datetime.now(timezone.utc)).isoformat()
     prev = get(conn, site) or {}
     conn.execute(
         """INSERT INTO fetch_state (site, last_run_at, last_success_at, backfill_done,
-                                    last_new, last_skipped, last_error)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    last_new, last_skipped, last_error, anchor)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(site) DO UPDATE SET last_run_at=excluded.last_run_at,
              last_success_at=excluded.last_success_at, backfill_done=excluded.backfill_done,
-             last_new=excluded.last_new, last_skipped=excluded.last_skipped, last_error=excluded.last_error""",
+             last_new=excluded.last_new, last_skipped=excluded.last_skipped, last_error=excluded.last_error,
+             anchor=COALESCE(excluded.anchor, fetch_state.anchor)""",
         (site, now, now if ok else prev.get("last_success_at"),
          int(bool(backfill_done)) if backfill_done is not None else int(prev.get("backfill_done") or 0),
-         new, skipped, error))
+         new, skipped, error, str(anchor) if anchor is not None else None))
+    conn.commit()
+
+
+def get_anchor(conn, site: str) -> int:
+    row = get(conn, site)
+    try:
+        return int(row["anchor"]) if row and row["anchor"] else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def record_run_anchor(conn, site: str, anchor: int) -> None:
+    ensure(conn)
+    conn.execute("INSERT OR IGNORE INTO fetch_state (site) VALUES (?)", (site,))
+    conn.execute("UPDATE fetch_state SET anchor=? WHERE site=?", (str(anchor), site))
     conn.commit()
