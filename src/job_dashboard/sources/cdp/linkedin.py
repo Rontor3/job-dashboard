@@ -8,6 +8,8 @@ from urllib.parse import quote
 
 from job_dashboard.models import JobListing
 
+from .types import CapReached
+
 SITE = "linkedin"
 BASE = "https://www.linkedin.com/jobs/search/"
 # 48h verified working (1,093 results vs 900 for 24h, 1,428 for 7d). Max 30 days (retention rule).
@@ -88,3 +90,54 @@ def to_listing(card, detail) -> JobListing:
         location=card.get("location"), job_url=job_url(card["id"]),
         description=detail.get("description") or "", salary_text=card.get("salary"), posted_date=posted,
         apply_url=detail.get("apply_url"), apply_kind=apply_kind(card, detail))
+
+
+# Spec terms (docs/career-agent/2026-09-25-cdp-job-fetching-design.md, LinkedIn section).
+TERMS = ["machine learning engineer", "ai engineer", "data scientist", "llm engineer",
+         "mlops engineer", "senior data scientist", "risk data scientist"]
+_NEEDLES = ("voyagerJobsDashJobCards", "jobPostingDetailDescription")
+
+
+def _load(session, url):
+    """One page load -> (cards, details) from the responses LinkedIn's SPA made itself."""
+    cards, details = {}, {}
+    with session.capture(*_NEEDLES) as cap:
+        session.goto(url)
+    for u, body in cap.bodies():
+        if "voyagerJobsDashJobCards" in u:
+            cards.update(parse_cards(body)[0])
+        else:
+            details.update(parse_details(body))
+    return cards, details
+
+
+def run(session, ctx):
+    hours = 720 if ctx.mode == "backfill" else 48
+    found = {}
+    try:
+        for term in ctx.terms:
+            consecutive_known = 0
+            for p in range(ctx.max_pages):
+                cards, details = _load(session, search_url(term, hours, start=25 * p))
+                ctx.stats["pages"] += 1
+                if not cards:
+                    break
+                for jid, c in cards.items():
+                    if jid in found:
+                        continue
+                    if ctx.known(jid, job_url(jid)):
+                        ctx.stats["skipped_known"] += 1
+                        consecutive_known += 1
+                        continue
+                    d = details.get(jid) or {}
+                    if not d.get("description"):
+                        d = _load(session, job_url(jid))[1].get(jid) or {}
+                    if not d.get("description"):
+                        continue                        # retried next run; deliberately not "known"
+                    found[jid] = to_listing(c, d)
+                    consecutive_known = 0
+                if ctx.mode == "incremental" and consecutive_known >= ctx.stop_after_known:
+                    break
+    except CapReached:
+        pass
+    return list(found.values())
