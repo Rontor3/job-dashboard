@@ -17,8 +17,8 @@ BAD_TEXT = re.compile(
     r"unusual activity|verify you.re a human|security verification|"
     r"let.s do a quick security check|temporarily restricted", re.I)
 
-_FETCH_JS = ("async ([u, m, h, b]) => { const r = await fetch(u, {method: m, credentials: 'include', redirect: 'manual', "
-             "headers: h || {}, body: b}); return [r.status, await r.text()]; }")
+_FETCH_JS = ("async ([u, m, h, b]) => { const r = await fetch(u, {method: m, credentials: 'include', "
+             "headers: h || {}, body: b}); return [r.status, await r.text(), r.url]; }")
 
 
 def cdp_reachable(cdp_url: str, timeout: float = 1.5) -> bool:
@@ -138,9 +138,13 @@ class CdpSession:
         if self.loads:
             self._nap()
         self.loads += 1
-        status, text = self._page.evaluate(_FETCH_JS, [absolute, method, headers or {}, body])
+        status, text, *rest = self._page.evaluate(_FETCH_JS, [absolute, method, headers or {}, body])
         if status != 200:
             raise Blocked(f"HTTP {status} on {host}")
+        final = rest[0] if rest else absolute        # redirects are followed (slug canonicalisation) but must stay on-host
+        final_host = urlparse(final).hostname or ""
+        if not any(final_host == h or final_host.endswith("." + h) for h in hosts) or BAD_URL.search(final):
+            raise Blocked(f"redirected to {final_host}")
         return text
 
     def _check(self, status):

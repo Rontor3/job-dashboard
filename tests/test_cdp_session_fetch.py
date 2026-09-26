@@ -55,9 +55,15 @@ def test_html_to_text():
     assert html_to_text("<p>Build <b>models</b></p><ul><li>Python</li></ul>&amp; more") == "Build models\nPython\n& more"
 
 
-def test_fetch_does_not_follow_redirects():
-    from job_dashboard.sources.cdp.session import _FETCH_JS
-    assert "redirect: 'manual'" in _FETCH_JS
+def test_redirect_to_login_or_foreign_host_is_blocked_but_same_host_redirect_is_fine():
+    ok = page_with(lambda u, m, h, b: (200, "x", "https://www.instahyre.com/job-1-canonical-slug/"))
+    with make_session(ok) as s:
+        assert s.fetch("/job-1-x/", hosts=("www.instahyre.com",)) == "x"
+    for final in ("https://www.instahyre.com/login?next=/x", "https://evil.example/y"):
+        bad = page_with(lambda u, m, h, b, f=final: (200, "x", f))
+        with make_session(bad) as s:
+            with pytest.raises(Blocked):
+                s.fetch("/job-1-x/", hosts=("www.instahyre.com",))
 
 
 def test_exchanges_yield_request_when_response_json_fails():

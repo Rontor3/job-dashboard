@@ -19,7 +19,7 @@ _DATE = re.compile(r'"datePosted":\s*"([^"]+)"')
 
 
 def _list_path(term, offset):
-    return (f"/api/v1/job_search?company_size=0&isLandingPage=true&job_type=0&offset={offset}"
+    return (f"https://www.instahyre.com/api/v1/job_search?company_size=0&isLandingPage=true&job_type=0&offset={offset}"
             f"&skills={quote(term)}")
 
 
@@ -91,7 +91,7 @@ def run(session, ctx, today=None):
             if cid <= ctx.anchor:
                 ctx.stats["skipped_stale"] += 1
                 continue
-            detail = parse_detail(session.fetch(f"/job-{cid}-x/", hosts=HOSTS))
+            detail = parse_detail(session.fetch(f"https://www.instahyre.com/job-{cid}-x/", hosts=HOSTS))
             if detail["date"] is None:                # retention unverifiable: don't insert, don't mark known
                 ctx.stats["undated"] = ctx.stats.get("undated", 0) + 1
                 continue
