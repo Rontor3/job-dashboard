@@ -77,29 +77,6 @@ def _d2dec(d: dict):
 
 # ── Memory helpers ────────────────────────────────────────────────────────────
 
-def _semantic_split(fields, mem_router):
-    """Separate fields the semantic vault can answer autonomously from the rest.
-
-    Returns (auto_decisions, remaining_fields).
-    Autonomous = confidence >= 1.0 (3 human approvals).  Others fall through.
-    """
-    if not mem_router:
-        return [], fields
-    from ..orchestrator.mapper import FillDecision
-    auto, rest = [], []
-    for f in fields:
-        if f.kind not in ("text", "textarea"):
-            rest.append(f)
-            continue
-        hit = mem_router.dispatch("SEMANTIC_MATCH", {"question": f.label or ""})
-        if hit and hit.get("autonomous"):
-            auto.append(FillDecision(f.ref, f.kind, f.label,
-                                     hit["answer"], "semantic", "behavioral"))
-        else:
-            rest.append(f)
-    return auto, rest
-
-
 def _notify_gate(c, gate: str, message: str) -> dict:
     """Try to send `message` via the configured Telegram on_link. Never raises.
     Returns {"attempted": bool, "sent": bool} — attempted is False only when
@@ -323,31 +300,15 @@ def fill_node(state: AgentState, config) -> dict:
     c = config["configurable"]
     page = c["page"]
     deps = c["deps"]
-    profile = c["profile"]
-    resume_pdf = c.get("resume_pdf")
-    judge_fn = c.get("judge_fn")
-    learn = c.get("learn")
 
     form = [_d2f(d) for d in state["form"]]
     fillable = [f for f in form if f.kind != "button"]
     if c.get("qa"):
         c["qa"].trace_all(fillable)
 
-    recalled, remaining = [], fillable
-    if learn:
-        recalled, remaining = learn.recall(fillable)
-
-    # Tri-Partite Memory: autonomous semantic answers bypass the human gate.
-    mem_router = c.get("memory_router")
-    auto_semantic, remaining = _semantic_split(remaining, mem_router)
-
-    from ..orchestrator.screen_review import map_screen
-    decisions, needs = map_screen(remaining, profile, resume_pdf)
-    decisions += recalled + auto_semantic
-
-    if needs and judge_fn:
-        answered, needs, _ = judge_fn(needs)
-        decisions += answered
+    # Shared ladder (recall → semantic → rules → judge) — also used by boards/.
+    from .answering import answer_fields
+    decisions, needs = answer_fields(fillable, c)
 
     qa = c.get("qa")
     if qa:
@@ -423,7 +384,6 @@ def human_gate_node(state: AgentState, config) -> dict:
     c = config["configurable"]
     page = c["page"]
     deps = c["deps"]
-    learn = c.get("learn")
 
     from ..orchestrator.screen_review import apply_answers
     new_decisions = apply_answers(fields, answers)
@@ -434,28 +394,11 @@ def human_gate_node(state: AgentState, config) -> dict:
             if str(answers.get(f.ref) or "").strip():
                 qa.answered(f, answers[f.ref])
 
-    mem_router = c.get("memory_router")
     # Events from TelegramCollector: {ref: "approve"|"edit"}; empty for CLI
     human = c.get("human")
     events: dict = human.get_events() if (human and hasattr(human, "get_events")) else {}
-    for f in fields:
-        ans = answers.get(f.ref)
-        if ans is None:
-            continue
-        ans_str = str(ans).strip()
-        if not ans_str:
-            continue
-        event = events.get(f.ref, "approve")
-        if mem_router:
-            # Dual-writes to ChromaDB (semantic vault) + FTS5 (learned_answers)
-            mem_router.dispatch("RECORD_FEEDBACK", {
-                "question": f.label or f.ref,
-                "answer": ans_str,
-                "event": event,
-                "purpose": f.purpose,
-            })
-        elif learn:
-            learn.record(f, ans)
+    from .answering import record_answers
+    record_answers(fields, answers, c, events)
 
     return {
         "pending_human": [],
