@@ -27,8 +27,8 @@ class FakeFetcher:
 
 
 def test_keywords_role_specific():
-    assert "hiring ML engineer" in KEYWORDS
-    assert all(k != "machine learning" for k in KEYWORDS)
+    assert "hiring machine learning engineer" in KEYWORDS
+    assert not any("founding" in k or "startup" in k for k in KEYWORDS)  # generic → off-target posts
 
 
 def test_to_hiring_post_ok_and_bad():

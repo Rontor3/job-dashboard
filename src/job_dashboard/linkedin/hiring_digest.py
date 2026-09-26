@@ -10,14 +10,20 @@ from job_dashboard.db import upsert_hiring_post
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.match.embedder import cosine
 
-KEYWORDS = [
-    "hiring ML engineer",
-    "hiring machine learning engineer",
-    "hiring data scientist",
-    "hiring forward deployed engineer",
-    "hiring founding engineer",
-    "startup hiring ML engineer",
+# Specific role titles only (core of source_registry.SEARCH_TERMS). Generic
+# searches like "hiring founding engineer" pulled civil/electrical/mechanical
+# posts. Each keyword is one LinkedIn search per Refresh, so keep this short.
+HIRING_ROLES = [
+    "machine learning engineer",
+    "AI engineer",
+    "data scientist",
+    "LLM engineer",
+    "generative AI engineer",
+    "applied scientist",
+    "MLOps engineer",
+    "forward deployed engineer",
 ]
+KEYWORDS = [f"hiring {r}" for r in HIRING_ROLES]
 
 
 @dataclass
