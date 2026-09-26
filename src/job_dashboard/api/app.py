@@ -90,14 +90,14 @@ def create_app(
                   source: str = None, industry: str = None, company_type: str = None,
                   status: str = None, verdict: str = None, min_score: float = None,
                   include_dismissed: bool = False, sort: str = "embed",
-                  limit: int = 50, offset: int = 0):
+                  limit: int = 50, offset: int = 0, india: bool = False):
         with db() as conn:
             jobs, total = query_jobs(
                 conn, q=q, remote=remote, job_type=job_type, source=source,
                 industry=industry, company_type=company_type,
                 status=status, verdict=verdict, min_score=min_score,
                 include_dismissed=include_dismissed, sort=sort,
-                limit=limit, offset=offset,
+                limit=limit, offset=offset, india=india,
             )
         from job_dashboard.match.apply_type import classify_apply_type
         for j in jobs:

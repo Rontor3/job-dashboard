@@ -54,8 +54,8 @@ SEARCH_TERMS = [
 #              vendored-NopeRi read-only source fed by a cached login session
 #              — see scripts/naukri_login.py)
 REGION_SEARCHES = [
-    ("Remote", ["linkedin", "indeed"], None),        # US/global remote
-    ("European Union", ["linkedin"], None),          # Europe
+    # LinkedIn is India-only (2026-09-27, user): it is also read by the CDP LinkedIn adapter, which is India-scoped.
+    ("Remote", ["indeed"], None),                    # US/global remote
     ("India", ["linkedin", "indeed"], "India"),      # India, all work modes
     # Google Jobs aggregates Naukri/Shine/Foundit/company pages for India —
     # the legitimate route to Naukri inventory while its API captcha-blocks.

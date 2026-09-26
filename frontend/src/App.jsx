@@ -37,7 +37,7 @@ function TabButton({ active, onClick, label }) {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("browse");
-  const [filters, setFilters] = useState({ sort: "embed" });
+  const [filters, setFilters] = useState({ sort: "embed", india: true });
   const [jobs, setJobs] = useState([]);
   const [total, setTotal] = useState(0);
   const [stats, setStats] = useState(null);

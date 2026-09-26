@@ -4,6 +4,7 @@ import { CheckIcon } from "./icons.jsx";
 const ACTIVE_CHIP = { background: "var(--green)", color: "#FFFFFF" };
 
 const CHIPS = [
+  { key: "india", label: "India", on: ACTIVE_CHIP },
   { key: "remote", label: "Remote", on: ACTIVE_CHIP },
   { key: "job_type", label: "Full-time", value: "fulltime", on: ACTIVE_CHIP },
   { key: "status", label: "Saved", value: "saved", on: ACTIVE_CHIP },

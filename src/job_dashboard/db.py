@@ -415,11 +415,29 @@ _JOB_COLUMNS = ("id", "title", "company", "location", "job_url", "job_type",
                 "embed_score", "llm_score", "verdict")
 
 
+# Location text is free-form ("Bengaluru, Karnataka, India", "KA, IN", "Pune", "Remote, US"), so India is
+# matched by country words, a ", IN" suffix, or a major Indian city/state.
+_INDIA_TOKENS = ("india", "bengaluru", "bangalore", "mumbai", "delhi", "gurgaon", "gurugram", "noida", "hyderabad",
+                 "pune", "chennai", "kolkata", "ahmedabad", "kochi", "jaipur", "chandigarh", "indore", "coimbatore",
+                 "thiruvananthapuram", "karnataka", "maharashtra", "telangana", "tamil nadu", "haryana",
+                 "uttar pradesh", "gujarat", "kerala")
+
+
+def _india_clause():
+    ors = ["LOWER(j.location) LIKE ?"] * len(_INDIA_TOKENS) + ["LOWER(TRIM(j.location)) LIKE '%, in'",
+                                                              "LOWER(TRIM(j.location)) = 'in'"]
+    return "(" + " OR ".join(ors) + ")", [f"%{t}%" for t in _INDIA_TOKENS]
+
+
 def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=None, company_type=None, status=None,
                verdict=None, min_score=None, include_dismissed=False, sort="embed",
-               limit=50, offset=0):
+               limit=50, offset=0, india=False):
     where = ["j.duplicate_of IS NULL"]
     params = []
+    if india:
+        clause, vals = _india_clause()
+        where.append(clause)
+        params += vals
     if verdict:
         where.append("m.verdict = ?")
         params.append(verdict)

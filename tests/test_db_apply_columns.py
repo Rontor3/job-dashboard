@@ -27,3 +27,12 @@ def test_migration_is_idempotent_and_indexed(tmp_path):
     assert cols.count("apply_url") == 1
     jobs, _ = query_jobs(conn)
     assert jobs == []
+
+
+def test_india_filter_matches_country_city_and_suffix_not_us(tmp_path):
+    conn = init_db(str(tmp_path / "j.db"))
+    for i, loc in enumerate(["Bengaluru, Karnataka, India", "KA, IN", "Pune", "Remote, US", "London, UK", None]):
+        insert_job(conn, _job(job_url=f"https://x/{i}", external_id=str(i), location=loc))
+    jobs, total = query_jobs(conn, india=True)
+    assert sorted(j["location"] for j in jobs) == ["Bengaluru, Karnataka, India", "KA, IN", "Pune"] and total == 3
+    assert query_jobs(conn)[1] == 6
