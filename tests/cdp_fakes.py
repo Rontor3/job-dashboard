@@ -1,6 +1,15 @@
+class FakeRequest:
+    def __init__(self, url, headers, body=None):
+        self.url, self.headers, self.post_data_buffer = url, headers, body
+
+    def all_headers(self):
+        return self.headers
+
+
 class FakeResponse:
     def __init__(self, url, body, status=200):
         self.url, self._body, self.status = url, body, status
+        self.request = None
 
     def json(self):
         if isinstance(self._body, Exception):
@@ -14,6 +23,7 @@ class FakePage:
     def __init__(self, script=None, text="", status=200):
         self.script, self.text, self.status = script or {}, text, status
         self.url, self.visited, self.handlers, self.closed = "", [], [], False
+        self.fetches, self.fetch_handler = [], None
 
     def on(self, event, fn):
         assert event == "response"
@@ -27,12 +37,20 @@ class FakePage:
         self.visited.append(url)
         for key, resps in self.script.items():
             if key == url or (key.endswith("*") and url.startswith(key[:-1])):
-                for ru, body in resps:
+                for item in resps:
+                    ru, body, *rest = item
                     for h in list(self.handlers):
-                        h(FakeResponse(ru, body))
+                        resp = FakeResponse(ru, body)
+                        if rest:
+                            resp.request = rest[0]
+                        h(resp)
         return FakeResponse(url, None, self.status)
 
-    def evaluate(self, js):
+    def evaluate(self, js, arg=None):
+        if arg is not None:
+            u, m, h, b = arg
+            self.fetches.append((u, m, h, b))
+            return list(self.fetch_handler(u, m, h, b))
         return self.text
 
     def wait_for_timeout(self, ms):

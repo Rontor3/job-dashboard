@@ -2,10 +2,13 @@
 an adapter can navigate and listen to the responses the page itself makes, nothing else."""
 from __future__ import annotations
 
+import gzip
+import json
 import random
 import re
 import time
 import urllib.request
+from urllib.parse import urljoin, urlparse
 
 from .types import Blocked, CapReached
 
@@ -13,6 +16,9 @@ BAD_URL = re.compile(r"authwall|/login|/checkpoint|/uas/|challenge|captcha", re.
 BAD_TEXT = re.compile(
     r"unusual activity|verify you.re a human|security verification|"
     r"let.s do a quick security check|temporarily restricted", re.I)
+
+_FETCH_JS = ("async ([u, m, h, b]) => { const r = await fetch(u, {method: m, credentials: 'include', "
+             "headers: h || {}, body: b}); return [r.status, await r.text()]; }")
 
 
 def cdp_reachable(cdp_url: str, timeout: float = 1.5) -> bool:
@@ -67,6 +73,22 @@ class Capture:
             except Exception:
                 continue
 
+    def exchanges(self):
+        """(request headers, request body parsed, response json) for each captured exchange that parses."""
+        for r in self.responses:
+            try:
+                rq = r.request
+                raw = rq.post_data_buffer
+                if raw and raw[:2] == b"\x1f\x8b":
+                    raw = gzip.decompress(raw)
+                try:
+                    body = json.loads(raw) if raw else None
+                except ValueError:
+                    body = raw.decode("utf-8", "replace") if raw else None
+                yield dict(rq.all_headers()), body, r.json()
+            except Exception:
+                continue
+
 
 class CdpSession:
     def __init__(self, cdp_url, *, max_loads, nap=None, connect=None, settle_ms=7000):
@@ -100,6 +122,22 @@ class CdpSession:
         self._check(getattr(resp, "status", None))
         self._page.wait_for_timeout(self._settle_ms)
         self._check(None)
+
+    def fetch(self, url, *, hosts, method="GET", headers=None, body=None) -> str:
+        """Same-origin fetch inside our own tab. Host-allowlisted; counts toward the cap; any non-200 is a block."""
+        absolute = urljoin(self._page.url or "", url)
+        host = urlparse(absolute).hostname or ""
+        if not any(host == h or host.endswith("." + h) for h in hosts):
+            raise ValueError(f"host {host!r} not allowed")
+        if self.loads >= self.max_loads:
+            raise CapReached(f"{self.max_loads} page loads")
+        if self.loads:
+            self._nap()
+        self.loads += 1
+        status, text = self._page.evaluate(_FETCH_JS, [absolute, method, headers or {}, body])
+        if status != 200:
+            raise Blocked(f"HTTP {status} on {host}")
+        return text
 
     def _check(self, status):
         if status in (401, 403, 429) or BAD_URL.search(self._page.url or ""):
