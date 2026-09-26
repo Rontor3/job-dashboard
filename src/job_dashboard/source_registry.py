@@ -31,16 +31,11 @@ SEARCH_TERMS = [
     "lead data scientist",
     # Platform / ops
     "mlops engineer",
-    "ml platform engineer",
-    # Research (fellowship/residency angle)
-    "research engineer",
     # Domain-tilted (fraud/risk — candidate's Tata AIG edge)
     "fraud data scientist",
     "risk data scientist",
-    # Emerging titles (2026 market — user flagged 2026-08-04)
-    "forward deployed engineer",
+    # Emerging titles
     "applied ai engineer",
-    "ai solutions engineer",
     "machine learning scientist",
     "genai engineer",
 ]
@@ -71,13 +66,13 @@ def job_sources():
     for term in SEARCH_TERMS:
         for location, sites, country in REGION_SEARCHES:
             fetchers.append(
-                lambda t=term, loc=location, s=sites, c=country: fetch_jobspy_jobs(
-                    t, loc, s, country=c
+                lambda t=term, loc=location, s=sites, c=country: _target_only(
+                    fetch_jobspy_jobs(t, loc, s, country=c)
                 )
             )
         fetchers.append(lambda t=term: _target_only(fetch_remotive_jobs(t)))
-        fetchers.append(lambda t=term: fetch_himalayas_jobs(t))
-        fetchers.append(lambda t=term: fetch_naukri_jobs(t))
+        fetchers.append(lambda t=term: _target_only(fetch_himalayas_jobs(t)))
+        fetchers.append(lambda t=term: _target_only(fetch_naukri_jobs(t)))
     # remoteok has no keyword search — it returns its entire board — and
     # remotive's search is loose, so both are gated to ML/AI/DS titles only.
     fetchers.append(lambda: _target_only(fetch_remoteok_jobs()))
