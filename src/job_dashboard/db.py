@@ -103,6 +103,7 @@ def init_db(path):
     _ensure_hiring_posts_table(conn)
     _ensure_status_updated_at_column(conn)
     _ensure_expired_column(conn)
+    _ensure_apply_columns(conn)
     _ensure_resume_blocks_table(conn)
     _ensure_resume_layouts_table(conn)
     from job_dashboard.apply.store import ensure_application_tables
@@ -225,13 +226,13 @@ def insert_job(conn, job: JobListing):
     conn.execute(
         """INSERT INTO jobs
            (source, external_id, title, company, location, description,
-            job_url, job_type, is_remote, salary_text, posted_date, fetched_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            job_url, job_type, is_remote, salary_text, posted_date, apply_url, apply_kind, fetched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             job.source, job.external_id, job.title, job.company, job.location,
             job.description, job.job_url, job.job_type,
             int(job.is_remote) if job.is_remote is not None else None,
-            job.salary_text, job.posted_date,
+            job.salary_text, job.posted_date, job.apply_url, job.apply_kind,
             datetime.now(timezone.utc).isoformat(),
         ),
     )
@@ -367,6 +368,14 @@ def _ensure_expired_column(conn):
         conn.execute("ALTER TABLE jobs ADD COLUMN expired_reason TEXT")
 
 
+def _ensure_apply_columns(conn):
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
+    for c in ("apply_url", "apply_kind"):
+        if c not in cols:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {c} TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS jobs_source_ext ON jobs(source, external_id)")
+
+
 def mark_job_expired(conn, job_id, reason):
     """Soft-hide a job (closed/stale/bad-fit). Reversible — never deletes."""
     conn.execute("UPDATE jobs SET expired = 1, expired_reason = ? WHERE id = ?",
@@ -466,11 +475,11 @@ def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=N
         f"""SELECT j.id, j.title, j.company, j.location, j.job_url, j.job_type,
                    j.is_remote, j.posted_date, j.source, j.status,
                    m.embed_score, m.llm_score, m.verdict,
-                   cc.industry, cc.company_type
+                   cc.industry, cc.company_type, j.apply_url, j.apply_kind
             {base} ORDER BY {order} LIMIT ? OFFSET ?""",
         params + [limit, offset],
     ).fetchall()
-    return [dict(zip(_JOB_COLUMNS + ("industry", "company_type"), row)) for row in rows], total
+    return [dict(zip(_JOB_COLUMNS + ("industry", "company_type", "apply_url", "apply_kind"), row)) for row in rows], total
 
 
 def job_detail(conn, job_id):
@@ -479,7 +488,7 @@ def job_detail(conn, job_id):
                   j.is_remote, j.posted_date, j.source, j.status,
                   m.embed_score, m.llm_score, m.verdict,
                   cc.industry, cc.company_type,
-                  j.description, m.strengths, m.gaps, m.flags
+                  j.description, m.strengths, m.gaps, m.flags, j.apply_url, j.apply_kind
            FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
            LEFT JOIN company_classifications cc
                   ON cc.company_key = LOWER(TRIM(j.company))
@@ -488,7 +497,7 @@ def job_detail(conn, job_id):
     ).fetchone()
     if row is None:
         return None
-    detail = dict(zip(_JOB_COLUMNS + ("industry", "company_type", "description", "strengths", "gaps", "flags"), row))
+    detail = dict(zip(_JOB_COLUMNS + ("industry", "company_type", "description", "strengths", "gaps", "flags", "apply_url", "apply_kind"), row))
     detail["strengths"] = json.loads(detail["strengths"]) if detail["strengths"] else []
     detail["gaps"] = json.loads(detail["gaps"]) if detail["gaps"] else []
     detail["flags"] = json.loads(detail["flags"]) if detail["flags"] else {}

@@ -15,6 +15,8 @@ class JobListing:
     is_remote: Optional[bool] = None
     salary_text: Optional[str] = None
     posted_date: Optional[str] = None
+    apply_url: Optional[str] = None
+    apply_kind: Optional[str] = None   # native | external | unknown
 
 
 @dataclass
