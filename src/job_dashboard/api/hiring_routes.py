@@ -54,7 +54,7 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None) -> APIRo
         return {"ranked": len(ranked), "fetched": len(ranked)}
 
     @router.get("/api/hiring/posts")
-    def list_posts(within_hours: int = 24):
+    def list_posts(within_hours: int = 168):
         with db() as conn:
             return {"posts": db_hiring_posts(conn, within_hours=within_hours)}
 

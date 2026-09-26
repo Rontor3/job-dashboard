@@ -50,7 +50,7 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div style={{ fontSize: 13, color: "var(--ink-faint)" }}>
-          Individual LinkedIn hiring posts from the last 24 hours, ranked for you.
+          Individual LinkedIn hiring posts from the last 7 days, ranked for you.
         </div>
         <button style={BTN} onClick={onRefresh} disabled={busy}>
           {busy ? "Searching LinkedIn…" : "Refresh"}
@@ -65,7 +65,7 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
 
       {posts.length === 0 && !busy && (
         <div style={{ fontSize: 12, color: "var(--ink-faint)", fontStyle: "italic" }}>
-          No hiring posts in the last 24 hours. Hit Refresh to search LinkedIn.
+          No hiring posts in the last 7 days. Hit Refresh to search LinkedIn.
         </div>
       )}
 
