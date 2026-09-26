@@ -49,9 +49,10 @@ SEARCH_TERMS = [
 #              vendored-NopeRi read-only source fed by a cached login session
 #              — see scripts/naukri_login.py)
 REGION_SEARCHES = [
-    # 2026-09-27 (user): LinkedIn = remote + India only; no Europe search; Google Jobs is not used.
-    ("Remote", ["linkedin", "indeed"], None),        # remote
-    ("India", ["linkedin", "indeed"], "India"),      # India, all work modes
+    # 2026-09-27 (user): LinkedIn comes from the browser (CDP) adapter, not jobspy; jobspy is Indeed-only
+    # until that gets a browser adapter too. Remote + India only; no Europe, no Google Jobs.
+    ("Remote", ["indeed"], None),                    # remote
+    ("India", ["indeed"], "India"),                  # India, all work modes
 ]
 
 
