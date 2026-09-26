@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
 
 from job_dashboard.models import JobListing
-from job_dashboard.sources.cdp.types import html_to_text
+from job_dashboard.sources.cdp.types import Blocked, CapReached, html_to_text
 
 SITE = "indeed"
 BASE = "https://in.indeed.com"
@@ -63,3 +64,59 @@ def to_listing(card, detail) -> JobListing:
         location=card.get("location"), job_url=job_url(card["id"]), description=detail["description"],
         posted_date=datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat() if ms else detail.get("posted"),
         apply_url=None, apply_kind="native" if card.get("native") or detail.get("direct") else "external")
+
+
+def _captured(session, url, needle):
+    """Documents the page itself loaded; a challenge anywhere is a hard stop."""
+    with session.capture(needle) as cap:
+        session.goto(url)
+    docs = [(u, t) for u, _, t in cap.texts()]
+    if any(is_challenge(t) for _, t in docs):
+        raise Blocked("challenge")
+    return docs
+
+
+def run(session, ctx):
+    from job_dashboard.match.relevance import is_target_role
+    hours = 720 if ctx.mode == "backfill" else ctx.hours
+    cutoff = time.time() - hours * 3600
+    seen, pending, found = set(), {}, {}
+    ctx.stats.setdefault("off_target", 0)
+    try:
+        for term in ctx.terms:
+            for loc in LOCATIONS:
+                queue, stale = pending.setdefault((term, loc), []), 0
+                for p in range(ctx.max_pages):
+                    cards = [c for _, t in _captured(session, search_url(term, loc, p), f"{BASE[8:]}/jobs")
+                             for c in parse_search(t)]
+                    if not cards:
+                        break
+                    ctx.stats["pages"] += 1
+                    fresh = [c for c in cards if not c["sponsored"] and (c["pub_ms"] is None or c["pub_ms"] / 1000 >= cutoff)]
+                    stale = 0 if fresh else stale + 1
+                    for c in fresh:
+                        if c["id"] in seen:
+                            continue
+                        seen.add(c["id"])
+                        if not is_target_role(c["title"]):
+                            ctx.stats["off_target"] += 1
+                        elif ctx.known(c["id"], job_url(c["id"])):
+                            ctx.stats["skipped_known"] += 1
+                        else:
+                            queue.append(c)
+                    if stale >= 2:
+                        break
+        queues = [q for q in pending.values() if q]
+        while queues:
+            for q in list(queues):
+                c = q.pop(0)
+                for _, t in _captured(session, job_url(c["id"]), f"{BASE[8:]}/viewjob"):
+                    d = parse_detail(t)
+                    if d:
+                        found[c["id"]] = to_listing(c, d)
+                        break
+                if not q:
+                    queues.remove(q)
+    except CapReached:
+        ctx.stats["capped"] = True
+    return list(found.values())
