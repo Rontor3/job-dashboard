@@ -3,25 +3,28 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from job_dashboard.sources.cdp import iimjobs, instahyre, linkedin, naukri, state, wellfound
+from job_dashboard.sources.cdp import iimjobs, indeed, instahyre, linkedin, naukri, state, wellfound
 from job_dashboard.sources.cdp.session import CdpSession, cdp_reachable
 from job_dashboard.sources.cdp.types import AdapterContext, Blocked, SiteResult, norm_text
 
 ADAPTERS = {linkedin.SITE: (linkedin.run, linkedin.TERMS), naukri.SITE: (naukri.run, naukri.TERMS),
             wellfound.SITE: (wellfound.run, []),        # wellfound queries wellfound.TITLES itself
-            instahyre.SITE: (instahyre.run, instahyre.TERMS), iimjobs.SITE: (iimjobs.run, iimjobs.TERMS)}
+            instahyre.SITE: (instahyre.run, instahyre.TERMS), iimjobs.SITE: (iimjobs.run, iimjobs.TERMS),
+            indeed.SITE: (indeed.run, indeed.TERMS)}
 CDP_URL = "http://localhost:9222"
 # mode -> (max search pages per term, page-load cap, stop after N consecutive known)
 LIMITS = {"incremental": (3, 30, 10), "backfill": (2, 60, 10**9)}
 WINDOWS = {"linkedin": tuple(sorted(linkedin.TPR)), "naukri": tuple(sorted(naukri.AGES)),
-           "wellfound": (24, 48, 168, 720), "iimjobs": (24, 72, 168, 720), "instahyre": (24, 48, 168, 720)}      # site -> look-back buckets (hours)
+           "wellfound": (24, 48, 168, 720), "iimjobs": (24, 72, 168, 720), "instahyre": (24, 48, 168, 720),
+           "indeed": (24, 48, 168, 720)}      # site -> look-back buckets (hours)
 LIMITS_BY_SITE = {"naukri": {"incremental": (3, 40, 10**9), "backfill": (5, 80, 10**9)},
                   "wellfound": {"incremental": (4, 25, 10**9), "backfill": (15, 40, 10**9)},
                   "instahyre": {"incremental": (3, 30, 10**9), "backfill": (10, 90, 10**9)},
-                  "iimjobs": {"incremental": (5, 40, 10**9), "backfill": (5, 40, 10**9)}}        # site -> {mode: (max_pages, load_cap, stop_after_known)}; missing -> LIMITS
+                  "iimjobs": {"incremental": (5, 40, 10**9), "backfill": (5, 40, 10**9)},
+                  "indeed": {"incremental": (2, 40, 10**9), "backfill": (3, 80, 10**9)}}        # site -> {mode: (max_pages, load_cap, stop_after_known)}; missing -> LIMITS
 
 
-EXACT_WINDOW = {"wellfound"}          # sites whose API takes an exact cutoff, not a bucket
+EXACT_WINDOW = {"wellfound", "indeed"}          # sites whose API takes an exact cutoff, not a bucket
 
 
 def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_factory=None,

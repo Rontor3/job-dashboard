@@ -202,4 +202,22 @@ def test_exact_window_sites_get_exact_hours_others_buckets():
     assert runner._window("incremental", None, now, (24, 48, 168, 720), exact=True) == 48
     assert runner._window("incremental", {"last_success_at": (now - timedelta(hours=5000)).isoformat()}, now, (720,), exact=True) == 720
     assert runner._window("backfill", None, now, (24, 720), exact=True) == 720
-    assert runner.EXACT_WINDOW == {"wellfound"}
+    assert runner.EXACT_WINDOW == {"wellfound", "indeed"}
+
+
+def test_indeed_is_registered_off_by_default_with_limits_and_windows():
+    from job_dashboard.sources.cdp import indeed
+    assert runner.ADAPTERS["indeed"] == (indeed.run, indeed.TERMS)
+    assert runner.LIMITS_BY_SITE["indeed"] == {"incremental": (2, 40, 10**9), "backfill": (3, 80, 10**9)}
+    assert "indeed" in runner.EXACT_WINDOW and runner.WINDOWS["indeed"] == (24, 48, 168, 720)
+    c = conn()                                   # only linkedin switched on by the helper
+    _, results = runner.fetch_browser_sources(c, adapters={"indeed": runner.ADAPTERS["indeed"]},
+                                              reachable=lambda u: True, session_factory=_no_session)
+    assert results == []
+
+
+def test_indeed_incremental_window_is_exact_hours():
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    row = {"last_success_at": (now - timedelta(hours=100)).isoformat()}
+    assert runner._window("incremental", row, now, runner.WINDOWS["indeed"], exact="indeed" in runner.EXACT_WINDOW) == 100
+    assert runner._window("backfill", None, now, runner.WINDOWS["indeed"], exact=True) == 720

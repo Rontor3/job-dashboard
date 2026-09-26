@@ -13,7 +13,10 @@ def test_loose_terms_are_gone():
         assert t not in sr.SEARCH_TERMS
 
 
-def test_jobspy_results_are_title_gated():
-    with patch.object(sr, "fetch_jobspy_jobs", return_value=[_job("AI Engineer"), _job("Social Media Executive")]):
-        first = sr.job_sources()[0]
-        assert [j.title for j in first()] == ["AI Engineer"]
+def test_jobspy_is_retired_and_himalayas_results_are_title_gated():
+    assert sr.REGION_SEARCHES == []
+    jobs = [_job("AI Engineer"), _job("Social Media Executive")]
+    with patch.object(sr, "fetch_jobspy_jobs", side_effect=AssertionError("jobspy must not run")), \
+            patch.object(sr, "fetch_himalayas_jobs", return_value=jobs):
+        himalayas = sr.job_sources()[1]           # per term: remotive, himalayas, naukri
+        assert [j.title for j in himalayas()] == ["AI Engineer"]
