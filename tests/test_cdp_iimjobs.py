@@ -67,3 +67,10 @@ def test_empty_description_skipped_and_cap_partial():
     c2 = ctx()
     with make_session(p2, max_loads=2) as s:                 # goto + search, cap on first detail
         assert im.run(s, c2) == [] and c2.stats["capped"] is True
+
+
+def test_unsupported_window_rounds_up_to_next_posting_bucket():
+    p = make({0: ([1], False)}, {1: "<p>one</p>"})
+    with make_session(p) as s:
+        im.run(s, ctx(hours=48))
+    assert "posting=3" in p.fetches[0][0]

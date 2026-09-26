@@ -42,7 +42,7 @@ def to_listing(card, description) -> JobListing:
 
 def run(session, ctx):
     hours = 720 if ctx.mode == "backfill" else ctx.hours
-    days = POSTING[hours]
+    days = POSTING[next((b for b in sorted(POSTING) if b >= hours), max(POSTING))]   # round up to a supported window
     seen, todo, found = set(), [], []
     try:
         session.goto("https://www.iimjobs.com/k/data-scientist-jobs")
