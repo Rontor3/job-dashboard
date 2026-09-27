@@ -113,11 +113,14 @@ def open_counts(conn) -> dict[int, int]:
     return {j: n for j, n in rows}
 
 
-def mark_answered(conn, job_id: int, qkey: str, answer: str) -> int:
-    """Close every open row for this job+question. Returns rows changed."""
+def mark_answered(conn, job_id: int, qkey: str, answer: str, *, keep_source: bool = False) -> int:
+    """Close every open row for this job+question. Returns rows changed.
+    keep_source=True leaves `source` as-is (e.g. a qbank_likely reply keeps
+    its retrieval-band stats true instead of being relabelled 'human')."""
     ensure(conn)
+    set_source = "" if keep_source else "source='human', "
     cur = conn.execute(
-        "UPDATE application_qa SET status='answered', answer=?, source='human', "
+        f"UPDATE application_qa SET status='answered', answer=?, {set_source}"
         "updated_at=? WHERE job_id=? AND qkey=? AND status='needs_answer'",
         (answer, _now(), job_id, qkey))
     conn.commit()

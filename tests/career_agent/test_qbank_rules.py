@@ -37,6 +37,12 @@ def test_company_in_list():
     assert r(ctx(answer="none", job={})) is None
 
 
+def test_company_in_list_is_whole_word_not_substring():
+    r = RULES["company_in_list"]
+    assert r(ctx(answer="meta", job={"company": "Metamorphic"})) == "No"
+    assert r(ctx(answer="Anthropic", job={"company": "Anthropic PBC"})) == "Yes"
+
+
 def test_country_is_home_reuses_work_auth_logic():
     r = RULES["country_is_home"]
     assert r(ctx("Are you located in Canada?")) == "No"
@@ -52,6 +58,13 @@ def test_years_in_skill():
     assert r(ctx("Years of experience with Rust", table)) == "2"
     assert r(ctx("Years with Rust", "python=3")) is None
     assert r(ctx("Years with Rust", None)) is None
+
+
+def test_years_in_skill_prefers_earliest_mention_over_table_order():
+    r = RULES["years_in_skill"]
+    # table lists pytorch before python, but the question names python first
+    table = "pytorch=5, python=3, default=1"
+    assert r(ctx("Years of Python and PyTorch experience?", table)) == "3"
 
 
 def test_shapes():

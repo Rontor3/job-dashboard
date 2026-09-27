@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 from . import qbank
-from .qbank_match import CONFIDENT, DEFAULT_HIGH, NONE, answer_field
+from .qbank_match import CONFIDENT, DEFAULT_HIGH, NONE, Match, answer_field
 
 
 class QBankMemory:
@@ -26,8 +26,12 @@ class QBankMemory:
         # (the LLM pick is the expensive part).
         key = (f.ref, f.label, f.description, tuple(f.options or ()))
         if key not in self._cache:
-            self._cache[key] = answer_field(self.conn, f, embed=self.embed, llm=self.llm,
-                                            job=self.job, contact=self.contact, high=self.high)
+            try:
+                self._cache[key] = answer_field(self.conn, f, embed=self.embed, llm=self.llm,
+                                                job=self.job, contact=self.contact, high=self.high)
+            except Exception as e:
+                print(f"[warn] qbank lookup failed for {f.label!r}: {e}")
+                self._cache[key] = (Match(band=NONE), None)
         return self._cache[key]
 
     def explain(self, f) -> dict:

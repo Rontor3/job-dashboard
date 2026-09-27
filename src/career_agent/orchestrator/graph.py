@@ -421,7 +421,10 @@ def advance_node(state: AgentState, config) -> dict:
                     return {"stopped_reason": f"gate:{pre_gate}"}
             else:
                 return {"stopped_reason": f"gate:{pre_gate}"}
-        if not (state["autonomous"] or human.approve("Ready to submit")):
+        has_likely = any(d.get("source") == "qbank_likely" for d in (state.get("decisions") or []))
+        autonomous_ok = state["autonomous"] and not has_likely
+        msg = "Ready to submit (contains best-guess answers — check them)" if has_likely else "Ready to submit"
+        if not (autonomous_ok or human.approve(msg)):
             return {"stopped_reason": "submit_declined"}
         if learn and hasattr(deps, "read_back"):
             all_dec = [_d2dec(d) for d in (state.get("decisions") or [])]

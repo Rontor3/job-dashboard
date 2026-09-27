@@ -78,8 +78,8 @@
     {"id": "drug_test_ok", "topic": "background", "atype": "bool", "question": "Are you willing to take a pre-employment drug test?", "wordings": ["Will you submit to a drug screening?"]},
     {"id": "ai_policy_ack", "topic": "background", "atype": "bool", "question": "Do you acknowledge our policy on using AI in this application?", "wordings": ["AI Policy for Application"]},
 
-    {"id": "gender", "topic": "demographics", "atype": "choice", "profile_ref": "gender", "question": "What is your gender?", "wordings": ["Gender", "Gender identity"], "synonyms": {"Male": ["Man", "Male", "Cisgender man"]}},
-    {"id": "race", "topic": "demographics", "atype": "choice", "profile_ref": "ethnicity", "question": "Please identify your race", "wordings": ["Race", "Race/Ethnicity", "What is your racial or ethnic background?"], "synonyms": {"Asian": ["Asian (Not Hispanic or Latino)", "Asian or Asian American"]}},
+    {"id": "gender", "topic": "demographics", "atype": "choice", "profile_ref": "gender", "question": "What is your gender?", "wordings": ["Gender", "Gender identity"]},
+    {"id": "race", "topic": "demographics", "atype": "choice", "profile_ref": "ethnicity", "question": "Please identify your race", "wordings": ["Race", "Race/Ethnicity", "What is your racial or ethnic background?"]},
     {"id": "hispanic_latino", "topic": "demographics", "atype": "bool", "question": "Are you Hispanic or Latino?", "wordings": ["Are you Hispanic/Latino?", "Hispanic or Latino ethnicity"]},
     {"id": "veteran_status", "topic": "demographics", "atype": "choice", "profile_ref": "veteran_status", "question": "What is your veteran status?", "wordings": ["Veteran Status", "Are you a protected veteran?"]},
     {"id": "disability_status", "topic": "demographics", "atype": "choice", "profile_ref": "disability_status", "question": "Do you have a disability?", "wordings": ["Disability Status", "Disability self-identification"]},

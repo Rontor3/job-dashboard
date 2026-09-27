@@ -140,7 +140,7 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
             n = search.strip().lower()
             return {"entries": [{"id": e["id"], "question": e["question"], "topic": e["topic"]}
                                 for e in qbank.entries(conn)
-                                if not n or n in e["question"].lower() or n in e["id"]]}
+                                if e["topic"] != "story" and (not n or n in e["question"].lower() or n in e["id"])]}
         finally:
             conn.close()
 
@@ -179,11 +179,11 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
             raise HTTPException(status_code=422, detail="save_as must be once, new or wording")
         conn = db()
         try:
-            row = conn.execute("SELECT label, kind FROM application_qa WHERE id=? AND job_id=?",
+            row = conn.execute("SELECT label, kind, source, answer FROM application_qa WHERE id=? AND job_id=?",
                                (row_id, job_id)).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail="question not found")
-            label, kind = row
+            label, kind, source, prior_answer = row
             if body.save_as == "new":
                 qbank.add_entry(conn, question=split_escape(label)[0] or label, kind=kind,
                                 answer=ans, embed=get_embed())
@@ -191,7 +191,11 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
                 if not body.entry_id or qbank.get_entry(conn, body.entry_id) is None:
                     raise HTTPException(status_code=422, detail="pick an existing entry")
                 link(conn, label, body.entry_id, "human", replace=True)
-            qa_store.mark_answered(conn, job_id, qa_store.norm_key(label), ans)
+            keep_source = source == "qbank_likely"
+            if keep_source:
+                same = (prior_answer or "").strip().casefold() == ans.casefold()
+                qa_store.set_outcome(conn, row_id, "kept" if same else "edited")
+            qa_store.mark_answered(conn, job_id, qa_store.norm_key(label), ans, keep_source=keep_source)
         finally:
             conn.close()
         return {"ok": True}

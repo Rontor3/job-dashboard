@@ -37,3 +37,13 @@ def test_qbank_setting_default_and_clamp(tmp_path):
     assert 0 < default <= 100
     qa_store.set_setting(conn, "qbank_confident_min", 150)
     assert qa_store.qbank_confident_min(conn) == 100
+
+
+def test_recall_survives_answer_field_blowup(qbank_conn, fake_embed, make_field, monkeypatch):
+    mem = QBankMemory(qbank_conn, embed=fake_embed, job={"location": "Noida"})
+    import career_agent.memory.qbank_memory as qm
+    monkeypatch.setattr(qm, "answer_field", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    f = make_field("Notice period", ref="#n")
+    decisions, still = mem.recall([f])
+    assert decisions == [] and [x.ref for x in still] == ["#n"]
+    assert mem.explain(f)["retrieval_kind"] == "none"

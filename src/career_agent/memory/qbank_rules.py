@@ -58,7 +58,7 @@ def company_in_list(c: RuleCtx):
     company = (c.job.get("company") or "").strip().lower()
     if not company or c.answer is None:
         return None
-    return "Yes" if any(x in company for x in _items(c.answer)) else "No"
+    return "Yes" if any(re.search(rf"\b{re.escape(x)}\b", company) for x in _items(c.answer)) else "No"
 
 
 def years_in_skill(c: RuleCtx):
@@ -69,10 +69,14 @@ def years_in_skill(c: RuleCtx):
             k, v = part.split("=", 1)
             table[k.strip().lower()] = v.strip()
     q = (c.question or "").lower()
+    best = None
     for skill, yrs in table.items():
-        if skill != "default" and re.search(rf"\b{re.escape(skill)}\b", q):
-            return yrs
-    return table.get("default")
+        if skill == "default":
+            continue
+        m = re.search(rf"\b{re.escape(skill)}\b", q)
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), yrs)
+    return best[1] if best else table.get("default")
 
 
 RULES = {f.__name__: f for f in (local_or_escape, empty_or_escape, country_is_home,

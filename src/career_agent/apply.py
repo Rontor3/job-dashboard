@@ -201,9 +201,13 @@ def main() -> None:
             _qllm = make_default_llm()
         except Exception as e:
             print(f"[warn] qbank LLM pick unavailable ({type(e).__name__}: {e})")
-    learn = QBankMemory(conn, llm=_qllm, contact=contact,
-                        job=(get_job(conn, args.job_id) if args.job_id else None) or {},
-                        high=qa_store.qbank_confident_min(conn) / 100)
+    try:
+        learn = QBankMemory(conn, llm=_qllm, contact=contact,
+                            job=(get_job(conn, args.job_id) if args.job_id else None) or {},
+                            high=qa_store.qbank_confident_min(conn) / 100)
+    except Exception as e:
+        print(f"[warn] question bank unavailable ({type(e).__name__}: {e})")
+        learn = None
 
     memory_router = None
     _qa_vault = None
@@ -222,7 +226,8 @@ def main() -> None:
         )
     except Exception as _me:
         print(f"[warn] memory router unavailable ({type(_me).__name__}: {_me})")
-    qa_rec.tracer = learn.explain
+    if learn is not None:
+        qa_rec.tracer = learn.explain
 
     settings = load_settings()
 

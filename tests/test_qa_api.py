@@ -80,6 +80,29 @@ def test_entries_search(env):
     assert "notice_period" in ids and "gender" not in ids
 
 
+def test_entries_excludes_story_topic(env):
+    c, _ = env
+    ids = [e["id"] for e in c.get("/api/qbank/entries").json()["entries"]]
+    assert "story_why_startups" not in ids
+
+
+def test_reply_to_likely_row_keeps_source_and_logs_calibration(env):
+    c, db = env
+    conn = init_db(db)
+    qa_store.record(conn, job_id=1, run_key="r", ref="#a", label="Notice period", kind="text",
+                    status="needs_answer", source="qbank_likely", answer="30",
+                    retrieval_kind="shortlist", retrieved_qkey="notice_period", retrieval_score=0.62)
+    rid = conn.execute("select max(id) from application_qa").fetchone()[0]
+    conn.close()
+    assert c.post(f"/api/jobs/1/questions/{rid}/reply", json={"answer": "45"}).status_code == 200
+    conn = init_db(db)
+    row = conn.execute("select source, outcome, status from application_qa where id=?", (rid,)).fetchone()
+    conn.close()
+    assert row == ("qbank_likely", "edited", "answered")
+    bands = {b["band"]: b for b in qa_store.retrieval_stats(init_db(db))["by_band"]}
+    assert bands["0.6–0.7"]["edited"] == 1
+
+
 def test_reply_once_closes_without_touching_bank(env):
     c, db = env
     rid = _open(db)
