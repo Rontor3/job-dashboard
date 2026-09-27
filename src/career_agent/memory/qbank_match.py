@@ -19,7 +19,7 @@ from .qbank_rules import RULES, RuleCtx, infer_shape, shape_ok
 
 # Starting values — re-derive with `scripts/qbank.py calibrate`.
 FLOOR = 0.55          # top score below this = no match (result discarded)
-MARGIN = 0.08         # top entry must lead the runner-up by this to skip the LLM
+MARGIN = 0.04         # top entry must lead the runner-up by this to skip the LLM
 DEFAULT_HIGH = 0.80   # runtime value: agent setting qbank_confident_min / 100
 
 CONFIDENT, LIKELY, NONE = "confident", "likely", "none"
