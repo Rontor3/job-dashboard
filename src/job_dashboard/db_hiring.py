@@ -68,6 +68,13 @@ def hiring_posts(conn, within_hours=24):
             continue
         seen.add(key)
         post["contacts"] = extract_contacts(post["text"], post["url"])
+        # Card state: researched (job row) → Draft email; CV made → link to it.
+        job = conn.execute("SELECT id, apply_url, apply_kind FROM jobs WHERE job_url = ?",
+                           (post["url"],)).fetchone()
+        post["job_id"], post["apply_url"], post["apply_kind"] = job or (None, None, None)
+        cv = job and conn.execute("SELECT id FROM resumes WHERE job_id = ? ORDER BY id DESC LIMIT 1",
+                                  (job[0],)).fetchone()
+        post["resume_id"] = cv[0] if cv else None
         out.append(post)
     return out
 

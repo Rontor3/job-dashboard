@@ -11,7 +11,8 @@ from job_dashboard.db import (
     init_db, hiring_posts as db_hiring_posts, dismiss_hiring_post, insert_job,
 )
 from job_dashboard.db_hiring import hiring_post
-from job_dashboard.artifacts_store import resumes_for_job, cover_letters_for_job
+from job_dashboard.artifacts_store import resumes_for_job, cover_letters_for_job, save_cover_letter
+from job_dashboard.db import job_detail
 from job_dashboard.apply import gmail_draft
 from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post_to_job, _regex_role
 from job_dashboard.linkedin.enrich import research_role, enriched_description
@@ -68,8 +69,9 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
 
     @router.post("/api/hiring/posts/{post_id}/promote")
     def promote(post_id: int):
-        """Turn a post into a jobs row so the per-job tailoring (résumé, company
-        research, cover letter, career_agent) runs on it. Idempotent."""
+        """"Research company": turn a post into a jobs row enriched from the
+        company's own pages, and draft the cover letter used as the email body.
+        Idempotent."""
         with db() as conn:
             post = hiring_post(conn, post_id)
             if post is None:
@@ -88,7 +90,17 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
                     job.apply_kind = "form" if extract_contacts(info["apply_url"])["forms"] else "external"
                 insert_job(conn, job)
                 row = conn.execute("SELECT id FROM jobs WHERE job_url = ?", (post["url"],)).fetchone()
-        return {"job_id": row[0]}
+            job_id = row[0]
+            need_letter = not cover_letters_for_job(conn, job_id)
+            detail = job_detail(conn, job_id) if need_letter else None
+        if need_letter:
+            # The research feeds the application email: draft the grounded cover
+            # letter now so "Draft email" opens instantly. Never raises.
+            from job_dashboard.api.letter_routes import DefaultLetterEngine
+            letter = DefaultLetterEngine(db_path).draft(detail)
+            with db() as conn:
+                save_cover_letter(conn, job_id, None, letter["body"], letter["company_facts_used"])
+        return {"job_id": job_id}
 
     @router.post("/api/hiring/posts/{post_id}/email-draft")
     def email_draft(post_id: int, to: str | None = None):
