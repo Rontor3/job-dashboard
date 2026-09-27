@@ -13,7 +13,7 @@ import json
 import re
 from datetime import datetime, timezone
 
-DEFAULT_SETTINGS = {"answer_confidence_min": "60", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
+DEFAULT_SETTINGS = {"answer_confidence_min": "60", "qbank_confident_min": "87", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
                     "browser_naukri_enabled": "0", "browser_wellfound_enabled": "0",
                     "browser_instahyre_enabled": "0", "browser_iimjobs_enabled": "0",
                     "browser_indeed_enabled": "0"}
@@ -163,9 +163,18 @@ def confidence_min(conn) -> int:
         return int(DEFAULT_SETTINGS["answer_confidence_min"])
 
 
+def qbank_confident_min(conn) -> int:
+    """Question-bank match score (0-100) at/above which a clear top match fills
+    without a review flag. Separate from answer_confidence_min (LLM drafts)."""
+    try:
+        return max(0, min(100, int(get_setting(conn, "qbank_confident_min"))))
+    except (TypeError, ValueError):
+        return int(DEFAULT_SETTINGS["qbank_confident_min"])
+
+
 # ── review + retrieval analytics ─────────────────────────────────────────────
 
-_MEMORY = ("learned", "semantic")      # sources meaning "memory answered this"
+_MEMORY = ("learned", "semantic", "qbank", "qbank_likely")   # sources meaning "memory answered this"
 
 
 def answers_used(conn, job_id: int) -> list[dict]:
