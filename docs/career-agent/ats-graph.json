@@ -186,22 +186,22 @@
     {
       "id": "code:dbx_type",
       "type": "code",
-      "label": "browser/credential_provider._dbx_type(page, formcontrolname, value) — bypasses Stencil shadow DOM"
+      "label": "browser/credential_provider._dbx_type(page, formcontrolname, value) \u2014 bypasses Stencil shadow DOM"
     },
     {
       "id": "code:perception_drop",
       "type": "code",
-      "label": "browser/perception.py — drops aria-hidden + disabled + tabindex=-1 fields before fill"
+      "label": "browser/perception.py \u2014 drops aria-hidden + disabled + tabindex=-1 fields before fill"
     },
     {
       "id": "code:remote_solve",
       "type": "code",
-      "label": "integrations/live_view/session.RemoteSolveSession — Tailscale CDP screencast, human solves on phone"
+      "label": "integrations/live_view/session.RemoteSolveSession \u2014 Tailscale CDP screencast, human solves on phone"
     },
     {
       "id": "code:credential_provider_register",
       "type": "code",
-      "label": "browser/credential_provider._darwinbox_register — email->Verify->OTP->password->T&C"
+      "label": "browser/credential_provider._darwinbox_register \u2014 email->Verify->OTP->password->T&C"
     },
     {
       "id": "vendor:phenom",
@@ -343,7 +343,7 @@
       "type": "site",
       "label": "MPL",
       "vendor": "vendor:darwinbox",
-      "outcome": "SUBMITTED 2026-09-13 — 3-step wizard (resume+bio+contact)",
+      "outcome": "SUBMITTED 2026-09-13 \u2014 3-step wizard (resume+bio+contact)",
       "note": "account: privrakshit@gmail.com; APM GG3 role"
     },
     {
@@ -351,7 +351,7 @@
       "type": "site",
       "label": "JPMorgan",
       "vendor": "vendor:oracle_cx",
-      "outcome": "hCaptcha at email step — remote-solved; OTP not yet handled",
+      "outcome": "hCaptcha at email step \u2014 remote-solved; OTP not yet handled",
       "note": "URL: .../job/210779996/apply/email"
     },
     {
@@ -362,7 +362,7 @@
     {
       "id": "boundary:no_captcha",
       "type": "boundary",
-      "label": "NEVER solve captcha programmatically — detect + escalate to human"
+      "label": "NEVER solve captcha programmatically \u2014 detect + escalate to human"
     },
     {
       "id": "boundary:submit_gated",
@@ -372,7 +372,7 @@
     {
       "id": "boundary:essays",
       "type": "boundary",
-      "label": "Essays are per-company — behavioral vault stores approach, not verbatim text"
+      "label": "Essays are per-company \u2014 behavioral vault stores approach, not verbatim text"
     },
     {
       "id": "boundary:secrets",
@@ -382,7 +382,7 @@
     {
       "id": "error:shadow_dom_inputs",
       "type": "error",
-      "symptom": "fill lands nowhere — inputs invisible to querySelectorAll",
+      "symptom": "fill lands nowhere \u2014 inputs invisible to querySelectorAll",
       "vendors": [
         "vendor:darwinbox"
       ],
@@ -461,7 +461,7 @@
     {
       "id": "error:apply_lazy_render",
       "type": "error",
-      "symptom": "Apply button not present on page load — appears after JS settle",
+      "symptom": "Apply button not present on page load \u2014 appears after JS settle",
       "vendors": [
         "vendor:phenom"
       ],
@@ -470,7 +470,7 @@
     {
       "id": "error:password_strict_rules",
       "type": "error",
-      "symptom": "password rejected — requires uppercase+lowercase+digit+special (@ etc)",
+      "symptom": "password rejected \u2014 requires uppercase+lowercase+digit+special (@ etc)",
       "vendors": [
         "vendor:darwinbox"
       ],
@@ -481,7 +481,7 @@
     {
       "id": "error:iframe_form",
       "type": "error",
-      "symptom": "real form inside cross-origin iframe — top-level perception sees nothing",
+      "symptom": "real form inside cross-origin iframe \u2014 top-level perception sees nothing",
       "vendors": [
         "vendor:mynexthire"
       ],
@@ -501,7 +501,7 @@
     {
       "id": "error:captcha_nav_as_cleared",
       "type": "error",
-      "symptom": "hCaptcha solve advances page (navigation) instead of dropping in-place token — is_cleared misses it",
+      "symptom": "hCaptcha solve advances page (navigation) instead of dropping in-place token \u2014 is_cleared misses it",
       "vendors": [
         "vendor:oracle_cx"
       ],
@@ -512,7 +512,7 @@
     {
       "id": "fix:dbx_type",
       "type": "fix",
-      "description": "Use _dbx_type(page, formcontrolname, value) — dispatches native input events on shadow host, bypassing querySelectorAll blindness",
+      "description": "Use _dbx_type(page, formcontrolname, value) \u2014 dispatches native input events on shadow host, bypassing querySelectorAll blindness",
       "code": "code:dbx_type",
       "status": "shipped"
     },
@@ -533,14 +533,14 @@
     {
       "id": "fix:escalate_otp",
       "type": "fix",
-      "description": "Stop with stopped_reason=gate:otp_email; notify human to check email and resume manually (Gmail OTP connector Phase C — not yet built)",
+      "description": "Stop with stopped_reason=gate:otp_email; notify human to check email and resume manually (Gmail OTP connector Phase C \u2014 not yet built)",
       "code": null,
       "status": "partial"
     },
     {
       "id": "fix:skip_honeypot",
       "type": "fix",
-      "description": "Perception drops aria-hidden, disabled, tabindex=-1 fields before fill — honeypot stays empty automatically",
+      "description": "Perception drops aria-hidden, disabled, tabindex=-1 fields before fill \u2014 honeypot stays empty automatically",
       "code": "code:perception_drop",
       "status": "shipped"
     },
@@ -859,6 +859,25 @@
       ],
       "daily_cap": 15,
       "notes": "Apply opens a modal: location autocomplete, relocate radio, optional 'What interests you about working for this company?' -> 'Send application' -> graphql CreateJobApplication. Logged out = signup form in the modal. Observed 2026-09-27."
+    },
+    {
+      "id": "code:qbank",
+      "type": "code",
+      "label": "Question bank (memory/qbank*.py)",
+      "status": "current",
+      "note": "canonical questions answered once on the dashboard; exact wording -> embedding shortlist -> LLM pick-or-none; bands confident/likely/none; spec docs/superpowers/specs/2026-09-26-question-bank-design.md"
+    },
+    {
+      "id": "code:learned_answers",
+      "type": "code",
+      "label": "learned_answers FTS recall keyed by label/purpose",
+      "status": "superseded"
+    },
+    {
+      "id": "code:semantic_behavior",
+      "type": "code",
+      "label": "Chroma behavioral_qa vault with 3-approval autonomy",
+      "status": "superseded"
     }
   ],
   "edges": [
@@ -1131,6 +1150,16 @@
       "from": "error:mapper_degree_graduation_year_collision",
       "to": "fix:graduation_year_purpose",
       "rel": "FIXED_BY"
+    },
+    {
+      "from": "code:qbank",
+      "to": "code:learned_answers",
+      "rel": "SUPERSEDES"
+    },
+    {
+      "from": "code:qbank",
+      "to": "code:semantic_behavior",
+      "rel": "SUPERSEDES"
     }
   ]
 }

@@ -37,6 +37,6 @@ PYTHONPATH=src python3 -m pytest tests/career_agent               # add RUN_BROW
 ## Where knowledge lives (query on demand — don't inline)
 
 - **ATS page-handling / archetypes** → `python3 scripts/ats_graph.py query <term>` (human map: `docs/career-agent/ats-knowledge-graph.md`)
-- **Learned answers** (recall-first, grows from phone edits) → `data/jobs.db` table `learned_answers`
+- **Question bank** (canonical questions, answered once on the dashboard Answers tab) → `data/jobs.db` tables `qbank_entry`/`qbank_wording`; maintenance `PYTHONPATH=src python3 scripts/qbank.py seed|migrate|calibrate`; spec `docs/superpowers/specs/2026-09-26-question-bank-design.md`
 - **Essay ingredient bank + writing style** (one unit per project, for drafting free-text) → `data/answer_style/ingredients.json`
 - **Architecture / design** → `docs/career-agent/`
