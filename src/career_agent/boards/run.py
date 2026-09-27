@@ -68,7 +68,12 @@ def _readable(f):
     """A field as the human should see it: unlabelled widgets (a react-select
     location picker) get a name derived from their ref instead of raw CSS."""
     if f.label and f.label.strip():
-        return f
+        label = f.label.strip()
+        if f.options and not label.endswith("?"):
+            # A statement heading a choice ("This job does not support the
+            # locations on your profile.") reads as a question to the human.
+            label = f"{label} Which applies to you?"
+        return dataclasses.replace(f, label=label)
     words = []
     for tok in re.findall(r"[A-Za-z]+", f.ref or ""):
         for w in re.findall(r"[A-Z]?[a-z]+", tok):
@@ -83,6 +88,9 @@ def _ask(needs, ctx):
     if not needs or ctx.get("probe"):
         return [], needs
     human = ctx["human"]
+    collector = getattr(human, "collector", None)
+    if collector is not None and ctx.get("ask_context") and hasattr(collector, "context"):
+        collector.context = ctx["ask_context"]       # "Wellfound — AI Engineer at VisionSure"
     try:
         answers = human.collect([_readable(f) for f in needs]) or {}
     except Exception as e:                 # no terminal / Telegram down: leave the gap open
@@ -146,6 +154,11 @@ def run_board(page, board, ctx):
         page.wait_for_timeout(3000)
         page = page.context.pages[-1]            # the entry click may open a new tab
         _interstitials(page, board)
+        try:
+            title = page.title().split("|")[0].strip()
+        except Exception:
+            title = ""
+        ctx["ask_context"] = f"{board.get('label', board['id'])} — {title}" if title else board.get("label")
 
         asked_optional = False
         for _ in range(MAX_STEPS):

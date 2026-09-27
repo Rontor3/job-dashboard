@@ -60,3 +60,11 @@ def test_unlabelled_widget_gets_a_readable_name_for_the_human():
     f = Field("#react-select-form-input--qualification.location.locationId-input", "text", "", False, [], None, None)
     assert _readable(f).label == "Location"
     assert _readable(_f("a", "Expected CTC")).label == "Expected CTC"
+
+
+
+def test_choice_statement_becomes_a_question():
+    from career_agent.boards.run import _readable
+    f = Field("group:loc", "radio_group", "This job does not support the locations on your profile.", False,
+              ["I am currently in…", "I can relocate to…"], None, None)
+    assert _readable(f).label.endswith("Which applies to you?")
