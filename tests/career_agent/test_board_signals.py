@@ -78,3 +78,10 @@ def test_challenge_and_logged_out_tells():
     assert not is_challenge(li, "https://www.linkedin.com/jobs/view/1", "Easy Apply")
     assert is_logged_out(wf, "https://wellfound.com/jobs/1", "Full Name* Email* Set a Password*")
     assert not is_logged_out(wf, "https://wellfound.com/jobs/1", "Send application")
+
+
+def test_cloudflare_additional_verification_is_a_challenge():
+    # Live 2026-09-27: agent-opened Indeed tab got this instead of the job page.
+    b = B("indeed.com")
+    assert is_challenge(b, "https://in.indeed.com/viewjob?jk=1", "Additional Verification Required Your Ray ID")
+    assert is_challenge(b, "https://in.indeed.com/viewjob?jk=1 https://challenges.cloudflare.com/cdn-cgi/x", "")

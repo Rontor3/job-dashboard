@@ -18,13 +18,21 @@ WIZARD = """<html><body><h1>Data Scientist</h1>
   <button onclick="fetch('/api/submit',{method:'POST',body:JSON.stringify({ctc:document.getElementById('ctc').value})})">Submit application</button>
 </div></body></html>"""
 
+GATED = """<html><body><h1>AI Engineer</h1>
+<button id="apply" onclick="document.getElementById('m').style.display='block'">Apply</button>
+<div id="m" style="display:none"><fieldset><legend>Where are you based?</legend>
+  <label><input type="radio" name="loc" value="in" onchange="s.disabled=false">I am currently in</label>
+  <label><input type="radio" name="loc" value="relocate" onchange="s.disabled=false">I can relocate to</label></fieldset>
+  <button id="s" disabled onclick="fetch('/api/submit',{method:'POST',body:document.querySelector('input[name=loc]:checked').value})">Send application</button>
+</div></body></html>"""
+
 CHALLENGE = "<html><body><h2>Please verify you are human</h2><button id='apply'>Apply</button></body></html>"
 
 
 def _board(submits, capture):
     return {"id": "board:test", "archetype": "form", "entry": {"selector": "#apply", "submits": submits},
             "confirm": [{"capture": capture, "status": 200}], "advance": ["Next"],
-            "final": ["Submit application"], "challenge": ["verify you are human"],
+            "final": ["Submit application", "Send application"], "challenge": ["verify you are human"],
             "logged_out": [], "interstitial": []}
 
 
@@ -112,3 +120,12 @@ def test_probe_wizard_reports_fields_without_typing(monkeypatch):
     out, hits = _run(WIZARD, _board("no", "/api/submit"), h, monkeypatch, probe=True, do_submit=True)
     assert out["stopped_reason"] == "probe" and hits == [] and h.cards == []
     assert [f["label"] for f in out["pending_human"]] == ["What is your expected CTC?"]
+
+
+def test_optional_field_gating_a_disabled_submit_is_asked(monkeypatch):
+    # Live Wellfound 2026-09-27: Send stays disabled until the (non-required)
+    # location radio is answered.
+    h = Human(answers={"Where are you based?": "I can relocate to"})
+    out, hits = _run(GATED, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
+    assert out["submitted"], out
+    assert hits == ["relocate"]
