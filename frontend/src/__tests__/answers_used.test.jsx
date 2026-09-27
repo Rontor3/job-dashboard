@@ -11,6 +11,8 @@ function mock(rows) {
       state.rows = state.rows.map((r) => (u.includes(`/${r.id}/`) ? { ...r, outcome: b.verdict === "wrong" ? "edited" : "kept" } : r));
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
     }
+    if (u.includes("/api/qbank/entries"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ entries: [{ id: "skill_years", question: "How many years of experience do you have with this skill?", topic: "experience" }] }) });
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ answers: state.rows }) });
   });
 }
@@ -27,15 +29,17 @@ test("lists filled answers with the entry they came from; marking correct posts 
   expect(JSON.parse(post[1].body)).toMatchObject({ verdict: "correct" });
 });
 
-test("marking wrong asks for the right answer and sends it", async () => {
+test("marking wrong lets you point it at the right questionnaire entry", async () => {
   mock([ROW]);
   render(<AnswersUsed jobId={1} />);
   fireEvent.click(await screen.findByRole("button", { name: /Wrong: Years of Python/ }));
-  fireEvent.change(screen.getByLabelText(/Correct answer for Years of Python/), { target: { value: "4" } });
+  const picker = screen.getByLabelText(/Right question for Years of Python/);
+  await waitFor(() => expect(global.fetch.mock.calls.some(([u]) => String(u).includes("/api/qbank/entries"))).toBe(true));
+  fireEvent.change(picker, { target: { value: "How many years of experience do you have with this skill?" } });
   fireEvent.click(screen.getByRole("button", { name: "Save fix" }));
   await waitFor(() => {
     const post = global.fetch.mock.calls.find(([u]) => String(u).includes("/review"));
-    expect(JSON.parse(post[1].body)).toEqual({ verdict: "wrong", answer: "4" });
+    expect(JSON.parse(post[1].body)).toEqual({ verdict: "wrong", entry_id: "skill_years" });
   });
   expect(await screen.findByText("marked wrong")).toBeInTheDocument();
 });

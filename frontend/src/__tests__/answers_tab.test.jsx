@@ -2,12 +2,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import AnswersTab from "../components/AnswersTab.jsx";
 
-const ANSWERS = [
-  { qkey: "notice period", question: "Notice period?", answer: "30 days", purpose: null, updated_at: "2026-09-01",
-    in_learned: true, in_vault: true, confidence: 1.0, approved_count: 3, autonomous: true, asked_in: 2 },
-  { qkey: "why us", question: "Why us?", answer: "fraud ML", purpose: null, updated_at: null,
-    in_learned: false, in_vault: true, confidence: 0.33, approved_count: 1, autonomous: false, asked_in: 0 },
-];
+const DATA = { unanswered: 1, answers: [
+  { id: "sponsorship_required", question: "Will you require visa sponsorship?", topic: "work_auth", atype: "bool",
+    answer: null, profile_ref: null, rule: null, rule_help: null, value: null, needs_input: true,
+    wordings: ["Will you require visa sponsorship?"], asked_in: 2 },
+  { id: "gender", question: "What is your gender?", topic: "demographics", atype: "choice", answer: null,
+    profile_ref: "gender", rule: null, rule_help: null, value: "Male", needs_input: false, wordings: ["Gender"], asked_in: 0 },
+  { id: "interviewed_before", question: "Have you interviewed with this company before?", topic: "background",
+    atype: "bool", answer: "none", profile_ref: null, rule: "company_in_list",
+    rule_help: "Companies where the answer is Yes, comma-separated — or 'none'.", value: "none",
+    needs_input: true, wordings: [], asked_in: 0 },
+]};
 
 function mock() {
   const calls = [];
@@ -15,10 +20,10 @@ function mock() {
     const u = String(url);
     calls.push([u, opts]);
     const ok = (b) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(b) });
-    if (u.includes("/api/agent-settings")) return ok({ answer_confidence_min: 60 });
-    if (u.includes("/api/ingredients")) return ok({ units: [{ id: "u1", title: "Fraud pipeline", org: "Tata AIG", type: "project" }], skills_pool: [] });
-    if (u.includes("/api/answers/applications")) return ok({ applications: [{ job_id: 1, title: "ML Eng", company: "Acme" }] });
-    if (u.includes("/api/answers")) return ok(opts && opts.method ? { ok: true } : { answers: ANSWERS });
+    if (u.includes("/api/agent-settings")) return ok({ answer_confidence_min: 60, qbank_confident_min: 80 });
+    if (u.includes("/api/ingredients")) return ok({ units: [], skills_pool: [] });
+    if (u.includes("/api/retrieval")) return ok({ total_fields: 0 });
+    if (u.includes("/api/answers")) return ok(opts && opts.method ? { ok: true } : DATA);
     return ok({});
   });
   return calls;
@@ -26,47 +31,50 @@ function mock() {
 
 beforeEach(() => { vi.restoreAllMocks(); });
 
-test("lists answers with trust state and asked-in count; ingredients are read-only", async () => {
+test("groups by topic, shows unanswered count, profile values and rule help", async () => {
   mock();
   render(<AnswersTab />);
-  expect(await screen.findByText("Notice period?")).toBeInTheDocument();
-  expect(screen.getByText("autonomous")).toBeInTheDocument();
-  expect(screen.getByText("1/3 approvals")).toBeInTheDocument();
-  expect(screen.getByText("asked in 2 applications")).toBeInTheDocument();
-  expect(screen.getByText("not asked yet")).toBeInTheDocument();
-  expect(await screen.findByText(/Ingredients \(1\) — read-only/)).toBeInTheDocument();
+  expect(await screen.findByText("1 unanswered")).toBeInTheDocument();
+  expect(screen.getByText("Work authorization")).toBeInTheDocument();
+  expect(screen.getByText(/from your profile \(gender\)/)).toBeInTheDocument();
+  expect(screen.getByText("Male")).toBeInTheDocument();
+  expect(screen.getByText(/comma-separated/)).toBeInTheDocument();
+  expect(screen.getByText(/asked in 2 applications/)).toBeInTheDocument();
 });
 
-test("editing saves through PUT with the question and new answer", async () => {
+test("answering a yes/no entry PUTs entry_id and answer", async () => {
   const calls = mock();
   render(<AnswersTab />);
-  await screen.findByText("Notice period?");
-  fireEvent.click(screen.getAllByRole("button", { name: "Edit" })[0]);
-  fireEvent.change(screen.getByLabelText("Edit answer"), { target: { value: "60 days" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.change(await screen.findByLabelText("Answer for Will you require visa sponsorship?"), { target: { value: "Yes" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save Will you require visa sponsorship?" }));
   await waitFor(() => {
-    const put = calls.find(([, o]) => o && o.method === "PUT" && !String(o.body).includes("answer_confidence_min"));
-    expect(JSON.parse(put[1].body)).toMatchObject({ question: "Notice period?", answer: "60 days" });
+    const put = calls.find(([u, o]) => u.includes("/api/answers") && o && o.method === "PUT");
+    expect(JSON.parse(put[1].body)).toEqual({ entry_id: "sponsorship_required", answer: "Yes" });
   });
 });
 
-test("delete asks for confirmation, then calls DELETE with the qkey", async () => {
+test("only-unanswered hides answered and profile entries", async () => {
+  mock();
+  render(<AnswersTab />);
+  await screen.findByText("What is your gender?");
+  fireEvent.click(screen.getByLabelText("Only unanswered"));
+  expect(screen.queryByText("What is your gender?")).toBeNull();
+  expect(screen.queryByText("Have you interviewed with this company before?")).toBeNull();
+  expect(screen.getByText("Will you require visa sponsorship?")).toBeInTheDocument();
+});
+
+test("remove asks first, then DELETEs by entry id", async () => {
   const calls = mock();
   vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<AnswersTab />);
-  await screen.findByText("Notice period?");
-  fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]);
-  await waitFor(() => expect(calls.some(([u, o]) => o && o.method === "DELETE" && u.includes("qkey=notice%20period"))).toBe(true));
+  await screen.findByText("What is your gender?");
+  fireEvent.click(screen.getByRole("button", { name: "Remove What is your gender?" }));
+  await waitFor(() => expect(calls.some(([u, o]) => o && o.method === "DELETE" && u.includes("entry_id=gender"))).toBe(true));
 });
 
-test("threshold saves via agent-settings", async () => {
-  const calls = mock();
+test("both thresholds are editable", async () => {
+  mock();
   render(<AnswersTab />);
-  const box = await screen.findByLabelText(/Minimum confidence/);
-  fireEvent.change(box, { target: { value: "75" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save threshold" }));
-  await waitFor(() => {
-    const put = calls.find(([u, o]) => u.includes("/api/agent-settings") && o && o.method === "PUT");
-    expect(JSON.parse(put[1].body)).toEqual({ answer_confidence_min: 75 });
-  });
+  expect((await screen.findByLabelText(/Minimum match score/)).value).toBe("80");
+  expect(screen.getByLabelText(/Minimum confidence to fill a generated answer/).value).toBe("60");
 });
