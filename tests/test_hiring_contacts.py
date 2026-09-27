@@ -59,8 +59,6 @@ def test_promote_then_draft_gate(tmp_path, monkeypatch):
     assert detail["company"] == "Fship" and detail["description"].startswith(POST)
     assert "Logistics." in detail["description"]
 
-    # no tailored résumé yet → refuse to draft
-    assert c.post(f"/api/hiring/posts/{post['id']}/email-draft").status_code == 409
 
 
 def test_research_role_reads_company_pages():
@@ -145,3 +143,28 @@ def test_judge_gate_skips_llm_for_non_ml_posts():
                       posted_at=None, keyword="k")
     assert judge(chef, lambda p: calls.append(1) or {"title": "Chef", "fit": 90}) == (False, None, "")
     assert calls == []
+
+
+def test_email_draft_opens_gmail(tmp_path, monkeypatch):
+    import job_dashboard.api.hiring_routes as R
+    from urllib.parse import parse_qs, urlparse
+    monkeypatch.setattr(R.gmail_draft, "authorized", lambda: False)
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), hiring_fetcher=_Fetcher(), embed_model=None))
+    c.post("/api/hiring/refresh")
+    pid = c.get("/api/hiring/posts").json()["posts"][0]["id"]
+    d = c.post(f"/api/hiring/posts/{pid}/email-draft?to=hiring@fship.in").json()
+    q = parse_qs(urlparse(d["gmail_url"]).query)
+    assert d["gmail_url"].startswith("https://mail.google.com/mail/?") and d["attached"] is None
+    assert q["to"] == ["hiring@fship.in"] and q["view"] == ["cm"] and "Hi Jane" in q["body"][0]
+    assert c.post(f"/api/hiring/posts/{pid}/email-draft?to=evil@x.com").status_code == 422
+
+    # authorized → real draft with attachment, opened by message id
+    monkeypatch.setattr(R.gmail_draft, "authorized", lambda: True)
+    monkeypatch.setattr(R, "CURRENT_RESUME", tmp_path / "cv.pdf")
+    (tmp_path / "cv.pdf").write_bytes(b"%PDF-1.4")
+    sent = []
+    monkeypatch.setattr(R.gmail_draft, "create_draft",
+                        lambda msg: sent.append(msg) or {"draft_id": "r1", "message_id": "abc123"})
+    d = c.post(f"/api/hiring/posts/{pid}/email-draft").json()
+    assert d["gmail_url"].endswith("#drafts?compose=abc123") and d["attached"] == "cv.pdf"
+    assert sent[0]["To"] == "hiring@fship.in" and sent[0].get_payload()[1].get_filename() == "cv.pdf"
