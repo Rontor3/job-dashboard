@@ -1,7 +1,7 @@
 from career_agent.boards.profiles import board_for, json_path, load_boards
 
 IDS = {"board:naukri", "board:linkedin", "board:indeed", "board:iimjobs",
-       "board:instahyre", "board:wellfound"}
+       "board:instahyre", "board:wellfound", "board:workatastartup"}
 
 
 def test_graph_has_all_boards_with_required_fields():
