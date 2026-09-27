@@ -69,6 +69,8 @@ def judge(post, role_fn=None):
     the ML/AI/DS family (``is_target_role``) and, when ``role_fn`` scores it
     against the résumé, the fit is >= MIN_FIT. No title -> judge the opening."""
     from job_dashboard.match.relevance import is_target_role
+    if not is_target_role(f"{post.poster_headline} {post.text}"):  # no ML/AI/DS token → skip the ~30s LLM call
+        return False, None, ""
     got = {}
     if role_fn is not None:
         try:

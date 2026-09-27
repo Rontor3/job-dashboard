@@ -35,3 +35,9 @@ test("dismiss removes the card", async () => {
   fireEvent.click(screen.getByLabelText("Dismiss"));
   await waitFor(() => expect(screen.queryByText("Jane Doe")).toBeNull());
 });
+
+test("shows the résumé-fit reason", async () => {
+  POSTS.posts[0].fit_reason = "Strong GenAI overlap";
+  render(<HiringSignals />);
+  await waitFor(() => expect(screen.getByText(/Strong GenAI overlap/)).toBeInTheDocument());
+});

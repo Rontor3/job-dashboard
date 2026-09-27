@@ -162,7 +162,9 @@ def text_key(text: str) -> str:
 
 _JUDGE_PROMPT = """You screen LinkedIn hiring posts for one candidate. Compare the post to the
 candidate's résumé and return ONLY JSON:
-{{"title": "role being hired for, \"\" if none", "company": "hiring company or \"\"",
+{{"title": "role being hired for, \"\" if none",
+  "company": "the HIRING company, never the poster's own name; \"\" if not stated",
+  "location_open": true or false (can the candidate take this role given its location/work mode and their authorization?),
   "fit": 0-100, "reason": "one short sentence: the main match or mismatch"}}
 Score fit on: same role family (ML/AI/data science), required years vs the candidate's,
 skills overlap, and whether the location/work mode is open to the candidate.
@@ -186,7 +188,10 @@ def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None
     out = {"title": _regex_role(post)["title"], "company": "", "fit": None, "reason": ""}
     try:
         if post_fn is None:
-            from job_dashboard.resume.resume_llm import _default_post as post_fn
+            import requests
+            # Résumé-sized prompt + a shared local Ollama (other sessions queue on
+            # it) runs past resume_llm's 60s default — allow 180s.
+            post_fn = lambda url, body: requests.post(url, json=body, timeout=180).json()  # noqa: E731
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         prompt = _JUDGE_PROMPT.format(
             constraints=constraints, resume=resume_text[:6000], poster=post.get("poster_name") or "",
@@ -196,9 +201,14 @@ def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None
             "format": "json", "options": {"temperature": 0.1, "num_ctx": 12288}})["response"])
         if isinstance(got.get("title"), str) and got["title"].strip():
             out["title"] = got["title"].strip()
-        out["company"] = str(got.get("company") or "").strip()
+        company = str(got.get("company") or "").strip()
+        out["company"] = "" if company.lower().startswith((post.get("poster_name") or "\0").lower()) else company
         fit = got.get("fit")
         out["fit"] = max(0, min(100, int(fit))) if isinstance(fit, (int, float)) else None
+        # Enforce the location cap in code: the model states the mismatch in its
+        # reason yet still scores 50-75 when skills match.
+        if got.get("location_open") is False and out["fit"] is not None:
+            out["fit"] = min(out["fit"], 30)
         out["reason"] = str(got.get("reason") or "").strip()
     except Exception:  # noqa: BLE001
         pass
