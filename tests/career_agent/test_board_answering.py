@@ -68,3 +68,26 @@ def test_choice_statement_becomes_a_question():
     f = Field("group:loc", "radio_group", "This job does not support the locations on your profile.", False,
               ["I am currently in…", "I can relocate to…"], None, None)
     assert _readable(f).label.endswith("Which applies to you?")
+
+
+
+def test_choice_with_trailing_value_is_one_question_with_both_answers():
+    from career_agent.boards.run import _ask
+    choice = Field("group:loc", "radio_group", "This job does not support the locations on your profile.", False,
+                   ["I am currently in…", "I can relocate to…"], None, None)
+    value = Field("#react-select-location-input", "text", "", False, [], None, None)
+    asked = []
+
+    class Human:
+        def collect(self, fields):
+            asked.append([f.label for f in fields])
+            return {fields[0].ref: "2 New Delhi"}
+
+        def get_events(self):
+            return {}
+
+    decisions, left = _ask([choice, value], {"human": Human()})
+    assert len(asked) == 1 and "e.g." in asked[0][0]
+    assert {d.ref: d.value for d in decisions} == {"group:loc": "I can relocate to…",
+                                                   "#react-select-location-input": "New Delhi"}
+    assert left == []

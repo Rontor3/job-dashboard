@@ -12,6 +12,7 @@ from job_dashboard.sources.cdp.session import Capture
 from ..orchestrator.answering import answer_fields, record_answers
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 from ..orchestrator.screen_review import apply_answers
+from ..browser.form_model import Field
 from .drivers import DRIVERS
 from .signals import confirmed, is_challenge, is_logged_out
 
@@ -83,6 +84,28 @@ def _readable(f):
     return dataclasses.replace(f, label=" ".join(words).capitalize() or "Unlabelled field")
 
 
+def _paired(needs):
+    """(choice, value): a choice whose options trail off ("I can relocate to…")
+    next to an unlabelled value field — one question for the human, not two."""
+    choice = next((f for f in needs if f.options
+                   and all(o.rstrip().endswith(("…", "...")) for o in f.options)), None)
+    value = next((f for f in needs if f.kind in ("text", "combobox")
+                  and not (f.label or "").strip()), None)
+    return (choice, value) if choice and value else (None, None)
+
+
+def _ask_pair(human, choice, value):
+    opts = "\n".join(f"  {i + 1}) {o}" for i, o in enumerate(choice.options))
+    q = Field("pair:" + choice.ref, "text",
+              f"{choice.label.strip()}\n{opts}\nReply with the number and the place, e.g. \"2 New Delhi\"",
+              True, [], None, None)
+    reply = str((human.collect([q]) or {}).get(q.ref) or "")
+    m = re.match(r"\s*(\d+)\s*[.,:)-]?\s*(.+)", reply)
+    if not m or not 1 <= int(m[1]) <= len(choice.options):
+        return {}
+    return {choice.ref: choice.options[int(m[1]) - 1], value.ref: m[2].strip()}
+
+
 def _ask(needs, ctx):
     """Human answers for `needs` -> (decisions, still unanswered). Probe never asks."""
     if not needs or ctx.get("probe"):
@@ -92,7 +115,13 @@ def _ask(needs, ctx):
     if collector is not None and ctx.get("ask_context") and hasattr(collector, "context"):
         collector.context = ctx["ask_context"]       # "Wellfound — AI Engineer at VisionSure"
     try:
-        answers = human.collect([_readable(f) for f in needs]) or {}
+        answers = {}
+        choice, value = _paired(needs)
+        if choice:
+            answers.update(_ask_pair(human, choice, value))
+        rest = [f for f in needs if f not in (choice, value)]
+        if rest:
+            answers.update(human.collect([_readable(f) for f in rest]) or {})
     except Exception as e:                 # no terminal / Telegram down: leave the gap open
         print(f"[board] could not ask the human ({type(e).__name__}); leaving {len(needs)} field(s) open", flush=True)
         answers = {}
