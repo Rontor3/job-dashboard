@@ -93,15 +93,32 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                         if lb.is_visible():
                             scope = lb
                             break
-                options = [t.strip() for t in
-                           scope.locator("[role=option]").all_text_contents() if t.strip()]
+                # react-select renders options as divs with "-option-" ids,
+                # not role=option; a type-ahead shows none until you type.
+                opt_sel = "[role=option], [id*='-option-']"
+
+                def _options():
+                    return [t.strip() for t in scope.locator(opt_sel).all_text_contents() if t.strip()]
+
+                options = _options()
+                if not options:
+                    try:
+                        target.locator(sel).first.fill(str(d.value), timeout=_SOFT_TIMEOUT_MS)
+                    except Exception:
+                        page.keyboard.type(str(d.value))
+                    page.wait_for_timeout(1500)     # remote autocomplete round-trip
+                    if scope is not target and not scope.is_visible():
+                        scope = target
+                    options = _options()
                 opt = _coerce_option(str(d.value), options)
                 if opt is None and matcher is not None:
                     opt = matcher(d.label, str(d.value), options)
                 if opt:
-                    scope.get_by_role("option", name=opt, exact=True).first.click(
-                        timeout=_SOFT_TIMEOUT_MS)
-                else:
+                    scope.locator(opt_sel).filter(has_text=opt).first.click(timeout=_SOFT_TIMEOUT_MS)
+                elif not target.locator(sel).first.evaluate(
+                        "e => !!e.closest('[role=dialog],[aria-modal=true],[class*=modal i]')"):
+                    # Escape closes the listbox — but inside a modal it closes
+                    # the whole application (Wellfound), so leave it open there.
                     page.keyboard.press("Escape")
             except Exception:
                 pass
@@ -156,7 +173,12 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
             try:
                 target.get_by_label(str(d.value), exact=True).check(timeout=_SOFT_TIMEOUT_MS)
             except Exception:
-                pass
+                # Styled radios hide the real <input>; click its visible label.
+                try:
+                    target.locator("label").filter(has_text=str(d.value)).first.click(
+                        timeout=_SOFT_TIMEOUT_MS)
+                except Exception:
+                    pass
         elif d.action == "check":
             # tick a single checkbox (a required attestation draft). Binding is
             # the SUBMIT, which stays human-gated — see screen_review.
