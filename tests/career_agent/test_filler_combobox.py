@@ -13,21 +13,32 @@ class FakeKeyboard:
 
 
 class FakeScope:                       # both a listbox locator and the page fallback
-    def __init__(self, sink, options): self.sink = sink; self._options = options
+    def __init__(self, sink, options, in_dialog=False, typed_options=None):
+        self.sink = sink; self._options = options
+        self._in_dialog = in_dialog; self._typed = typed_options
+    first = property(lambda self: self)
     def locator(self, sel): return self          # scope.locator("[role=option]")
     def all_text_contents(self): return list(self._options)
+    def filter(self, has_text=None): return FakeOption(self.sink, has_text)
+    def evaluate(self, js): return self._in_dialog
+    def is_visible(self): return True
+    def fill(self, value, timeout=None):         # type-ahead: options load after typing
+        self.sink.append(("type", value))
+        if self._typed is not None:
+            self._options = self._typed
     def get_by_role(self, role, name=None, exact=None):
         self.sink.append(("pick", name)); return FakeOption(self.sink, name)
 
 
 class FakeComboPage:
-    def __init__(self, options, lb_id="react-select-x-listbox"):
+    def __init__(self, options, lb_id="react-select-x-listbox", in_dialog=False, typed_options=None):
         self._options = options; self._lb = lb_id
         self.events = []; self.keyboard = FakeKeyboard(self.events)
+        self._scope = FakeScope(self.events, options, in_dialog, typed_options)
     def click(self, ref, timeout=None): self.events.append(("open", ref))
     def wait_for_timeout(self, ms): pass
     def get_attribute(self, ref, attr): return self._lb
-    def locator(self, sel): return FakeScope(self.events, self._options)
+    def locator(self, sel): return self._scope
 
 
 def _combo(ref, label, value):
@@ -70,3 +81,19 @@ def test_browserdeps_threads_matcher_to_filler(monkeypatch):
     m = lambda label, value, options: None
     BrowserDeps(option_matcher=m).fill(object(), [])
     assert seen["matcher"] is m
+
+
+
+def test_type_ahead_combobox_types_then_picks():
+    # Live Wellfound location picker: no options until the value is typed.
+    page = FakeComboPage([], typed_options=["New Delhi, Delhi", "New York"])
+    apply_decisions(page, [_combo("#loc", "", "New Delhi")])
+    assert ("type", "New Delhi") in page.events
+    assert ("click_option", "New Delhi, Delhi") in page.events
+
+
+def test_no_match_inside_a_modal_does_not_press_escape():
+    # Escape would close the whole application modal (Wellfound).
+    page = FakeComboPage(["Man", "Woman"], in_dialog=True)
+    apply_decisions(page, [_combo("#g", "Gender", "Male")])
+    assert ("press", "Escape") not in page.events

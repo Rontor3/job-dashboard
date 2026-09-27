@@ -9,6 +9,7 @@ try:
     from job_dashboard.apply.screening import draft_screening_answer
 except Exception:
     draft_screening_answer = None      # answerer unavailable -> free-text escalates
+from .screen_review import PROSE_PURPOSES
 
 
 @dataclass
@@ -193,7 +194,7 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
             else:
                 answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
             continue
-        if f.kind in ("textarea", "text") and f.purpose is None:
+        if f.kind in ("textarea", "text") and (f.purpose is None or f.purpose in PROSE_PURPOSES):
             if (_NOT_A_QUESTION.search(f.label or "")
                     or not _looks_like_question(f.label)
                     or draft_screening_answer is None):

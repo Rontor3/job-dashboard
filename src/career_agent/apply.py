@@ -88,6 +88,8 @@ def main() -> None:
     ap.add_argument("--db", default="data/jobs.db")
     ap.add_argument("--resume-version", default="Rakshit_Singh_draft1")
     ap.add_argument("--submit", action="store_true")
+    ap.add_argument("--review", action="store_true",
+                    help="fill every answer, stop before the submit click and leave the tab open for you")
     ap.add_argument("--probe", action="store_true",
                     help="job boards only: open the form, report what would be filled, never type or submit")
     ap.add_argument("--autonomous", action="store_true")
@@ -275,7 +277,19 @@ def main() -> None:
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
     try:
-        resp = page.goto(args.url)
+        # Reuse a tab the human already opened on this job: bot-challenged boards
+        # (Indeed's Cloudflare) pass a human-opened tab but block a fresh one.
+        _open = _existing_tab(context, page, args.url)
+        if _open is not None:
+            print(f"[browser] reusing your open tab -> {_open.url[:90]}", flush=True)
+            try:
+                page.close()
+            except Exception:
+                pass
+            page, resp = _open, None
+            page.bring_to_front()
+        else:
+            resp = page.goto(args.url)
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
@@ -292,6 +306,11 @@ def main() -> None:
         if jd_text and 'ctx' in dir():
             try:
                 ctx.resume_text = jd_text[:2000]
+                # A job not in jobs.db (e.g. a board link pasted directly) has an
+                # empty description; without the page text the judge invents the
+                # company's business in free-text answers.
+                if not (ctx.job or {}).get("description"):
+                    ctx.job = {**(ctx.job or {}), "title": page.title(), "description": jd_text}
             except Exception:
                 pass
         prepare(page)                          # clear cookie/idle overlays
@@ -449,7 +468,8 @@ def main() -> None:
             pass
         print(out)
     finally:
-        close(pw, context, page=page, cdp_browser=_cdp_browser)
+        # --review leaves the filled tab open for the human to check and submit.
+        close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
 
 
 def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None:
@@ -487,20 +507,40 @@ def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None
         print(f"[memory] pending update failed ({_e})", flush=True)
 
 
+def _existing_tab(context, new_page, url):
+    """An already-open tab showing the same job (same host, path and query), else None."""
+    from urllib.parse import urlparse
+    want = urlparse(url)
+    for pg in getattr(context, "pages", []):
+        if pg is new_page:
+            continue
+        got = urlparse(pg.url or "")
+        if (got.netloc, got.path.rstrip("/"), got.query) == (want.netloc, want.path.rstrip("/"), want.query):
+            return pg
+    return None
+
+
 def _run_board(board, page, args, *, option_matcher=None, limiter=None, **ctx) -> dict:
     """Board job -> boards.run_board under the board's daily cap; records the outcome."""
     from .boards.run import run_board
     from .orchestrator.browser_deps import BrowserDeps
     from .reliability.rate_limiter import RateLimiter, map_outcome
     limiter = limiter or RateLimiter(domain_day_cap=board["daily_cap"])
-    if not args.probe and limiter.check(board["id"]) != "ok":
+    review = getattr(args, "review", False)
+    if not (args.probe or review) and limiter.check(board["id"]) != "ok":
         return {"url": args.url, "job_id": args.job_id, "board": board["id"], "submitted": False,
                 "stopped_reason": "daily_cap", "decisions": [], "pending_human": []}
     print(f"[board] {board['id']} ({board['archetype']}) probe={args.probe}", flush=True)
     out = run_board(page, board, {**ctx, "deps": BrowserDeps(option_matcher=option_matcher),
-                                  "do_submit": args.submit and not args.probe, "probe": args.probe,
+                                  "do_submit": args.submit and not (args.probe or review), "probe": args.probe,
                                   "autonomous": args.autonomous, "job_id": args.job_id})
-    if not args.probe:
+    if review and out.get("stopped_reason") == "dry_run":
+        # Stopped before the irreversible click: either the filled form waits at
+        # its final button, or (one-click boards) the Apply click itself submits.
+        filled = bool(out.get("decisions")) or board["entry"].get("submits", "no") == "no"
+        out["stopped_reason"] = "ready_for_review" if filled else "apply_is_one_click"
+        print(f"[review] {out['stopped_reason']}: left open for you -> {out['url']}", flush=True)
+    if not (args.probe or review):
         limiter.record(board["id"], map_outcome(out["stopped_reason"] or "error"))
     return out
 

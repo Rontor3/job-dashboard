@@ -878,6 +878,34 @@
       "type": "code",
       "label": "Chroma behavioral_qa vault with 3-approval autonomy",
       "status": "superseded"
+    },
+    {
+      "id": "board:workatastartup",
+      "type": "board",
+      "label": "Work at a Startup (YC)",
+      "domains": [
+        "workatastartup.com"
+      ],
+      "archetype": "form",
+      "entry": {
+        "selector": "a:text-is(\"Apply\"), button:text-is(\"Apply\")",
+        "submits": "no"
+      },
+      "final": [
+        "Send"
+      ],
+      "confirm": [
+        {
+          "capture": "workatastartup.com/apply",
+          "path": "success",
+          "match": "true"
+        }
+      ],
+      "logged_out": [
+        "account.ycombinator.com"
+      ],
+      "daily_cap": 15,
+      "notes": "Apply opens a modal 'Reach out to <founder> at <company>': one message textarea (min 50 chars; human-written preferred), relocation checkbox when location mismatches, Close/Send (Send disabled until 50 chars). Send = POST /apply {company_id, job_id, message} -> {success:true, job_ids}. Traced from a human apply 2026-09-27."
     }
   ],
   "edges": [

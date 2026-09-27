@@ -44,7 +44,8 @@ _RULES: list[tuple[str, str]] = [
     # (which would fill it with the company name). Match it early as motivation
     # so judgment tier writes a proper cover-letter blurb instead.
     (r"\binterest (working|joining|in this)\b|\blet.{1,20}know about your interest\b"
-     r"|\bmessage to (the )?(hiring|recruiter|team)\b|\bhiring manager message\b", "motivation"),
+     r"|\bmessage to (the )?(hiring|recruiter|team)\b|\bhiring manager message\b"
+     r"|\bstart a conversation with\b|\binterests? you\b", "motivation"),
     # Dial-code selects ("Phone country code") must precede both the phone and
     # country rules — they want "+91", not the number or the country name.
     (r"\bcountry (dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
