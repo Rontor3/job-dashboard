@@ -63,7 +63,7 @@ def _answers(fields, board, driver, cap, ctx):
     decisions += [FillDecision(f.ref, f.kind, f.label, pre[f.ref], _action_for_kind(f.kind), "board_prefill")
                   for f in needs if f.ref in pre]
     needs = [f for f in needs if f.ref not in pre and f.required]
-    if needs:
+    if needs and not ctx.get("probe"):
         human = ctx["human"]
         answers = human.collect(needs) or {}
         record_answers(needs, answers, ctx, human.get_events() or {})
@@ -91,6 +91,13 @@ def run_board(page, board, ctx):
     irreversible = board["entry"].get("submits", "no") != "no"
 
     with Capture(page.context, _needles(board)) as cap:
+        if irreversible and ctx.get("probe"):
+            # Probe never clicks an entry that itself submits: just prove it is there.
+            try:
+                found = page.locator(board["entry"]["selector"]).first.is_visible()
+            except Exception:
+                found = False
+            return stop("probe" if found else "no_entry", page)
         if irreversible and not _authorized(ctx, board, page, []):
             return stop("dry_run", page)
         try:
@@ -109,6 +116,13 @@ def run_board(page, board, ctx):
                 return stop(blocked, page)
             fields = driver.fields(page, board, ctx, cap)
             decisions, needs = _answers(fields, board, driver, cap, ctx)
+            if ctx.get("probe"):
+                # Probe: report what would be filled / asked on the first form
+                # page, then stop — nothing typed, nothing submitted.
+                done_decisions += decisions
+                res["pending_human"] = [dataclasses.asdict(f) for f in needs]
+                res["fields"] = [dataclasses.asdict(f) for f in fields]
+                return stop("probe", page)
             if needs:
                 res["pending_human"] = [dataclasses.asdict(f) for f in needs]
                 return stop("needs_human", page)

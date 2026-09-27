@@ -100,3 +100,15 @@ def test_wizard_missing_required_answer_stops_before_submit(monkeypatch):
 def test_challenge_page_stops_immediately(monkeypatch):
     out, hits = _run(CHALLENGE, _board("yes", "/api/apply"), Human(), monkeypatch, do_submit=True)
     assert out["stopped_reason"] == "challenge" and hits == []
+
+
+def test_probe_one_click_proves_entry_without_clicking(monkeypatch):
+    out, hits = _run(ONE_CLICK, _board("yes", "/api/apply"), Human(), monkeypatch, probe=True)
+    assert out["stopped_reason"] == "probe" and hits == []
+
+
+def test_probe_wizard_reports_fields_without_typing(monkeypatch):
+    h = Human(answers={"What is your expected CTC?": "30"})
+    out, hits = _run(WIZARD, _board("no", "/api/submit"), h, monkeypatch, probe=True, do_submit=True)
+    assert out["stopped_reason"] == "probe" and hits == [] and h.cards == []
+    assert [f["label"] for f in out["pending_human"]] == ["What is your expected CTC?"]
