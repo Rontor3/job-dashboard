@@ -226,6 +226,9 @@ def retrieval_stats(conn) -> dict:
         return {"avg_confidence": round(r[0], 1) if r[0] is not None else None, "count": r[1]}
 
     gen = q("SELECT status, COUNT(*) FROM application_qa WHERE source='judgment' GROUP BY status")
+    bands = q("""SELECT MIN(CAST(retrieval_score * 10 AS INT), 9), SUM(outcome='kept'), SUM(outcome='edited')
+                 FROM application_qa WHERE source IN ('qbank', 'qbank_likely')
+                 AND retrieval_score IS NOT NULL AND outcome IS NOT NULL GROUP BY 1 ORDER BY 1""")
     return {
         "total_fields": total,
         "retrieval_hits": hits, "hit_rate": round(hits / total, 3) if total else None,
@@ -236,6 +239,8 @@ def retrieval_stats(conn) -> dict:
                      "wrong_rate": round(edited / (kept + edited), 3) if kept + edited else None},
         "top_wrong_entries": [{"qkey": k, "edited": e, "kept": kp or 0} for k, e, kp in wrong],
         "generation": {"by_status": dict(gen), "kept": avg("kept"), "edited": avg("edited")},
+        "by_band": [{"band": f"{b / 10:.1f}–{(b + 1) / 10:.1f}", "kept": k or 0, "edited": e or 0,
+                     "edit_rate": round((e or 0) / ((k or 0) + (e or 0)), 3)} for b, k, e in bands],
     }
 
 
