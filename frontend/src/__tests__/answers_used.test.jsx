@@ -50,3 +50,15 @@ test("renders nothing when the agent filled nothing", async () => {
   await waitFor(() => expect(global.fetch).toHaveBeenCalled());
   expect(container.textContent).toBe("");
 });
+
+test("Save fix button is disabled until an entry is picked", async () => {
+  mock([ROW]);
+  render(<AnswersUsed jobId={1} />);
+  fireEvent.click(await screen.findByRole("button", { name: /Wrong: Years of Python/ }));
+  const saveBtn = screen.getByRole("button", { name: "Save fix" });
+  expect(saveBtn).toBeDisabled();
+  const picker = screen.getByLabelText(/Right question for Years of Python/);
+  await waitFor(() => expect(global.fetch.mock.calls.some(([u]) => String(u).includes("/api/qbank/entries"))).toBe(true));
+  fireEvent.change(picker, { target: { value: "How many years of experience do you have with this skill?" } });
+  await waitFor(() => expect(saveBtn).not.toBeDisabled());
+});

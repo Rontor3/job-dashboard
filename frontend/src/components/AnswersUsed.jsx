@@ -30,6 +30,7 @@ export default function AnswersUsed({ jobId }) {
                 <EntryPicker id={`fix-${r.id}`} label={`Right question for ${r.label}`}
                              onChange={(entry) => setFixing({ id: r.id, entry })} />
                 <button style={{ ...BTN, background: "var(--green)", color: "#fff", whiteSpace: "nowrap" }}
+                        disabled={!fixing.entry}
                         onClick={() => send(r.id, "wrong", fixing.entry)}>Save fix</button>
               </div>
             ) : r.outcome ? (

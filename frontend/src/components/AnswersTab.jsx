@@ -59,6 +59,7 @@ function Ingredients() {
 
 function Entry({ a, onSave, onRemove }) {
   const [draft, setDraft] = useState(a.answer ?? "");
+  const filteredWordings = a.wordings.filter((w) => w !== a.question);
   const input = a.atype === "bool"
     ? <select aria-label={`Answer for ${a.question}`} value={draft} onChange={(e) => setDraft(e.target.value)} style={{ ...INPUT, width: 120 }}>
         <option value="">—</option><option>Yes</option><option>No</option>
@@ -86,10 +87,10 @@ function Entry({ a, onSave, onRemove }) {
       <details style={{ marginTop: 4 }}>
         <summary style={{ fontSize: 11, color: "var(--ink-soft)", cursor: "pointer" }}>
           {a.asked_in ? `asked in ${a.asked_in} application${a.asked_in === 1 ? "" : "s"}` : "not asked yet"}
-          {` · ${a.wordings.length} wording${a.wordings.length === 1 ? "" : "s"}`}
+          {` · ${filteredWordings.length} wording${filteredWordings.length === 1 ? "" : "s"}`}
         </summary>
         <ul style={{ margin: "2px 0 0", paddingLeft: 16, fontSize: 11, color: "var(--ink-soft)" }}>
-          {a.wordings.filter((w) => w !== a.question).map((w) => <li key={w}>{w}</li>)}
+          {filteredWordings.map((w) => <li key={w}>{w}</li>)}
         </ul>
       </details>
     </div>
