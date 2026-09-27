@@ -26,6 +26,8 @@ GATED = """<html><body><h1>AI Engineer</h1>
   <button id="s" disabled onclick="fetch('/api/submit',{method:'POST',body:document.querySelector('input[name=loc]:checked').value})">Send application</button>
 </div></body></html>"""
 
+PREOPEN = WIZARD.replace('<div id="m" style="display:none">', '<div id="m" role="dialog">')
+
 CHALLENGE = "<html><body><h2>Please verify you are human</h2><button id='apply'>Apply</button></body></html>"
 
 
@@ -129,3 +131,12 @@ def test_optional_field_gating_a_disabled_submit_is_asked(monkeypatch):
     out, hits = _run(GATED, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
     assert out["submitted"], out
     assert hits == ["relocate"]
+
+
+def test_apply_modal_already_open_on_load_is_still_the_form(monkeypatch):
+    # Live Wellfound 2026-09-27: the interrupted application re-opened on page
+    # load, so the pre-click baseline swallowed every form field.
+    h = Human(answers={"What is your expected CTC?": "30"})
+    out, hits = _run(PREOPEN, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
+    assert out["submitted"], out
+    assert json.loads(hits[0]) == {"ctc": "30"}
