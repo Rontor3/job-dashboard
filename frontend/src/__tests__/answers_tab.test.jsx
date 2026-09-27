@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import AnswersTab from "../components/AnswersTab.jsx";
 
-const DATA = { unanswered: 1, answers: [
+const DATA = { unanswered: 2, answers: [
+  { id: "story_why_startups", question: "Why do you want to work at an early-stage startup?", topic: "story",
+    atype: "text", answer: null, profile_ref: null, rule: null, rule_help: null, value: null,
+    needs_input: true, wordings: [], asked_in: 0 },
   { id: "sponsorship_required", question: "Will you require visa sponsorship?", topic: "work_auth", atype: "bool",
     answer: null, profile_ref: null, rule: null, rule_help: null, value: null, needs_input: true,
     wordings: ["Will you require visa sponsorship?"], asked_in: 2 },
@@ -34,7 +37,7 @@ beforeEach(() => { vi.restoreAllMocks(); });
 test("groups by topic, shows unanswered count, profile values and rule help", async () => {
   mock();
   render(<AnswersTab />);
-  expect(await screen.findByText("1 unanswered")).toBeInTheDocument();
+  expect(await screen.findByText("2 unanswered")).toBeInTheDocument();
   expect(screen.getByText("Work authorization")).toBeInTheDocument();
   expect(screen.getByText(/from your profile \(gender\)/)).toBeInTheDocument();
   expect(screen.getByText("Male")).toBeInTheDocument();
@@ -77,4 +80,13 @@ test("both thresholds are editable", async () => {
   render(<AnswersTab />);
   expect((await screen.findByLabelText(/Minimum match score/)).value).toBe("80");
   expect(screen.getByLabelText(/Minimum confidence to fill a generated answer/).value).toBe("60");
+});
+
+test("story section comes first and uses a multi-line box", async () => {
+  mock();
+  render(<AnswersTab />);
+  const box = await screen.findByLabelText("Answer for Why do you want to work at an early-stage startup?");
+  expect(box.tagName).toBe("TEXTAREA");
+  const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
+  expect(headings[0]).toBe("Your story (used to write essays)");
 });

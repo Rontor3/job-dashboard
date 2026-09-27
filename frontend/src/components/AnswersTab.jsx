@@ -8,6 +8,7 @@ const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "5px 12p
 const INPUT = { fontSize: 12, padding: "6px 10px", border: "0.5px solid var(--hairline)", borderRadius: 8, background: "var(--canvas)", color: "var(--ink)", width: "100%", boxSizing: "border-box" };
 const CARD = { background: "var(--card)", border: "0.5px solid var(--hairline)", borderRadius: 10, padding: "10px 14px" };
 const TOPICS = [
+  ["story", "Your story (used to write essays)"],
   ["work_auth", "Work authorization"], ["compensation", "Compensation"], ["availability", "Availability"],
   ["location", "Location"], ["experience", "Experience & education"], ["background", "Background"],
   ["demographics", "Demographics (voluntary)"], ["misc", "Other"],
@@ -60,7 +61,9 @@ function Ingredients() {
 function Entry({ a, onSave, onRemove }) {
   const [draft, setDraft] = useState(a.answer ?? "");
   const filteredWordings = a.wordings.filter((w) => w !== a.question);
-  const input = a.atype === "bool"
+  const input = a.topic === "story"
+    ? <textarea aria-label={`Answer for ${a.question}`} value={draft} onChange={(e) => setDraft(e.target.value)} rows={5} style={INPUT} />
+    : a.atype === "bool"
     ? <select aria-label={`Answer for ${a.question}`} value={draft} onChange={(e) => setDraft(e.target.value)} style={{ ...INPUT, width: 120 }}>
         <option value="">—</option><option>Yes</option><option>No</option>
       </select>
