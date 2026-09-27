@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { hiringPosts, refreshHiring, dismissHiring, promoteHiring, draftHiringEmail } from "../api.js";
+import { hiringPosts, refreshHiring, dismissHiring, promoteHiring, draftHiringEmail, createHiringCv } from "../api.js";
 
 const CHIP = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)",
   border: "0.5px solid var(--hairline)", color: "var(--ink-soft)", textDecoration: "none" };
@@ -38,8 +38,15 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
   };
   const [note, setNote] = useState({});
   const say = (id, msg) => setNote((n) => ({ ...n, [id]: msg }));
-  const onTailor = (id) =>
-    say(id, "Reading company pages…") || promoteHiring(id).then((d) => onOpenJob(d.job_id)).catch((e) => say(id, e.message));
+  const onResearch = (id) => {
+    say(id, "Researching company & drafting letter… (1–2 min)");
+    promoteHiring(id).then(() => { say(id, "Research done"); load(); }).catch((e) => say(id, e.message));
+  };
+  const onCv = (id) => {
+    say(id, "Building CV for this job… (1–3 min)");
+    createHiringCv(id).then((d) => { say(id, "CV ready"); window.open(d.pdf_url, "_blank"); load(); })
+      .catch((e) => say(id, e.message));
+  };
   const onDraft = (id, to) => {
     // Open the tab inside the click so the browser doesn't block it as a popup.
     const tab = window.open("about:blank", "_blank");
@@ -99,9 +106,22 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
           <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "8px 0" }}>{p.text}</div>
           <Contacts c={p.contacts} onEmail={(e) => onDraft(p.id, e)} />
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-            <button style={BTN} onClick={() => onTailor(p.id)}>Tailor CV</button>
-            {p.contacts?.emails?.length > 0 && (
-              <button style={{ ...BTN, background: "var(--ink)" }} onClick={() => onDraft(p.id)}>Draft email</button>
+            {!p.job_id ? (
+              <button style={BTN} onClick={() => onResearch(p.id)}>Research company</button>
+            ) : p.contacts?.emails?.length > 0 ? (
+              <button style={BTN} onClick={() => onDraft(p.id)}>Draft email</button>
+            ) : p.apply_url ? (
+              <a href={p.apply_url} target="_blank" rel="noreferrer" style={{ ...BTN, textDecoration: "none" }}>Apply ↗</a>
+            ) : null}
+            <button style={{ ...BTN, background: "var(--ink)" }} onClick={() => onCv(p.id)}>Create CV</button>
+            {p.resume_id && (
+              <a href={`/api/resumes/${p.resume_id}/pdf`} target="_blank" rel="noreferrer"
+                style={{ fontSize: 11, color: "var(--green)" }}>CV ↗</a>
+            )}
+            {p.job_id && (
+              <button onClick={() => onOpenJob(p.job_id)}
+                style={{ border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "var(--ink-faint)" }}>
+                View research</button>
             )}
             {note[p.id] && <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>{note[p.id]}</span>}
           </div>

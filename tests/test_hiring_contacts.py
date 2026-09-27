@@ -47,17 +47,27 @@ def test_promote_then_draft_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(R, "extract_role", lambda p: C._regex_role(p))
     monkeypatch.setattr(R, "research_role", lambda *a, **k: {
         "company_about": "Logistics.", "role_details": "", "apply_url": "", "website": "", "sources": ["s"]})
+    import job_dashboard.api.letter_routes as L
+    from job_dashboard.letter.company_research import ResearchBundle
+    monkeypatch.setattr(L, "company_research", lambda *a, **k: ResearchBundle(facts=[], queries_used=[], empty=True))
     app = create_app(db_path=str(tmp_path / "t.db"), hiring_fetcher=_Fetcher(), embed_model=None)
     c = TestClient(app)
     c.post("/api/hiring/refresh")
     post = c.get("/api/hiring/posts").json()["posts"][0]
     assert post["contacts"]["emails"] == ["hiring@fship.in"]
+    assert post["job_id"] is None                          # card shows "Research company"
 
     job_id = c.post(f"/api/hiring/posts/{post['id']}/promote").json()["job_id"]
     assert c.post(f"/api/hiring/posts/{post['id']}/promote").json()["job_id"] == job_id  # idempotent
     detail = c.get(f"/api/jobs/{job_id}").json()
     assert detail["company"] == "Fship" and detail["description"].startswith(POST)
     assert "Logistics." in detail["description"]
+    from job_dashboard.db import init_db
+    from job_dashboard.artifacts_store import cover_letters_for_job
+    letters = cover_letters_for_job(init_db(str(tmp_path / "t.db")), job_id)
+    assert len(letters) == 1 and letters[0]["body"]              # drafted once, reused
+    listed = c.get("/api/hiring/posts").json()["posts"][0]
+    assert listed["job_id"] == job_id and listed["apply_kind"]   # card flips to "Draft email"
 
 
 
