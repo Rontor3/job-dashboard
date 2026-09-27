@@ -50,3 +50,13 @@ def test_phone_country_code_label_and_value():
     p = NS(contact={"phone": "+91 7565052330"})
     assert resolve("phone_country_code", p) == "+91"
     assert resolve("phone_country_code", NS(contact={"phone": "7565052330"})) is None
+
+
+
+def test_what_interests_you_about_the_company_is_motivation_not_employer():
+    # Live Wellfound 2026-09-27: filled with the current employer "Tata AIG".
+    from career_agent.browser.form_model import guess_purpose
+    for label in ("What interests you about working for this company?",
+                  "Why does Acme interest you?", "What interests you about this role?"):
+        assert guess_purpose(label, "textarea") == "motivation", label
+    assert guess_purpose("Company name", "text") == "employer"
