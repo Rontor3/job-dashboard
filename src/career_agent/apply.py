@@ -88,6 +88,8 @@ def main() -> None:
     ap.add_argument("--db", default="data/jobs.db")
     ap.add_argument("--resume-version", default="Rakshit_Singh_draft1")
     ap.add_argument("--submit", action="store_true")
+    ap.add_argument("--review", action="store_true",
+                    help="fill every answer, stop before the submit click and leave the tab open for you")
     ap.add_argument("--probe", action="store_true",
                     help="job boards only: open the form, report what would be filled, never type or submit")
     ap.add_argument("--autonomous", action="store_true")
@@ -438,7 +440,8 @@ def main() -> None:
             pass
         print(out)
     finally:
-        close(pw, context, page=page, cdp_browser=_cdp_browser)
+        # --review leaves the filled tab open for the human to check and submit.
+        close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
 
 
 def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None:
@@ -482,14 +485,21 @@ def _run_board(board, page, args, *, option_matcher=None, limiter=None, **ctx) -
     from .orchestrator.browser_deps import BrowserDeps
     from .reliability.rate_limiter import RateLimiter, map_outcome
     limiter = limiter or RateLimiter(domain_day_cap=board["daily_cap"])
-    if not args.probe and limiter.check(board["id"]) != "ok":
+    review = getattr(args, "review", False)
+    if not (args.probe or review) and limiter.check(board["id"]) != "ok":
         return {"url": args.url, "job_id": args.job_id, "board": board["id"], "submitted": False,
                 "stopped_reason": "daily_cap", "decisions": [], "pending_human": []}
     print(f"[board] {board['id']} ({board['archetype']}) probe={args.probe}", flush=True)
     out = run_board(page, board, {**ctx, "deps": BrowserDeps(option_matcher=option_matcher),
-                                  "do_submit": args.submit and not args.probe, "probe": args.probe,
+                                  "do_submit": args.submit and not (args.probe or review), "probe": args.probe,
                                   "autonomous": args.autonomous, "job_id": args.job_id})
-    if not args.probe:
+    if review and out.get("stopped_reason") == "dry_run":
+        # Stopped before the irreversible click: either the filled form waits at
+        # its final button, or (one-click boards) the Apply click itself submits.
+        filled = bool(out.get("decisions")) or board["entry"].get("submits", "no") == "no"
+        out["stopped_reason"] = "ready_for_review" if filled else "apply_is_one_click"
+        print(f"[review] {out['stopped_reason']}: left open for you -> {out['url']}", flush=True)
+    if not (args.probe or review):
         limiter.record(board["id"], map_outcome(out["stopped_reason"] or "error"))
     return out
 
