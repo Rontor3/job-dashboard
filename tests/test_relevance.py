@@ -1,4 +1,4 @@
-from job_dashboard.match.relevance import nuisance_match
+from job_dashboard.match.relevance import is_target_role, nuisance_match
 
 
 def test_flags_obvious_offtarget_roles():
@@ -36,3 +36,10 @@ def test_target_role_plurals_aiml_and_forward_deployed():
     for t in ("Civil Engineer", "Founding Engineer, Frontend", "Senior Software Engineer – Full Stack",
               "Graduate Engineer Trainee (GET) – Mechanical Engineering"):
         assert not is_target_role(t), t
+
+
+def test_is_target_role_tolerates_double_spaces_and_hyphens():
+    assert is_target_role("Data  Scientist")
+    assert is_target_role("Data-Scientist")
+    assert is_target_role("AI-Engineer")
+    assert not is_target_role("Chip  Conveyor Service Engineer")
