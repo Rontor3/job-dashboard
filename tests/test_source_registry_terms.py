@@ -13,10 +13,9 @@ def test_loose_terms_are_gone():
         assert t not in sr.SEARCH_TERMS
 
 
-def test_jobspy_is_retired_and_himalayas_results_are_title_gated():
-    assert sr.REGION_SEARCHES == []
+def test_jobspy_is_indeed_only_and_himalayas_results_are_title_gated():
+    assert sr.REGION_SEARCHES == [("India", ["indeed"], "india")]   # LinkedIn stays a CDP source
     jobs = [_job("AI Engineer"), _job("Social Media Executive")]
-    with patch.object(sr, "fetch_jobspy_jobs", side_effect=AssertionError("jobspy must not run")), \
-            patch.object(sr, "fetch_himalayas_jobs", return_value=jobs):
-        himalayas = sr.job_sources()[1]           # per term: remotive, himalayas, naukri
+    with patch.object(sr, "fetch_himalayas_jobs", return_value=jobs):
+        himalayas = sr.job_sources()[2]           # per term: jobspy-indeed, remotive, himalayas, naukri
         assert [j.title for j in himalayas()] == ["AI Engineer"]

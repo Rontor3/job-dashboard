@@ -48,7 +48,9 @@ SEARCH_TERMS = [
 #              captcha-blocked 406. Replaced by fetch_naukri_jobs below, the
 #              vendored-NopeRi read-only source fed by a cached login session
 #              — see scripts/naukri_login.py)
-REGION_SEARCHES = []   # jobspy retired 2026-09-27: LinkedIn and Indeed are browser (CDP) sources now
+# LinkedIn is a browser (CDP) source. Indeed's web page sits behind a
+# Cloudflare challenge in CDP, but jobspy hits Indeed's API and isn't blocked.
+REGION_SEARCHES = [("India", ["indeed"], "india")]
 
 
 def _target_only(jobs):

@@ -15,7 +15,7 @@ def test_job_sources_returns_noarg_callables_without_network(monkeypatch):
     for fetch in fetchers:
         assert fetch() == []
     assert {"remotive", "remoteok", "wwr", "himalayas", "naukri"} <= set(calls)
-    assert "jobspy" not in calls                       # retired: LinkedIn and Indeed are browser sources
+    assert "jobspy" in calls                           # Indeed via its API; LinkedIn is a browser source
 
 
 def test_company_sources_wraps_startup_sheet(monkeypatch):

@@ -36,3 +36,10 @@ def test_india_filter_matches_country_city_and_suffix_not_us(tmp_path):
     jobs, total = query_jobs(conn, india=True)
     assert sorted(j["location"] for j in jobs) == ["Bengaluru, Karnataka, India", "KA, IN", "Pune"] and total == 3
     assert query_jobs(conn)[1] == 6
+
+
+def test_posted_date_is_normalized_on_insert(tmp_path):
+    conn = init_db(str(tmp_path / "j.db"))
+    insert_job(conn, _job(job_url="https://x/e1", external_id="e1", posted_date="1789082478"))
+    row = conn.execute("SELECT posted_date FROM jobs WHERE job_url='https://x/e1'").fetchone()
+    assert row[0] == "2026-09-10T23:21:18+00:00"

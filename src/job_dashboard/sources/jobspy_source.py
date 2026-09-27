@@ -28,12 +28,13 @@ def _format_amount(v):
     return str(v)
 
 
-def fetch_jobspy_jobs(search_term, location, site_names, results_wanted=20, country=None):
+def fetch_jobspy_jobs(search_term, location, site_names, results_wanted=20, country=None, hours_old=72):
     kwargs = dict(
         site_name=site_names,
         search_term=search_term,
         location=location,
         results_wanted=results_wanted,
+        hours_old=hours_old,   # Indeed: can't combine with job_type/is_remote/easy_apply
         description_format="markdown",
         # LinkedIn omits descriptions unless explicitly fetched; without this
         # every LinkedIn row fails the full-JD requirement and is dropped.

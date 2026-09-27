@@ -3,6 +3,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone, timedelta
 
+from job_dashboard.dateparse import normalize_posted_date
 from job_dashboard.models import Company, JobListing
 from job_dashboard.artifacts_store import (
     _ensure_resumes_table,
@@ -232,7 +233,7 @@ def insert_job(conn, job: JobListing):
             job.source, job.external_id, job.title, job.company, job.location,
             job.description, job.job_url, job.job_type,
             int(job.is_remote) if job.is_remote is not None else None,
-            job.salary_text, job.posted_date, job.apply_url, job.apply_kind,
+            job.salary_text, normalize_posted_date(job.posted_date), job.apply_url, job.apply_kind,
             datetime.now(timezone.utc).isoformat(),
         ),
     )
