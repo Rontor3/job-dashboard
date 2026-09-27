@@ -88,3 +88,10 @@ def test_option_fit(qbank_conn, fake_embed, make_field):
 def test_non_bank_fields_skipped(qbank_conn, fake_embed, make_field):
     assert answer_field(qbank_conn, make_field("Resume", "file"), embed=fake_embed)[0].note == "not a bank field"
     assert answer_field(qbank_conn, make_field("yes"), embed=fake_embed)[0].note == "junk label"
+
+
+def test_page_declared_input_type_drives_shape(qbank_conn, fake_embed, make_field):
+    m, v = answer_field(qbank_conn, make_field("Notice period", input_type="email"), embed=fake_embed)
+    assert (m.band, v) == (LIKELY, "30") and "shape email" in m.note
+    m, _ = answer_field(qbank_conn, make_field("Notice period", input_type="number"), embed=fake_embed)
+    assert m.band == CONFIDENT

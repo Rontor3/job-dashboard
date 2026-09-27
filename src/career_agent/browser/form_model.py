@@ -34,6 +34,8 @@ class Field:
     group: str | None = None
     purpose: str | None = None
     description: str = ""      # accessible description (aria-describedby helper text)
+    input_type: str = ""       # HTML type attribute (email/tel/url/number/date…) — shape clue
+    autocomplete: str = ""     # HTML autocomplete token (address-line1, postal-code…) — shape clue
 
 
 # Ordered most-specific-first; first hit wins.
