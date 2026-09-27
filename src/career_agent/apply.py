@@ -261,7 +261,19 @@ def main() -> None:
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
     try:
-        resp = page.goto(args.url)
+        # Reuse a tab the human already opened on this job: bot-challenged boards
+        # (Indeed's Cloudflare) pass a human-opened tab but block a fresh one.
+        _open = _existing_tab(context, page, args.url)
+        if _open is not None:
+            print(f"[browser] reusing your open tab -> {_open.url[:90]}", flush=True)
+            try:
+                page.close()
+            except Exception:
+                pass
+            page, resp = _open, None
+            page.bring_to_front()
+        else:
+            resp = page.goto(args.url)
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
@@ -477,6 +489,19 @@ def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None
         print(f"[memory] pending update written → {out_path}", flush=True)
     except Exception as _e:
         print(f"[memory] pending update failed ({_e})", flush=True)
+
+
+def _existing_tab(context, new_page, url):
+    """An already-open tab showing the same job (same host, path and query), else None."""
+    from urllib.parse import urlparse
+    want = urlparse(url)
+    for pg in getattr(context, "pages", []):
+        if pg is new_page:
+            continue
+        got = urlparse(pg.url or "")
+        if (got.netloc, got.path.rstrip("/"), got.query) == (want.netloc, want.path.rstrip("/"), want.query):
+            return pg
+    return None
 
 
 def _run_board(board, page, args, *, option_matcher=None, limiter=None, **ctx) -> dict:

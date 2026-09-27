@@ -73,3 +73,13 @@ def test_review_on_one_click_board_hands_the_apply_click_over(monkeypatch):
     one = {**BOARD, "entry": {"submits": "yes"}}
     out, _, _ = _review_run(monkeypatch, one, [])
     assert out["stopped_reason"] == "apply_is_one_click"
+
+
+
+def test_existing_tab_is_reused_only_for_the_same_job():
+    new = NS(url="about:blank")
+    same = NS(url="https://in.indeed.com/viewjob?jk=7114886b04ef144a")
+    other = NS(url="https://in.indeed.com/viewjob?jk=zzz")
+    ctx = NS(pages=[new, other, same])
+    assert apply_mod._existing_tab(ctx, new, "https://in.indeed.com/viewjob?jk=7114886b04ef144a") is same
+    assert apply_mod._existing_tab(NS(pages=[new, other]), new, same.url) is None
