@@ -91,3 +91,24 @@ def test_choice_with_trailing_value_is_one_question_with_both_answers():
     assert {d.ref: d.value for d in decisions} == {"group:loc": "I can relocate to…",
                                                    "#react-select-location-input": "New Delhi"}
     assert left == []
+
+
+
+def test_bare_number_reply_gets_a_follow_up_for_the_place():
+    from career_agent.boards.run import _ask
+    choice = Field("group:loc", "radio_group", "Location?", False, ["I am currently in…", "I can relocate to…"], None, None)
+    value = Field("#loc", "text", "", False, [], None, None)
+    replies = iter(["2", "New Delhi"])
+    asked = []
+
+    class Human:
+        def collect(self, fields):
+            asked.append(fields[0].label)
+            return {fields[0].ref: next(replies)}
+
+        def get_events(self):
+            return {}
+
+    decisions, _ = _ask([choice, value], {"human": Human()})
+    assert asked[1] == "I can relocate to — which place?"
+    assert {d.ref: d.value for d in decisions} == {"group:loc": "I can relocate to…", "#loc": "New Delhi"}

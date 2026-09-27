@@ -100,10 +100,17 @@ def _ask_pair(human, choice, value):
               f"{choice.label.strip()}\n{opts}\nReply with the number and the place, e.g. \"2 New Delhi\"",
               True, [], None, None)
     reply = str((human.collect([q]) or {}).get(q.ref) or "")
-    m = re.match(r"\s*(\d+)\s*[.,:)-]?\s*(.+)", reply)
+    print(f"[board] asked (paired) {choice.label[:60]!r} -> reply {reply!r}", flush=True)
+    m = re.match(r"\s*(\d+)\s*[.,:)-]?\s*(.*)", reply)
     if not m or not 1 <= int(m[1]) <= len(choice.options):
         return {}
-    return {choice.ref: choice.options[int(m[1]) - 1], value.ref: m[2].strip()}
+    opt, place = choice.options[int(m[1]) - 1], m[2].strip()
+    if not place:                               # "2" alone: ask for the place it trails off to
+        q2 = Field("pair2:" + value.ref, "text", f"{opt.rstrip('….').strip()} — which place?",
+                   True, [], None, None)
+        place = str((human.collect([q2]) or {}).get(q2.ref) or "").strip()
+        print(f"[board] asked follow-up -> reply {place!r}", flush=True)
+    return {choice.ref: opt, **({value.ref: place} if place else {})}
 
 
 def _ask(needs, ctx):
@@ -121,7 +128,9 @@ def _ask(needs, ctx):
             answers.update(_ask_pair(human, choice, value))
         rest = [f for f in needs if f not in (choice, value)]
         if rest:
+            print(f"[board] asking: {[_readable(f).label[:50] for f in rest]}", flush=True)
             answers.update(human.collect([_readable(f) for f in rest]) or {})
+        print(f"[board] human answers: {answers}", flush=True)
     except Exception as e:                 # no terminal / Telegram down: leave the gap open
         print(f"[board] could not ask the human ({type(e).__name__}); leaving {len(needs)} field(s) open", flush=True)
         answers = {}
