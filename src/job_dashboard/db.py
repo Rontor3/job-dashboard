@@ -109,6 +109,8 @@ def init_db(path):
     _ensure_resume_layouts_table(conn)
     from job_dashboard.apply.store import ensure_application_tables
     ensure_application_tables(conn)
+    from job_dashboard.apply.queue import ensure as ensure_apply_queue
+    ensure_apply_queue(conn)
     conn.commit()
     return conn
 
