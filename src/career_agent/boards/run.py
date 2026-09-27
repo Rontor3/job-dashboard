@@ -64,7 +64,11 @@ def _ask(needs, ctx):
     if not needs or ctx.get("probe"):
         return [], needs
     human = ctx["human"]
-    answers = human.collect(needs) or {}
+    try:
+        answers = human.collect(needs) or {}
+    except Exception as e:                 # no terminal / Telegram down: leave the gap open
+        print(f"[board] could not ask the human ({type(e).__name__}); leaving {len(needs)} field(s) open", flush=True)
+        answers = {}
     record_answers(needs, answers, ctx, human.get_events() or {})
     return apply_answers(needs, answers), [f for f in needs if not str(answers.get(f.ref) or "").strip()]
 
