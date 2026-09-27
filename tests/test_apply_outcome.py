@@ -13,6 +13,7 @@ from job_dashboard.apply.outcome import outcome
     ({"submitted": False, "stopped_reason": "captcha_blocked"}, 0, ("parked", "captcha_blocked", None)),
     ({"submitted": False, "stopped_reason": "gap", "pending_human": ["CTC"]}, 0, ("parked", "needs_answers", None)),
     ({"submitted": False, "stopped_reason": "not_approved"}, 0, ("parked", "not_approved", None)),
+    ({"submitted": False, "stopped_reason": "dry_run"}, 0, ("parked", "needs_approval", None)),
     (None, 1, ("failed", "crashed", "failed")),
     (None, 0, ("failed", "no_result", "failed")),
     ({"submitted": False, "stopped_reason": "error"}, 1, ("failed", "error", "failed")),

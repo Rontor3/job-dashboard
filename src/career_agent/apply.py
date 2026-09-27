@@ -67,22 +67,14 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
             print(f"[telegram] sending {len(fields)} field question(s) — waiting for reply...", flush=True)
             answers.update(human.collect(fields))
             print(f"[telegram] received {len(answers)} answer(s)", flush=True)
+            if not answers and getattr(getattr(human, "collector", None), "parks", False):
+                break                  # --park: the gaps stay open for the tracker
         result = app.invoke(Command(resume=answers), cfg)
 
     return result or {}
 
 
 def main() -> None:
-    import sqlite3
-    from .config.settings import load_settings
-    from .browser.runner import launch, close
-    from .orchestrator.browser_deps import BrowserDeps
-    from .orchestrator.step_engine import walk
-    from .memory.candidate_profile import load_candidate_profile
-    from .integrations.approver import CliApprover, CliCollector, NullCollector, AutoDenyApprover
-    from .integrations.human_loop import HumanLoop
-    from job_dashboard.apply.store import get_application_profile
-
     ap = argparse.ArgumentParser(description="Career agent — multi-page application walk")
     ap.add_argument("--url", required=True)
     ap.add_argument("--db", default="data/jobs.db")
@@ -111,7 +103,35 @@ def main() -> None:
     ap.add_argument("--cdp-url", default=None, metavar="URL",
                     help="attach to existing Chrome via CDP (e.g. http://localhost:9222); "
                          "uses real browser session instead of launching headless Playwright")
+    ap.add_argument("--park", action="store_true",
+                    help="unattended (apply queue): never wait on the human; unanswerable "
+                         "questions are left for the tracker and approvals are denied")
+    ap.add_argument("--result-json", default=None, metavar="PATH",
+                    help="write a JSON summary of the run here on every exit path")
     args = ap.parse_args()
+    box: dict = {}
+    try:
+        _apply(args, box)
+    except BaseException:
+        box.setdefault("out", {"url": args.url, "stopped_reason": "error"})
+        raise
+    finally:
+        if args.result_json:
+            from .integrations.park import write_result
+            write_result(args.result_json, box.get("out"))
+
+
+def _apply(args, box: dict) -> None:
+    """The run itself; sets box["out"] to the result dict wherever it ends."""
+    import sqlite3
+    from .config.settings import load_settings
+    from .browser.runner import launch, close
+    from .orchestrator.browser_deps import BrowserDeps
+    from .orchestrator.step_engine import walk
+    from .memory.candidate_profile import load_candidate_profile
+    from .integrations.approver import CliApprover, CliCollector, NullCollector, AutoDenyApprover
+    from .integrations.human_loop import HumanLoop
+    from job_dashboard.apply.store import get_application_profile
 
     conn = sqlite3.connect(args.db)
     contact = get_application_profile(conn) or {}
@@ -273,6 +293,10 @@ def main() -> None:
 
     human = HumanLoop(approver, remote_solve_factory=remote_solve_factory,
                       deadline_s=settings.remote_solve_ttl, collector=collector)
+    if args.park:
+        from .integrations.park import park_human
+        human = park_human(notify=_tg.send_message if "_tg" in locals() else None)
+        collector, on_link = human.collector, None
     from .browser.page_prep import prepare, classify_entry, enter_application, email_auth, is_application_form
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
@@ -317,6 +341,7 @@ def main() -> None:
         kind = classify_entry(page, status=resp.status if resp else None)
         if kind == "closed":                   # expired / removed / 404 shell -> skip
             print("[skip] this posting is closed or no longer available.")
+            box["out"] = {"url": args.url, "stopped_reason": "closed"}
             return
         # Job boards (Naukri, LinkedIn, Indeed, ...) apply on the board itself and
         # must never go through the career-site drill below (see boards/run.py).
@@ -326,6 +351,7 @@ def main() -> None:
             out = _run_board(_board, page, args, profile=profile, human=human, resume_pdf=resume_pdf,
                              judge_fn=judge_fn, learn=learn, memory_router=memory_router,
                              option_matcher=option_matcher, qa=qa_rec)
+            box["out"] = out
             _write_run_log(conn, args.url, args.job_id, out)
             print(out, flush=True)
             return
@@ -346,6 +372,7 @@ def main() -> None:
             prepare(page); kind = classify_entry(page)
         if kind == "closed":
             print("[skip] this posting is closed or no longer available.")
+            box["out"] = {"url": args.url, "stopped_reason": "closed"}
             return
         # OTP reader shared by email_auth (ZF/Phenom) and otp_email gate (SAP SF).
         # Prefers Gmail API (fully automated); falls back to file drop.
@@ -400,6 +427,7 @@ def main() -> None:
             elif kind == "password":
                 print("[stop] credential provider could not clear the login wall. "
                       "Log in manually in the open browser, then re-run.")
+                box["out"] = {"url": args.url, "stopped_reason": "auth_wall"}
                 print({"url": args.url, "stopped_reason": "auth_wall",
                        "filled_count": 0, "escalated_count": 0}, flush=True)
                 return
@@ -457,6 +485,7 @@ def main() -> None:
             print(f"[screenshot] {ss_path}", flush=True)
         except Exception as _se:
             print(f"[screenshot] failed: {_se}", flush=True)
+        box["out"] = out
         _write_run_log(conn, args.url, args.job_id, out)
         _append_pending_memory(args.db, args.url, args.job_id, out)
         # Update portal state so bulk runner has accurate domain counts/cooldowns
