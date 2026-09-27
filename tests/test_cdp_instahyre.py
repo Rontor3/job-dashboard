@@ -127,3 +127,18 @@ def test_empty_first_capture_reloads_once():
     with make_session(p) as s:
         out = ih.run(s, ctx(), today=TODAY)
     assert calls[0] == 2 and [j.external_id for j in out] == ["4"]
+
+
+def test_off_target_id_never_triggers_detail_fetch_or_anchor_logic():
+    p = page({0: [3, 2], 20: []}, {3: detail_html("2026-09-25"), 2: detail_html("2026-09-25")})
+    orig = p.script
+    key = next(iter(orig))
+    orig[key] = [(u, {"meta": {"total_count": 9}, "objects": [obj(3), obj(2, title="Chip Conveyor Service Engineer")]}) for u, _ in orig[key]]
+    p.fetch_handler_orig = p.fetch_handler
+    p.fetch_handler = lambda u, m, h, b: (200, json.dumps({"meta": {}, "objects": []})) if "job_search" in u else p.fetch_handler_orig(u, m, h, b)
+    c, seen = ctx(), []
+    c.known = lambda i, u: seen.append(i) or False
+    with make_session(p) as s:
+        out = ih.run(s, c, today=TODAY)
+    assert [j.external_id for j in out] == ["3"] and c.stats["off_target"] == 1 and seen == ["3"]
+    assert not any("/job-2-" in f[0] for f in p.fetches)

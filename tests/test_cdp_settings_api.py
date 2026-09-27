@@ -19,7 +19,7 @@ def test_naukri_switch_roundtrip(tmp_path):
 
 def test_new_site_switches_default_off_and_toggle(tmp_path):
     c = TestClient(create_app(str(tmp_path / "j.db"), pipeline_runner=lambda p, s: {}))
-    for site in ("wellfound", "instahyre", "iimjobs"):
+    for site in ("wellfound", "instahyre", "iimjobs", "ycstartups"):
         key = f"browser_{site}_enabled"
         assert c.get("/api/agent-settings").json()[key] is False
         assert c.put("/api/agent-settings", json={key: True}).status_code == 200

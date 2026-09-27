@@ -81,3 +81,13 @@ def test_page_filtered_to_nothing_but_has_more_keeps_walking():
     with make_session(p) as s:
         out = im.run(s, ctx())
     assert [j.external_id for j in out] == ["3"]
+
+
+def test_off_target_title_gets_no_detail_fetch_and_is_counted():
+    p = make({0: ([1, {"i": 2, "title": "Chip Conveyor Service Engineer", "jobdesignation": "Fitter"}], False)},
+             {1: "<p>one</p>", 2: "<p>two</p>"})
+    c = ctx()
+    with make_session(p) as s:
+        out = im.run(s, c)
+    assert [j.external_id for j in out] == ["1"] and c.stats["off_target"] == 1
+    assert not any("jobcode=2" in f[0] for f in p.fetches)

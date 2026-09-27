@@ -112,7 +112,10 @@ def _load(session, url):
         session.goto(url)
     for u, body in cap.bodies():
         if "voyagerJobsDashJobCards" in u:
-            cards.update(parse_cards(body)[0])
+            for jid, c in parse_cards(body)[0].items():     # a bare later card must not erase an earlier full one
+                old = cards.setdefault(jid, c)
+                if old is not c:
+                    old.update({k: v for k, v in c.items() if v not in (None, "") and old.get(k) in (None, "")})
         for jid, d in parse_details(body).items():
             details.setdefault(jid, {}).update({k: v for k, v in d.items() if v is not None})
     return cards, details
@@ -121,7 +124,9 @@ def _load(session, url):
 def run(session, ctx):
     """Phase 1: every search page of every term (cheap, carries prefetched details).
     Phase 2: spend what is left of the load budget on detail loads, round-robin across terms."""
+    from job_dashboard.match.relevance import is_target_role
     hours = 720 if ctx.mode == "backfill" else ctx.hours
+    ctx.stats.setdefault("off_target", 0)
     found, pending = {}, {}            # pending: term -> [(card, detail)] lacking a description
     seen = set()
     try:
@@ -136,6 +141,9 @@ def run(session, ctx):
                     if jid in seen:
                         continue
                     seen.add(jid)
+                    if not is_target_role(c["title"]):
+                        ctx.stats["off_target"] += 1
+                        continue
                     if not c.get("company"):
                         continue                        # insert_job would reject it anyway
                     if ctx.known(jid, job_url(jid)):

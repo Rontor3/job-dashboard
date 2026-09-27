@@ -50,9 +50,10 @@ class SettingsBody(BaseModel):
     browser_instahyre_enabled: Optional[bool] = None
     browser_iimjobs_enabled: Optional[bool] = None
     browser_indeed_enabled: Optional[bool] = None
+    browser_ycstartups_enabled: Optional[bool] = None
 
 
-BROWSER_SITES = ("linkedin", "naukri", "wellfound", "instahyre", "iimjobs", "indeed")
+BROWSER_SITES = ("linkedin", "naukri", "wellfound", "instahyre", "iimjobs", "indeed", "ycstartups")
 
 
 def _browser_flags(conn) -> dict:

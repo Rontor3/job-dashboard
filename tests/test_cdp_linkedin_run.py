@@ -9,7 +9,7 @@ DET_URL = "https://x/voyager/api/graphql?queryId=voyagerJobsDashJobPostingDetail
 
 
 def card(i, easy=False):
-    return {"$type": "a.JobPostingCard", "jobPostingUrn": f"urn:li:fsd_jobPosting:{i}", "jobPostingTitle": f"T{i}",
+    return {"$type": "a.JobPostingCard", "jobPostingUrn": f"urn:li:fsd_jobPosting:{i}", "jobPostingTitle": f"Data Scientist {i}",
             "primaryDescription": {"text": "Co"}, "footerItems": [{"type": "LISTED_DATE", "timeAt": 1790000000000}]
             + ([{"type": "EASY_APPLY_TEXT"}] if easy else [])}
 
@@ -152,3 +152,28 @@ def test_known_repost_bumps_posted_date_but_is_not_a_new_job():
     assert [j.external_id for j in out] == ["2"]
     assert bumped == [("1", li.job_url("1"), "2026-09-21T14:13:20+00:00")]
     assert c.stats["redated"] == 1 and c.stats["skipped_known"] == 1
+
+
+def test_off_target_title_gets_no_detail_load_and_is_counted():
+    u0 = li.search_url("ml", 48)
+    bad = card("7"); bad["jobPostingTitle"] = "Chip Conveyor Service Engineer"
+    page = FakePage({u0: [(CARD_URL, {"included": [bad, card("8")]})], li.search_url("ml", 48, start=50): [],
+                     li.job_url("7"): [(DET_URL, {"included": [det("7")]})],
+                     li.job_url("8"): [(DET_URL, {"included": [det("8")]})]})
+    c = ctx(); seen = []
+    c.known = lambda i, u: seen.append(i) or False
+    with make_session(page) as s:
+        out = li.run(s, c)
+    assert [j.external_id for j in out] == ["8"] and c.stats["off_target"] == 1
+    assert li.job_url("7") not in page.visited and seen == ["8"]
+
+
+def test_bare_later_card_does_not_erase_company_and_location():
+    u0 = li.search_url("ml", 48)
+    full = card("1"); full["secondaryDescription"] = {"text": "Bengaluru"}
+    bare = {"$type": "a.JobPostingCard", "jobPostingUrn": "urn:li:fsd_jobPosting:1", "jobPostingTitle": "Data Scientist 1"}
+    page = FakePage({u0: [(CARD_URL, {"included": [full]}), (CARD_URL, {"included": [bare]}), (DET_URL, {"included": [det("1")]})],
+                     li.search_url("ml", 48, start=50): []})
+    with make_session(page) as s:
+        out = li.run(s, ctx())
+    assert [(j.company, j.location) for j in out] == [("Co", "Bengaluru")]

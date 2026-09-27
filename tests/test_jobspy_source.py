@@ -139,3 +139,20 @@ def test_fetch_jobspy_jobs_omits_country_when_not_given(monkeypatch):
     jobspy_source.fetch_jobspy_jobs("ml engineer", "Remote", ["indeed"])
 
     assert "country_indeed" not in captured
+
+
+def test_max_age_days_drops_old_postings_but_keeps_undated(monkeypatch):
+    from datetime import date, timedelta
+    fresh, old = date.today().isoformat(), (date.today() - timedelta(days=40)).isoformat()
+    rows = [
+        {"id": 1, "site": "indeed", "title": "AI Engineer", "company": "A", "location": "India", "description": "d",
+         "job_url": "https://x/1", "date_posted": fresh},
+        {"id": 2, "site": "indeed", "title": "AI Engineer", "company": "B", "location": "India", "description": "d",
+         "job_url": "https://x/2", "date_posted": old},
+        {"id": 3, "site": "indeed", "title": "AI Engineer", "company": "C", "location": "India", "description": "d",
+         "job_url": "https://x/3", "date_posted": None},
+    ]
+    monkeypatch.setattr(jobspy_source, "scrape_jobs", lambda **k: pd.DataFrame(rows))
+    kept = jobspy_source.fetch_jobspy_jobs("ai engineer", "India", ["indeed"], country="india", max_age_days=30)
+    assert [j.company for j in kept] == ["A", "C"]
+    assert len(jobspy_source.fetch_jobspy_jobs("ai engineer", "India", ["indeed"])) == 3   # default: no age filter

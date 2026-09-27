@@ -1,4 +1,5 @@
 import math
+from datetime import date, timedelta
 
 from jobspy import scrape_jobs
 
@@ -28,7 +29,15 @@ def _format_amount(v):
     return str(v)
 
 
-def fetch_jobspy_jobs(search_term, location, site_names, results_wanted=20, country=None, hours_old=72):
+def _older_than(date_posted, days):
+    """True only when date_posted parses as a date older than `days`; unparseable/missing is kept."""
+    try:
+        return date.fromisoformat(str(date_posted)[:10]) < date.today() - timedelta(days=days)
+    except ValueError:
+        return False
+
+
+def fetch_jobspy_jobs(search_term, location, site_names, results_wanted=20, country=None, hours_old=72, max_age_days=None):
     kwargs = dict(
         site_name=site_names,
         search_term=search_term,
@@ -54,6 +63,8 @@ def fetch_jobspy_jobs(search_term, location, site_names, results_wanted=20, coun
         job_id = _clean(row.get("id"))
         is_remote = _clean(row.get("is_remote"))
         date_posted = _clean(row.get("date_posted"))
+        if max_age_days is not None and _older_than(date_posted, max_age_days):
+            continue                     # hours_old is loose: reposts/refreshed listings slip through
 
         jobs.append(
             JobListing(

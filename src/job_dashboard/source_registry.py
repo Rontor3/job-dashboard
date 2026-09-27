@@ -65,7 +65,7 @@ def job_sources():
         for location, sites, country in REGION_SEARCHES:
             fetchers.append(
                 lambda t=term, loc=location, s=sites, c=country: _target_only(
-                    fetch_jobspy_jobs(t, loc, s, country=c)
+                    fetch_jobspy_jobs(t, loc, s, country=c, max_age_days=30)
                 )
             )
         fetchers.append(lambda t=term: _target_only(fetch_remotive_jobs(t)))
