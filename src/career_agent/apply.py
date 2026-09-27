@@ -276,6 +276,11 @@ def main() -> None:
         if jd_text and 'ctx' in dir():
             try:
                 ctx.resume_text = jd_text[:2000]
+                # A job not in jobs.db (e.g. a board link pasted directly) has an
+                # empty description; without the page text the judge invents the
+                # company's business in free-text answers.
+                if not (ctx.job or {}).get("description"):
+                    ctx.job = {**(ctx.job or {}), "title": page.title(), "description": jd_text}
             except Exception:
                 pass
         prepare(page)                          # clear cookie/idle overlays
