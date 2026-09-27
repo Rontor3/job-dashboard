@@ -148,7 +148,8 @@ const postOrThrow = (url) =>
     return d;
   });
 export const promoteHiring = (id) => postOrThrow(`/api/hiring/posts/${id}/promote`);
-export const draftHiringEmail = (id) => postOrThrow(`/api/hiring/posts/${id}/email-draft`);
+export const draftHiringEmail = (id, to) =>
+  postOrThrow(`/api/hiring/posts/${id}/email-draft${to ? `?to=${encodeURIComponent(to)}` : ""}`);
 
 export const launchApplyAgent = (id) =>
   fetch(`/api/jobs/${id}/apply-agent`, { method: "POST" }).then(json);

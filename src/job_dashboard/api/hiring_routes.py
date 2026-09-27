@@ -12,11 +12,11 @@ from job_dashboard.db import (
 from job_dashboard.db_hiring import hiring_post
 from job_dashboard.artifacts_store import resumes_for_job, cover_letters_for_job
 from job_dashboard.apply import gmail_draft
-from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post_to_job
+from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post_to_job, _regex_role
 from job_dashboard.linkedin.enrich import research_role, enriched_description
 from job_dashboard.linkedin.hiring_digest import KEYWORDS, run_digest
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
-from job_dashboard.match.profile_text import current_resume_text
+from job_dashboard.match.profile_text import current_resume_text, CURRENT_RESUME
 
 
 def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=None) -> APIRouter:
@@ -90,36 +90,45 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
         return {"job_id": row[0]}
 
     @router.post("/api/hiring/posts/{post_id}/email-draft")
-    def email_draft(post_id: int):
-        """Gmail DRAFT to the post's email with the newest tailored résumé for the
-        promoted job attached. Never sends."""
+    def email_draft(post_id: int, to: str | None = None):
+        """Draft an application email and return a Gmail URL that opens it. With
+        the gmail.compose token: a real draft with the résumé attached (tailored
+        for this post if generated, else the current résumé). Without: Gmail's
+        compose window prefilled. Never sends."""
         with db() as conn:
             post = hiring_post(conn, post_id)
             if post is None:
                 raise HTTPException(status_code=404, detail="post not found")
             emails = extract_contacts(post["text"])["emails"]
-            if not emails:
-                raise HTTPException(status_code=422, detail="no email in this post")
+            if not emails or (to and to.lower() not in emails):
+                raise HTTPException(status_code=422, detail="no such email in this post")
+            to = to.lower() if to else emails[0]
             job = conn.execute("SELECT id, title, company FROM jobs WHERE job_url = ?",
                                (post["url"],)).fetchone()
             resumes = resumes_for_job(conn, job[0]) if job else []
-            if not resumes or not Path(resumes[0]["pdf_path"] or "").exists():
-                raise HTTPException(status_code=409,
-                                    detail="generate a tailored résumé for this post first")
-            letters = cover_letters_for_job(conn, job[0])
-            me = conn.execute("SELECT full_name, phone, linkedin_url FROM application_profile").fetchone()
-        name, phone, linkedin = me or ("", "", "")
+            letters = cover_letters_for_job(conn, job[0]) if job else []
+            me = conn.execute("SELECT full_name, phone, linkedin_url, email FROM application_profile").fetchone()
+        name, phone, linkedin, account = me or ("", "", "", "")
+        guess = _regex_role(post)
+        title = (job[1] if job else "") or guess["title"] or "the role"
+        company = (job[2] if job else "") or guess["company"]
+        at = f" at {company}" if company else ""
         first = (post["poster_name"] or "").split(" ")[0]
         body = (letters[0]["body"] if letters and letters[0]["body"] else
-                f"Hi {first},\n\nI came across your post about the {job[1]} role at {job[2]} "
-                f"and would like to be considered. My résumé, tailored to the role, is attached.\n\n"
+                f"Hi {first},\n\nI came across your post about the {title} role{at} and would like "
+                f"to be considered. I'm a Data Scientist at Tata AIG working on ML fraud-detection "
+                f"systems and LLM pipelines; my résumé is attached.\n\n"
                 f"Happy to share more or set up a quick call.\n\nBest,\n{name}\n{phone}\n{linkedin}")
-        msg = gmail_draft.compose_message(emails[0], f"Application: {job[1]} — {name}",
-                                          body, Path(resumes[0]["pdf_path"]))
-        try:
-            draft_id = gmail_draft.create_draft(msg)
-        except gmail_draft.DraftAuthError as e:
-            raise HTTPException(status_code=503, detail=str(e))
-        return {"draft_id": draft_id, "to": emails[0]}
+        subject = f"Application: {title} — {name}"
+        pdf = Path(resumes[0]["pdf_path"]) if resumes and resumes[0]["pdf_path"] else CURRENT_RESUME
+        if gmail_draft.authorized() and pdf.exists():
+            try:
+                d = gmail_draft.create_draft(gmail_draft.compose_message(to, subject, body, pdf))
+                return {"gmail_url": gmail_draft.draft_url(d["message_id"], account),
+                        "attached": pdf.name, "to": to}
+            except Exception:  # noqa: BLE001 — token revoked etc. → compose URL below
+                pass
+        return {"gmail_url": gmail_draft.compose_url(to, subject, body, account),
+                "attached": None, "to": to}
 
     return router

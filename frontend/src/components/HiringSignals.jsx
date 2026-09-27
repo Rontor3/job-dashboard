@@ -4,13 +4,16 @@ import { hiringPosts, refreshHiring, dismissHiring, promoteHiring, draftHiringEm
 const CHIP = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)",
   border: "0.5px solid var(--hairline)", color: "var(--ink-soft)", textDecoration: "none" };
 
-function Contacts({ c }) {
+function Contacts({ c, onEmail }) {
   if (!c) return null;
   const host = (u) => { try { return new URL(u).host; } catch { return u; } };
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
       {c.forms.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" style={CHIP}>📝 Form · {host(u)}</a>)}
-      {c.emails.map((e) => <a key={e} href={`mailto:${e}`} style={CHIP}>✉️ {e}</a>)}
+      {c.emails.map((e) => (
+        <a key={e} href={`mailto:${e}`} style={CHIP} title="Open a drafted email in Gmail"
+          onClick={(ev) => { ev.preventDefault(); onEmail(e); }}>✉️ {e}</a>
+      ))}
       {c.links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" style={CHIP}>🔗 {host(u)}</a>)}
       {c.phones.map((p) => <a key={p} href={`tel:${p}`} style={CHIP}>📞 {p}</a>)}
       {c.dm && <span style={CHIP}>💬 DM on LinkedIn</span>}
@@ -37,9 +40,15 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
   const say = (id, msg) => setNote((n) => ({ ...n, [id]: msg }));
   const onTailor = (id) =>
     say(id, "Reading company pages…") || promoteHiring(id).then((d) => onOpenJob(d.job_id)).catch((e) => say(id, e.message));
-  const onDraft = (id) => {
+  const onDraft = (id, to) => {
+    // Open the tab inside the click so the browser doesn't block it as a popup.
+    const tab = window.open("about:blank", "_blank");
     say(id, "Drafting…");
-    draftHiringEmail(id).then((d) => say(id, `Draft saved in Gmail → ${d.to}`)).catch((e) => say(id, e.message));
+    draftHiringEmail(id, to).then((d) => {
+      if (tab) tab.location.href = d.gmail_url; else window.open(d.gmail_url, "_blank");
+      say(id, d.attached ? `Gmail draft to ${d.to} — ${d.attached} attached`
+                         : `Gmail opened for ${d.to} — attach your résumé before sending`);
+    }).catch((e) => { if (tab) tab.close(); say(id, e.message); });
   };
   const onDismiss = (id) => {
     setPosts((p) => p.filter((x) => x.id !== id));
@@ -88,7 +97,7 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
             <div style={{ fontSize: 12, color: "var(--green)", marginTop: 6 }}>Why: {p.fit_reason}</div>
           )}
           <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "8px 0" }}>{p.text}</div>
-          <Contacts c={p.contacts} />
+          <Contacts c={p.contacts} onEmail={(e) => onDraft(p.id, e)} />
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
             <button style={BTN} onClick={() => onTailor(p.id)}>Tailor CV</button>
             {p.contacts?.emails?.length > 0 && (
