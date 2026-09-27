@@ -127,3 +127,20 @@ def test_short_link_to_form_is_form_and_entities_unescaped():
         url = "https://lnkd.in/abc"
         text = '<a href="https://jobs.x.ai/p?a=1&amp;b=2">go</a>'
     assert C.resolve_link("https://lnkd.in/abc", get=lambda u: R()) == "https://jobs.x.ai/p?a=1&b=2"
+
+
+def test_judge_caps_location_and_drops_poster_as_company():
+    llm = lambda url, body: {"response": json.dumps({  # noqa: E731
+        "title": "Senior ML Engineer", "company": "Jane Doe (Recruiter)", "location_open": False,
+        "fit": 80, "reason": "Skills match but on-site in Atlanta, no sponsorship"})}
+    j = C.judge_post({"text": "Hiring ML Engineer", "poster_name": "Jane Doe"}, "resume", post_fn=llm)
+    assert j["fit"] == 30 and j["company"] == "" and j["title"] == "Senior ML Engineer"
+
+
+def test_judge_gate_skips_llm_for_non_ml_posts():
+    from job_dashboard.linkedin.hiring_digest import HiringPost, judge
+    calls = []
+    chef = HiringPost(url="u", poster_name="n", poster_headline="", text="We are hiring a chef in Pune",
+                      posted_at=None, keyword="k")
+    assert judge(chef, lambda p: calls.append(1) or {"title": "Chef", "fit": 90}) == (False, None, "")
+    assert calls == []

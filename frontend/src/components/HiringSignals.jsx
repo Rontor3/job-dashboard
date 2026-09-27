@@ -84,6 +84,9 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
                 style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-faint)" }}>×</button>
             </div>
           </div>
+          {p.fit_reason && (
+            <div style={{ fontSize: 12, color: "var(--green)", marginTop: 6 }}>Why: {p.fit_reason}</div>
+          )}
           <div style={{ fontSize: 13, color: "var(--ink-soft)", margin: "8px 0" }}>{p.text}</div>
           <Contacts c={p.contacts} />
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>

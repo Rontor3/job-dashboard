@@ -91,7 +91,8 @@ def test_title_gate_drops_off_target_roles():
     from job_dashboard.linkedin.hiring_digest import is_target_post
     civil = HiringPost(url="u", poster_name="n", poster_headline="HR", text="Hiring Civil Engineer, site work",
                        posted_at=None, keyword="k")
-    ml = HiringPost(url="u", poster_name="n", poster_headline="HR", text="We are hiring!", posted_at=None, keyword="k")
+    ml = HiringPost(url="u", poster_name="n", poster_headline="HR", text="We are hiring! ML team, Bengaluru",
+                    posted_at=None, keyword="k")
     assert not is_target_post(civil, lambda p: {"title": "Civil Engineer"})
     assert is_target_post(ml, lambda p: {"title": "Senior ML Engineer"})
     # no title from the model → judge by the post's opening
