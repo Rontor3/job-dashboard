@@ -20,7 +20,8 @@ from job_dashboard.letter.grounding import check_grounding
 LlmFn = Callable[[str], str]
 
 _MAX_PROFILE_CHARS = 1200
-_MAX_RESUME_CHARS = 800
+_MAX_PAGE_CHARS = 2000
+_MAX_STORY_CHARS = 2500
 
 
 def _facts_block(research) -> str:
@@ -32,24 +33,31 @@ def _facts_block(research) -> str:
     return "\n".join(lines) or "(none)"
 
 
-def _build_prompt(job, question, profile_text, research, resume_text) -> str:
+def _build_prompt(job, question, profile_text, research, resume_text, story_text="") -> str:
     company = (job.get("company") if isinstance(job, dict) else None) or "the company"
     title = (job.get("title") if isinstance(job, dict) else None) or "the role"
+    has_story = bool(story_text and story_text.strip())
+    own_words = (
+        f"IN THE CANDIDATE'S OWN WORDS:\n{story_text[:_MAX_STORY_CHARS]}\n\n"
+        if has_story else ""
+    )
+    profile_source = "CANDIDATE PROFILE / OWN WORDS" if has_story else "CANDIDATE PROFILE"
     return (
         "You are answering ONE free-text question on a job application, in the "
-        "candidate's own voice. Answer truthfully in 3-5 sentences.\n\n"
+        "candidate's own voice. Answer truthfully in 4-6 sentences.\n\n"
         "STRICT RULES (truthfulness is mandatory):\n"
-        "1. Ground every claim about the candidate in the CANDIDATE PROFILE / "
-        "RESUME below. Never invent an achievement, tool, or metric.\n"
-        "2. Mention a company-specific detail ONLY if it appears verbatim in "
-        "VERIFIED COMPANY FACTS. If that list is empty, do NOT mention any "
-        "company product, figure, or milestone -- answer about genuine interest "
-        "and fit instead. Never invent a company fact.\n"
-        "3. Be concrete and specific; no generic filler.\n\n"
+        f"1. Ground every claim about the candidate in the {profile_source} "
+        "below. Never invent an achievement, tool, or metric.\n"
+        "2. Mention a company-specific detail ONLY if it appears in COMPANY & "
+        "ROLE or VERIFIED COMPANY FACTS. Never invent a company fact.\n"
+        "3. Be concrete and specific; no generic filler.\n"
+        "4. Connect what the candidate says they want and enjoy to what this "
+        "company does. Warm, specific, first person; no generic filler.\n\n"
         f"ROLE: {title} at {company}\n"
         f"QUESTION: {question}\n\n"
         f"CANDIDATE PROFILE:\n{(profile_text or '')[:_MAX_PROFILE_CHARS]}\n\n"
-        f"RESUME EXCERPT:\n{(resume_text or '')[:_MAX_RESUME_CHARS]}\n\n"
+        f"{own_words}"
+        f"COMPANY & ROLE (from the job page):\n{(resume_text or '')[:_MAX_PAGE_CHARS]}\n\n"
         f"VERIFIED COMPANY FACTS (the ONLY source for company specifics):\n"
         f"{_facts_block(research)}\n\n"
         'Reply with ONLY a JSON object: {"answer": "<the answer text>", '
@@ -96,18 +104,21 @@ def _general_answer(job, profile_text) -> str:
     )
 
 
-def draft_screening_answer(job, question, profile_text, research, resume_text="", llm=None):
+def draft_screening_answer(job, question, profile_text, research, resume_text="", llm=None,
+                           story_text=""):
     """Draft a grounded answer to a single screening question.
 
     Returns ``{"answer", "flags", "unsupported_company_claims", "confidence"
     (0-100 or None=unknown), "basis", "prompt"}``. ``flags`` carries
     ``"general_fallback"`` when the llm was unavailable/unusable and a general
-    (still truthful) answer was returned instead. Never raises.
+    (still truthful) answer was returned instead. ``story_text`` is the
+    candidate's own long-form answers (qbank topic=story) -- own-words context
+    for drafting only, never a value filled verbatim into a form. Never raises.
     """
     llm_fn = llm or make_default_llm()
     answer, flags, confidence, basis, prompt = None, [], None, None, ""
     try:
-        prompt = _build_prompt(job, question, profile_text, research, resume_text)
+        prompt = _build_prompt(job, question, profile_text, research, resume_text, story_text)
         candidate = llm_fn(prompt)
         if isinstance(candidate, str) and candidate.strip():
             answer, confidence, basis = _parse_reply(candidate)
@@ -128,7 +139,8 @@ def draft_screening_answer(job, question, profile_text, research, resume_text=""
         job_text = " ".join(
             str(job.get(k) or "") for k in ("title", "company", "description")
         ) if isinstance(job, dict) else ""
-        unsupported = check_grounding(answer, research, profile_text or "", job_text
+        grounding_text = (profile_text or "") + "\n" + (story_text or "")
+        unsupported = check_grounding(answer, research, grounding_text, job_text
                                       ).unsupported_company_claims
     except Exception:
         unsupported = []

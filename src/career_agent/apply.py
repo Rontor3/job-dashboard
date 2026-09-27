@@ -157,8 +157,10 @@ def main() -> None:
         try:
             from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
             from .browser.ats_lookup import lookup as _ats_lookup
+            from .memory import qbank as _qbank
             from job_dashboard.db import get_job
             from job_dashboard.letter.draft import make_default_llm
+            _qbank.ensure(conn)
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
             llm = make_default_llm()
@@ -171,7 +173,7 @@ def main() -> None:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
                                   resume_text=job.get("description", ""),
-                                  ats_notes=_ats_notes)
+                                  ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:

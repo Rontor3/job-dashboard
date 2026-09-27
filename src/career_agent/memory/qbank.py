@@ -104,15 +104,22 @@ def add_wording(conn, text, entry_id, vec, source, *, replace=False) -> bool:
 def exact(conn, text):
     r = conn.execute(
         "SELECT w.entry_id FROM qbank_wording w JOIN qbank_entry e ON e.id=w.entry_id "
-        "WHERE w.norm=? AND e.status='active'", (norm(text),)).fetchone()
+        "WHERE w.norm=? AND e.status='active' AND e.topic IS NOT 'story'", (norm(text),)).fetchone()
     return r[0] if r else None
 
 
 def wordings(conn) -> list:
     rows = conn.execute(
         "SELECT w.norm, w.entry_id, w.vec FROM qbank_wording w JOIN qbank_entry e "
-        "ON e.id=w.entry_id WHERE e.status='active'").fetchall()
+        "ON e.id=w.entry_id WHERE e.status='active' AND e.topic IS NOT 'story'").fetchall()
     return [(n, e, np.frombuffer(v, dtype="float32")) for n, e, v in rows]
+
+
+def story_text(conn) -> str:
+    """Answered story entries as Q/A blocks — context for the essay drafter only."""
+    rows = conn.execute("SELECT question, answer FROM qbank_entry WHERE topic='story' "
+                        "AND status='active' AND TRIM(COALESCE(answer, '')) != '' ORDER BY id").fetchall()
+    return "\n\n".join(f"Q: {q}\nA: {a}" for q, a in rows)
 
 
 def wordings_for(conn, entry_id) -> list[str]:

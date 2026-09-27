@@ -102,6 +102,12 @@
     {"id": "contract_ok", "topic": "misc", "atype": "bool", "question": "Are you open to a contract role?", "wordings": ["Would you consider a contract-to-hire position?"]},
     {"id": "full_time_ok", "topic": "misc", "atype": "bool", "question": "Are you looking for a full-time role?", "wordings": ["Are you available for full-time employment?"]},
     {"id": "sms_consent", "topic": "misc", "atype": "bool", "question": "Do you agree to receive text messages about your application?", "wordings": ["SMS opt-in"]},
-    {"id": "whatsapp_ok", "topic": "misc", "atype": "bool", "question": "Can we contact you on WhatsApp?", "wordings": ["WhatsApp updates opt-in"]}
+    {"id": "whatsapp_ok", "topic": "misc", "atype": "bool", "question": "Can we contact you on WhatsApp?", "wordings": ["WhatsApp updates opt-in"]},
+
+    {"id": "story_looking_for", "topic": "story", "atype": "text", "question": "What are you looking for in your next role?"},
+    {"id": "story_why_startups", "topic": "story", "atype": "text", "question": "Why do you want to work at an early-stage startup?"},
+    {"id": "story_proudest_work", "topic": "story", "atype": "text", "question": "What work are you proudest of, and why?"},
+    {"id": "story_how_you_work", "topic": "story", "atype": "text", "question": "How do you like to work (team, pace, ownership)?"},
+    {"id": "story_problems", "topic": "story", "atype": "text", "question": "What kinds of problems excite you?"}
   ]
 }
