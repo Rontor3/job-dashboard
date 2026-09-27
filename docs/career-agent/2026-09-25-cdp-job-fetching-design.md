@@ -205,6 +205,38 @@ Decisions taken for v1 (defaults, no user preference stated):
 - **Wellfound** cutoff is on `liveStartAt`; ids are the key (reposts keep their id); details are never opened
   (they emit a tracked view on the real account), descriptions come from the list payload.
 
+## Round 4: Work at a Startup (Y Combinator), 2026-09-27
+
+Added on request. Not Wellfound (a different site, despite both being "startup jobs" boards) —
+`workatastartup.com`, Y Combinator's own board. Live recon, no login, no challenge:
+
+- **Search:** loading `https://www.workatastartup.com/jobs/search?q=<query>` returns the page's own
+  JSON directly (`{"jobs":[...]}`, `contentType: application/json`), captured passively exactly like
+  Naukri/LinkedIn (`session.capture("jobs/search")` around `goto`). **Fixed 30 results, no pagination**
+  — `page=`/`offset=` are silently ignored and return the identical 30 (verified: same id set twice).
+  It is a relevance/semantic search over the query text, not a keyword filter: adding "india" to the
+  query re-ranks toward India-located roles (10/30 vs otherwise mostly US/SF) rather than filtering by
+  location server-side.
+- **List fields:** `id, title, jobType, location, roleType, salary, companyName, companySlug,
+  companyBatch, companyOneLiner, companyLogoUrl, companyLastActiveAt, applyUrl`. **No posted-date field
+  anywhere** — `posted_date` is always `None` for this site (kept, not dropped, per the site-wide
+  undated-is-kept rule).
+- **`applyUrl` is a stale per-visit link**, not reusable (it embeds a throwaway
+  `search-<hash>@placeholder.workatastartup.com` signup identity tied to that anonymous browsing
+  session). **Never store it.** `apply_kind` is always `"native"` (the platform's own YC-account
+  apply flow) with `apply_url=None`; the real apply link is only correct when generated live on the
+  job's own page.
+- **Detail page** `https://www.workatastartup.com/jobs/<id>` is public HTML, no login, no JSON-LD/
+  `__NEXT_DATA__`. The description is the concatenation of every `<div class="prose ...">...</div>`
+  block (company blurb + "About the role" + tech-stack line; verified 3 blocks, ~7k chars total on a
+  live job) — read via `session.goto` + raw `page.content()`, tags stripped with `html_to_text`.
+- **Key:** numeric `id`; canonical URL `https://www.workatastartup.com/jobs/<id>`.
+- **No window/mode split needed:** every run re-issues the same fixed queries and gets the same top-30
+  per query; skip-known is the only dedup that matters (no incremental/backfill distinction, no anchor).
+- **Terms:** the existing ML/AI/DS term list, each queried as `"<term> india"` to bias toward India
+  results; India location and target-title are still enforced our side after fetch (the query bias is
+  not a guarantee).
+
 ## Per-site adapters
 
 Caps are per run. "Detail" = the extra fetch needed for a full description of a **new** job only.
