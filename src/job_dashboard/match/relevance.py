@@ -58,6 +58,10 @@ _TARGET_TOKEN_RE = re.compile(r"(?:^|[\s\-/(])(ai|ml)(?:[\s\-/)]|$)", re.IGNOREC
 
 
 def is_target_role(title):
-    """True if the title is in the candidate's ML/AI/DS target family."""
-    t = title or ""
+    """True if the title is in the candidate's ML/AI/DS target family.
+
+    Runs of whitespace/hyphens collapse to one space first, so "Data  Scientist"
+    (double space) and "Data-Scientist" match the same as "Data Scientist".
+    """
+    t = re.sub(r"[\s\-]+", " ", title or "")
     return bool(_TARGET_RE.search(t) or _TARGET_TOKEN_RE.search(t))

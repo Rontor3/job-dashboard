@@ -35,6 +35,13 @@ class ApplicationProfileRequest(BaseModel):
     willing_to_relocate: Optional[bool] = None
     notice_period: Optional[str] = None
     salary_expectation: Optional[str] = None
+    current_ctc: Optional[str] = None
+    reason_for_change: Optional[str] = None
+    postal_code: Optional[str] = None
+    gender: Optional[str] = None
+    ethnicity: Optional[str] = None
+    veteran_status: Optional[str] = None
+    disability_status: Optional[str] = None
 
 
 class ScreeningAnswerRequest(BaseModel):
@@ -138,7 +145,9 @@ def build_apply_router(db_path, screening_engine=None) -> APIRouter:
     def put_profile(body: ApplicationProfileRequest):
         conn = db()
         try:
-            saved = save_application_profile(conn, body.model_dump())
+            # Merge: a form that doesn't send a column must not null it out.
+            current = get_application_profile(conn) or {}
+            saved = save_application_profile(conn, {**current, **body.model_dump(exclude_unset=True)})
         finally:
             conn.close()
         return saved

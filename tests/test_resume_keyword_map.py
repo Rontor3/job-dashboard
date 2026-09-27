@@ -19,6 +19,7 @@ from job_dashboard.resume.keyword_map import (
     _CAP_WORD_RUN_RE,
     _KNOWN_TOOLS,
     _TOKEN_RE,
+    _integrity_violation,
     extract_keywords,
     propose_rephrasings,
     simple_deep_rank,
@@ -589,3 +590,11 @@ def test_invalid_confidence_value_is_rejected_to_gap():
 
     assert all(isinstance(r, GapKeyword) for r in result)
     assert any(g.jd_keyword == "kafka" for g in result)
+
+
+def test_cap_run_with_digits_matches_its_own_source():
+    """"AWS S3" must not truncate to "AWS S" and then fail the \\b lookup
+    against its own source — that rejected every rewrite of the skills line."""
+    src = r"\item \textbf{Programming}: Python, AWS S3, AWS EC2, Docker"
+    assert not _integrity_violation(src, src)
+    assert _integrity_violation(src + ", AWS Lambda", src)

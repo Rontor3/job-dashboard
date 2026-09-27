@@ -23,13 +23,14 @@ def test_llm_failure_never_raises():
     assert suggest_skills("real text with Docker", llm=boom) == []
 
 
-def test_default_skills_are_the_three_verbatim_categories():
+def test_default_skills_are_the_four_resume_categories():
     segs = {s.id: s for s in load_segments()}
     defaults = [s for s in segs.values() if s.kind == "skills" and s.default]
     titles = {s.title for s in defaults}
     assert titles == {
         "Programming & Technologies",
         "Machine Learning & Data Science",
+        "Domain",
         "Professional Skills",
     }
     # the tailored groups are opt-in (default: false)
