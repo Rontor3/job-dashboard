@@ -303,19 +303,10 @@ def fill_node(state: AgentState, config) -> dict:
 
     form = [_d2f(d) for d in state["form"]]
     fillable = [f for f in form if f.kind != "button"]
-    if c.get("qa"):
-        c["qa"].trace_all(fillable)
-
-    # Shared ladder (recall → semantic → rules → judge) — also used by boards/.
+    # Shared ladder (question bank → rules → judge) — also used by boards/;
+    # it records every field to the QA recorder itself.
     from .answering import answer_fields
     decisions, needs = answer_fields(fillable, c)
-
-    qa = c.get("qa")
-    if qa:
-        for d in decisions:
-            qa.decision(d)
-        for f in needs:
-            qa.needs(f)
 
     deps.fill(page, decisions)
 
@@ -388,17 +379,8 @@ def human_gate_node(state: AgentState, config) -> dict:
     from ..orchestrator.screen_review import apply_answers
     new_decisions = apply_answers(fields, answers)
     deps.fill(page, new_decisions)
-    qa = c.get("qa")
-    if qa:
-        for f in fields:
-            if str(answers.get(f.ref) or "").strip():
-                qa.answered(f, answers[f.ref])
-
-    # Events from TelegramCollector: {ref: "approve"|"edit"}; empty for CLI
-    human = c.get("human")
-    events: dict = human.get_events() if (human and hasattr(human, "get_events")) else {}
     from .answering import record_answers
-    record_answers(fields, answers, c, events)
+    record_answers(fields, answers, c)
 
     return {
         "pending_human": [],

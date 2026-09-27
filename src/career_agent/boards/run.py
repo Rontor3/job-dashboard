@@ -65,7 +65,7 @@ def _ask(needs, ctx):
         return [], needs
     human = ctx["human"]
     answers = human.collect(needs) or {}
-    record_answers(needs, answers, ctx, human.get_events() or {})
+    record_answers(needs, answers, ctx)
     return apply_answers(needs, answers), [f for f in needs if not str(answers.get(f.ref) or "").strip()]
 
 
