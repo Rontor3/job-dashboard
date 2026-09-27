@@ -44,8 +44,9 @@ Feed row [route pill] [score] [Apply] [+ Queue]          Sidebar: nav · filters
                                      result file ──► outcome() ──► queue state + applications.status
 ```
 
-There is one launch path: the Apply button enqueues the job at the front and starts the runner.
-`POST /api/jobs/{id}/apply-agent` is kept for the CLI/extension and becomes a thin wrapper.
+The dashboard has one launch path: the Apply button enqueues the job at the front and starts the
+runner. `POST /api/jobs/{id}/apply-agent` stays as a direct single-job launch for the extension;
+it shares the runner's `AgentRunState`, so the two never drive Chrome at once (the runner waits).
 
 ### Queue store — `src/job_dashboard/apply/queue.py`
 

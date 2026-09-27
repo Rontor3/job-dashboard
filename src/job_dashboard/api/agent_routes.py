@@ -65,6 +65,12 @@ class AgentRunState:
             return {"running": False, "job_id": job_id,
                     "status": "done" if code == 0 else "error", "exit_code": code}
 
+    def wait(self) -> int:
+        """Block until the current run exits; its exit code (0 if nothing ran)."""
+        with self._lock:
+            proc = self._proc
+        return 0 if proc is None else proc.wait()
+
 
 def _cdp_reachable(cdp_url: str, timeout: float = 1.5) -> bool:
     try:
@@ -206,9 +212,9 @@ def _read_live_page(cdp_url: str, job_id: int) -> dict:
         return {"url": None, "title": None, "screenshot_path": None}
 
 
-def build_agent_router(db_path) -> APIRouter:
+def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRouter:
     router = APIRouter()
-    state = AgentRunState()
+    state = state or AgentRunState()      # shared with the apply queue's runner
 
     def db():
         return init_db(db_path)

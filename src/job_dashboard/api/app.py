@@ -5,7 +5,9 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from job_dashboard.api.agent_routes import build_agent_router
+from job_dashboard.api.agent_routes import AgentRunState, build_agent_router
+from job_dashboard.api.queue_routes import build_queue_router, make_agent_launch
+from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.api.apply_routes import build_apply_router
 from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
@@ -28,7 +30,7 @@ def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_embed=None,
-    hiring_role_fn=None,
+    hiring_role_fn=None, queue_launch=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -75,7 +77,12 @@ def create_app(
     )
     app.include_router(build_letter_router(db_path, letter_engine))
     app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model, hiring_role_fn))
-    app.include_router(build_agent_router(db_path))
+    agent_state = AgentRunState()
+    app.include_router(build_agent_router(db_path, agent_state))
+    # Apply queue: ``queue_launch`` overrides how a queued job is run (tests
+    # inject a fake); default launches career_agent via the shared agent state.
+    app.state.queue_runner = QueueRunner(str(db_path), queue_launch or make_agent_launch(agent_state))
+    app.include_router(build_queue_router(db_path, app.state.queue_runner))
     app.include_router(build_qa_router(db_path, qa_embed))
 
     @contextmanager
