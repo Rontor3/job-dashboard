@@ -36,6 +36,8 @@ class HiringPost:
     keyword: str
     fit_score: float = 0.0
     fit_reason: str = ""
+    role_title: str = ""
+    company: str = ""
 
 
 def to_hiring_post(d, keyword):
@@ -81,6 +83,7 @@ def judge(post, role_fn=None):
     title = got.get("title") or ""
     if not (is_target_role(title) if title else is_target_role(post.text[:300])):
         return False, None, ""
+    post.role_title, post.company = title, got.get("company") or ""
     fit = got.get("fit")
     if fit is None:
         return True, None, got.get("reason") or ""

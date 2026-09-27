@@ -24,24 +24,27 @@ def _ensure_hiring_posts_table(conn):
            )"""
     )
     cols = {r[1] for r in conn.execute("PRAGMA table_info(hiring_posts)")}
-    if "fit_reason" not in cols:
-        conn.execute("ALTER TABLE hiring_posts ADD COLUMN fit_reason TEXT")
+    for col in ("fit_reason", "role_title", "company"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE hiring_posts ADD COLUMN {col} TEXT")
 
 
 _HIRING_COLS = ("id", "url", "poster_name", "poster_headline", "text",
-                "posted_at", "keyword", "fit_score", "fetched_at", "dismissed", "fit_reason")
+                "posted_at", "keyword", "fit_score", "fetched_at", "dismissed", "fit_reason",
+                "role_title", "company")
 
 
 def upsert_hiring_post(conn, post):
-    post = {"fit_reason": "", **post}
+    post = {"fit_reason": "", "role_title": "", "company": "", **post}
     conn.execute(
         """INSERT INTO hiring_posts
                (url, poster_name, poster_headline, text, posted_at,
-                keyword, fit_score, fetched_at, fit_reason)
+                keyword, fit_score, fetched_at, fit_reason, role_title, company)
            VALUES (:url, :poster_name, :poster_headline, :text, :posted_at,
-                   :keyword, :fit_score, :fetched_at, :fit_reason)
+                   :keyword, :fit_score, :fetched_at, :fit_reason, :role_title, :company)
            ON CONFLICT(url) DO UPDATE SET
                text=excluded.text, fit_score=excluded.fit_score, fit_reason=excluded.fit_reason,
+               role_title=excluded.role_title, company=excluded.company,
                fetched_at=excluded.fetched_at, keyword=excluded.keyword""",
         post,
     )

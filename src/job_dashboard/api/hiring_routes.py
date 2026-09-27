@@ -1,5 +1,6 @@
 """Hiring-digest API: refresh (Selenium search), list, dismiss. Own router to
 respect the 500-line cap; ``create_app`` includes it."""
+import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -110,16 +111,18 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
             me = conn.execute("SELECT full_name, phone, linkedin_url, email FROM application_profile").fetchone()
         name, phone, linkedin, account = me or ("", "", "", "")
         guess = _regex_role(post)
-        title = (job[1] if job else "") or guess["title"] or "the role"
-        company = (job[2] if job else "") or guess["company"]
+        title = (job[1] if job else "") or post.get("role_title") or guess["title"]
+        company = (job[2] if job else "") or post.get("company") or guess["company"]
+        role = f"the {title} role" if title else "the opening"
         at = f" at {company}" if company else ""
-        first = (post["poster_name"] or "").split(" ")[0]
+        # "K, A S Ammna" → "Ammna": first real word (≥2 letters) of the poster's name
+        first = next((w for w in re.findall(r"[^\W\d_]+", post["poster_name"] or "") if len(w) > 1), "")
         body = (letters[0]["body"] if letters and letters[0]["body"] else
-                f"Hi {first},\n\nI came across your post about the {title} role{at} and would like "
+                f"Hi {first or 'there'},\n\nI came across your post about {role}{at} and would like "
                 f"to be considered. I'm a Data Scientist at Tata AIG working on ML fraud-detection "
                 f"systems and LLM pipelines; my résumé is attached.\n\n"
                 f"Happy to share more or set up a quick call.\n\nBest,\n{name}\n{phone}\n{linkedin}")
-        subject = f"Application: {title} — {name}"
+        subject = f"Application: {title or 'your opening'}{at} — {name}"
         pdf = Path(resumes[0]["pdf_path"]) if resumes and resumes[0]["pdf_path"] else CURRENT_RESUME
         if gmail_draft.authorized() and pdf.exists():
             try:

@@ -168,3 +168,20 @@ def test_email_draft_opens_gmail(tmp_path, monkeypatch):
     d = c.post(f"/api/hiring/posts/{pid}/email-draft").json()
     assert d["gmail_url"].endswith("#drafts?compose=abc123") and d["attached"] == "cv.pdf"
     assert sent[0]["To"] == "hiring@fship.in" and sent[0].get_payload()[1].get_filename() == "cv.pdf"
+
+
+def test_email_uses_stored_title_company_and_real_first_name(tmp_path, monkeypatch):
+    import job_dashboard.api.hiring_routes as R
+    from urllib.parse import parse_qs, urlparse
+    from job_dashboard.db import init_db, upsert_hiring_post
+    monkeypatch.setattr(R.gmail_draft, "authorized", lambda: False)
+    db = str(tmp_path / "t.db")
+    conn = init_db(db)
+    upsert_hiring_post(conn, dict(url="u1", poster_name="K, A S Ammna", poster_headline="HR", keyword="k",
+                                  text="URGENTLY HIRING! mail ameena.k@hiil.co.uk", posted_at=None, fit_score=0.8,
+                                  fetched_at="2099-01-01T00:00:00+00:00", role_title="AIML Engineer", company="HIIL"))
+    c = TestClient(create_app(db_path=db, embed_model=None))
+    pid = c.get("/api/hiring/posts?within_hours=1000000").json()["posts"][0]["id"]
+    q = parse_qs(urlparse(c.post(f"/api/hiring/posts/{pid}/email-draft").json()["gmail_url"]).query)
+    assert q["su"][0].startswith("Application: AIML Engineer at HIIL")
+    assert q["body"][0].startswith("Hi Ammna,") and "the AIML Engineer role at HIIL" in q["body"][0]
