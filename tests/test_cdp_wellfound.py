@@ -132,3 +132,21 @@ def test_job_without_live_start_counts_as_fresh():
     with make_session(p) as s:
         out = wf.run(s, ctx())
     assert [j.external_id for j in out] == ["1"] and out[0].posted_date is None
+
+
+def test_off_target_title_is_not_added_but_counted_and_stale_rule_uses_all_jobs():
+    p = feed_page(lambda u, m, h, b: (200, json.dumps(result(
+        [job(1, title="Chip Conveyor Service Engineer"), job(2)], False))))
+    c = ctx(known=lambda i, u: False); seen = []
+    c.known = lambda i, u: seen.append(i) or False
+    with make_session(p) as s:
+        out = wf.run(s, c)
+    assert [j.external_id for j in out] == ["2"] and c.stats["off_target"] >= 1 and "1" not in seen
+    # off-target but FRESH pages must not trip the stale stop: the target job on page 3 is still reached
+    bad = "Python Developer"
+    pages = {1: result([job(3, title=bad)]), 2: result([job(4, title=bad)]), 3: result([job(5)], False)}
+    def handler(u, m, h, b):
+        f = json.loads(b)["variables"]["filterConfigurationInput"]
+        return 200, json.dumps(result([], False) if f.get("customJobTitles") else pages.get(f["page"], result([], False)))
+    with make_session(feed_page(handler)) as s:
+        assert [j.external_id for j in wf.run(s, ctx())] == ["5"]

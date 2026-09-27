@@ -25,7 +25,7 @@ def detail_script(*ids):
 
 
 def test_new_job_gets_detail_description_and_known_is_skipped():
-    script = {**search_page("data scientist", [(1, "A"), (2, "B")]), **search_page("data scientist", [], 2), **detail_script(1)}
+    script = {**search_page("data scientist", [(1, "Data Scientist"), (2, "AI Engineer")]), **search_page("data scientist", [], 2), **detail_script(1)}
     page = FakePage(script)
     c = ctx(known={"2"}); c.redate = lambda *a: True
     with make_session(page) as s:
@@ -36,9 +36,9 @@ def test_new_job_gets_detail_description_and_known_is_skipped():
 
 def test_near_duplicates_collapse_within_run_and_against_db():
     # 3 cards: two identical title/company/location, one already in DB text-wise
-    script = {**search_page("data scientist", [(1, "Data Scientist"), (2, "data  scientist"), (3, "Other Role")]),
+    script = {**search_page("data scientist", [(1, "Data Scientist"), (2, "DATA SCIENTIST."), (3, "AI Engineer")]),
               **search_page("data scientist", [], 2), **detail_script(1, 3)}
-    text = {("Other Role", "Acme", "Bengaluru")}
+    text = {("AI Engineer", "Acme", "Bengaluru")}
     c = ctx(text=text)
     with make_session(FakePage(script)) as s:
         out = nk.run(s, c)
@@ -48,7 +48,7 @@ def test_near_duplicates_collapse_within_run_and_against_db():
 def test_details_are_loaded_round_robin_after_all_searches():
     script = {}
     for t in ("a", "b"):
-        script.update(search_page(t, [(1 if t == "a" else 2, "T")]))
+        script.update(search_page(t, [(1 if t == "a" else 2, "Data Scientist" if t == "a" else "AI Engineer")]))
         script.update(search_page(t, [], 2))
     script.update(detail_script(1, 2))
     page = FakePage(script)
@@ -81,22 +81,33 @@ def test_silent_first_load_is_reloaded_once():
                 if P.n == 1:                       # first load fires nothing
                     self.url = url; self.visited.append(url); return FakeResponse(url, None)
             return super().goto(url, wait_until)
-    page = P({**search_page("data scientist", [(1, "A")]), **search_page("data scientist", [], 2), **detail_script(1)})
+    page = P({**search_page("data scientist", [(1, "Data Scientist")]), **search_page("data scientist", [], 2), **detail_script(1)})
     with make_session(page) as s:
         assert [j.external_id for j in nk.run(s, ctx())] == ["1"]
     assert page.visited.count(u) == 2
 
 
 def test_cap_returns_partial_and_sets_capped():
-    script = {**search_page("data scientist", [(1, "A")]), **detail_script(1)}
+    script = {**search_page("data scientist", [(1, "Data Scientist")]), **detail_script(1)}
     c = ctx()
     with make_session(FakePage(script), max_loads=1) as s:
         assert nk.run(s, c) == [] and c.stats["capped"] is True
 
 
 def test_no_description_anywhere_is_skipped_not_known():
-    script = {**search_page("data scientist", [(1, "A")]), **search_page("data scientist", [], 2)}
+    script = {**search_page("data scientist", [(1, "Data Scientist")]), **search_page("data scientist", [], 2)}
     c = ctx()
     with make_session(FakePage(script)) as s:
         assert nk.run(s, c) == []
     assert c.stats["skipped_known"] == 0
+
+
+def test_off_target_title_gets_no_detail_load_and_is_counted():
+    script = {**search_page("data scientist", [(1, "Chip Conveyor Service Engineer"), (2, "Data Scientist")]),
+              **search_page("data scientist", [], 2), **detail_script(1, 2)}
+    page = FakePage(script); c = ctx(); seen = []
+    c.known = lambda i, u: seen.append(i) or False
+    with make_session(page) as s:
+        out = nk.run(s, c)
+    assert [j.external_id for j in out] == ["2"] and c.stats["off_target"] == 1
+    assert nk.job_url("/job-listings-x-1") not in page.visited and seen == ["2"]

@@ -90,7 +90,9 @@ def _iso(ms):
 
 
 def run(session, ctx):
+    from job_dashboard.match.relevance import is_target_role
     hours = 720 if ctx.mode == "backfill" else ctx.hours
+    ctx.stats.setdefault("off_target", 0)
     seen_ids, seen_text, pending, found = set(), set(), {}, {}
     ctx.stats.setdefault("collapsed", 0)
     try:
@@ -105,6 +107,9 @@ def run(session, ctx):
                     if c["id"] in seen_ids or not c["company"]:
                         continue
                     seen_ids.add(c["id"])
+                    if not is_target_role(c["title"]):
+                        ctx.stats["off_target"] += 1
+                        continue
                     url = job_url(c["jd_url"])
                     if ctx.known(c["id"], url):
                         ctx.stats["skipped_known"] += 1

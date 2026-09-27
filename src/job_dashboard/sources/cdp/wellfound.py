@@ -78,8 +78,10 @@ def _iso(sec):
 
 
 def run(session, ctx):
+    from job_dashboard.match.relevance import is_target_role
     cutoff = time.time() - (720 if ctx.mode == "backfill" else ctx.hours) * 3600
     seen, found = set(), []
+    ctx.stats.setdefault("off_target", 0)
 
     def walk(tpl, title, max_pages):
         stale = 0
@@ -91,6 +93,9 @@ def run(session, ctx):
                 if j["id"] in seen:
                     continue
                 seen.add(j["id"])
+                if not is_target_role(j["title"]):
+                    ctx.stats["off_target"] += 1
+                    continue
                 if ctx.known(j["id"], job_url(j)):
                     ctx.stats["skipped_known"] += 1
                     if ctx.redate and j["live"] and ctx.redate(j["id"], job_url(j), _iso(j["live"])):

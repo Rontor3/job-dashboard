@@ -41,7 +41,9 @@ def to_listing(card, description) -> JobListing:
 
 
 def run(session, ctx):
+    from job_dashboard.match.relevance import is_target_role
     hours = 720 if ctx.mode == "backfill" else ctx.hours
+    ctx.stats.setdefault("off_target", 0)
     days = POSTING[next((b for b in sorted(POSTING) if b >= hours), max(POSTING))]   # round up to a supported window
     seen, todo, found = set(), [], []
     try:
@@ -58,6 +60,9 @@ def run(session, ctx):
                     if c["id"] in seen:
                         continue
                     seen.add(c["id"])
+                    if not is_target_role(c["title"]):
+                        ctx.stats["off_target"] += 1
+                        continue
                     if ctx.known(c["id"], c["url"]):
                         ctx.stats["skipped_known"] += 1
                     else:

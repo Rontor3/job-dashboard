@@ -63,10 +63,12 @@ def to_listing(card, detail) -> JobListing:
 
 
 def run(session, ctx, today=None):
+    from job_dashboard.match.relevance import is_target_role
     today = today or date.today()
     cutoff = today - timedelta(days=RETENTION_DAYS)
-    cands, found = {}, []
+    cands, found, off = {}, [], set()
     ctx.stats.setdefault("skipped_stale", 0)
+    ctx.stats.setdefault("off_target", 0)
     try:
         for term in ctx.terms:
             for _ in range(2):                      # the page's own call can be missed: reload once
@@ -81,7 +83,12 @@ def run(session, ctx, today=None):
                 if not cards:
                     break
                 ctx.stats["pages"] += 1
-                cands.update({c["id"]: c for c in cards})
+                for c in cards:
+                    if is_target_role(c["title"]):
+                        cands[c["id"]] = c
+                    elif c["id"] not in cands and c["id"] not in off:
+                        off.add(c["id"])
+                        ctx.stats["off_target"] += 1
         streak = []                                 # consecutive stale ids; one stale outlier must not move the anchor
         for cid in sorted(cands, reverse=True):
             c = cands[cid]
