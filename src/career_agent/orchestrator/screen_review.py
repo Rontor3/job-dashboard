@@ -42,7 +42,8 @@ def _option_range(opt):
     nums = [int(n) for n in re.findall(r"\d+", s)]
     if not nums:
         return None
-    if any(k in s for k in ("+", "more than", "over", "at least", "or more", "greater")):
+    # "5+" is open-ended; a dial code "(+376)" (plus BEFORE the digits) is not.
+    if re.search(r"\d\s*\+", s) or any(k in s for k in ("more than", "over", "at least", "or more", "greater")):
         return (nums[0], _INF)
     if any(k in s for k in ("less than", "under", "fewer", "below")):
         return (0, nums[0] - 1)

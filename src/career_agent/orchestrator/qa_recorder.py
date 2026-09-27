@@ -41,8 +41,11 @@ class QARecorder:
     def decision(self, d):
         if d.action == "upload":
             return                      # a résumé file path isn't a question
+        # A question-bank best guess is on the form but still needs the
+        # human's look before submit, so it's listed with the open questions.
+        status = "needs_answer" if d.source == "qbank_likely" else "filled"
         self._rec(d.ref, d.label, kind=d.kind, answer=str(d.value),
-                  source=d.source, status="filled")
+                  source=d.source, status=status)
 
     def needs(self, f):
         self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, status="needs_answer")

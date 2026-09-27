@@ -54,3 +54,9 @@ test("empty database shows a hint instead of zeros", async () => {
   render(<RetrievalPanel />);
   expect(await screen.findByText(/no runs recorded yet/)).toBeInTheDocument();
 });
+
+test("shows how often questionnaire matches were changed, by score band", async () => {
+  mock({ ...STATS, by_band: [{ band: "0.6–0.7", kept: 3, edited: 2, edit_rate: 0.4 }] });
+  render(<RetrievalPanel />);
+  expect(await screen.findByTestId("by-band")).toHaveTextContent("score 0.6–0.7: 40% changed (2 of 5)");
+});

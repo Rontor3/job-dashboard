@@ -70,3 +70,29 @@ def test_real_seed_file_is_valid(fake_embed):
     texts = [qbank.norm(t) for e in raw for t in [e["question"], *e.get("wordings", [])]]
     assert len(texts) == len(set(texts)), "a wording is listed twice"
     assert qbank.load_seed(_conn(), fake_embed) == len(raw)
+
+
+def test_story_entries_never_match_and_render(fake_embed, tmp_path):
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps({"entries": [
+        {"id": "story_why_startups", "topic": "story", "atype": "text",
+         "question": "Why do you want to work at an early-stage startup?"},
+        {"id": "story_problems", "topic": "story", "atype": "text",
+         "question": "What kinds of problems excite you?"},
+        {"id": "notice_period", "topic": "availability", "atype": "number",
+         "question": "What is your notice period?"}]}))
+    c = _conn()
+    qbank.load_seed(c, fake_embed, seed)
+    assert qbank.exact(c, "Why do you want to work at an early-stage startup?") is None
+    assert {e for _, e, _ in qbank.wordings(c)} == {"notice_period"}
+    assert qbank.story_text(c) == ""
+    qbank.set_answer(c, "story_why_startups", "I like owning outcomes.")
+    assert qbank.story_text(c) == ("Q: Why do you want to work at an early-stage startup?\n"
+                                   "A: I like owning outcomes.")
+
+
+def test_real_seed_has_five_story_prompts():
+    raw = json.loads(qbank.SEED_PATH.read_text())["entries"]
+    assert sorted(e["id"] for e in raw if e["topic"] == "story") == [
+        "story_how_you_work", "story_looking_for", "story_problems",
+        "story_proudest_work", "story_why_startups"]

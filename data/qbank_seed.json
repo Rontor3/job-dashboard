@@ -78,8 +78,8 @@
     {"id": "drug_test_ok", "topic": "background", "atype": "bool", "question": "Are you willing to take a pre-employment drug test?", "wordings": ["Will you submit to a drug screening?"]},
     {"id": "ai_policy_ack", "topic": "background", "atype": "bool", "question": "Do you acknowledge our policy on using AI in this application?", "wordings": ["AI Policy for Application"]},
 
-    {"id": "gender", "topic": "demographics", "atype": "choice", "profile_ref": "gender", "question": "What is your gender?", "wordings": ["Gender", "Gender identity"], "synonyms": {"Male": ["Man", "Male", "Cisgender man"]}},
-    {"id": "race", "topic": "demographics", "atype": "choice", "profile_ref": "ethnicity", "question": "Please identify your race", "wordings": ["Race", "Race/Ethnicity", "What is your racial or ethnic background?"], "synonyms": {"Asian": ["Asian (Not Hispanic or Latino)", "Asian or Asian American"]}},
+    {"id": "gender", "topic": "demographics", "atype": "choice", "profile_ref": "gender", "question": "What is your gender?", "wordings": ["Gender", "Gender identity"]},
+    {"id": "race", "topic": "demographics", "atype": "choice", "profile_ref": "ethnicity", "question": "Please identify your race", "wordings": ["Race", "Race/Ethnicity", "What is your racial or ethnic background?"]},
     {"id": "hispanic_latino", "topic": "demographics", "atype": "bool", "question": "Are you Hispanic or Latino?", "wordings": ["Are you Hispanic/Latino?", "Hispanic or Latino ethnicity"]},
     {"id": "veteran_status", "topic": "demographics", "atype": "choice", "profile_ref": "veteran_status", "question": "What is your veteran status?", "wordings": ["Veteran Status", "Are you a protected veteran?"]},
     {"id": "disability_status", "topic": "demographics", "atype": "choice", "profile_ref": "disability_status", "question": "Do you have a disability?", "wordings": ["Disability Status", "Disability self-identification"]},
@@ -102,6 +102,12 @@
     {"id": "contract_ok", "topic": "misc", "atype": "bool", "question": "Are you open to a contract role?", "wordings": ["Would you consider a contract-to-hire position?"]},
     {"id": "full_time_ok", "topic": "misc", "atype": "bool", "question": "Are you looking for a full-time role?", "wordings": ["Are you available for full-time employment?"]},
     {"id": "sms_consent", "topic": "misc", "atype": "bool", "question": "Do you agree to receive text messages about your application?", "wordings": ["SMS opt-in"]},
-    {"id": "whatsapp_ok", "topic": "misc", "atype": "bool", "question": "Can we contact you on WhatsApp?", "wordings": ["WhatsApp updates opt-in"]}
+    {"id": "whatsapp_ok", "topic": "misc", "atype": "bool", "question": "Can we contact you on WhatsApp?", "wordings": ["WhatsApp updates opt-in"]},
+
+    {"id": "story_looking_for", "topic": "story", "atype": "text", "question": "What are you looking for in your next role?"},
+    {"id": "story_why_startups", "topic": "story", "atype": "text", "question": "Why do you want to work at an early-stage startup?"},
+    {"id": "story_proudest_work", "topic": "story", "atype": "text", "question": "What work are you proudest of, and why?"},
+    {"id": "story_how_you_work", "topic": "story", "atype": "text", "question": "How do you like to work (team, pace, ownership)?"},
+    {"id": "story_problems", "topic": "story", "atype": "text", "question": "What kinds of problems excite you?"}
   ]
 }

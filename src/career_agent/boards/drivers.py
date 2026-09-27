@@ -15,6 +15,8 @@ def _norm(s):
 
 
 class FormDriver:
+    ask_optional_upfront = False           # optional gaps asked only if the form won't advance
+
     def _snapshot(self, page, ctx):
         # Anything already on the page before the entry click is page chrome
         # (search boxes, language pickers, footer buttons) — never the form.
@@ -54,6 +56,7 @@ class ChatDriver(FormDriver):
     """Naukri-style chatbot: the questionnaire arrives as JSON in the apply
     response; answers go in one bubble at a time until the bot's done text.
     With no questionnaire (instant apply) it behaves as a zero-page form."""
+    ask_optional_upfront = True            # the bot asks every question; have all answers first
 
     def _questionnaire(self, board, cap):
         q = board.get("questions") or {}

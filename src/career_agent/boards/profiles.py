@@ -21,7 +21,8 @@ _DEFAULTS = {
 # Bot-challenge tells shared by every board (page URL / visible text); a board
 # node's own `challenge` list extends these.
 _CHALLENGE = ["verify you are human", "unusual activity", "are you a robot",
-              "security check", "just a moment", "cdn-cgi/challenge"]
+              "security check", "just a moment", "additional verification required",
+              "cdn-cgi/challenge", "challenges.cloudflare.com"]
 
 
 def load_boards(path=GRAPH) -> list[dict]:

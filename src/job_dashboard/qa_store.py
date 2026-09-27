@@ -13,7 +13,7 @@ import json
 import re
 from datetime import datetime, timezone
 
-DEFAULT_SETTINGS = {"answer_confidence_min": "60", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
+DEFAULT_SETTINGS = {"answer_confidence_min": "60", "qbank_confident_min": "87", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
                     "browser_naukri_enabled": "0", "browser_wellfound_enabled": "0",
                     "browser_instahyre_enabled": "0", "browser_iimjobs_enabled": "0",
                     "browser_indeed_enabled": "0"}
@@ -113,11 +113,14 @@ def open_counts(conn) -> dict[int, int]:
     return {j: n for j, n in rows}
 
 
-def mark_answered(conn, job_id: int, qkey: str, answer: str) -> int:
-    """Close every open row for this job+question. Returns rows changed."""
+def mark_answered(conn, job_id: int, qkey: str, answer: str, *, keep_source: bool = False) -> int:
+    """Close every open row for this job+question. Returns rows changed.
+    keep_source=True leaves `source` as-is (e.g. a qbank_likely reply keeps
+    its retrieval-band stats true instead of being relabelled 'human')."""
     ensure(conn)
+    set_source = "" if keep_source else "source='human', "
     cur = conn.execute(
-        "UPDATE application_qa SET status='answered', answer=?, source='human', "
+        f"UPDATE application_qa SET status='answered', answer=?, {set_source}"
         "updated_at=? WHERE job_id=? AND qkey=? AND status='needs_answer'",
         (answer, _now(), job_id, qkey))
     conn.commit()
@@ -163,9 +166,18 @@ def confidence_min(conn) -> int:
         return int(DEFAULT_SETTINGS["answer_confidence_min"])
 
 
+def qbank_confident_min(conn) -> int:
+    """Question-bank match score (0-100) at/above which a clear top match fills
+    without a review flag. Separate from answer_confidence_min (LLM drafts)."""
+    try:
+        return max(0, min(100, int(get_setting(conn, "qbank_confident_min"))))
+    except (TypeError, ValueError):
+        return int(DEFAULT_SETTINGS["qbank_confident_min"])
+
+
 # ── review + retrieval analytics ─────────────────────────────────────────────
 
-_MEMORY = ("learned", "semantic")      # sources meaning "memory answered this"
+_MEMORY = ("learned", "semantic", "qbank", "qbank_likely")   # sources meaning "memory answered this"
 
 
 def answers_used(conn, job_id: int) -> list[dict]:
@@ -217,6 +229,9 @@ def retrieval_stats(conn) -> dict:
         return {"avg_confidence": round(r[0], 1) if r[0] is not None else None, "count": r[1]}
 
     gen = q("SELECT status, COUNT(*) FROM application_qa WHERE source='judgment' GROUP BY status")
+    bands = q("""SELECT MIN(CAST(retrieval_score * 10 AS INT), 9), SUM(outcome='kept'), SUM(outcome='edited')
+                 FROM application_qa WHERE source IN ('qbank', 'qbank_likely')
+                 AND retrieval_score IS NOT NULL AND outcome IS NOT NULL GROUP BY 1 ORDER BY 1""")
     return {
         "total_fields": total,
         "retrieval_hits": hits, "hit_rate": round(hits / total, 3) if total else None,
@@ -227,6 +242,8 @@ def retrieval_stats(conn) -> dict:
                      "wrong_rate": round(edited / (kept + edited), 3) if kept + edited else None},
         "top_wrong_entries": [{"qkey": k, "edited": e, "kept": kp or 0} for k, e, kp in wrong],
         "generation": {"by_status": dict(gen), "kept": avg("kept"), "edited": avg("edited")},
+        "by_band": [{"band": f"{b / 10:.1f}–{(b + 1) / 10:.1f}", "kept": k or 0, "edited": e or 0,
+                     "edit_rate": round((e or 0) / ((k or 0) + (e or 0)), 3)} for b, k, e in bands],
     }
 
 

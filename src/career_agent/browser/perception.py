@@ -78,6 +78,8 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             group=r.get("group"),
             purpose=guess_purpose(r["label"], kind),
             description=r.get("description", ""),
+            input_type=r.get("input_type", ""),
+            autocomplete=r.get("autocomplete", ""),
         ))
 
     for name, g in radio_groups.items():
@@ -273,6 +275,7 @@ _INPUT_JS = r"""
       group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : '',
       disabled: !!el.disabled || (!!el.readOnly && !isCombo),
       role, haspopup,
+      input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
     });
   }
   // Custom ARIA choice buttons: <button role="radio"> grouped under a

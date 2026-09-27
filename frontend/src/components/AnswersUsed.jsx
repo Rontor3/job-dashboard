@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { fetchAnswersUsed, reviewAnswer } from "../api.js";
+import EntryPicker from "./EntryPicker.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)" };
 
@@ -7,7 +8,7 @@ const BTN = { border: "none", cursor: "pointer", fontSize: 11, padding: "3px 10p
 // wrong one takes the correct answer and replaces it in memory.
 export default function AnswersUsed({ jobId }) {
   const [rows, setRows] = useState(null);
-  const [fixing, setFixing] = useState(null);       // {id, answer}
+  const [fixing, setFixing] = useState(null);       // {id, entry}
   const load = useCallback(() => { fetchAnswersUsed(jobId).then(setRows).catch(() => setRows([])); }, [jobId]);
   useEffect(() => { load(); }, [load]);
   if (!rows || rows.length === 0) return null;
@@ -25,12 +26,12 @@ export default function AnswersUsed({ jobId }) {
                 <span style={{ color: "var(--ink-faint)" }}> · from “{r.retrieved_qkey}” ({r.retrieval_score})</span>}
             </div>
             {fixing && fixing.id === r.id ? (
-              <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                <input aria-label={`Correct answer for ${r.label}`} value={fixing.answer} autoFocus
-                       onChange={(e) => setFixing({ id: r.id, answer: e.target.value })}
-                       style={{ flex: 1, fontSize: 12, padding: "4px 8px", border: "0.5px solid var(--hairline)", borderRadius: 6 }} />
-                <button style={{ ...BTN, background: "var(--green)", color: "#fff" }}
-                        onClick={() => send(r.id, "wrong", fixing.answer)}>Save fix</button>
+              <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
+                <EntryPicker id={`fix-${r.id}`} label={`Right question for ${r.label}`}
+                             onChange={(entry) => setFixing({ id: r.id, entry })} />
+                <button style={{ ...BTN, background: "var(--green)", color: "#fff", whiteSpace: "nowrap" }}
+                        disabled={!fixing.entry}
+                        onClick={() => send(r.id, "wrong", fixing.entry)}>Save fix</button>
               </div>
             ) : r.outcome ? (
               <span style={{ fontSize: 11, fontWeight: 600, color: r.outcome === "edited" ? "var(--dupe-ink)" : "var(--green)" }}>
@@ -41,7 +42,7 @@ export default function AnswersUsed({ jobId }) {
                 <button aria-label={`Correct: ${r.label}`} style={{ ...BTN, background: "var(--green-tint)", color: "var(--green)" }}
                         onClick={() => send(r.id, "correct")}>✓ Correct</button>
                 <button aria-label={`Wrong: ${r.label}`} style={{ ...BTN, background: "var(--dupe-bg)", color: "var(--dupe-ink)" }}
-                        onClick={() => setFixing({ id: r.id, answer: "" })}>✗ Wrong</button>
+                        onClick={() => setFixing({ id: r.id, entry: null })}>✗ Wrong</button>
               </div>
             )}
           </div>

@@ -199,3 +199,19 @@ def test_judge_confident_answer_fills_and_unknown_confidence_does_not():
     assert ok == [] and [f.ref for f in need] == ["#q"]
     ok, _, _ = judge([q], ctx, lambda p: "plain prose")                    # gate off -> as before
     assert [d.ref for d in ok] == ["#q"]
+
+
+def test_judge_forwards_story_text(monkeypatch):
+    from career_agent.orchestrator import judgment
+    seen = {}
+
+    def fake_draft(job, q, profile_text, research, resume_text, llm=None, story_text=""):
+        seen["story"] = story_text
+        return {"answer": "x", "confidence": 90, "basis": "", "prompt": "", "flags": [],
+                "unsupported_company_claims": []}
+    monkeypatch.setattr(judgment, "draft_screening_answer", fake_draft)
+    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": ""},
+                          story_text="Q: a\nA: b")
+    f = Field("#m", "textarea", "Why do you want to join us?", True, [], None, None)
+    judge([f], ctx, llm=lambda p: "")
+    assert seen["story"] == "Q: a\nA: b"

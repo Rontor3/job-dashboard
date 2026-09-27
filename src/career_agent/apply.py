@@ -88,6 +88,8 @@ def main() -> None:
     ap.add_argument("--db", default="data/jobs.db")
     ap.add_argument("--resume-version", default="Rakshit_Singh_draft1")
     ap.add_argument("--submit", action="store_true")
+    ap.add_argument("--probe", action="store_true",
+                    help="job boards only: open the form, report what would be filled, never type or submit")
     ap.add_argument("--autonomous", action="store_true")
     ap.add_argument("--max-steps", type=int, default=15)
     ap.add_argument("--resume-pdf", default=None,
@@ -155,8 +157,10 @@ def main() -> None:
         try:
             from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
             from .browser.ats_lookup import lookup as _ats_lookup
+            from .memory import qbank as _qbank
             from job_dashboard.db import get_job
             from job_dashboard.letter.draft import make_default_llm
+            _qbank.ensure(conn)
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
             llm = make_default_llm()
@@ -169,7 +173,7 @@ def main() -> None:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
                                   resume_text=job.get("description", ""),
-                                  ats_notes=_ats_notes)
+                                  ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
@@ -186,10 +190,24 @@ def main() -> None:
         except Exception as e:
             print(f"[warn] combobox matcher unavailable ({type(e).__name__}: {e})")
 
-    # Learning loop (Phase D): reuse answers the human typed on past forms
-    # before escalating again; record new ones. Same jobs.db, no new store.
-    from .memory.learned_answers import AnswerMemory
-    learn = AnswerMemory(conn)
+    # Question bank (spec 2026-09-26): canonical questions answered once on the
+    # dashboard. The LLM only picks which entry a question is — never the value.
+    from .memory.qbank_memory import QBankMemory
+    from job_dashboard.db import get_job
+    _qllm = None
+    if not args.no_llm:
+        try:
+            from job_dashboard.letter.draft import make_default_llm
+            _qllm = make_default_llm()
+        except Exception as e:
+            print(f"[warn] qbank LLM pick unavailable ({type(e).__name__}: {e})")
+    try:
+        learn = QBankMemory(conn, llm=_qllm, contact=contact,
+                            job=(get_job(conn, args.job_id) if args.job_id else None) or {},
+                            high=qa_store.qbank_confident_min(conn) / 100)
+    except Exception as e:
+        print(f"[warn] question bank unavailable ({type(e).__name__}: {e})")
+        learn = None
 
     memory_router = None
     _qa_vault = None
@@ -208,8 +226,8 @@ def main() -> None:
         )
     except Exception as _me:
         print(f"[warn] memory router unavailable ({type(_me).__name__}: {_me})")
-    from .memory.retrieval_trace import explain as _explain
-    qa_rec.tracer = lambda f: _explain(conn, _qa_vault, f)
+    if learn is not None:
+        qa_rec.tracer = learn.explain
 
     settings = load_settings()
 
@@ -280,6 +298,17 @@ def main() -> None:
         kind = classify_entry(page, status=resp.status if resp else None)
         if kind == "closed":                   # expired / removed / 404 shell -> skip
             print("[skip] this posting is closed or no longer available.")
+            return
+        # Job boards (Naukri, LinkedIn, Indeed, ...) apply on the board itself and
+        # must never go through the career-site drill below (see boards/run.py).
+        from .boards.profiles import board_for
+        _board = board_for(page.url) or board_for(args.url)
+        if _board:
+            out = _run_board(_board, page, args, profile=profile, human=human, resume_pdf=resume_pdf,
+                             judge_fn=judge_fn, learn=learn, memory_router=memory_router,
+                             option_matcher=option_matcher, qa=qa_rec)
+            _write_run_log(conn, args.url, args.job_id, out)
+            print(out, flush=True)
             return
         # kind=="none" = clear JD page; kind=="form" can false-positive on pages
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
@@ -456,6 +485,24 @@ def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None
         print(f"[memory] pending update written → {out_path}", flush=True)
     except Exception as _e:
         print(f"[memory] pending update failed ({_e})", flush=True)
+
+
+def _run_board(board, page, args, *, option_matcher=None, limiter=None, **ctx) -> dict:
+    """Board job -> boards.run_board under the board's daily cap; records the outcome."""
+    from .boards.run import run_board
+    from .orchestrator.browser_deps import BrowserDeps
+    from .reliability.rate_limiter import RateLimiter, map_outcome
+    limiter = limiter or RateLimiter(domain_day_cap=board["daily_cap"])
+    if not args.probe and limiter.check(board["id"]) != "ok":
+        return {"url": args.url, "job_id": args.job_id, "board": board["id"], "submitted": False,
+                "stopped_reason": "daily_cap", "decisions": [], "pending_human": []}
+    print(f"[board] {board['id']} ({board['archetype']}) probe={args.probe}", flush=True)
+    out = run_board(page, board, {**ctx, "deps": BrowserDeps(option_matcher=option_matcher),
+                                  "do_submit": args.submit and not args.probe, "probe": args.probe,
+                                  "autonomous": args.autonomous, "job_id": args.job_id})
+    if not args.probe:
+        limiter.record(board["id"], map_outcome(out["stopped_reason"] or "error"))
+    return out
 
 
 def _write_run_log(conn, url: str, job_id, result: dict) -> None:

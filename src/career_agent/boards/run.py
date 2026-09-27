@@ -27,7 +27,10 @@ def _blocked(page, board):
         text = page.evaluate("document.body ? document.body.innerText.slice(0, 4000) : ''")
     except Exception:
         text = ""
-    if is_challenge(board, page.url, text):
+    # Frame URLs too: a Cloudflare interstitial renders its widget in a
+    # challenges.cloudflare.com frame over an otherwise ordinary-looking URL.
+    frames = " ".join(f.url for f in getattr(page, "frames", []) or [])
+    if is_challenge(board, f"{page.url} {frames}", text):
         return "challenge"
     if is_logged_out(board, page.url, text):
         return "logged_out"
@@ -38,9 +41,12 @@ def _authorized(ctx, board, page, decisions):
     """The irreversible click needs --submit AND (standing authorization or a human yes)."""
     if not ctx.get("do_submit"):
         return False
-    if ctx.get("autonomous"):
+    likely = any(getattr(d, "source", "") == "qbank_likely" for d in decisions)
+    if ctx.get("autonomous") and not likely:
         return True
     card = [f"Apply via {board['id']}: {page.url[:120]}"]
+    if likely:
+        card[0] += " (contains best-guess answers — check them)"
     card += [f"- {d.label}: {d.value}" for d in decisions if d.label]
     return bool(ctx["human"].approve("\n".join(card)))
 
@@ -56,20 +62,32 @@ def _interstitials(page, board):
             pass
 
 
+def _ask(needs, ctx):
+    """Human answers for `needs` -> (decisions, still unanswered). Probe never asks."""
+    if not needs or ctx.get("probe"):
+        return [], needs
+    human = ctx["human"]
+    answers = human.collect(needs) or {}
+    record_answers(needs, answers, ctx)
+    return apply_answers(needs, answers), [f for f in needs if not str(answers.get(f.ref) or "").strip()]
+
+
 def _answers(fields, board, driver, cap, ctx):
-    """(decisions, unanswered required fields): ladder → board prefill → human."""
-    decisions, needs = answer_fields(fields, ctx)
+    """(decisions, unanswered required, unanswered optional): ladder -> board
+    prefill -> human for required gaps (all gaps when the driver asks upfront)."""
+    decisions, _ = answer_fields(fields, ctx)
     pre = driver.prefill(board, cap)
+    decided = {d.ref for d in decisions}
     decisions += [FillDecision(f.ref, f.kind, f.label, pre[f.ref], _action_for_kind(f.kind), "board_prefill")
-                  for f in needs if f.ref in pre]
-    needs = [f for f in needs if f.ref not in pre and f.required]
-    if needs:
-        human = ctx["human"]
-        answers = human.collect(needs) or {}
-        record_answers(needs, answers, ctx, human.get_events() or {})
-        decisions += apply_answers(needs, answers)
-        needs = [f for f in needs if not str(answers.get(f.ref) or "").strip()]
-    return decisions, needs
+                  for f in fields if f.ref in pre and f.ref not in decided]
+    # A gap is any field the ladder gave no answer for — including optional
+    # radios/selects the rules layer passes over silently.
+    decided |= set(pre)
+    gaps = [f for f in fields if f.ref not in decided]
+    upfront = gaps if driver.ask_optional_upfront else [f for f in gaps if f.required]
+    got, left = _ask(upfront, ctx)
+    return (decisions + got, [f for f in left if f.required],
+            [f for f in gaps if not f.required and f not in upfront] + [f for f in left if not f.required])
 
 
 def run_board(page, board, ctx):
@@ -91,16 +109,25 @@ def run_board(page, board, ctx):
     irreversible = board["entry"].get("submits", "no") != "no"
 
     with Capture(page.context, _needles(board)) as cap:
+        if irreversible and ctx.get("probe"):
+            # Probe never clicks an entry that itself submits: just prove it is there.
+            try:
+                found = page.locator(board["entry"]["selector"]).first.is_visible()
+            except Exception:
+                found = False
+            return stop("probe" if found else "no_entry", page)
         if irreversible and not _authorized(ctx, board, page, []):
             return stop("dry_run", page)
         try:
-            page.locator(board["entry"]["selector"]).first.click(timeout=8000)
-        except Exception:
+            page.locator(board["entry"]["selector"]).filter(visible=True).first.click(timeout=15000)
+        except Exception as e:
+            res["error"] = f"{type(e).__name__}: {str(e)[:300]}"
             return stop("no_entry", page)
         page.wait_for_timeout(3000)
         page = page.context.pages[-1]            # the entry click may open a new tab
         _interstitials(page, board)
 
+        asked_optional = False
         for _ in range(MAX_STEPS):
             if confirmed(board, cap.responses, page.url):
                 break
@@ -108,13 +135,31 @@ def run_board(page, board, ctx):
             if blocked:
                 return stop(blocked, page)
             fields = driver.fields(page, board, ctx, cap)
-            decisions, needs = _answers(fields, board, driver, cap, ctx)
+            decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
+            if ctx.get("probe"):
+                # Probe: report what would be filled / asked on the first form
+                # page, then stop — nothing typed, nothing submitted.
+                done_decisions += decisions
+                res["pending_human"] = [dataclasses.asdict(f) for f in needs + optional]
+                res["fields"] = [dataclasses.asdict(f) for f in fields]
+                return stop("probe", page)
             if needs:
                 res["pending_human"] = [dataclasses.asdict(f) for f in needs]
                 return stop("needs_human", page)
             driver.put(page, board, ctx, fields, decisions)
             done_decisions += decisions
             nxt = driver.next_control(page, board, ctx)
+            if nxt is None and optional and not asked_optional:
+                # The form will not advance (Next/Submit absent or disabled) while
+                # "optional" fields are blank: one of them is required in practice
+                # (e.g. Wellfound's location question gates Send). Ask, then re-read.
+                asked_optional = True
+                got, _ = _ask(optional, ctx)
+                if got:
+                    driver.put(page, board, ctx, fields, got)
+                    done_decisions += got
+                    page.wait_for_timeout(1500)
+                    continue
             if nxt is None:
                 break
             label, final = nxt

@@ -38,3 +38,15 @@ def test_phone_without_country_code_unchanged():
 def test_phone_extension_never_guessed_from_phone_number():
     # extension has no dedicated profile field — must never reuse the phone value
     assert resolve("phone_extension", P) is None
+
+
+def test_phone_country_code_label_and_value():
+    from types import SimpleNamespace as NS
+    from career_agent.browser.form_model import guess_purpose
+    from career_agent.orchestrator.profile_resolver import resolve
+    for label in ("Phone country code*", "Country code", "Dialing code", "Country calling code"):
+        assert guess_purpose(label, "select") == "phone_country_code", label
+    assert guess_purpose("Mobile phone number*", "tel") == "phone"
+    p = NS(contact={"phone": "+91 7565052330"})
+    assert resolve("phone_country_code", p) == "+91"
+    assert resolve("phone_country_code", NS(contact={"phone": "7565052330"})) is None

@@ -5,6 +5,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+try:
+    from job_dashboard.apply.screening import draft_screening_answer
+except Exception:
+    draft_screening_answer = None      # answerer unavailable -> free-text escalates
+
 
 @dataclass
 class JudgmentContext:
@@ -13,6 +18,7 @@ class JudgmentContext:
     research: object = None        # ResearchBundle or None (draft handles None)
     resume_text: str = ""
     ats_notes: str = ""            # vendor notes from ats-graph (e.g. "Direct, no-login")
+    story_text: str = ""           # candidate's own long-form answers (qbank topic=story)
 
 
 _SENSITIVE_RE = re.compile(
@@ -158,10 +164,6 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
     reported confidence is below it — or unknown — is NOT filled; the field
     escalates like any unanswerable one. `on_draft(field, res, filled)` sees
     every drafted answer, for recording."""
-    try:
-        from job_dashboard.apply.screening import draft_screening_answer
-    except Exception:
-        draft_screening_answer = None      # answerer unavailable -> free-text escalates
     answered, still_need, flagged = [], [], set()
     calls = 0
     hard = []                                  # weak free-text -> tier-3 orchestrator
@@ -198,7 +200,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
             res = draft_screening_answer(ctx.job, f.label, profile_text,
-                                         ctx.research, ctx.resume_text, llm=llm)
+                                         ctx.research, ctx.resume_text, llm=llm,
+                                         story_text=ctx.story_text)
             conf = res.get("confidence")
             low = min_conf is not None and (conf is None or conf < min_conf)
             if on_draft:

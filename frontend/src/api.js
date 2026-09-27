@@ -188,20 +188,22 @@ const jsonBody = (method, body) => ({
   method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
 });
 export const fetchAnswers = (q = "") =>
-  fetch(`/api/answers?q=${encodeURIComponent(q)}`).then(json).then((d) => d.answers || []);
+  fetch(`/api/answers?q=${encodeURIComponent(q)}`).then(json);          // {answers, unanswered}
 export const saveAnswer = (body) => fetch("/api/answers", jsonBody("PUT", body)).then(json);
-export const deleteAnswer = (qkey) =>
-  fetch(`/api/answers?qkey=${encodeURIComponent(qkey)}`, { method: "DELETE" }).then(json);
+export const deleteAnswer = (entryId) =>
+  fetch(`/api/answers?entry_id=${encodeURIComponent(entryId)}`, { method: "DELETE" }).then(json);
+export const fetchQbankEntries = (search = "") =>
+  fetch(`/api/qbank/entries?search=${encodeURIComponent(search)}`).then(json).then((d) => d.entries || []);
 export const fetchAnswerApps = (qkey) =>
   fetch(`/api/answers/applications?qkey=${encodeURIComponent(qkey)}`).then(json).then((d) => d.applications || []);
 export const fetchJobQuestions = (id) =>
   fetch(`/api/jobs/${id}/questions`).then(json).then((d) => d.questions || []);
 export const fetchOpenCounts = () => fetch("/api/questions/open-counts").then(json);
-export const replyQuestion = (jobId, rowId, answer) =>
-  fetch(`/api/jobs/${jobId}/questions/${rowId}/reply`, jsonBody("POST", { answer })).then(json);
+export const replyQuestion = (jobId, rowId, answer, save_as = "once", entry_id = null) =>
+  fetch(`/api/jobs/${jobId}/questions/${rowId}/reply`, jsonBody("POST", { answer, save_as, entry_id })).then(json);
 export const fetchAgentSettings = () => fetch("/api/agent-settings").then(json);
-export const saveAgentSettings = (answer_confidence_min) =>
-  fetch("/api/agent-settings", jsonBody("PUT", { answer_confidence_min })).then(json);
+export const saveAgentSettings = (body) =>
+  fetch("/api/agent-settings", jsonBody("PUT", typeof body === "number" ? { answer_confidence_min: body } : body)).then(json);
 export const fetchIngredients = () => fetch("/api/ingredients").then(json);
 
 export const fetchRetrievalStats = () => fetch("/api/retrieval/stats").then(json);
@@ -209,5 +211,5 @@ export const fetchRetrievalRecent = (limit = 30) =>
   fetch(`/api/retrieval/recent?limit=${limit}`).then(json).then((d) => d.recent || []);
 export const fetchAnswersUsed = (id) =>
   fetch(`/api/jobs/${id}/answers-used`).then(json).then((d) => d.answers || []);
-export const reviewAnswer = (rowId, verdict, answer) =>
-  fetch(`/api/application-qa/${rowId}/review`, jsonBody("POST", { verdict, answer })).then(json);
+export const reviewAnswer = (rowId, verdict, entry_id = null) =>
+  fetch(`/api/application-qa/${rowId}/review`, jsonBody("POST", { verdict, entry_id })).then(json);
