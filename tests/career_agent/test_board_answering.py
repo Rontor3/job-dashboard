@@ -112,3 +112,23 @@ def test_bare_number_reply_gets_a_follow_up_for_the_place():
     decisions, _ = _ask([choice, value], {"human": Human()})
     assert asked[1] == "I can relocate to — which place?"
     assert {d.ref: d.value for d in decisions} == {"group:loc": "I can relocate to…", "#loc": "New Delhi"}
+
+
+
+def test_paired_location_is_answered_from_the_profile_without_asking():
+    from types import SimpleNamespace as NS
+    from career_agent.boards.run import _ask, _job_location
+    assert _job_location("Salary\n₹10L\nLocation\nNew Delhi\nRemote work policy") == "New Delhi"
+    choice = Field("group:loc", "radio_group", "x", False, ["I am currently in…", "I can relocate to…"], None, None)
+    value = Field("#loc", "text", "", False, [], None, None)
+
+    class NoHuman:
+        def collect(self, fields):
+            raise AssertionError("must not ask")
+
+    prof = NS(contact={"willing_to_relocate": True, "location": "Mumbai, India"})
+    d, left = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
+    assert {x.ref: x.value for x in d} == {"group:loc": "I can relocate to…", "#loc": "New Delhi"} and left == []
+    prof.contact["willing_to_relocate"] = False
+    d, _ = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
+    assert {x.ref: x.value for x in d} == {"group:loc": "I am currently in…", "#loc": "Mumbai"}

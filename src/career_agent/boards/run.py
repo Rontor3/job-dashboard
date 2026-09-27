@@ -113,8 +113,45 @@ def _ask_pair(human, choice, value):
     return {choice.ref: opt, **({value.ref: place} if place else {})}
 
 
+def _pair_from_profile(choice, value, ctx):
+    """Answer a trailing choice + place from the profile instead of the human:
+    willing to relocate -> 'relocate to…' + the job's location; else 'currently
+    in…' + the profile city. {} when the profile cannot decide."""
+    contact = getattr(ctx.get("profile"), "contact", None) or {}
+    reloc = next((o for o in choice.options if "relocat" in o.lower()), None)
+    here = next((o for o in choice.options if re.search(r"\b(currently|live|based)\b", o, re.I)), None)
+    if contact.get("willing_to_relocate") and reloc and ctx.get("job_location"):
+        return {choice.ref: reloc, value.ref: ctx["job_location"]}
+    city = (contact.get("location") or "").split(",")[0].strip()
+    if here and city:
+        return {choice.ref: here, value.ref: city}
+    return {}
+
+
+def _job_location(text):
+    """The job's location as the posting states it ('Location' label line)."""
+    m = re.search(r"(?im)^\s*location\s*:?\s*\n?\s*([^\n|•]{2,60})$", text or "")
+    return m[1].strip() if m else None
+
+
 def _ask(needs, ctx):
-    """Human answers for `needs` -> (decisions, still unanswered). Probe never asks."""
+    """Answers for `needs` -> (decisions, still unanswered): the profile first for
+    a trailing choice + place, then the human. Probe never asks the human."""
+    profile_decisions = []
+    choice, value = _paired(needs)
+    if choice:
+        auto = _pair_from_profile(choice, value, ctx)
+        if auto:
+            print(f"[board] answered from profile: {auto}", flush=True)
+            profile_decisions = [
+                FillDecision(choice.ref, choice.kind, choice.label, auto[choice.ref], _action_for_kind(choice.kind), "profile"),
+                FillDecision(value.ref, value.kind, value.label, auto[value.ref], "combobox", "profile")]
+            needs = [f for f in needs if f not in (choice, value)]
+    got, left = _ask_human(needs, ctx)
+    return profile_decisions + got, left
+
+
+def _ask_human(needs, ctx):
     if not needs or ctx.get("probe"):
         return [], needs
     human = ctx["human"]
@@ -197,6 +234,10 @@ def run_board(page, board, ctx):
         except Exception:
             title = ""
         ctx["ask_context"] = f"{board.get('label', board['id'])} — {title}" if title else board.get("label")
+        try:
+            ctx["job_location"] = _job_location(page.evaluate("document.body.innerText"))
+        except Exception:
+            ctx["job_location"] = None
 
         asked_optional = False
         for _ in range(MAX_STEPS):
