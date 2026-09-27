@@ -72,15 +72,19 @@ def _ask(needs, ctx):
 def _answers(fields, board, driver, cap, ctx):
     """(decisions, unanswered required, unanswered optional): ladder -> board
     prefill -> human for required gaps (all gaps when the driver asks upfront)."""
-    decisions, needs = answer_fields(fields, ctx)
+    decisions, _ = answer_fields(fields, ctx)
     pre = driver.prefill(board, cap)
+    decided = {d.ref for d in decisions}
     decisions += [FillDecision(f.ref, f.kind, f.label, pre[f.ref], _action_for_kind(f.kind), "board_prefill")
-                  for f in needs if f.ref in pre]
-    needs = [f for f in needs if f.ref not in pre]
-    upfront = needs if driver.ask_optional_upfront else [f for f in needs if f.required]
+                  for f in fields if f.ref in pre and f.ref not in decided]
+    # A gap is any field the ladder gave no answer for — including optional
+    # radios/selects the rules layer passes over silently.
+    decided |= set(pre)
+    gaps = [f for f in fields if f.ref not in decided]
+    upfront = gaps if driver.ask_optional_upfront else [f for f in gaps if f.required]
     got, left = _ask(upfront, ctx)
     return (decisions + got, [f for f in left if f.required],
-            [f for f in needs if not f.required and f not in upfront] + [f for f in left if not f.required])
+            [f for f in gaps if not f.required and f not in upfront] + [f for f in left if not f.required])
 
 
 def run_board(page, board, ctx):
