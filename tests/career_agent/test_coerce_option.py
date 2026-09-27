@@ -37,3 +37,13 @@ def test_no_false_positive_or_match():
     assert _coerce_option("3", ["13-15 years", "20+ years"]) is None   # 3 in neither band
     assert _coerce_option("Xyz", ["Alpha", "Beta"]) is None
     assert _coerce_option("", ["Anything"]) is None
+
+
+def test_dial_code_plus_is_not_an_open_range():
+    # Live LinkedIn Easy Apply 2026-09-27: "(+376)" was read as "376 or more",
+    # so a phone number coerced to Andorra.
+    from career_agent.orchestrator.screen_review import _coerce_option
+    opts = ["Andorra (+376)", "United Arab Emirates (+971)", "India (+91)"]
+    assert _coerce_option("7565052330", opts) is None
+    assert _coerce_option("+91", opts) == "India (+91)"
+    assert _coerce_option(7, ["1-3 years", "5+ years"]) == "5+ years"

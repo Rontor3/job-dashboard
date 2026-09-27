@@ -39,6 +39,9 @@ def resolve(purpose, profile, index=0):
         return profile.contact.get("middle_name") or None   # escalate if absent
     if purpose in _DEMO:                                     # user-provided self-ID
         return profile.contact.get(_DEMO[purpose]) or None
+    if purpose == "phone_country_code":
+        m = _PHONE_CC_RE.match((profile.contact.get("phone") or "").strip())
+        return m.group(0).strip(" -") if m else None
     if purpose == "phone":
         raw = profile.contact.get("phone")
         return (_PHONE_CC_RE.sub("", raw).strip() or None) if raw else None
