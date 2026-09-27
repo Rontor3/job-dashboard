@@ -140,3 +140,16 @@ def test_apply_modal_already_open_on_load_is_still_the_form(monkeypatch):
     out, hits = _run(PREOPEN, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
     assert out["submitted"], out
     assert json.loads(hits[0]) == {"ctc": "30"}
+
+
+def test_perception_refs_escape_ids_with_css_metacharacters():
+    # Live Wellfound 2026-09-27: id "react-select-form-input--qualification.location.locationId-input"
+    # produced ref "#…qualification.location…", which (dots = classes) matched nothing.
+    from playwright.sync_api import sync_playwright
+    from career_agent.orchestrator.browser_deps import BrowserDeps
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page()
+        pg.set_content('<label for="a.b:c">City</label><input id="a.b:c" type="text">')
+        f = next(x for x in BrowserDeps().snapshot(pg) if x.label == "City")
+        assert pg.locator(f.ref).count() == 1
+        b.close()
