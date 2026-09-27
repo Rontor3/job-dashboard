@@ -182,12 +182,13 @@ def test_anchor_is_passed_in_and_saved_immediately():
 
 
 def test_all_sites_registered_with_limits_windows_and_off_by_default():
-    for site in ("wellfound", "instahyre", "iimjobs"):
+    for site in ("wellfound", "instahyre", "iimjobs", "ycstartups"):
         assert site in runner.ADAPTERS and site in runner.LIMITS_BY_SITE and site in runner.WINDOWS
     assert runner.LIMITS_BY_SITE["wellfound"]["incremental"] == (4, 25, 10**9)
     assert runner.LIMITS_BY_SITE["wellfound"]["backfill"] == (15, 40, 10**9)
     assert runner.LIMITS_BY_SITE["instahyre"]["backfill"][1] == 90
     assert runner.WINDOWS["iimjobs"] == (24, 72, 168, 720)
+    assert runner.LIMITS_BY_SITE["ycstartups"]["incremental"] == (1, 30, 10**9)   # no pagination on this site
     c = conn()                                               # only linkedin switched on by the helper
     _, results = runner.fetch_browser_sources(c, adapters={k: v for k, v in runner.ADAPTERS.items() if k != "linkedin"},
                                               reachable=lambda u: True, session_factory=_no_session)
