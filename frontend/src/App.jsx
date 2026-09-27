@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { fetchJobs, fetchStats, patchStatus, launchApplyAgent } from "./api.js";
+import { fetchJobs, fetchStats, fetchQueue, addToQueue } from "./api.js";
 import FilterBar from "./components/FilterBar.jsx";
 import Feed from "./components/Feed.jsx";
 import JobDetail from "./components/JobDetail.jsx";
@@ -13,6 +13,7 @@ import HeaderScene from "./components/HeaderScene.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
 import ResumeLibrary from "./components/ResumeLibrary.jsx";
 import AnswersTab from "./components/AnswersTab.jsx";
+import QueuePanel from "./components/QueuePanel.jsx";
 
 function TabButton({ active, onClick, label }) {
   return (
@@ -20,11 +21,13 @@ function TabButton({ active, onClick, label }) {
       onClick={onClick}
       aria-label={label}
       style={{
+        width: "100%",
+        textAlign: "left",
         background: active ? "var(--green)" : "transparent",
         color: active ? "var(--peach)" : "var(--ink-soft)",
-        border: "0.5px solid var(--hairline)",
-        borderRadius: "var(--radius-pill)",
-        padding: "6px 14px",
+        border: "none",
+        borderRadius: 10,
+        padding: "8px 12px",
         fontSize: 13,
         fontWeight: 600,
         cursor: "pointer",
@@ -44,6 +47,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState(null);
   const [trackerTick, setTrackerTick] = useState(0);
+  const [queue, setQueue] = useState({ items: [] });
 
   const reload = useCallback(() => {
     Promise.all([fetchJobs(filters), fetchStats()])
@@ -57,45 +61,60 @@ export default function App() {
 
   const reloadAll = useCallback(() => { reload(); setTrackerTick((t) => t + 1); }, [reload]);
 
-  const onTrack = (id) => patchStatus(id, "saved").then(reload);
+  const loadQueue = useCallback(() => fetchQueue().then(setQueue).catch(() => {}), []);
+  useEffect(() => { loadQueue(); }, [loadQueue]);
+  // Poll while the runner works so rows and the panel follow it job by job.
+  useEffect(() => {
+    if (!queue.running) return undefined;
+    const t = setInterval(() => { loadQueue(); reloadAll(); }, 3000);
+    return () => clearInterval(t);
+  }, [queue.running, loadQueue, reloadAll]);
 
-  const onApplyAgent = (id) => {
-    patchStatus(id, "saved")
-      .then(() => { setActiveTab("tracker"); reloadAll(); })
-      .then(() => launchApplyAgent(id))
-      .then((r) => { if (r && r.alreadyRunning) setError("agent busy with another application"); })
+  // Every queue action returns the new snapshot; anything else -> refetch.
+  const onQueueChange = (p) =>
+    p.then((snap) => (snap && Array.isArray(snap.items) ? setQueue(snap) : loadQueue()))
+      .then(reloadAll)
       .catch((e) => setError(String(e)));
-  };
+  const onQueue = (id) => onQueueChange(addToQueue(id));
+  const onApply = (id) => onQueueChange(addToQueue(id, { front: true, start: true }));
+
+  const TABS = [["browse", "Browse"], ["tracker", "Tracker"], ["hiring", "Hiring Signals"],
+                ["resumes", "Résumés"], ["answers", "Answers"]];
 
   return (
-    <div className="shell">
-      <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative", overflow: "hidden" }}>
-        <HeaderScene />
-        <div style={{ position: "relative" }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--green)", margin: 0 }}>
-            Job dashboard
-          </h1>
-          {stats && (
-            <span data-testid="stats" style={{ fontSize: 12, color: "var(--ink-soft)" }}>
-              <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--green-soft)", marginRight: 5, animation: "breathe 2.2s ease-in-out infinite" }} />
-              {stats.total} jobs · {stats.new} new
-            </span>
-          )}
-        </div>
-        <div style={{ position: "relative", display: "flex", gap: 8, alignItems: "center" }}>
-          <TabButton active={activeTab === "browse"} onClick={() => setActiveTab("browse")} label="Browse" />
-          <TabButton active={activeTab === "tracker"} onClick={() => setActiveTab("tracker")} label="Tracker" />
-          <TabButton active={activeTab === "hiring"} onClick={() => setActiveTab("hiring")} label="Hiring Signals" />
-          <TabButton active={activeTab === "resumes"} onClick={() => setActiveTab("resumes")} label="Résumés" />
-          <TabButton active={activeTab === "answers"} onClick={() => setActiveTab("answers")} label="Answers" />
-        </div>
-        <div style={{ position: "relative", display: "flex", gap: 8, alignItems: "center" }}>
-          <ThemeToggle />
-          <RefreshButton onDone={reloadAll} />
-        </div>
-      </header>
-      {error && <div role="alert" style={{ color: "var(--dupe-ink)", background: "var(--dupe-bg)", borderRadius: 12, padding: "10px 14px", marginTop: 12 }}>{error}</div>}
-      <main>
+    <div className="layout">
+      <aside className="sidebar">
+        <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "14px 16px", position: "relative", overflow: "hidden" }}>
+          <HeaderScene />
+          <div style={{ position: "relative" }}>
+            <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--green)", margin: 0 }}>Job dashboard</h1>
+            {stats && (
+              <span data-testid="stats" style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+                <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--green-soft)", marginRight: 5, animation: "breathe 2.2s ease-in-out infinite" }} />
+                {stats.total} jobs · {stats.new} new
+              </span>
+            )}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+              <ThemeToggle />
+              <RefreshButton onDone={reloadAll} />
+            </div>
+          </div>
+        </header>
+        <nav aria-label="Sections" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {TABS.map(([key, label]) => (
+            <TabButton key={key} active={activeTab === key} onClick={() => setActiveTab(key)} label={label} />
+          ))}
+        </nav>
+        {activeTab === "browse" && (
+          <section aria-label="Filters">
+            <p className="sidebar-label">Filters</p>
+            <FilterBar filters={filters} setFilters={setFilters} stacked />
+          </section>
+        )}
+        <QueuePanel queue={queue} onChange={onQueueChange} onOpenJob={setSelectedId} />
+      </aside>
+      <main style={{ minWidth: 0 }}>
+        {error && <div role="alert" style={{ color: "var(--dupe-ink)", background: "var(--dupe-bg)", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>{error}</div>}
         {activeTab === "hiring" ? (
           <HiringSignals onOpenJob={setSelectedId} />
         ) : activeTab === "resumes" ? (
@@ -105,8 +124,7 @@ export default function App() {
         ) : activeTab === "browse" ? (
           <div data-testid="feed-slot">
             <BrowseOverview stats={stats} onIndustry={(ind) => setFilters((f) => ({ ...f, industry: ind }))} />
-            <FilterBar filters={filters} setFilters={setFilters} />
-            <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} onTrack={onTrack} onApplyAgent={onApplyAgent} />
+            <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} onApply={onApply} onQueue={onQueue} queue={queue} />
             <DuplicatesSection />
           </div>
         ) : (

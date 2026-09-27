@@ -213,3 +213,16 @@ export const fetchAnswersUsed = (id) =>
   fetch(`/api/jobs/${id}/answers-used`).then(json).then((d) => d.answers || []);
 export const reviewAnswer = (rowId, verdict, entry_id = null) =>
   fetch(`/api/application-qa/${rowId}/review`, jsonBody("POST", { verdict, entry_id })).then(json);
+
+// Apply queue (spec 2026-09-27-jobs-page-queue): jobs filled one after another.
+export const fetchQueue = () => fetch("/api/queue").then(json);          // {items, running, paused, job_id}
+export const addToQueue = (jobId, { front = false, start = false } = {}) =>
+  fetch("/api/queue", jsonBody("POST", { job_id: jobId, front, start })).then(json);
+export const removeFromQueue = (jobId) => fetch(`/api/queue/${jobId}`, { method: "DELETE" }).then(json);
+export const moveInQueue = (jobId, before) =>
+  fetch(`/api/queue/${jobId}/move`, jsonBody("POST", { before })).then(json);
+export const startQueue = () => fetch("/api/queue/start", { method: "POST" }).then(json);
+export const pauseQueue = () => fetch("/api/queue/pause", { method: "POST" }).then(json);
+export const fetchAutosubmit = () => fetch("/api/queue/autosubmit").then(json);   // {board: bool}
+export const setAutosubmit = (board, on) =>
+  fetch("/api/queue/autosubmit", jsonBody("PUT", { board, on })).then(json);

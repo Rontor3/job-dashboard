@@ -27,3 +27,13 @@ test("switches between Browse and Tracker tabs", async () => {
   fireEvent.click(screen.getByRole("button", { name: /browse/i }));
   expect(screen.getByTestId("feed-slot")).toBeInTheDocument();
 });
+
+test("sidebar holds the nav, the filters (Browse only) and the queue", async () => {
+  render(<App />);
+  const nav = screen.getByRole("navigation", { name: "Sections" });
+  expect(nav.querySelectorAll("button")).toHaveLength(5);
+  expect(screen.getByRole("region", { name: "Filters" })).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Apply queue" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /tracker/i }));
+  expect(screen.queryByRole("region", { name: "Filters" })).toBeNull();
+});

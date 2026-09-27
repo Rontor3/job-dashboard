@@ -62,41 +62,45 @@ test("source select sets filters.source", () => {
   expect(updater({ sort: "embed" }).source).toBe("remotive");
 });
 
-test("shows + Track on untracked cards and calls onTrack without selecting", () => {
-  const onTrack = vi.fn(); const onSelect = vi.fn();
-  const jobs = [{ id: 1, title: "DS", company: "Acme", status: null }];
-  render(<Feed jobs={jobs} selectedId={null} onSelect={onSelect} onTrack={onTrack} />);
-  fireEvent.click(screen.getByRole("button", { name: /track/i }));
-  expect(onTrack).toHaveBeenCalledWith(1);
-  expect(onSelect).not.toHaveBeenCalled();
-});
+const AGENT = { kind: "naukri", label: "Naukri", fill: "agent" };
 
-test("Apply with agent only renders for fill===easy jobs", () => {
+test("each row offers Apply and + Queue for agent jobs, none for manual or applied ones", () => {
   const jobs = [
-    { id: 1, title: "External ATS", company: "Acme", status: null,
-      apply_type: { kind: "external-ats", label: "ATS form", fill: "easy" } },
-    { id: 2, title: "LinkedIn maybe", company: "Acme", status: null,
-      apply_type: { kind: "linkedin", label: "LinkedIn", fill: "maybe" } },
-    { id: 3, title: "No apply_type", company: "Acme", status: null },
+    { id: 1, title: "Naukri job", company: "Acme", status: null, apply_type: AGENT },
+    { id: 2, title: "ATS job", company: "Acme", status: null, apply_type: { kind: "external-ats", label: "ATS form", fill: "easy" } },
+    { id: 3, title: "Unknown flow", company: "Acme", status: null, apply_type: { kind: "other", label: "x", fill: "manual" } },
+    { id: 4, title: "Done already", company: "Acme", status: "applied", apply_type: AGENT },
   ];
   render(<Feed jobs={jobs} selectedId={null} onSelect={() => {}} />);
-  expect(screen.getAllByRole("button", { name: /apply with agent/i })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: /^apply$/i })).toHaveLength(2);
+  expect(screen.getAllByRole("button", { name: /add to queue/i })).toHaveLength(2);
 });
 
-test("clicking Apply with agent calls onApplyAgent without selecting the row", () => {
-  const onApplyAgent = vi.fn(); const onSelect = vi.fn();
-  const jobs = [{ id: 1, title: "External ATS", company: "Acme", status: null,
-                  apply_type: { kind: "external-ats", label: "ATS form", fill: "easy" } }];
-  render(<Feed jobs={jobs} selectedId={null} onSelect={onSelect} onApplyAgent={onApplyAgent} />);
-  fireEvent.click(screen.getByRole("button", { name: /apply with agent/i }));
-  expect(onApplyAgent).toHaveBeenCalledWith(1);
+test("Apply and + Queue call their handlers without selecting the row", () => {
+  const onApply = vi.fn(); const onQueue = vi.fn(); const onSelect = vi.fn();
+  const jobs = [{ id: 1, title: "Naukri job", company: "Acme", status: null, apply_type: AGENT }];
+  render(<Feed jobs={jobs} selectedId={null} onSelect={onSelect} onApply={onApply} onQueue={onQueue} />);
+  fireEvent.click(screen.getByRole("button", { name: /^apply$/i }));
+  fireEvent.click(screen.getByRole("button", { name: /add to queue/i }));
+  expect(onApply).toHaveBeenCalledWith(1);
+  expect(onQueue).toHaveBeenCalledWith(1);
   expect(onSelect).not.toHaveBeenCalled();
 });
 
-test("no separate + Track button when Apply with agent is available (it tracks on its own)", () => {
-  const jobs = [{ id: 1, title: "External ATS", company: "Acme", status: null,
-                  apply_type: { kind: "external-ats", label: "ATS form", fill: "easy" } }];
-  render(<Feed jobs={jobs} selectedId={null} onSelect={() => {}} onTrack={() => {}} />);
-  expect(screen.getByRole("button", { name: /apply with agent/i })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: /^\+ track$/i })).toBeNull();
+test("a queued job shows its place and cannot be queued twice", () => {
+  const onQueue = vi.fn();
+  const jobs = [{ id: 1, title: "A", company: "Acme", status: "saved", apply_type: AGENT },
+                { id: 2, title: "B", company: "Acme", status: "saved", apply_type: AGENT }];
+  const queue = { items: [{ job_id: 9, state: "running" }, { job_id: 2, state: "queued" }, { job_id: 1, state: "queued" }] };
+  render(<Feed jobs={jobs} selectedId={null} onSelect={() => {}} onQueue={onQueue} queue={queue} />);
+  expect(screen.getByRole("button", { name: "Queued ✓ #3" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Queued ✓ #2" }));
+  expect(onQueue).not.toHaveBeenCalled();
+});
+
+test("the running job reads Filling… and its Apply is disabled", () => {
+  const jobs = [{ id: 1, title: "A", company: "Acme", status: "saved", apply_type: AGENT }];
+  render(<Feed jobs={jobs} selectedId={null} onSelect={() => {}} queue={{ items: [{ job_id: 1, state: "running" }] }} />);
+  expect(screen.getByRole("button", { name: "Queued Filling…" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^apply$/i })).toBeDisabled();
 });
