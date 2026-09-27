@@ -92,6 +92,7 @@ def test_research_role_never_raises():
 
 def test_degree_abbrev_is_not_a_link_and_lnkd_skips_static_assets():
     assert C.extract_contacts("Eligibility: http://B.Tech or M.Sc")["links"] == []
+    assert C.extract_contacts("Apply https://t.mercor.com/WUK1D")["links"] == ["https://t.mercor.com/WUK1D"]
 
     class R:
         url = "https://lnkd.in/abc"

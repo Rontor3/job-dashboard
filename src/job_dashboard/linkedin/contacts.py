@@ -37,8 +37,10 @@ def extract_contacts(text: str, url: str | None = None) -> dict:
     for u in raw:
         u = u if u.startswith("http") else "https://" + u
         host = urlparse(u).hostname or ""
-        # "B.Tech", "M.Sc" — degree abbreviations read as bare hosts
-        if not host or len(host.split(".")[0]) < 2:
+        # "B.Tech", "M.Sc" — degree abbreviations read as bare hosts (two labels,
+        # one-letter first); real one-letter subdomains like t.mercor.com stay.
+        labels = host.split(".")
+        if not host or (len(labels) == 2 and len(labels[0]) < 2):
             continue
         if u not in links and not any(n in u for n in _NOISE_LINK):
             links.append(u)
