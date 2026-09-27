@@ -5,6 +5,7 @@ stops on bot challenges. Result dict matches the career-site one (+ `board`)."""
 from __future__ import annotations
 
 import dataclasses
+import re
 
 from job_dashboard.sources.cdp.session import Capture
 
@@ -59,13 +60,31 @@ def _interstitials(page, board):
             pass
 
 
+_REF_NOISE = {"react", "select", "form", "input", "field", "data", "cref", "id", "qualification",
+              "group", "button", "the", "value"}
+
+
+def _readable(f):
+    """A field as the human should see it: unlabelled widgets (a react-select
+    location picker) get a name derived from their ref instead of raw CSS."""
+    if f.label and f.label.strip():
+        return f
+    words = []
+    for tok in re.findall(r"[A-Za-z]+", f.ref or ""):
+        for w in re.findall(r"[A-Z]?[a-z]+", tok):
+            w = w.lower()
+            if w not in _REF_NOISE and w not in words:
+                words.append(w)
+    return dataclasses.replace(f, label=" ".join(words).capitalize() or "Unlabelled field")
+
+
 def _ask(needs, ctx):
     """Human answers for `needs` -> (decisions, still unanswered). Probe never asks."""
     if not needs or ctx.get("probe"):
         return [], needs
     human = ctx["human"]
     try:
-        answers = human.collect(needs) or {}
+        answers = human.collect([_readable(f) for f in needs]) or {}
     except Exception as e:                 # no terminal / Telegram down: leave the gap open
         print(f"[board] could not ask the human ({type(e).__name__}); leaving {len(needs)} field(s) open", flush=True)
         answers = {}

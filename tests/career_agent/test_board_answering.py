@@ -52,3 +52,11 @@ def test_record_answers_falls_back_to_learn():
     learn = Learn()
     record_answers([_f("a", "CTC")], {"a": "22"}, {"learn": learn})
     assert learn.rec == [("CTC", "22")]
+
+
+
+def test_unlabelled_widget_gets_a_readable_name_for_the_human():
+    from career_agent.boards.run import _readable
+    f = Field("#react-select-form-input--qualification.location.locationId-input", "text", "", False, [], None, None)
+    assert _readable(f).label == "Location"
+    assert _readable(_f("a", "Expected CTC")).label == "Expected CTC"
