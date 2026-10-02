@@ -275,6 +275,22 @@ _INPUT_JS = r"""
   // to 8 levels looking for a known ATS question-container class, then return
   // the first child text that isn't the options list itself.
   const groupLabel = (el) => {
+    // A real group container names itself: fieldset legend, aria-labelledby or
+    // aria-label. Prefer that over nearby text (an error message rendered next
+    // to the group after a failed Continue is NOT the question).
+    const fs = el.closest('fieldset,[role=radiogroup],[role=group]');
+    if (fs) {
+      const lb = fs.getAttribute('aria-labelledby');
+      if (lb) {
+        const root = el.getRootNode();
+        const t = lb.split(/\s+/).map(id => ((root.getElementById && root.getElementById(id)) || {}).textContent || '')
+          .join(' ').trim();
+        if (t) return t.replace(/[✱*✶†]\s*$/, '').slice(0, 200);
+      }
+      const lg = fs.querySelector('legend');
+      if (lg && lg.textContent.trim()) return lg.textContent.replace(/[✱*✶†]\s*$/, '').trim().slice(0, 200);
+      if (fs.getAttribute('aria-label')) return fs.getAttribute('aria-label').trim().slice(0, 200);
+    }
     let node = el.parentElement;
     for (let i = 0; i < 8 && node; i++, node = node.parentElement) {
       const cls = (node.className || '');
@@ -383,7 +399,9 @@ _INPUT_JS = r"""
     };
     out.push({
       ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
-      kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value : labelFor(el), description: describedBy(el), required: !!el.required || el.getAttribute('aria-required') === 'true',
+      kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value : labelFor(el), description: describedBy(el),
+      required: !!el.required || el.getAttribute('aria-required') === 'true'
+                || ((kind === 'radio' || kind === 'checkbox') && !!el.closest('[role=radiogroup][aria-required=true],fieldset[aria-required=true]')),
       options, group: (kind === 'radio') ? (el.name || null) : null,
       group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : (isDatePart ? dateGroup() : ''),
       disabled: !!el.disabled || (!!el.readOnly && !isCombo && !isPicker && !['radio','checkbox'].includes(type)),   // React sets readonly on radios

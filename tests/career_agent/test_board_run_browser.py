@@ -304,3 +304,19 @@ def test_board_refusing_to_continue_gets_its_declaration_affirmed(monkeypatch):
     out, hits = _run(DECLARE, _board("no", "/api/submit"), Human(), monkeypatch, do_submit=True, autonomous=True)
     assert out["submitted"], out
     assert hits == ["true"]
+
+
+
+def test_radio_group_label_comes_from_legend_and_group_required_flag():
+    # Live Indeed: <fieldset role=radiogroup aria-required=true><legend>…declare…</legend>;
+    # after a failed Continue the error text was read as the label and required was missed.
+    from playwright.sync_api import sync_playwright
+    from career_agent.orchestrator.browser_deps import BrowserDeps
+    html = ("<fieldset role='radiogroup' aria-required='true'><legend>I hereby declare the information is true</legend>"
+            "<div role='alert'>Choose an option to continue.</div>"
+            "<label><input type='radio' name='d' value='t'>True</label><label><input type='radio' name='d' value='f'>False</label></fieldset>")
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page(); pg.set_content(html)
+        g = next(f for f in BrowserDeps().snapshot(pg) if f.kind == "radio_group")
+        b.close()
+    assert g.label.startswith("I hereby declare") and g.required and g.purpose == "attestation"
