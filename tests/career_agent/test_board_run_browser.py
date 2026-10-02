@@ -41,6 +41,10 @@ DECLARE = """<html><body><button id="apply" onclick="m.style.display='block'">Ap
 <button onclick="if(document.querySelector('input[name=d]:checked')){fetch('/api/submit',{method:'POST',body:document.querySelector('input[name=d]:checked').value})}else{err.style.display='block'}">Submit application</button>
 <div id="err" role="alert" style="display:none">Choose an option to continue.</div></div></body></html>"""
 
+COVERED = """<html><body><div style="position:relative;width:200px;height:40px">
+<button id="apply" style="position:absolute;inset:0" onclick="fetch('/api/apply',{method:'POST',body:'{}'})">Apply now</button>
+<a style="position:absolute;inset:0;background:#fff" onclick="fetch('/api/apply',{method:'POST',body:'{}'})">Apply now</a></div></body></html>"""
+
 CHALLENGE = "<html><body><h2>Please verify you are human</h2><button id='apply'>Apply</button></body></html>"
 
 
@@ -320,3 +324,12 @@ def test_radio_group_label_comes_from_legend_and_group_required_flag():
         g = next(f for f in BrowserDeps().snapshot(pg) if f.kind == "radio_group")
         b.close()
     assert g.label.startswith("I hereby declare") and g.required and g.purpose == "attestation"
+
+
+
+def test_entry_covered_by_an_overlay_link_is_still_clicked(monkeypatch):
+    # Live Instahyre 2026-10-03: an "Apply now" <a> sits over the button and
+    # intercepts pointer events; Playwright's click timed out.
+    out, hits = _run(COVERED, _board("yes", "/api/apply"), Human(), monkeypatch, do_submit=True, autonomous=True)
+    assert out["submitted"], out
+    assert len(hits) == 1

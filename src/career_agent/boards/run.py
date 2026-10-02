@@ -326,8 +326,16 @@ def run_board(page, board, ctx):
         from ..browser.clicks import pace
         pace(page)
         _before = list(page.context.pages)
+        entry = page.locator(board["entry"]["selector"]).filter(visible=True).first
         try:
-            page.locator(board["entry"]["selector"]).filter(visible=True).first.click(timeout=15000, no_wait_after=True)
+            try:
+                entry.click(timeout=8000, no_wait_after=True)
+            except Exception:
+                # Covered control (Instahyre lays an "Apply now" link over its
+                # button): click what is on top at its centre, as a person would.
+                entry.evaluate("""e => { const r = e.getBoundingClientRect();
+                    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                    (top || e).click(); }""", timeout=5000)
         except Exception as e:
             if _form_already_open(page):
                 ctx["baseline"] = set()           # an earlier run left the form open: every field on it is the form's
