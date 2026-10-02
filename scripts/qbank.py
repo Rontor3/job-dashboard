@@ -1,6 +1,6 @@
 """Question bank maintenance (spec docs/superpowers/specs/2026-09-26-question-bank-design.md).
 
-  PYTHONPATH=src python3 scripts/qbank.py seed        load/refresh data/qbank_seed.json (answers untouched)
+  PYTHONPATH=src python3 scripts/qbank.py seed        load/refresh src/career_agent/memory/qbank_seed.json (answers untouched)
   PYTHONPATH=src python3 scripts/qbank.py migrate     move usable learned_answers rows into the bank
   PYTHONPATH=src python3 scripts/qbank.py calibrate   hold-one-out accuracy + suggested FLOOR/HIGH/MARGIN
                                                       (exit 1 below --min-accuracy: retrieval regression check)
