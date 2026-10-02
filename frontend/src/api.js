@@ -11,11 +11,11 @@ export function fetchJobs(params = {}) {
   return fetch(`/api/jobs?${qs}`).then(json);
 }
 export const fetchJob = (id) => fetch(`/api/jobs/${id}`).then(json);
-export const patchStatus = (id, status) =>
+export const patchStatus = (id, status, round = null) =>
   fetch(`/api/jobs/${id}/status`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(round ? { status, round } : { status }),
   }).then(json);
 export const fetchTracker = () => fetch("/api/tracker").then(json);
 export const fetchDuplicates = () => fetch("/api/duplicates").then(json);

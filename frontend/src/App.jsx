@@ -5,7 +5,7 @@ import Feed from "./components/Feed.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 import RefreshButton from "./components/RefreshButton.jsx";
 import DuplicatesSection from "./components/DuplicatesSection.jsx";
-import Overview from "./components/Overview.jsx";
+import StatusPie from "./components/StatusPie.jsx";
 import BrowseOverview from "./components/BrowseOverview.jsx";
 import TrackerBoard from "./components/TrackerBoard.jsx";
 import ThemeToggle from "./components/ThemeToggle.jsx";
@@ -129,8 +129,8 @@ export default function App() {
           </div>
         ) : (
           <div>
-            <Overview stats={stats} />
-            <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} />
+            <StatusPie stats={stats} />
+            <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} onStatsChange={reload} />
           </div>
         )}
         {selectedId && <JobDetail id={selectedId} onStatusChange={() => reloadAll()} onClose={() => setSelectedId(null)} />}

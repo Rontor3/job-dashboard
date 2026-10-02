@@ -6,6 +6,7 @@ const KIND_LABEL = {
   email_auth: "Email verification",
   form: "Application form",
   closed: "Posting closed",
+  stop: "Where it stopped",
 };
 
 const STOP_LABEL = {
@@ -16,6 +17,14 @@ const STOP_LABEL = {
   submit_declined: "Stopped before submit (declined)",
   no_advance_control: "No Next/Submit control found",
   security_email: "Account flagged by a security email — stopped",
+  submitted: "Submitted — the board confirmed it",
+  needs_human: "Stopped for questions you need to answer",
+  dry_run: "Stopped before the submit click",
+  unconfirmed: "Clicked submit, but the board didn't confirm it",
+  logged_out: "Not logged in to the board",
+  challenge: "Blocked by a bot check",
+  no_entry: "Couldn't find the apply button",
+  daily_cap: "Daily cap for this board reached",
 };
 
 function stopLabel(reason) {
@@ -72,7 +81,7 @@ export default function AgentRunHistory({ jobId }) {
       </div>
       <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
         {steps.map((s) => {
-          const stuck = !!s.stopped_reason && s.stopped_reason !== "reached_submit_dry_run";
+          const stuck = !!s.stopped_reason && !["reached_submit_dry_run", "submitted"].includes(s.stopped_reason);
           return (
             <li key={s.step} style={{
               borderRadius: 10, padding: "8px 12px",

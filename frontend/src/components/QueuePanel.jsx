@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import {
   fetchAutosubmit, moveInQueue, pauseQueue, removeFromQueue, setAutosubmit, startQueue,
 } from "../api.js";
+import { reasonText } from "../queueReasons.js";
 
 const BOARD_LABEL = {
   naukri: "Naukri", linkedin: "LinkedIn", indeed: "Indeed", iimjobs: "iimjobs",
@@ -16,11 +17,6 @@ const STATE_STYLE = {
   failed: { color: "var(--dupe-ink)", label: "failed" },
 };
 
-const REASON = {
-  needs_answers: "questions to answer", review: "filled — review & submit", needs_approval: "best-guess answers",
-  one_click_needs_autosubmit: "one-click board: turn on auto-submit", logged_out: "log in to the board",
-  challenge: "bot check", daily_cap: "daily cap reached", closed: "posting closed", crashed: "agent crashed",
-};
 
 const small = { fontSize: 11, border: "none", background: "transparent", cursor: "pointer", color: "var(--ink-faint)", padding: "0 3px" };
 
@@ -40,7 +36,7 @@ function Row({ item, idx, items, onChange, onOpenJob }) {
         </div>
         {(st.label || item.reason) && (
           <div style={{ fontSize: 10, color: st.color }}>
-            {st.label}{item.reason && item.state !== "done" ? ` — ${REASON[item.reason] || item.reason}` : ""}
+            {st.label}{item.reason && item.state !== "done" ? ` — ${reasonText(item.reason)}` : ""}
           </div>
         )}
       </button>
