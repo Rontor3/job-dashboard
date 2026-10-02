@@ -437,6 +437,16 @@ def run_board(page, board, ctx):
             try:
                 driver.click(page, label, ctx)
             except Exception as e:
+                # The click often lands and navigates, and only the post-click
+                # wait/retry errors (the button detached). Moved on = success.
+                page.wait_for_timeout(2000)
+                try:
+                    now = driver.fields(page, board, ctx, cap)
+                    moved = (page.url, tuple(sorted((f.label, f.kind) for f in now))) != sig
+                except Exception:
+                    moved = False
+                if moved:
+                    continue
                 errs = _visible_errors(page)
                 res["error"] = f"could not click {label!r}: {type(e).__name__}" + (f" | page says: {'; '.join(errs)}" if errs else "")
                 return stop("validation_error" if errs else "stuck", page)
