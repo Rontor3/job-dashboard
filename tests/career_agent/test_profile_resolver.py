@@ -60,3 +60,14 @@ def test_what_interests_you_about_the_company_is_motivation_not_employer():
                   "Why does Acme interest you?", "What interests you about this role?"):
         assert guess_purpose(label, "textarea") == "motivation", label
     assert guess_purpose("Company name", "text") == "employer"
+
+
+
+def test_current_ctc_is_its_own_purpose_resolved_from_profile():
+    # Live LinkedIn submit 2026-10-02: "What is your current CTC?" went unanswered.
+    from types import SimpleNamespace as NS
+    from career_agent.browser.form_model import guess_purpose
+    from career_agent.orchestrator.profile_resolver import resolve
+    assert guess_purpose("What is your current CTC?", "text") == "current_ctc"
+    assert guess_purpose("What is your expected CTC?", "text") == "salary_expectation"
+    assert resolve("current_ctc", NS(contact={"current_ctc": "22"})) == "22"
