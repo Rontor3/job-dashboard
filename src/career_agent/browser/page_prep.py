@@ -64,6 +64,8 @@ def _bare(url: str) -> str:
 
 
 _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Dismiss", "Close"]
+_IDLE_DIALOG_RE = re.compile(r"session|timed? ?out|inactiv|idle|still (there|working|here)|are you there"
+                             r"|stay signed in|continue working|about to expire|log(ged)? out", re.I)
 
 
 def _name_re(name: str):
@@ -129,7 +131,14 @@ def dismiss_dialogs(page) -> bool:
         if _best_apply([{"name": " ".join(n.split())} for n in names]) is not None:
             trail_note(step="modal_kept", why="offers an apply control")
             return False
+        text = dialog.inner_text(timeout=1000)
+        fillable = dialog.locator("textarea:visible, select:visible, input:visible:not([type=hidden]):not([type=checkbox])"
+                                  ":not([type=radio]):not([type=submit]):not([type=button])").count() > 0
     except Exception:
+        return False
+    # An application form is often itself a dialog (Work at a Startup, Wellfound): its "Close"/"Continue" would close or
+    # advance the application under the agent. A dialog with fields to fill stays, unless it is an idle/session prompt.
+    if fillable and not _IDLE_DIALOG_RE.search(text):
         return False
     via = _click_first(page, _DIALOG_DISMISS, within=dialog)       # inside the modal only
     if via:

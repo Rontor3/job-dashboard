@@ -166,3 +166,17 @@ def test_a_job_page_with_an_apply_button_is_not_an_open_form():
         p.set_content("<form><input name=first><input name=last><button>Next</button></form>")
         assert _form_already_open(p) is True
         b.close()
+
+
+def test_dismiss_dialogs_leaves_an_application_modal_alone():
+    # Live Work at a Startup 2026-10-03: prepare() clicked the application
+    # modal's own "Close" before Send.
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import dismiss_dialogs
+    app = "<div role='dialog'><h2>Reach out to Chris</h2><textarea></textarea><button>Close</button><button>Send</button></div>"
+    idle = "<div role='dialog'><p>Your session is about to expire.</p><button>Continue Working</button></div>"
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); p = b.new_page()
+        p.set_content(app); assert dismiss_dialogs(p) is False
+        p.set_content(idle); assert dismiss_dialogs(p) is True
+        b.close()
