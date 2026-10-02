@@ -17,7 +17,7 @@ from ..orchestrator.sensitive import split_sensitive
 from .drivers import DRIVERS
 from .run_log import BoardRunLog
 from .profiles import on_board
-from ..browser.page_prep import is_login_page
+from ..browser.page_prep import is_closed_posting, is_login_page
 from .signals import confirmed, is_challenge, is_logged_out
 
 MAX_STEPS = 8
@@ -26,6 +26,37 @@ MAX_STEPS = 8
 def _needles(board):
     rules = list(board.get("confirm", [])) + [board.get("questions") or {}]
     return tuple(r["capture"] for r in rules if r.get("capture"))
+
+
+_APPLIED = re.compile(r"\byou(?:'ve| have)? already applied\b|\bapplied \d+ (?:second|minute|hour|day|week|month)s? ago\b",
+                      re.I)
+# A visible BUTTON reading just "Applied" ("✓ Applied"): nav links named
+# "Applied" (Wellfound's sidebar) are anchors, so only buttons count.
+_APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e =>
+    e.checkVisibility() && /^\\W*applied\\W*$/i.test((e.innerText || '').trim()))"""
+_ERRORS_JS = """() => [...new Set([...document.querySelectorAll(
+    '[role=alert],[aria-live=assertive],[id*=error i],[class*=error i],[class*=invalid i]')]
+    .filter(e => e.checkVisibility() && e.innerText && e.innerText.trim().length < 300)
+    .map(e => e.innerText.trim()))].slice(0, 6)"""
+
+
+def _visible_errors(page):
+    try:
+        return page.evaluate(_ERRORS_JS)
+    except Exception:
+        return []
+
+
+def _posting_state(page, text):
+    """'closed' / 'already_applied' when the posting says so before we start."""
+    if is_closed_posting(page):
+        return "closed"
+    try:
+        if _APPLIED.search(text or "") or page.evaluate(_APPLIED_BUTTON_JS):
+            return "already_applied"
+    except Exception:
+        pass
+    return None
 
 
 def _blocked(page, board):
@@ -258,6 +289,12 @@ def run_board(page, board, ctx):
             blocked = _blocked(page, board)
     if blocked:
         return stop(blocked, page)
+    try:
+        state = _posting_state(page, page.evaluate("document.body ? document.body.innerText.slice(0, 6000) : ''"))
+    except Exception:
+        state = None
+    if state:
+        return stop(state, page)
     driver = DRIVERS[board["archetype"]]
     ctx["baseline"] = {(f.label, f.kind) for f in ctx["deps"].snapshot(page)}
     irreversible = board["entry"].get("submits", "no") != "no"
@@ -299,6 +336,7 @@ def run_board(page, board, ctx):
 
         asked_optional = False
         unanswered = 0
+        clicked_sig = None
         for _ in range(MAX_STEPS):
             if confirmed(board, cap.responses, page.url):
                 break
@@ -316,6 +354,12 @@ def run_board(page, board, ctx):
             if any(f.required for f in blocked):          # bank / ID details: yours to fill, never asked
                 res["pending_human"] = [dataclasses.asdict(f) for f in blocked if f.required]
                 return stop("sensitive_field", page)
+            sig = (page.url, tuple(sorted((f.label, f.kind) for f in fields)))
+            if clicked_sig is not None and sig == clicked_sig and (errs := _visible_errors(page)):
+                # Next/Continue was clicked, the same fields are back and the board shows an error: it rejected an
+                # answer. Stop with its words instead of refilling in a loop (a merely slow page is the stuck path below).
+                res["error"] = "; ".join(errs)
+                return stop("validation_error", page)
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
             if ctx.get("probe"):
                 # Probe: report what would be filled / asked on the first form
@@ -362,7 +406,13 @@ def run_board(page, board, ctx):
             from ..browser.clicks import page_signature, wait_for_change
             before_click = page_signature(page)
             _tabs_before = list(page.context.pages)
-            driver.click(page, label, ctx)
+            clicked_sig = sig
+            try:
+                driver.click(page, label, ctx)
+            except Exception as e:
+                errs = _visible_errors(page)
+                res["error"] = f"could not click {label!r}: {type(e).__name__}" + (f" | page says: {'; '.join(errs)}" if errs else "")
+                return stop("validation_error" if errs else "stuck", page)
             page.wait_for_timeout(2500)
             if new_tab_since(page, _tabs_before) is not page:
                 page = new_tab_since(page, _tabs_before)          # the step continues in a new tab

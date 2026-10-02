@@ -28,12 +28,19 @@ GATED = """<html><body><h1>AI Engineer</h1>
 
 PREOPEN = WIZARD.replace('<div id="m" style="display:none">', '<div id="m" role="dialog">')
 
+CLOSED = "<html><body><h1>DS</h1><p>No longer accepting applications</p><button id='apply'>Apply</button></body></html>"
+APPLIED = "<html><body><h1>DS</h1><a href='/applied'>Applied</a><button>\u2713 Applied</button></body></html>"
+REJECTS = """<html><body><button id="apply" onclick="m.style.display='block'">Apply</button>
+<div id="m" style="display:none"><label for="ctc">Expected CTC</label><input id="ctc" required>
+<button onclick="err.style.display='block'">Continue</button><div id="err" role="alert" style="display:none">Enter a number</div>
+</div></body></html>"""
+
 CHALLENGE = "<html><body><h2>Please verify you are human</h2><button id='apply'>Apply</button></body></html>"
 
 
 def _board(submits, capture):
     return {"id": "board:test", "archetype": "form", "entry": {"selector": "#apply", "submits": submits},
-            "confirm": [{"capture": capture, "status": 200}], "advance": ["Next"],
+            "confirm": [{"capture": capture, "status": 200}], "advance": ["Next", "Continue"],
             "final": ["Submit application", "Send application"], "challenge": ["verify you are human"],
             "logged_out": [], "interstitial": []}
 
@@ -268,3 +275,17 @@ def test_a_login_page_is_never_turned_into_questions(monkeypatch):
     out, hits = _run(LOGIN_AFTER_APPLY, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
     assert h.cards == []
     assert out["stopped_reason"] == "auth_wall" and out["pending_human"] == [] and hits == []
+
+
+def test_closed_and_already_applied_postings_are_named(monkeypatch):
+    out, hits = _run(CLOSED, _board("yes", "/api/apply"), Human(), monkeypatch, do_submit=True)
+    assert out["stopped_reason"] == "closed" and hits == []
+    out, hits = _run(APPLIED, _board("yes", "/api/apply"), Human(), monkeypatch, do_submit=True)
+    assert out["stopped_reason"] == "already_applied" and hits == []
+
+
+def test_form_that_does_not_advance_stops_with_the_boards_error(monkeypatch):
+    h = Human(answers={"Expected CTC": "30 LPA"})
+    out, hits = _run(REJECTS, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
+    assert out["stopped_reason"] == "validation_error", out
+    assert "Enter a number" in out["error"]
