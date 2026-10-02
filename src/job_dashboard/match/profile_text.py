@@ -56,12 +56,18 @@ def _career_goals_block(evaluation_file):
 CURRENT_RESUME = _REPO_ROOT / "data" / "current_resume.pdf"  # gitignored (PII)
 
 
-def current_resume_text(pdf_path=None) -> str:
-    """Plain text of the candidate's current résumé PDF (``CURRENT_RESUME_PDF``
-    env or ``data/current_resume.pdf``); the markdown profile if it is absent."""
+def current_resume_pdf() -> Path:
+    """The résumé the candidate supplied — the ONLY one sent to employers
+    (``CURRENT_RESUME_PDF`` env, else ``data/current_resume.pdf``)."""
     import os
+    return Path(os.getenv("CURRENT_RESUME_PDF") or CURRENT_RESUME)
+
+
+def current_resume_text(pdf_path=None) -> str:
+    """Plain text of the candidate's current résumé PDF; the markdown profile if
+    it is absent."""
     from job_dashboard.resume.ats import _default_extract
-    path = Path(pdf_path or os.getenv("CURRENT_RESUME_PDF") or CURRENT_RESUME)
+    path = Path(pdf_path or current_resume_pdf())
     try:
         text = _default_extract(path)
         if text.strip():
