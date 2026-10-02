@@ -47,11 +47,10 @@ test("card buttons follow research state", async () => {
   const { unmount } = render(<HiringSignals />);
   await waitFor(() => expect(screen.getByRole("button", { name: "Research company" })).toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "Draft email" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Create CV" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Create CV" })).toBeNull();   // only the user's own PDF is sent
   unmount();
   POSTS.posts[0] = { ...POSTS.posts[0], job_id: 7, resume_id: 3 };
   render(<HiringSignals />);
   await waitFor(() => expect(screen.getByRole("button", { name: "Draft email" })).toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "Research company" })).toBeNull();
-  expect(screen.getByText("CV ↗").getAttribute("href")).toBe("/api/resumes/3/pdf");
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { hiringPosts, refreshHiring, dismissHiring, promoteHiring, draftHiringEmail, createHiringCv } from "../api.js";
+import { hiringPosts, refreshHiring, dismissHiring, promoteHiring, draftHiringEmail } from "../api.js";
 
 const CHIP = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)",
   border: "0.5px solid var(--hairline)", color: "var(--ink-soft)", textDecoration: "none" };
@@ -42,11 +42,6 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
     say(id, "Researching company & drafting letter… (1–2 min)");
     promoteHiring(id).then(() => { say(id, "Research done"); load(); }).catch((e) => say(id, e.message));
   };
-  const onCv = (id) => {
-    say(id, "Building CV for this job… (1–3 min)");
-    createHiringCv(id).then((d) => { say(id, "CV ready"); window.open(d.pdf_url, "_blank"); load(); })
-      .catch((e) => say(id, e.message));
-  };
   const onDraft = (id, to) => {
     // Open the tab inside the click so the browser doesn't block it as a popup.
     const tab = window.open("about:blank", "_blank");
@@ -54,7 +49,7 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
     draftHiringEmail(id, to).then((d) => {
       if (tab) tab.location.href = d.gmail_url; else window.open(d.gmail_url, "_blank");
       say(id, d.attached ? `Gmail draft to ${d.to} — ${d.attached} attached`
-                         : `Gmail opened for ${d.to} — attach your résumé before sending`);
+                         : `Gmail opened for ${d.to} — attach DS_Rakshit_Singh.pdf before sending`);
     }).catch((e) => { if (tab) tab.close(); say(id, e.message); });
   };
   const onDismiss = (id) => {
@@ -113,11 +108,6 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
             ) : p.apply_url ? (
               <a href={p.apply_url} target="_blank" rel="noreferrer" style={{ ...BTN, textDecoration: "none" }}>Apply ↗</a>
             ) : null}
-            <button style={{ ...BTN, background: "var(--ink)" }} onClick={() => onCv(p.id)}>Create CV</button>
-            {p.resume_id && (
-              <a href={`/api/resumes/${p.resume_id}/pdf`} target="_blank" rel="noreferrer"
-                style={{ fontSize: 11, color: "var(--green)" }}>CV ↗</a>
-            )}
             {p.job_id && (
               <button onClick={() => onOpenJob(p.job_id)}
                 style={{ border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "var(--ink-faint)" }}>

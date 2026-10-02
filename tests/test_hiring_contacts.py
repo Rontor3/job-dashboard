@@ -170,8 +170,19 @@ def test_email_draft_opens_gmail(tmp_path, monkeypatch):
 
     # authorized → real draft with attachment, opened by message id
     monkeypatch.setattr(R.gmail_draft, "authorized", lambda: True)
-    monkeypatch.setattr(R, "CURRENT_RESUME", tmp_path / "cv.pdf")
+    monkeypatch.setenv("CURRENT_RESUME_PDF", str(tmp_path / "cv.pdf"))
     (tmp_path / "cv.pdf").write_bytes(b"%PDF-1.4")
+    # a generated CV for the post must NOT be what gets sent
+    from job_dashboard.db import init_db
+    conn = init_db(str(tmp_path / "t.db"))
+    url = conn.execute("SELECT url FROM hiring_posts WHERE id=?", (pid,)).fetchone()[0]
+    conn.execute("INSERT INTO jobs (source,title,company,description,job_url,fetched_at) "
+                 "VALUES ('linkedin_post','ML','Fship','d',?, 'now')", (url,))
+    jid = conn.execute("SELECT id FROM jobs WHERE job_url=?", (url,)).fetchone()[0]
+    (tmp_path / "generated.pdf").write_bytes(b"%PDF-1.4")
+    conn.execute("INSERT INTO resumes (job_id, pdf_path, created_at) VALUES (?,?, 'now')",
+                 (jid, str(tmp_path / "generated.pdf")))
+    conn.commit()
     sent = []
     monkeypatch.setattr(R.gmail_draft, "create_draft",
                         lambda msg: sent.append(msg) or {"draft_id": "r1", "message_id": "abc123"})

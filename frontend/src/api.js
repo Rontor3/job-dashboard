@@ -149,19 +149,6 @@ const postOrThrow = (url) =>
   });
 export const promoteHiring = (id) => postOrThrow(`/api/hiring/posts/${id}/promote`);
 
-// Create CV for one post: its job row (research) → suggested blocks → PDF.
-// Only rewordings the grounding check calls exact-synonym/equivalent and that
-// need no interview prep are auto-accepted; "transferable" ones are skipped.
-const SAFE = new Set(["exact-synonym", "equivalent"]);
-const postJson = (url, body) =>
-  fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-    .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.detail || "request failed"); return d; });
-export const createHiringCv = async (id) => {
-  const { job_id } = await promoteHiring(id);
-  const s = await postOrThrow(`/api/jobs/${job_id}/resume/suggest`);
-  const accepted = (s.rephrasings || []).filter((r) => SAFE.has(r.confidence) && !r.needs_interview_prep);
-  return postJson(`/api/jobs/${job_id}/resume/generate`, { block_ids: s.block_ids, accepted_rephrasings: accepted });
-};
 export const draftHiringEmail = (id, to) =>
   postOrThrow(`/api/hiring/posts/${id}/email-draft${to ? `?to=${encodeURIComponent(to)}` : ""}`);
 
