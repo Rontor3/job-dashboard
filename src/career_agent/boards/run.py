@@ -473,6 +473,12 @@ def run_board(page, board, ctx):
                 unanswered = 0
         page.wait_for_timeout(1500)
         ok = confirmed(board, cap.responses, page.url)
+        for r in cap.responses[-6:]:           # evidence for the run log: what the board answered
+            try:
+                body = r.text()[:300].replace("\n", " ")
+            except Exception:
+                body = "<unreadable>"
+            print(f"[board] captured {getattr(r, 'status', '?')} {r.url[:90]} :: {body}", flush=True)
     if ok and irreversible and ctx.get("on_submit"):
         try:
             ctx["on_submit"](before_submit if "before_submit" in locals() else {}, ctx.get("how", "tap"), page.url)
