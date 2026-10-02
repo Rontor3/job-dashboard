@@ -203,6 +203,20 @@ def _job_location(text):
     return m[1].strip() if m else None
 
 
+def _affirm(fields):
+    """Declarations ("I hereby declare… true") the board insists on: pick the
+    affirmative option. The authorized submit is the consent point."""
+    from ..orchestrator.screen_review import _coerce_option
+    out = []
+    for f in fields:
+        if f.purpose == "attestation":
+            opt = _coerce_option("Yes", f.options) if f.options else True
+            if opt is not None:
+                act = _action_for_kind(f.kind) if f.options else "check"
+                out.append(FillDecision(f.ref, f.kind, f.label, opt, act, "attestation"))
+    return out
+
+
 def _ask(needs, ctx):
     """Answers for `needs` -> (decisions, still unanswered): the profile first for
     a trailing choice + place, then the human. Probe never asks the human."""
@@ -249,7 +263,7 @@ def _answers(fields, board, driver, cap, ctx):
     prefill -> human for required gaps (all gaps when the driver asks upfront)."""
     decisions, _ = answer_fields(fields, ctx)
     pre = driver.prefill(board, cap)
-    decided = {d.ref for d in decisions}
+    decided = {d.ref for d in decisions if d.value is not None}     # a flag is not an answer
     decisions += [FillDecision(f.ref, f.kind, f.label, pre[f.ref], _action_for_kind(f.kind), "board_prefill")
                   for f in fields if f.ref in pre and f.ref not in decided]
     # A gap is any field the ladder gave no answer for — including optional
@@ -337,6 +351,7 @@ def run_board(page, board, ctx):
         asked_optional = False
         unanswered = 0
         clicked_sig = None
+        retried_bounce = False
         for _ in range(MAX_STEPS):
             if confirmed(board, cap.responses, page.url):
                 break
@@ -355,12 +370,24 @@ def run_board(page, board, ctx):
                 res["pending_human"] = [dataclasses.asdict(f) for f in blocked if f.required]
                 return stop("sensitive_field", page)
             sig = (page.url, tuple(sorted((f.label, f.kind) for f in fields)))
-            if clicked_sig is not None and sig == clicked_sig and (errs := _visible_errors(page)):
-                # Next/Continue was clicked, the same fields are back and the board shows an error: it rejected an
-                # answer. Stop with its words instead of refilling in a loop (a merely slow page is the stuck path below).
-                res["error"] = "; ".join(errs)
-                return stop("validation_error", page)
+            errs = _visible_errors(page) if clicked_sig is not None and sig == clicked_sig else []
+            bounced = bool(errs)       # same fields back and the board shows an error: it rejected an answer (a slow page is the stuck path)
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
+            if bounced:
+                # Next/Continue was clicked but the form did not move on: the board
+                # rejected something. Once: answer this page's open "optional"
+                # fields (declarations affirmatively, the rest from the human),
+                # then retry. Otherwise stop instead of refilling in a loop.
+                extra = _affirm(optional) if not retried_bounce else []
+                rest = [f for f in optional if f.ref not in {d.ref for d in extra}]
+                if not retried_bounce and rest:
+                    got, _ = _ask(rest, ctx)
+                    extra += got
+                if retried_bounce or not extra:
+                    res["error"] = "; ".join(errs)
+                    return stop("validation_error", page)
+                retried_bounce = True
+                decisions += extra
             if ctx.get("probe"):
                 # Probe: report what would be filled / asked on the first form
                 # page, then stop — nothing typed, nothing submitted.

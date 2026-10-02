@@ -137,6 +137,18 @@ def map_screen(form, profile, resume_pdf=None):
             # Tick privacy / terms / certify consent in the DRAFT, marked required or not (the user's standing yes,
             # 2026-10-13: an unmarked privacy box kept Tibil's Apply greyed out) — a tick on an unsubmitted form binds
             # nothing; the human-approved SUBMIT is the consent point. Marketing opt-ins stay unticked.
+            if f.kind in _SELECT_KINDS and f.options:
+                # A declaration offered as True/False or Yes/No: only a required one is answered — an optional
+                # "terms" radio is as likely a question ("employment terms: full/part time") as a declaration.
+                if not f.required:
+                    decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
+                    continue
+                opt = _coerce_option("Yes", f.options)
+                if opt is None:
+                    needs_human.append(f)
+                else:
+                    decisions.append(FillDecision(f.ref, f.kind, f.label, opt, _action(f.kind), "attestation"))
+                continue
             if f.required or not _MARKETING.search(f"{f.label} {getattr(f, 'description', '')}"):
                 decisions.append(FillDecision(f.ref, f.kind, f.label, True, "check", "attestation"))
             else:

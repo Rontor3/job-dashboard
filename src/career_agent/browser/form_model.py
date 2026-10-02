@@ -169,7 +169,7 @@ _SITE_SEARCH = re.compile(r"(search|find|filter)\b(?!\s*(and|&|to)\s+(add|select
 
 _ATTEST = re.compile(
     r"\bi (certify|agree|consent|acknowledge|authorize|have read|accept)\b|\bbackground check\b"
-    r"|\bterms\b|\bprivacy policy\b|\btrue and (complete|correct)\b",
+    r"|\bterms\b|\bprivacy policy\b|\btrue and (complete|correct)\b|\b(hereby|i) declare\b",
     re.I,
 )
 
@@ -207,6 +207,8 @@ def guess_purpose(label: str, kind: str) -> str | None:
             if re.search(pattern, text):
                 return None if purpose in _TEXT_VALUE_PURPOSES else purpose
         return None
+    if kind in ("radio_group", "select") and _ATTEST.search(text):
+        return "attestation"            # a declaration offered as True/False or Yes/No
     yes_no = bool(_YES_NO_Q.match(text))
     for pattern, purpose in _RULES:
         if re.search(pattern, text):

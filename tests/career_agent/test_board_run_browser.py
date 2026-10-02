@@ -35,6 +35,12 @@ REJECTS = """<html><body><button id="apply" onclick="m.style.display='block'">Ap
 <button onclick="err.style.display='block'">Continue</button><div id="err" role="alert" style="display:none">Enter a number</div>
 </div></body></html>"""
 
+DECLARE = """<html><body><button id="apply" onclick="m.style.display='block'">Apply</button>
+<div id="m" style="display:none"><fieldset role="radiogroup"><legend>I, the applicant, hereby declare that the information provided is true and correct.</legend>
+<label><input type="radio" name="d" value="true">True</label><label><input type="radio" name="d" value="false">False</label></fieldset>
+<button onclick="if(document.querySelector('input[name=d]:checked')){fetch('/api/submit',{method:'POST',body:document.querySelector('input[name=d]:checked').value})}else{err.style.display='block'}">Submit application</button>
+<div id="err" role="alert" style="display:none">Choose an option to continue.</div></div></body></html>"""
+
 CHALLENGE = "<html><body><h2>Please verify you are human</h2><button id='apply'>Apply</button></body></html>"
 
 
@@ -289,3 +295,12 @@ def test_form_that_does_not_advance_stops_with_the_boards_error(monkeypatch):
     out, hits = _run(REJECTS, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
     assert out["stopped_reason"] == "validation_error", out
     assert "Enter a number" in out["error"]
+
+
+
+def test_board_refusing_to_continue_gets_its_declaration_affirmed(monkeypatch):
+    # Live Indeed 2026-10-02: an unmarked-required "I hereby declare … true" radio
+    # blocked Continue with "Choose an option to continue."
+    out, hits = _run(DECLARE, _board("no", "/api/submit"), Human(), monkeypatch, do_submit=True, autonomous=True)
+    assert out["submitted"], out
+    assert hits == ["true"]
