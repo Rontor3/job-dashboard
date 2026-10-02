@@ -294,14 +294,29 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         if detail is None:
             raise HTTPException(status_code=404, detail="job not found")
         job_url = detail.get("job_url") or ""
+        run_dir = REPO_ROOT / "data" / "agent_runs" / str(job_id)
+
+        from career_agent.boards.profiles import board_for
+        board_log = run_dir / "board_run.json"
+        if board_for(job_url) and board_log.exists():      # board runs log themselves
+            import json
+            try:
+                steps = json.loads(board_log.read_text())
+            except ValueError:
+                steps = []
+            if not steps:
+                raise HTTPException(status_code=404, detail="no agent run found for this job")
+            for s in steps:
+                s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
+                                   if s.get("screenshot") else None)
+            return {"job_id": job_id, "steps": steps}
 
         import hashlib
         from career_agent.orchestrator.run_history import summarize_run
 
         thread_id = hashlib.sha1(job_url.encode()).hexdigest()[:16]
         checkpoint_db = str(REPO_ROOT / "data" / "jobs_graph.db")
-        run_dir = str(REPO_ROOT / "data" / "agent_runs" / str(job_id))
-        steps = summarize_run(thread_id, checkpoint_db, run_dir=run_dir)
+        steps = summarize_run(thread_id, checkpoint_db, run_dir=str(run_dir))
         if not steps:
             raise HTTPException(status_code=404, detail="no agent run found for this job")
         for s in steps:

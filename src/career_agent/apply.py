@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from pathlib import Path as _RunPath
 
 
 def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
@@ -350,7 +351,9 @@ def _apply(args, box: dict) -> None:
         if _board:
             out = _run_board(_board, page, args, profile=profile, human=human, resume_pdf=resume_pdf,
                              judge_fn=judge_fn, learn=learn, memory_router=memory_router,
-                             option_matcher=option_matcher, qa=qa_rec)
+                             option_matcher=option_matcher, qa=qa_rec,
+                             run_dir=str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id))
+                             if args.job_id else None)
             box["out"] = out
             _write_run_log(conn, args.url, args.job_id, out)
             print(out, flush=True)

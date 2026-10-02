@@ -251,3 +251,25 @@ def test_launch_uses_apply_url_when_external(tmp_path, monkeypatch):
 def test_launch_uses_job_url_without_apply_url(tmp_path, monkeypatch):
     cmd = _launch_cmd(tmp_path, monkeypatch)
     assert cmd[cmd.index("--url") + 1] == "https://www.linkedin.com/jobs/view/1"
+
+
+def test_history_of_a_board_job_comes_from_board_run_json(tmp_path, monkeypatch):
+    import json
+    db = str(tmp_path / "t.db")
+    conn = init_db(db)
+    insert_job(conn, JobListing(source="naukri", title="ML", company="Acme",
+                                job_url="https://www.naukri.com/job-listings-1", description="jd"))
+    jid = conn.execute("SELECT id FROM jobs").fetchone()[0]
+    conn.close()
+    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    run_dir = tmp_path / "data" / "agent_runs" / str(jid)
+    run_dir.mkdir(parents=True)
+    (run_dir / "board_run.json").write_text(json.dumps([
+        {"step": 0, "kind": "form", "url": "u", "stopped_reason": None, "pending_human": [],
+         "screenshot": str(run_dir / "perceive0.png")},
+        {"step": 1, "kind": "stop", "url": "u", "stopped_reason": "needs_human",
+         "pending_human": [{"ref": "a", "label": "CTC"}], "screenshot": None}]))
+    body = TestClient(create_app(db_path=db)).get(f"/api/jobs/{jid}/agent-runs/latest").json()
+    assert [s["stopped_reason"] for s in body["steps"]] == [None, "needs_human"]
+    assert body["steps"][0]["screenshot"] == f"/api/jobs/{jid}/agent-runs/screenshot/0"
+    assert body["steps"][1]["screenshot"] is None
