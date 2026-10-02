@@ -385,7 +385,9 @@ def _apply(args, box: dict) -> None:
             _tabs.mark_user_owned(_open)             # the human's own tab: never closed by the run
             page.bring_to_front()
         else:
-            resp = page.goto(args.url)
+            # DOM-ready, not 'load': LinkedIn's ad/tracker frames can hold the
+            # load event past 30s; the networkidle settle below still runs.
+            resp = page.goto(args.url, wait_until="domcontentloaded", timeout=45000)
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
