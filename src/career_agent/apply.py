@@ -88,6 +88,10 @@ def main() -> None:
     ap.add_argument("--db", default="data/jobs.db")
     ap.add_argument("--resume-version", default="Rakshit_Singh_draft1")
     ap.add_argument("--submit", action="store_true")
+    ap.add_argument("--review", action="store_true",
+                    help="fill every answer, stop before the submit click and leave the tab open for you")
+    ap.add_argument("--probe", action="store_true",
+                    help="job boards only: open the form, report what would be filled, never type or submit")
     ap.add_argument("--autonomous", action="store_true")
     ap.add_argument("--max-steps", type=int, default=15)
     ap.add_argument("--resume-pdf", default=None,
@@ -155,8 +159,10 @@ def main() -> None:
         try:
             from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
             from .browser.ats_lookup import lookup as _ats_lookup
+            from .memory import qbank as _qbank
             from job_dashboard.db import get_job
             from job_dashboard.letter.draft import make_default_llm
+            _qbank.ensure(conn)
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
             llm = make_default_llm()
@@ -169,7 +175,7 @@ def main() -> None:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
                                   resume_text=job.get("description", ""),
-                                  ats_notes=_ats_notes)
+                                  ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
@@ -186,10 +192,24 @@ def main() -> None:
         except Exception as e:
             print(f"[warn] combobox matcher unavailable ({type(e).__name__}: {e})")
 
-    # Learning loop (Phase D): reuse answers the human typed on past forms
-    # before escalating again; record new ones. Same jobs.db, no new store.
-    from .memory.learned_answers import AnswerMemory
-    learn = AnswerMemory(conn)
+    # Question bank (spec 2026-09-26): canonical questions answered once on the
+    # dashboard. The LLM only picks which entry a question is — never the value.
+    from .memory.qbank_memory import QBankMemory
+    from job_dashboard.db import get_job
+    _qllm = None
+    if not args.no_llm:
+        try:
+            from job_dashboard.letter.draft import make_default_llm
+            _qllm = make_default_llm()
+        except Exception as e:
+            print(f"[warn] qbank LLM pick unavailable ({type(e).__name__}: {e})")
+    try:
+        learn = QBankMemory(conn, llm=_qllm, contact=contact,
+                            job=(get_job(conn, args.job_id) if args.job_id else None) or {},
+                            high=qa_store.qbank_confident_min(conn) / 100)
+    except Exception as e:
+        print(f"[warn] question bank unavailable ({type(e).__name__}: {e})")
+        learn = None
 
     memory_router = None
     _qa_vault = None
@@ -208,8 +228,8 @@ def main() -> None:
         )
     except Exception as _me:
         print(f"[warn] memory router unavailable ({type(_me).__name__}: {_me})")
-    from .memory.retrieval_trace import explain as _explain
-    qa_rec.tracer = lambda f: _explain(conn, _qa_vault, f)
+    if learn is not None:
+        qa_rec.tracer = learn.explain
 
     settings = load_settings()
 
@@ -257,7 +277,19 @@ def main() -> None:
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
     try:
-        resp = page.goto(args.url)
+        # Reuse a tab the human already opened on this job: bot-challenged boards
+        # (Indeed's Cloudflare) pass a human-opened tab but block a fresh one.
+        _open = _existing_tab(context, page, args.url)
+        if _open is not None:
+            print(f"[browser] reusing your open tab -> {_open.url[:90]}", flush=True)
+            try:
+                page.close()
+            except Exception:
+                pass
+            page, resp = _open, None
+            page.bring_to_front()
+        else:
+            resp = page.goto(args.url)
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
@@ -274,12 +306,28 @@ def main() -> None:
         if jd_text and 'ctx' in dir():
             try:
                 ctx.resume_text = jd_text[:2000]
+                # A job not in jobs.db (e.g. a board link pasted directly) has an
+                # empty description; without the page text the judge invents the
+                # company's business in free-text answers.
+                if not (ctx.job or {}).get("description"):
+                    ctx.job = {**(ctx.job or {}), "title": page.title(), "description": jd_text}
             except Exception:
                 pass
         prepare(page)                          # clear cookie/idle overlays
         kind = classify_entry(page, status=resp.status if resp else None)
         if kind == "closed":                   # expired / removed / 404 shell -> skip
             print("[skip] this posting is closed or no longer available.")
+            return
+        # Job boards (Naukri, LinkedIn, Indeed, ...) apply on the board itself and
+        # must never go through the career-site drill below (see boards/run.py).
+        from .boards.profiles import board_for
+        _board = board_for(page.url) or board_for(args.url)
+        if _board:
+            out = _run_board(_board, page, args, profile=profile, human=human, resume_pdf=resume_pdf,
+                             judge_fn=judge_fn, learn=learn, memory_router=memory_router,
+                             option_matcher=option_matcher, qa=qa_rec)
+            _write_run_log(conn, args.url, args.job_id, out)
+            print(out, flush=True)
             return
         # kind=="none" = clear JD page; kind=="form" can false-positive on pages
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
@@ -420,7 +468,8 @@ def main() -> None:
             pass
         print(out)
     finally:
-        close(pw, context, page=page, cdp_browser=_cdp_browser)
+        # --review leaves the filled tab open for the human to check and submit.
+        close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
 
 
 def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None:
@@ -456,6 +505,44 @@ def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None
         print(f"[memory] pending update written → {out_path}", flush=True)
     except Exception as _e:
         print(f"[memory] pending update failed ({_e})", flush=True)
+
+
+def _existing_tab(context, new_page, url):
+    """An already-open tab showing the same job (same host, path and query), else None."""
+    from urllib.parse import urlparse
+    want = urlparse(url)
+    for pg in getattr(context, "pages", []):
+        if pg is new_page:
+            continue
+        got = urlparse(pg.url or "")
+        if (got.netloc, got.path.rstrip("/"), got.query) == (want.netloc, want.path.rstrip("/"), want.query):
+            return pg
+    return None
+
+
+def _run_board(board, page, args, *, option_matcher=None, limiter=None, **ctx) -> dict:
+    """Board job -> boards.run_board under the board's daily cap; records the outcome."""
+    from .boards.run import run_board
+    from .orchestrator.browser_deps import BrowserDeps
+    from .reliability.rate_limiter import RateLimiter, map_outcome
+    limiter = limiter or RateLimiter(domain_day_cap=board["daily_cap"])
+    review = getattr(args, "review", False)
+    if not (args.probe or review) and limiter.check(board["id"]) != "ok":
+        return {"url": args.url, "job_id": args.job_id, "board": board["id"], "submitted": False,
+                "stopped_reason": "daily_cap", "decisions": [], "pending_human": []}
+    print(f"[board] {board['id']} ({board['archetype']}) probe={args.probe}", flush=True)
+    out = run_board(page, board, {**ctx, "deps": BrowserDeps(option_matcher=option_matcher),
+                                  "do_submit": args.submit and not (args.probe or review), "probe": args.probe,
+                                  "autonomous": args.autonomous, "job_id": args.job_id})
+    if review and out.get("stopped_reason") == "dry_run":
+        # Stopped before the irreversible click: either the filled form waits at
+        # its final button, or (one-click boards) the Apply click itself submits.
+        filled = bool(out.get("decisions")) or board["entry"].get("submits", "no") == "no"
+        out["stopped_reason"] = "ready_for_review" if filled else "apply_is_one_click"
+        print(f"[review] {out['stopped_reason']}: left open for you -> {out['url']}", flush=True)
+    if not (args.probe or review):
+        limiter.record(board["id"], map_outcome(out["stopped_reason"] or "error"))
+    return out
 
 
 def _write_run_log(conn, url: str, job_id, result: dict) -> None:

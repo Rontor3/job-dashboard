@@ -6,8 +6,26 @@ from __future__ import annotations
 
 import re
 
+from ..browser.perception import frame_target
 from . import questions as _q
 from .profiles import json_path
+
+_DIALOG = "[role=dialog],[aria-modal=true],[class*=modal i]"
+
+
+def _in_dialog(page, ref):
+    """Is the element behind a perception ref inside an open dialog/modal?"""
+    try:
+        target, sel = frame_target(page, ref)
+        if sel.startswith("group:"):
+            loc = target.locator(f'input[name="{sel[6:]}"]')
+        elif sel.startswith("button:"):
+            loc = target.get_by_role("button", name=sel[7:], exact=True)
+        else:
+            loc = target.locator(sel)
+        return bool(loc.first.evaluate(f"e => !!e.closest({_DIALOG!r})", timeout=1500))
+    except Exception:
+        return False
 
 
 def _norm(s):
@@ -15,11 +33,16 @@ def _norm(s):
 
 
 class FormDriver:
+    ask_optional_upfront = False           # optional gaps asked only if the form won't advance
+
     def _snapshot(self, page, ctx):
         # Anything already on the page before the entry click is page chrome
-        # (search boxes, language pickers, footer buttons) — never the form.
+        # (search boxes, language pickers, footer buttons) — unless it sits in
+        # an open dialog: a board may render its apply modal before the click
+        # (Wellfound re-opens an interrupted application on load).
         base = ctx.get("baseline", set())
-        return [f for f in ctx["deps"].snapshot(page) if (f.label, f.kind) not in base]
+        return [f for f in ctx["deps"].snapshot(page)
+                if (f.label, f.kind) not in base or _in_dialog(page, f.ref)]
 
     def fields(self, page, board, ctx, cap):
         return [f for f in self._snapshot(page, ctx) if f.kind != "button"]
@@ -54,6 +77,7 @@ class ChatDriver(FormDriver):
     """Naukri-style chatbot: the questionnaire arrives as JSON in the apply
     response; answers go in one bubble at a time until the bot's done text.
     With no questionnaire (instant apply) it behaves as a zero-page form."""
+    ask_optional_upfront = True            # the bot asks every question; have all answers first
 
     def _questionnaire(self, board, cap):
         q = board.get("questions") or {}

@@ -19,6 +19,7 @@ KNOWN_PURPOSES = frozenset({
     "employer", "job_title", "start_date", "end_date", "degree", "school",
     "field_of_study", "gpa", "skills", "summary", "graduation_year",
     "motivation",   # cover-letter / interest blurb (SR hiring manager message)
+    "phone_country_code",  # dial-code select next to the number ("India (+91)")
     "file_comment", # short description field next to file upload (e.g. Taleo "Comments about the file")
 })
 
@@ -33,6 +34,8 @@ class Field:
     group: str | None = None
     purpose: str | None = None
     description: str = ""      # accessible description (aria-describedby helper text)
+    input_type: str = ""       # HTML type attribute (email/tel/url/number/date…) — shape clue
+    autocomplete: str = ""     # HTML autocomplete token (address-line1, postal-code…) — shape clue
 
 
 # Ordered most-specific-first; first hit wins.
@@ -41,7 +44,11 @@ _RULES: list[tuple[str, str]] = [
     # (which would fill it with the company name). Match it early as motivation
     # so judgment tier writes a proper cover-letter blurb instead.
     (r"\binterest (working|joining|in this)\b|\blet.{1,20}know about your interest\b"
-     r"|\bmessage to (the )?(hiring|recruiter|team)\b|\bhiring manager message\b", "motivation"),
+     r"|\bmessage to (the )?(hiring|recruiter|team)\b|\bhiring manager message\b"
+     r"|\bstart a conversation with\b|\binterests? you\b", "motivation"),
+    # Dial-code selects ("Phone country code") must precede both the phone and
+    # country rules — they want "+91", not the number or the country name.
+    (r"\bcountry (dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
     # Sponsorship/work-auth must precede employer — "require employer sponsorship"
     # contains \bemployer\b and would otherwise be misclassified as a company-name field.
     (r"\bsponsor(ship)?\b", "visa_sponsorship"),

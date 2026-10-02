@@ -56,11 +56,10 @@ apply.py
 
 ## fill_node answer ladder
 
-1. **FTS5 recall** — `learned_answers` table (jobs.db) — exact/keyword match
-2. **Semantic match** — ChromaDB `behavioral_qa` — vector match; confidence ≥ 1.0 → autonomous (no human gate)
-3. **Rule-based mapper** — `orchestrator/screen_review.py` — standard_answers + profile_resolver
-4. **LLM judgment** — qwen3:14b local / Claude Pro (cap 6/app) — novel free-text fields
-5. **Human gate** — Telegram collector → `interrupt()` → `Command(resume=answers)`
+1. **Question bank** — `memory/qbank*.py` (jobs.db `qbank_entry`/`qbank_wording`) — exact wording → embedding shortlist → LLM picks an entry id or NONE (never writes a value). Confident = fill; likely = fill + listed for review before submit; none = falls through. Answers are typed once on the dashboard's Answers tab. Maintenance: `PYTHONPATH=src python3 scripts/qbank.py seed|migrate|calibrate`. Shared ladder: `orchestrator/answering.py::answer_fields` (graph + boards); every field is recorded to application_qa.
+2. **Rule-based mapper** — `orchestrator/screen_review.py` — standard_answers + profile_resolver
+3. **LLM judgment** — qwen3:14b local / Claude Pro (cap 6/app) — novel free-text fields
+4. **Human gate** — Telegram collector → `interrupt()` → `Command(resume=answers)`
 
 ## Tri-Partite Memory (`memory/` + `routers/memory_router.py`)
 
@@ -68,8 +67,8 @@ apply.py
 |----|-------|------|
 | `GET_PROFILE_CHUNK(section)` | `factual_core.py` — static profile JSON | — |
 | `EXACT_TECH_SEARCH(keywords)` | `exact_tech.py` — FTS5 over `ingredients.json` | Return `source` verbatim. NEVER paraphrase. |
-| `SEMANTIC_MATCH(question)` | `semantic_behavior.py` — ChromaDB ONNX | confidence ≥ 1.0 = autonomous |
-| `RECORD_FEEDBACK(q, a, event)` | semantic + FTS5 dual-write | event = `"approve"` or `"edit"` |
+| `SEMANTIC_MATCH(question)` | `semantic_behavior.py` — ChromaDB ONNX | confidence ≥ 1.0 = autonomous — **superseded for the fill loop by the question bank; still used by MCP tools** |
+| `RECORD_FEEDBACK(q, a, event)` | semantic + FTS5 dual-write | event = `"approve"` or `"edit"` — **superseded for the fill loop by the question bank; still used by MCP tools** |
 
 Confidence: 0.0 → +1/3 per approve → 1.0 after 3 = AUTONOMOUS. Edit resets to 0.0.
 
@@ -77,7 +76,7 @@ Confidence: 0.0 → +1/3 per approve → 1.0 after 3 = AUTONOMOUS. Edit resets t
 
 | What | Where |
 |------|-------|
-| SQLite (jobs, learned_answers, profile) | `data/jobs.db` |
+| SQLite (jobs, qbank_entry/qbank_wording, profile) | `data/jobs.db` |
 | Semantic vectors | `data/semantic_behavior/` |
 | Ingredient bank | `data/answer_style/ingredients.json` |
 | LangGraph checkpoints | `data/jobs_graph.db` |

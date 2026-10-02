@@ -13,7 +13,8 @@ function Stat({ label, value, hint, testid }) {
   );
 }
 
-const TIER = { purpose: "same purpose", label_exact: "exact question", fts_fuzzy: "similar wording", semantic: "similar meaning", none: "no match" };
+const TIER = { purpose: "same purpose", label_exact: "exact question", fts_fuzzy: "similar wording", semantic: "similar meaning",
+               exact: "same wording", shortlist: "similar meaning", llm: "LLM picked from shortlist", none: "no match" };
 
 // How well is memory retrieval working: what it matches, what it answers, and
 // how often the answer turned out wrong (from your reviews and agent submits).
@@ -36,7 +37,7 @@ export default function RetrievalPanel() {
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
         <Stat testid="stat-hit" label="fields memory found a match for" value={pct(s.hit_rate)} hint={`${s.retrieval_hits} of ${s.total_fields} fields`} />
         <Stat testid="stat-used" label="answered from memory" value={s.answered_by_memory} hint="a retrieved entry actually filled the field" />
-        <Stat testid="stat-unused" label="matched but not used" value={s.retrieved_not_used} hint="e.g. a semantic match below the 3-approval autonomy bar" />
+        <Stat testid="stat-unused" label="matched but not used" value={s.retrieved_not_used} hint="matched an entry but didn't fill (unanswered entry, no option fit, or below the floor)" />
         <Stat testid="stat-wrong" label="wrong when reviewed" value={pct(s.reviewed.wrong_rate)}
               hint={`${s.reviewed.edited} wrong, ${s.reviewed.kept} correct`} />
       </div>
@@ -51,6 +52,17 @@ export default function RetrievalPanel() {
               “{w.qkey}” — wrong {w.edited}×, right {w.kept}×
             </div>
           ))}
+        </div>
+      )}
+      {s.by_band && s.by_band.length > 0 && (
+        <div style={{ ...CARD, marginBottom: 8 }} data-testid="by-band">
+          <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 4 }}>Questionnaire matches you changed, by match score</div>
+          {s.by_band.map((b) => (
+            <div key={b.band} style={{ fontSize: 12, color: "var(--ink-soft)" }}>
+              score {b.band}: {pct(b.edit_rate)} changed ({b.edited} of {b.kept + b.edited})
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>Set “minimum match score” above the bands you often change.</div>
         </div>
       )}
       {(g.kept.count > 0 || g.edited.count > 0) && (

@@ -10,6 +10,9 @@ from ..orchestrator.profile_resolver import resolve
 from ..orchestrator import standard_answers
 
 _SELECT_KINDS = {"select", "radio_group"}
+# Free-text purposes answered in prose: when the profile has no value they go to
+# the judgment drafter (never to a structured purpose like postal_code).
+PROSE_PURPOSES = {"motivation", "summary"}
 _STD_PURPOSES = {"visa_sponsorship", "prior_contact", "work_authorization",
                   "phone_type", "referral_source", "conflict_of_interest",
                   "file_comment", "prior_employment"}
@@ -42,7 +45,8 @@ def _option_range(opt):
     nums = [int(n) for n in re.findall(r"\d+", s)]
     if not nums:
         return None
-    if any(k in s for k in ("+", "more than", "over", "at least", "or more", "greater")):
+    # "5+" is open-ended; a dial code "(+376)" (plus BEFORE the digits) is not.
+    if re.search(r"\d\s*\+", s) or any(k in s for k in ("more than", "over", "at least", "or more", "greater")):
         return (nums[0], _INF)
     if any(k in s for k in ("less than", "under", "fewer", "below")):
         return (0, nums[0] - 1)
@@ -162,7 +166,8 @@ def map_screen(form, profile, resume_pdf=None):
         value = resolve(f.purpose, profile) if f.purpose else None
         if value is not None:
             _place(f, value, "resume", decisions, needs_human)
-        elif f.required or (f.purpose is None and f.kind in ("text", "textarea")):
+        elif f.required or (f.kind in ("text", "textarea")
+                            and (f.purpose is None or f.purpose in PROSE_PURPOSES)):
             needs_human.append(f)
     return decisions, needs_human
 

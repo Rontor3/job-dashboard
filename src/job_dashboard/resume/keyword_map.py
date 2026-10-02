@@ -190,7 +190,9 @@ def _normalize_guard_token(token: str) -> str:
 # A run of 2+ consecutive Capitalized (or ALL-CAPS) words in ORIGINAL
 # casing — the shape a resume actually uses for a multi-word proper noun:
 # "Elastic Search", "Cloud Search", "Big Query", "Vertex AI".
-_CAP_WORD_RUN_RE = re.compile(r"[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)+")
+# Digits are part of the word ("AWS S3", "AWS EC2") so a match never ends
+# mid-token, which would break the \b-anchored source lookup below.
+_CAP_WORD_RUN_RE = re.compile(r"[A-Z][A-Za-z0-9]*(?:\s+[A-Z][A-Za-z0-9]*)+")
 
 # A token with an internal lower->upper case transition — the shape of a
 # CamelCase / internal-caps product name: "BigQuery", "PyTorch",

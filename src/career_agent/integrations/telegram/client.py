@@ -8,10 +8,15 @@ Transport = Callable[[str, dict], dict]
 
 
 def _default_transport(token: str) -> Transport:
+    import httpx
+    # IPv4 only: on networks where IPv6 to api.telegram.org is unroutable, httpx
+    # tries the AAAA address first and every call hangs (no happy-eyeballs).
+    # Short connect timeout; the 65s read timeout covers getUpdates long-polls.
+    client = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"),
+                          timeout=httpx.Timeout(65, connect=10))
+
     def _t(method: str, payload: dict) -> dict:
-        import httpx
-        url = f"https://api.telegram.org/bot{token}/{method}"
-        return httpx.post(url, json=payload, timeout=65).json()
+        return client.post(f"https://api.telegram.org/bot{token}/{method}", json=payload).json()
     return _t
 
 

@@ -25,6 +25,13 @@ def test_profile_put_then_get(tmp_path):
     assert c.get("/api/application-profile").json()["email"] == "r@x.com"
 
 
+def test_profile_put_keeps_fields_the_form_does_not_send(tmp_path):
+    c, _ = _client(tmp_path)
+    c.put("/api/application-profile", json={"full_name": "A", "postal_code": "400001", "gender": "Male"})
+    got = c.put("/api/application-profile", json={"full_name": "B"}).json()
+    assert (got["full_name"], got["postal_code"], got["gender"]) == ("B", "400001", "Male")
+
+
 def test_package_has_optional_cover_letter_and_ats_hint(tmp_path):
     c, jid = _client(tmp_path)
     r = c.get(f"/api/jobs/{jid}/application-package")

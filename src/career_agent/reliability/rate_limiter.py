@@ -19,6 +19,8 @@ _PACE = {
 _OUTCOME_MAP = {
     "submitted":              "submitted",
     "reached_submit_dry_run": "dry_run",
+    "dry_run":                "dry_run",
+    "challenge":              "blocked",
     "gate:captcha":           "captcha",
     "gate:hcaptcha":          "captcha",
     "gate:recaptcha":         "captcha",

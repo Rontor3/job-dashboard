@@ -694,6 +694,9 @@
           "capture": "apply-workflow/v1/apply",
           "request_match": "applyData",
           "status": 200
+        },
+        {
+          "page_url_match": "multiApplyResp=%7B%22\\d+%22%3A200%7D"
         }
       ],
       "logged_out": [
@@ -702,7 +705,7 @@
         "register to apply"
       ],
       "daily_cap": 40,
-      "notes": "Apply POST returns either 'successfully applied' (no questions = instant apply) or questionnaire[] with Naukri-profile prefillData; chat answers POST chatbot-services/botapi/v5/respond until isLeafNode, then apply POST carries applyData. Never open myapply/saveApply as a page (error page, yet it applies). Observed 2026-09-26."
+      "notes": "Apply POST returns either 'successfully applied' (no questions = instant apply) or questionnaire[] with Naukri-profile prefillData; chat answers POST chatbot-services/botapi/v5/respond until isLeafNode, then apply POST carries applyData. Never open myapply/saveApply as a page (error page, yet it applies). Observed 2026-09-26. Second apply path (2026-10-02): Apply does a full-page redirect to myapply/saveApply?...&multiApplyResp={\"<jobId>\":200} = applied."
     },
     {
       "id": "board:linkedin",
@@ -859,6 +862,53 @@
       ],
       "daily_cap": 15,
       "notes": "Apply opens a modal: location autocomplete, relocate radio, optional 'What interests you about working for this company?' -> 'Send application' -> graphql CreateJobApplication. Logged out = signup form in the modal. Observed 2026-09-27."
+    },
+    {
+      "id": "board:workatastartup",
+      "type": "board",
+      "label": "Work at a Startup (YC)",
+      "domains": [
+        "workatastartup.com"
+      ],
+      "archetype": "form",
+      "entry": {
+        "selector": "a:text-is(\"Apply\"), button:text-is(\"Apply\")",
+        "submits": "no"
+      },
+      "final": [
+        "Send"
+      ],
+      "confirm": [
+        {
+          "capture": "workatastartup.com/apply",
+          "path": "success",
+          "match": "true"
+        }
+      ],
+      "logged_out": [
+        "account.ycombinator.com"
+      ],
+      "daily_cap": 15,
+      "notes": "Apply opens a modal 'Reach out to <founder> at <company>': one message textarea (min 50 chars; human-written preferred), relocation checkbox when location mismatches, Close/Send (Send disabled until 50 chars). Send = POST /apply {company_id, job_id, message} -> {success:true, job_ids}. Traced from a human apply 2026-09-27."
+    },
+    {
+      "id": "code:qbank",
+      "type": "code",
+      "label": "Question bank (memory/qbank*.py)",
+      "status": "current",
+      "note": "canonical questions answered once on the dashboard; exact wording -> embedding shortlist -> LLM pick-or-none; bands confident/likely/none; spec docs/superpowers/specs/2026-09-26-question-bank-design.md"
+    },
+    {
+      "id": "code:learned_answers",
+      "type": "code",
+      "label": "learned_answers FTS recall keyed by label/purpose",
+      "status": "superseded"
+    },
+    {
+      "id": "code:semantic_behavior",
+      "type": "code",
+      "label": "Chroma behavioral_qa vault with 3-approval autonomy",
+      "status": "superseded"
     }
   ],
   "edges": [
@@ -1131,6 +1181,16 @@
       "from": "error:mapper_degree_graduation_year_collision",
       "to": "fix:graduation_year_purpose",
       "rel": "FIXED_BY"
+    },
+    {
+      "from": "code:qbank",
+      "to": "code:learned_answers",
+      "rel": "SUPERSEDES"
+    },
+    {
+      "from": "code:qbank",
+      "to": "code:semantic_behavior",
+      "rel": "SUPERSEDES"
     }
   ]
 }

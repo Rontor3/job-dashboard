@@ -78,6 +78,8 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             group=r.get("group"),
             purpose=guess_purpose(r["label"], kind),
             description=r.get("description", ""),
+            input_type=r.get("input_type", ""),
+            autocomplete=r.get("autocomplete", ""),
         ))
 
     for name, g in radio_groups.items():
@@ -267,12 +269,13 @@ _INPUT_JS = r"""
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);          // unique, id/name-independent handle
     out.push({
-      ref: el.id ? `#${el.id}` : `[data-cref="${cref}"]`,
+      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
       kind, label: labelFor(el), description: describedBy(el), required: !!el.required,
       options, group: (kind === 'radio') ? (el.name || null) : null,
       group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : '',
       disabled: !!el.disabled || (!!el.readOnly && !isCombo),
       role, haspopup,
+      input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
     });
   }
   // Custom ARIA choice buttons: <button role="radio"> grouped under a
@@ -297,7 +300,7 @@ _INPUT_JS = r"""
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);
     out.push({
-      ref: el.id ? `#${el.id}` : `[data-cref="${cref}"]`,
+      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
       kind: 'radio', label: visibleText(el),
       required: container.getAttribute('aria-required') === 'true' || hasAsterisk,
       options: [], group: container.getAttribute('data-cref-group'),
@@ -348,7 +351,7 @@ _INPUT_JS = r"""
       const cref = 'f' + (_ci++);
       el.setAttribute('data-cref', cref);
       out.push({
-        ref: el.id ? `#${el.id}` : `[data-cref="${cref}"]`,
+        ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
         kind: 'combobox', label, required,
         options: [], group: null, disabled: !!el.disabled,
         role: (el.getAttribute('role') || '').toLowerCase(), haspopup: popupHaspopup,
@@ -356,7 +359,7 @@ _INPUT_JS = r"""
       continue;
     }
     out.push({
-      ref: el.id ? `#${el.id}` : `button:${label}`,
+      ref: el.id ? `#${CSS.escape(el.id)}` : `button:${label}`,
       kind: 'button', label, required: false,
       options: [], group: null, disabled: !!el.disabled,
     });

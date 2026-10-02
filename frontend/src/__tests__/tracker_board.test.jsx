@@ -120,10 +120,10 @@ test("replying posts the answer, and the question leaves the tracker", async () 
   const box = await screen.findByLabelText(/Answer for Why do you want/);
   expect(box.value).toBe("Draft answer");                  // draft prefilled to edit
   fireEvent.change(box, { target: { value: "Because fraud ML." } });
-  fireEvent.click(screen.getByRole("button", { name: "Save to memory" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save answer" }));
   await waitFor(() => {
     const post = global.fetch.mock.calls.find(([u]) => String(u).includes("/questions/7/reply"));
-    expect(JSON.parse(post[1].body)).toEqual({ answer: "Because fraud ML." });
+    expect(JSON.parse(post[1].body)).toEqual({ answer: "Because fraud ML.", save_as: "once", entry_id: null });
   });
   expect(await screen.findByText("No open questions.")).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByTestId("open-badge-1")).toBeNull());

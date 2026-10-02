@@ -78,3 +78,29 @@ def test_challenge_and_logged_out_tells():
     assert not is_challenge(li, "https://www.linkedin.com/jobs/view/1", "Easy Apply")
     assert is_logged_out(wf, "https://wellfound.com/jobs/1", "Full Name* Email* Set a Password*")
     assert not is_logged_out(wf, "https://wellfound.com/jobs/1", "Send application")
+
+
+def test_cloudflare_additional_verification_is_a_challenge():
+    # Live 2026-09-27: agent-opened Indeed tab got this instead of the job page.
+    b = B("indeed.com")
+    assert is_challenge(b, "https://in.indeed.com/viewjob?jk=1", "Additional Verification Required Your Ray ID")
+    assert is_challenge(b, "https://in.indeed.com/viewjob?jk=1 https://challenges.cloudflare.com/cdn-cgi/x", "")
+
+
+def test_workatastartup_send_confirms_on_success_flag():
+    # Live human apply 2026-09-27: POST /apply {company_id, job_id, message}.
+    b = B("workatastartup.com")
+    u = "https://www.workatastartup.com/apply"
+    assert confirmed(b, [R(u, {"success": True, "company_id": 28825, "job_ids": [68959]})])
+    assert not confirmed(b, [R(u, {"success": False})])
+    assert not confirmed(b, [R("https://www.workatastartup.com/companies", {"success": True})])
+
+
+
+def test_naukri_full_page_redirect_with_200_is_applied():
+    # Live submit 2026-10-02: Apply navigated to saveApply with multiApplyResp={"<id>":200}.
+    b = B("naukri.com")
+    ok = ("https://www.naukri.com/myapply/saveApply?strJobsarr=[140926915742]&applytype=single"
+          "&multiApplyResp=%7B%22140926915742%22%3A200%7D&jobTitle=Agentic%20AI%20Engineer")
+    assert confirmed(b, [], ok)
+    assert not confirmed(b, [], ok.replace("%3A200", "%3A409"))

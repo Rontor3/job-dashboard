@@ -59,7 +59,10 @@ def rule_matches(rule, resp):
 def confirmed(board, responses, page_url=""):
     """True only when the board's own response or landing URL proves the apply."""
     for rule in board.get("confirm", []):
-        if rule.get("page_url"):
+        if rule.get("page_url_match"):
+            if re.search(rule["page_url_match"], page_url or ""):
+                return True
+        elif rule.get("page_url"):
             if rule["page_url"] in (page_url or ""):
                 return True
         elif any(rule_matches(rule, r) for r in responses):

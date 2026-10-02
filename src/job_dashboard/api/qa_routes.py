@@ -1,11 +1,10 @@
-"""Answers tab + per-application questions API.
+"""Questionnaire (question bank) + per-application questions API.
 
-Answers live in two stores that the agent writes together: `learned_answers`
-(sqlite/FTS5, short answers) and the semantic vault (ChromaDB). This router
-presents them as one list keyed by normalized question, and writes through the
-agent's own MemoryRouter so the dual-write logic stays in one place. Essays are
-vault-only, matching `learned_answers`' "essays are per-job" rule. Every
-endpoint degrades to empty rather than 500 when the vault is unavailable.
+The questionnaire is the agent's question bank (career_agent.memory.qbank):
+one entry per canonical question, answered once here. Per-application rows
+come from application_qa. The bank grows only from choices made here: a reply
+becomes a new entry, another wording of an entry, or stays one-off; a review
+confirms a wording or re-points it to the right entry. Spec 2026-09-26 §3–4.
 """
 from __future__ import annotations
 
@@ -16,30 +15,35 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from career_agent.memory import qbank
+from career_agent.memory.qbank_match import split_escape
+from career_agent.memory.qbank_rules import NO_INPUT_RULES, RULE_HELP
 from job_dashboard import qa_store
+from job_dashboard.apply.store import get_application_profile
 from job_dashboard.db import init_db
 from job_dashboard.sources.cdp import state as cdp_state
 
-_SHORT = 200        # longer / multi-line replies are essays -> vault only
-
 
 class AnswerBody(BaseModel):
-    question: str
     answer: str
-    purpose: Optional[str] = None
+    entry_id: Optional[str] = None     # answer an existing entry
+    question: Optional[str] = None     # or create a new one
 
 
 class ReplyBody(BaseModel):
     answer: str
+    save_as: str = "once"              # "once" | "new" | "wording"
+    entry_id: Optional[str] = None     # required for "wording"
 
 
 class ReviewBody(BaseModel):
     verdict: str                       # "correct" | "wrong"
-    answer: Optional[str] = None       # the right answer, when wrong
+    entry_id: Optional[str] = None     # wrong: the entry this question really is
 
 
 class SettingsBody(BaseModel):
     answer_confidence_min: Optional[int] = None
+    qbank_confident_min: Optional[int] = None
     browser_linkedin_enabled: Optional[bool] = None
     browser_naukri_enabled: Optional[bool] = None
     browser_wellfound_enabled: Optional[bool] = None
@@ -56,115 +60,90 @@ def _browser_flags(conn) -> dict:
     return {f"browser_{s}_enabled": qa_store.get_setting(conn, f"browser_{s}_enabled") == "1" for s in BROWSER_SITES}
 
 
-def build_qa_router(db_path, vault=None) -> APIRouter:
+def build_qa_router(db_path, embed=None) -> APIRouter:
     router = APIRouter()
-    state = {"vault": vault}
 
-    def get_vault():
-        if state["vault"] is None:
-            try:
-                from career_agent.memory.semantic_behavior import SemanticBehaviorVault
-                state["vault"] = SemanticBehaviorVault(
-                    persist_dir=str(Path(db_path).parent / "semantic_behavior"))
-            except Exception:
-                return None
-        return state["vault"]
+    def get_embed():
+        return embed or qbank.default_embed
 
     def db():
-        # Both tables are otherwise created lazily by the agent, so a fresh
-        # database (no run yet) would 500 here instead of showing "nothing yet".
         conn = init_db(db_path)
         qa_store.ensure(conn)
-        from career_agent.memory.learned_answers import ensure as ensure_learned
-        ensure_learned(conn)
+        qbank.seed_if_empty(conn, get_embed())
         return conn
 
-    def learned_rows(conn):
-        cur = conn.execute("SELECT qkey, label, answer, purpose, updated_at FROM learned_answers")
-        return [dict(zip([c[0] for c in cur.description], r)) for r in cur.fetchall()]
+    def view(conn, e, asked, profile) -> dict:
+        words = qbank.wordings_for(conn, e["id"])
+        raw = profile.get(e["profile_ref"]) if e["profile_ref"] else e["answer"]
+        value = None if raw is None or str(raw).strip() == "" else str(raw)
+        return {"id": e["id"], "question": e["question"], "topic": e["topic"], "atype": e["atype"],
+                "answer": e["answer"], "profile_ref": e["profile_ref"], "rule": e["rule"],
+                "rule_help": RULE_HELP.get(e["rule"]), "value": value,
+                "needs_input": not e["profile_ref"] and e["rule"] not in NO_INPUT_RULES,
+                "wordings": words, "updated_at": e["updated_at"],
+                "asked_in": sum(asked.get(qa_store.norm_key(w), 0) for w in words)}
 
-    def teach(conn, question, answer, purpose=None, essay=False):
-        """Save to memory. Short answers go to both stores via the agent's
-        RECORD_FEEDBACK (an 'edit' — it resets vault confidence, existing rule);
-        essays only to the vault."""
-        v = get_vault()
-        if essay or len(answer) > _SHORT or "\n" in answer:
-            if v is not None:
-                v.record_feedback(question, answer, "edit")
-            return
-        from career_agent.memory.learned_answers import AnswerMemory
-        from career_agent.routers.memory_router import MemoryRouter
-        if v is None:                      # vault down: keep the FTS half working
-            from career_agent.browser.form_model import Field
-            AnswerMemory(conn).record(Field("_dash", "text", question, False, [], None, purpose), answer)
-            return
-        MemoryRouter(profile={}, exact_tech=None, semantic=v, answer_memory=AnswerMemory(conn)
-                     ).dispatch("RECORD_FEEDBACK", {"question": question, "answer": answer,
-                                                    "event": "edit", "purpose": purpose})
+    def link(conn, label, entry_id, source, replace):
+        q = split_escape(label)[0] or label
+        qbank.add_wording(conn, q, entry_id, get_embed()([q])[0], source, replace=replace)
 
     @router.get("/api/answers")
     def list_answers(q: str = ""):
         conn = db()
         try:
             asked = qa_store.asked_in_counts(conn)
-            merged: dict[str, dict] = {}
-            for r in learned_rows(conn):
-                merged[r["qkey"]] = {"qkey": r["qkey"], "question": r["label"], "answer": r["answer"],
-                                     "purpose": r["purpose"], "updated_at": r["updated_at"],
-                                     "in_learned": True, "in_vault": False,
-                                     "confidence": None, "approved_count": None, "autonomous": False}
-            v = get_vault()
-            try:
-                entries = v.list_all() if v is not None else []
-            except Exception:
-                entries = []
-            for e in entries:
-                k = qa_store.norm_key(e["question"])
-                m = merged.setdefault(k, {"qkey": k, "question": e["question"], "answer": e.get("answer"),
-                                          "purpose": None, "updated_at": None, "in_learned": False})
-                m.update(in_vault=True, confidence=e.get("confidence"),
-                         approved_count=e.get("approved_count"),
-                         autonomous=(e.get("confidence") or 0) >= 1.0)
-                m.setdefault("answer", e.get("answer"))
-            out = [dict(m, asked_in=asked.get(k, 0)) for k, m in merged.items()]
+            profile = get_application_profile(conn) or {}
+            out = [view(conn, e, asked, profile) for e in qbank.entries(conn)]
         finally:
             conn.close()
         needle = q.strip().lower()
         if needle:
-            out = [a for a in out if needle in (a["question"] or "").lower()
-                   or needle in (a["answer"] or "").lower()]
-        return {"answers": sorted(out, key=lambda a: (a["updated_at"] or ""), reverse=True)}
+            out = [a for a in out if needle in a["question"].lower() or needle in (a["value"] or "").lower()
+                   or any(needle in w.lower() for w in a["wordings"])]
+        return {"answers": out,
+                "unanswered": sum(1 for a in out if a["needs_input"] and a["value"] is None)}
 
     @router.put("/api/answers")
     def upsert_answer(body: AnswerBody):
-        if not body.question.strip() or not body.answer.strip():
-            raise HTTPException(status_code=422, detail="question and answer are required")
+        ans = body.answer.strip()
+        if not ans:
+            raise HTTPException(status_code=422, detail="answer is required")
         conn = db()
         try:
-            teach(conn, body.question.strip(), body.answer.strip(), body.purpose)
+            if body.entry_id:
+                if not qbank.set_answer(conn, body.entry_id, ans):
+                    raise HTTPException(status_code=404, detail="no such entry")
+                eid = body.entry_id
+            elif (body.question or "").strip():
+                eid = qbank.add_entry(conn, question=body.question.strip(), kind="text",
+                                      answer=ans, embed=get_embed())
+            else:
+                raise HTTPException(status_code=422, detail="entry_id or question is required")
         finally:
             conn.close()
-        return {"ok": True, "qkey": qa_store.norm_key(body.question)}
+        return {"ok": True, "id": eid}
 
     @router.delete("/api/answers")
-    def delete_answer(qkey: str):
+    def delete_answer(entry_id: str):
+        """Retire, don't erase: the entry stays in the DB as superseded."""
         conn = db()
         try:
-            cur = conn.execute("DELETE FROM learned_answers WHERE qkey=?", (qkey,))
-            conn.execute("DELETE FROM learned_answers_fts WHERE qkey=?", (qkey,))
-            conn.commit()
-            removed = {"learned": cur.rowcount > 0, "vault": False}
-            v = get_vault()
-            if v is not None:
-                for e in v.list_all():
-                    if qa_store.norm_key(e["question"]) == qkey:
-                        v.delete(e["question"])
-                        removed["vault"] = True
+            if not qbank.set_status(conn, entry_id, "superseded"):
+                raise HTTPException(status_code=404, detail="no such entry")
         finally:
             conn.close()
-        if not any(removed.values()):
-            raise HTTPException(status_code=404, detail="no such answer")
-        return {"ok": True, "removed": removed}
+        return {"ok": True}
+
+    @router.get("/api/qbank/entries")
+    def qbank_entries(search: str = ""):
+        conn = db()
+        try:
+            n = search.strip().lower()
+            return {"entries": [{"id": e["id"], "question": e["question"], "topic": e["topic"]}
+                                for e in qbank.entries(conn)
+                                if e["topic"] != "story" and (not n or n in e["question"].lower() or n in e["id"])]}
+        finally:
+            conn.close()
 
     @router.get("/api/answers/applications")
     def answer_applications(qkey: str):
@@ -178,7 +157,9 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
     def job_questions(job_id: int):
         conn = db()
         try:
-            return {"questions": qa_store.open_questions(conn, job_id)}
+            asked = qa_store.asked_in_counts(conn)
+            return {"questions": [dict(q, asked_in=asked.get(q["qkey"], 0))
+                                  for q in qa_store.open_questions(conn, job_id)]}
         finally:
             conn.close()
 
@@ -192,17 +173,30 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
 
     @router.post("/api/jobs/{job_id}/questions/{row_id}/reply")
     def reply(job_id: int, row_id: int, body: ReplyBody):
-        if not body.answer.strip():
+        ans = body.answer.strip()
+        if not ans:
             raise HTTPException(status_code=422, detail="answer is required")
+        if body.save_as not in ("once", "new", "wording"):
+            raise HTTPException(status_code=422, detail="save_as must be once, new or wording")
         conn = db()
         try:
-            row = conn.execute("SELECT label, kind, purpose FROM application_qa "
-                               "WHERE id=? AND job_id=?", (row_id, job_id)).fetchone()
+            row = conn.execute("SELECT label, kind, source, answer FROM application_qa WHERE id=? AND job_id=?",
+                               (row_id, job_id)).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail="question not found")
-            label, kind, purpose = row
-            teach(conn, label, body.answer.strip(), purpose, essay=(kind == "textarea"))
-            qa_store.mark_answered(conn, job_id, qa_store.norm_key(label), body.answer.strip())
+            label, kind, source, prior_answer = row
+            if body.save_as == "new":
+                qbank.add_entry(conn, question=split_escape(label)[0] or label, kind=kind,
+                                answer=ans, embed=get_embed())
+            elif body.save_as == "wording":
+                if not body.entry_id or qbank.get_entry(conn, body.entry_id) is None:
+                    raise HTTPException(status_code=422, detail="pick an existing entry")
+                link(conn, label, body.entry_id, "human", replace=True)
+            keep_source = source == "qbank_likely"
+            if keep_source:
+                same = (prior_answer or "").strip().casefold() == ans.casefold()
+                qa_store.set_outcome(conn, row_id, "kept" if same else "edited")
+            qa_store.mark_answered(conn, job_id, qa_store.norm_key(label), ans, keep_source=keep_source)
         finally:
             conn.close()
         return {"ok": True}
@@ -217,17 +211,24 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
 
     @router.post("/api/application-qa/{row_id}/review")
     def review(row_id: int, body: ReviewBody):
-        """Mark a filled answer correct/wrong. Wrong + a corrected answer also
-        teaches memory, so the bad entry is replaced, not just flagged."""
+        """Correct: a similar-wording match becomes an exact wording of its entry.
+        Wrong + entry_id: this wording is re-pointed to the entry it really is."""
         if body.verdict not in ("correct", "wrong"):
             raise HTTPException(status_code=422, detail="verdict must be correct or wrong")
         conn = db()
         try:
-            row = conn.execute("SELECT label, kind, purpose FROM application_qa WHERE id=?", (row_id,)).fetchone()
+            row = conn.execute("SELECT label, retrieved_qkey, retrieval_kind FROM application_qa WHERE id=?",
+                               (row_id,)).fetchone()
             if row is None:
                 raise HTTPException(status_code=404, detail="not found")
-            if body.verdict == "wrong" and (body.answer or "").strip():
-                teach(conn, row[0], body.answer.strip(), row[2], essay=(row[1] == "textarea"))
+            label, matched, kind = row
+            if body.verdict == "correct":
+                if matched and kind in ("shortlist", "llm") and qbank.get_entry(conn, matched):
+                    link(conn, label, matched, "kept", replace=False)
+            elif body.entry_id:
+                if qbank.get_entry(conn, body.entry_id) is None:
+                    raise HTTPException(status_code=422, detail="no such entry")
+                link(conn, label, body.entry_id, "human", replace=True)
             qa_store.set_outcome(conn, row_id, "kept" if body.verdict == "correct" else "edited")
         finally:
             conn.close()
@@ -254,6 +255,7 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
         conn = db()
         try:
             return {"answer_confidence_min": qa_store.confidence_min(conn),
+                    "qbank_confident_min": qa_store.qbank_confident_min(conn),
                     **_browser_flags(conn),
                     "browser_min_interval_hours": cdp_state.interval_hours(conn)}
         finally:
@@ -261,17 +263,21 @@ def build_qa_router(db_path, vault=None) -> APIRouter:
 
     @router.put("/api/agent-settings")
     def put_settings(body: SettingsBody):
-        if body.answer_confidence_min is not None and not 0 <= body.answer_confidence_min <= 100:
-            raise HTTPException(status_code=422, detail="must be 0-100")
+        for key in ("answer_confidence_min", "qbank_confident_min"):
+            v = getattr(body, key)
+            if v is not None and not 0 <= v <= 100:
+                raise HTTPException(status_code=422, detail=f"{key} must be 0-100")
         conn = db()
         try:
-            if body.answer_confidence_min is not None:
-                qa_store.set_setting(conn, "answer_confidence_min", body.answer_confidence_min)
+            for key in ("answer_confidence_min", "qbank_confident_min"):
+                if getattr(body, key) is not None:
+                    qa_store.set_setting(conn, key, getattr(body, key))
             for site in BROWSER_SITES:
                 val = getattr(body, f"browser_{site}_enabled")
                 if val is not None:
                     qa_store.set_setting(conn, f"browser_{site}_enabled", "1" if val else "0")
             return {"answer_confidence_min": qa_store.confidence_min(conn),
+                    "qbank_confident_min": qa_store.qbank_confident_min(conn),
                     **_browser_flags(conn)}
         finally:
             conn.close()

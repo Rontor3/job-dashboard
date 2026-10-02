@@ -80,3 +80,14 @@ def test_non_resume_file_field_escalates():
     d = {x.ref: x for x in decisions}
     assert d["#cv"].value == "/tmp/cv.pdf" and d["#cv"].action == "upload"
     assert "#cl" in {f.ref for f in needs}   # cover letter -> escalate, no résumé
+
+
+def test_unresolvable_prose_purpose_goes_to_judgment_not_dropped():
+    from types import SimpleNamespace as NS
+    from career_agent.browser.form_model import Field, guess_purpose
+    from career_agent.orchestrator.screen_review import map_screen
+    label = "Start a conversation with the team at HUD. Share something about you, or why HUD interests you."
+    assert guess_purpose(label, "textarea") == "motivation"
+    f = Field("#m", "textarea", label, False, [], None, "motivation")
+    decisions, needs = map_screen([f], NS(contact={}, experiences=[], education=[], summary=None))
+    assert decisions == [] and [x.ref for x in needs] == ["#m"]
