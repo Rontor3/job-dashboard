@@ -387,7 +387,21 @@ def _apply(args, box: dict) -> None:
         else:
             # DOM-ready, not 'load': LinkedIn's ad/tracker frames can hold the
             # load event past 30s; the networkidle settle below still runs.
-            resp = page.goto(args.url, wait_until="domcontentloaded", timeout=45000)
+            try:
+                resp = page.goto(args.url, wait_until="domcontentloaded", timeout=45000)
+            except Exception as _nav:
+                # LinkedIn can hold the navigation open while the page is already
+                # usable. Carry on if we are on the job's site with content.
+                from urllib.parse import urlparse as _u
+                _body = ""
+                try:
+                    _body = page.evaluate("document.body ? document.body.innerText.slice(0, 200) : ''")
+                except Exception:
+                    pass
+                if _u(page.url).netloc != _u(args.url).netloc or not _body.strip():
+                    raise
+                print(f"[browser] navigation still pending ({type(_nav).__name__}); page is usable, continuing", flush=True)
+                resp = None
         try:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
