@@ -8,50 +8,54 @@ def _f(ref, label):
 
 
 class Learn:
-    def __init__(self):
-        self.rec = []
-
     def recall(self, fields):
         hit = [f for f in fields if f.label == "Known"]
-        return ([FillDecision(f.ref, f.kind, f.label, "42", "fill", "learned") for f in hit],
+        return ([FillDecision(f.ref, f.kind, f.label, "42", "fill", "qbank") for f in hit],
                 [f for f in fields if f not in hit])
 
-    def record(self, f, a):
-        self.rec.append((f.label, a))
+
+class QA:
+    def __init__(self):
+        self.log = []
+
+    def trace_all(self, fields):
+        self.log.append(("trace", [f.ref for f in fields]))
+
+    def decision(self, d):
+        self.log.append(("decision", d.ref))
+
+    def needs(self, f):
+        self.log.append(("needs", f.ref))
+
+    def answered(self, f, a):
+        self.log.append(("answered", f.ref, a))
 
 
-def test_ladder_order_recall_rules_judge(monkeypatch):
+def _judge(needs):
+    return [FillDecision(needs[0].ref, "text", needs[0].label, "llm", "fill", "judge")], needs[1:], None
+
+
+def test_ladder_order_bank_rules_judge(monkeypatch):
     import career_agent.orchestrator.screen_review as sr
     monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
-    judged = []
-
-    def judge(needs):
-        judged.extend(needs)
-        return [FillDecision(needs[0].ref, "text", needs[0].label, "llm", "fill", "judge")], needs[1:], None
-
     d, needs = answer_fields([_f("a", "Known"), _f("b", "Why us"), _f("c", "Other")],
-                             {"learn": Learn(), "profile": None, "judge_fn": judge})
+                             {"learn": Learn(), "profile": None, "judge_fn": _judge})
     assert [x.value for x in d] == ["42", "llm"]
     assert [f.ref for f in needs] == ["c"]
-    assert [f.ref for f in judged] == ["b", "c"]
 
 
-def test_record_answers_router_skips_blank():
-    calls = []
+def test_ladder_ignores_memory_router(monkeypatch):
+    import career_agent.orchestrator.screen_review as sr
+    monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
 
     class Router:
-        def dispatch(self, op, p):
-            calls.append((op, p["question"], p["answer"], p["event"]))
+        def dispatch(self, *a):
+            raise AssertionError("semantic tier must not be consulted")
 
-    record_answers([_f("a", "CTC"), _f("b", "Blank")], {"a": " 22 ", "b": "  "},
-                   {"memory_router": Router()}, {"a": "edit"})
-    assert calls == [("RECORD_FEEDBACK", "CTC", "22", "edit")]
+    d, needs = answer_fields([_f("a", "Other")], {"memory_router": Router(), "profile": None})
+    assert d == [] and [f.ref for f in needs] == ["a"]
 
 
-def test_record_answers_falls_back_to_learn():
-    learn = Learn()
-    record_answers([_f("a", "CTC")], {"a": "22"}, {"learn": learn})
-    assert learn.rec == [("CTC", "22")]
 
 
 
@@ -132,3 +136,16 @@ def test_paired_location_is_answered_from_the_profile_without_asking():
     prof.contact["willing_to_relocate"] = False
     d, _ = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
     assert {x.ref: x.value for x in d} == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
+def test_every_field_is_recorded_to_qa(monkeypatch):
+    import career_agent.orchestrator.screen_review as sr
+    monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
+    qa = QA()
+    answer_fields([_f("a", "Known"), _f("b", "Other")], {"learn": Learn(), "profile": None, "qa": qa})
+    assert qa.log == [("trace", ["a", "b"]), ("decision", "a"), ("needs", "b")]
+
+
+def test_record_answers_keeps_them_per_application_only():
+    qa = QA()
+    record_answers([_f("a", "CTC"), _f("b", "Blank")], {"a": " 22 ", "b": "  "}, {"qa": qa})
+    assert qa.log == [("answered", "a", "22")]
+    record_answers([_f("a", "CTC")], {"a": "22"}, {})      # no recorder: nothing to do, no error

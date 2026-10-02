@@ -159,8 +159,10 @@ def main() -> None:
         try:
             from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
             from .browser.ats_lookup import lookup as _ats_lookup
+            from .memory import qbank as _qbank
             from job_dashboard.db import get_job
             from job_dashboard.letter.draft import make_default_llm
+            _qbank.ensure(conn)
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
             llm = make_default_llm()
@@ -173,7 +175,7 @@ def main() -> None:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
                                   resume_text=job.get("description", ""),
-                                  ats_notes=_ats_notes)
+                                  ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
@@ -190,10 +192,24 @@ def main() -> None:
         except Exception as e:
             print(f"[warn] combobox matcher unavailable ({type(e).__name__}: {e})")
 
-    # Learning loop (Phase D): reuse answers the human typed on past forms
-    # before escalating again; record new ones. Same jobs.db, no new store.
-    from .memory.learned_answers import AnswerMemory
-    learn = AnswerMemory(conn)
+    # Question bank (spec 2026-09-26): canonical questions answered once on the
+    # dashboard. The LLM only picks which entry a question is — never the value.
+    from .memory.qbank_memory import QBankMemory
+    from job_dashboard.db import get_job
+    _qllm = None
+    if not args.no_llm:
+        try:
+            from job_dashboard.letter.draft import make_default_llm
+            _qllm = make_default_llm()
+        except Exception as e:
+            print(f"[warn] qbank LLM pick unavailable ({type(e).__name__}: {e})")
+    try:
+        learn = QBankMemory(conn, llm=_qllm, contact=contact,
+                            job=(get_job(conn, args.job_id) if args.job_id else None) or {},
+                            high=qa_store.qbank_confident_min(conn) / 100)
+    except Exception as e:
+        print(f"[warn] question bank unavailable ({type(e).__name__}: {e})")
+        learn = None
 
     memory_router = None
     _qa_vault = None
@@ -212,8 +228,8 @@ def main() -> None:
         )
     except Exception as _me:
         print(f"[warn] memory router unavailable ({type(_me).__name__}: {_me})")
-    from .memory.retrieval_trace import explain as _explain
-    qa_rec.tracer = lambda f: _explain(conn, _qa_vault, f)
+    if learn is not None:
+        qa_rec.tracer = learn.explain
 
     settings = load_settings()
 
@@ -309,7 +325,7 @@ def main() -> None:
         if _board:
             out = _run_board(_board, page, args, profile=profile, human=human, resume_pdf=resume_pdf,
                              judge_fn=judge_fn, learn=learn, memory_router=memory_router,
-                             option_matcher=option_matcher)
+                             option_matcher=option_matcher, qa=qa_rec)
             _write_run_log(conn, args.url, args.job_id, out)
             print(out, flush=True)
             return

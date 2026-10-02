@@ -112,3 +112,27 @@ def test_confidence_clamped_and_bad_value_unknown():
     b = ResearchBundle([], [], True)
     assert draft_screening_answer(JOB, "q", "p", b, llm=mk(250))["confidence"] == 100
     assert draft_screening_answer(JOB, "q", "p", b, llm=mk('"high"'))["confidence"] is None
+
+
+def test_prompt_has_own_words_and_company_page():
+    from job_dashboard.apply.screening import _build_prompt
+    job = {"title": "ML Engineer", "company": "HUD", "description": "HUD builds RL environments for agents. " * 80}
+    p = _build_prompt(job, "Why HUD?", "Data scientist", None, job["description"], "Q: Why startups?\nA: Ownership.")
+    assert "IN THE CANDIDATE'S OWN WORDS" in p and "A: Ownership." in p
+    assert "COMPANY & ROLE (from the job page)" in p and "RESUME EXCERPT" not in p
+    assert p.count("HUD builds RL environments") > 10          # 2000-char page window, not 800
+
+
+def test_prompt_omits_own_words_when_empty():
+    from job_dashboard.apply.screening import _build_prompt
+    job = {"title": "ML Engineer", "company": "HUD", "description": "HUD builds RL environments for agents. " * 80}
+    assert "OWN WORDS" not in _build_prompt(job, "Why HUD?", "x", None, "", "")
+
+
+def test_draft_passes_story_to_prompt():
+    job = {"title": "ML Engineer", "company": "HUD", "description": "HUD builds RL environments for agents. " * 80}
+    seen = []
+    res = draft_screening_answer(job, "Why HUD?", "Data scientist", None, job["description"],
+                                 llm=lambda p: seen.append(p) or '{"answer": "Because.", "confidence": 80, "basis": "b"}',
+                                 story_text="Q: Why startups?\nA: Ownership.")
+    assert "A: Ownership." in seen[0] and res["answer"] == "Because."

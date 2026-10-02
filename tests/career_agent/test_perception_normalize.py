@@ -79,3 +79,12 @@ def test_description_threads_through():
     raw2 = [{"ref": "#n", "kind": "text", "label": "Name", "required": False,
              "options": [], "group": None}]
     assert to_form_model(raw2)[0].description == ""
+
+
+def test_input_type_and_autocomplete_carried_through():
+    raw = [{"ref": "#a", "kind": "text", "label": "Street address", "required": False, "options": [],
+            "group": None, "input_type": "text", "autocomplete": "address-line1"},
+           {"ref": "#b", "kind": "text", "label": "Notice", "required": False, "options": [], "group": None}]
+    a, b = to_form_model(raw)
+    assert (a.input_type, a.autocomplete) == ("text", "address-line1")
+    assert (b.input_type, b.autocomplete) == ("", "")

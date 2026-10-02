@@ -303,19 +303,10 @@ def fill_node(state: AgentState, config) -> dict:
 
     form = [_d2f(d) for d in state["form"]]
     fillable = [f for f in form if f.kind != "button"]
-    if c.get("qa"):
-        c["qa"].trace_all(fillable)
-
-    # Shared ladder (recall → semantic → rules → judge) — also used by boards/.
+    # Shared ladder (question bank → rules → judge) — also used by boards/;
+    # it records every field to the QA recorder itself.
     from .answering import answer_fields
     decisions, needs = answer_fields(fillable, c)
-
-    qa = c.get("qa")
-    if qa:
-        for d in decisions:
-            qa.decision(d)
-        for f in needs:
-            qa.needs(f)
 
     deps.fill(page, decisions)
 
@@ -388,17 +379,8 @@ def human_gate_node(state: AgentState, config) -> dict:
     from ..orchestrator.screen_review import apply_answers
     new_decisions = apply_answers(fields, answers)
     deps.fill(page, new_decisions)
-    qa = c.get("qa")
-    if qa:
-        for f in fields:
-            if str(answers.get(f.ref) or "").strip():
-                qa.answered(f, answers[f.ref])
-
-    # Events from TelegramCollector: {ref: "approve"|"edit"}; empty for CLI
-    human = c.get("human")
-    events: dict = human.get_events() if (human and hasattr(human, "get_events")) else {}
     from .answering import record_answers
-    record_answers(fields, answers, c, events)
+    record_answers(fields, answers, c)
 
     return {
         "pending_human": [],
@@ -439,7 +421,10 @@ def advance_node(state: AgentState, config) -> dict:
                     return {"stopped_reason": f"gate:{pre_gate}"}
             else:
                 return {"stopped_reason": f"gate:{pre_gate}"}
-        if not (state["autonomous"] or human.approve("Ready to submit")):
+        has_likely = any(d.get("source") == "qbank_likely" for d in (state.get("decisions") or []))
+        autonomous_ok = state["autonomous"] and not has_likely
+        msg = "Ready to submit (contains best-guess answers — check them)" if has_likely else "Ready to submit"
+        if not (autonomous_ok or human.approve(msg)):
             return {"stopped_reason": "submit_declined"}
         if learn and hasattr(deps, "read_back"):
             all_dec = [_d2dec(d) for d in (state.get("decisions") or [])]

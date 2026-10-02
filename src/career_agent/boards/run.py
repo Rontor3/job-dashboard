@@ -43,9 +43,12 @@ def _authorized(ctx, board, page, decisions):
     """The irreversible click needs --submit AND (standing authorization or a human yes)."""
     if not ctx.get("do_submit"):
         return False
-    if ctx.get("autonomous"):
+    likely = any(getattr(d, "source", "") == "qbank_likely" for d in decisions)
+    if ctx.get("autonomous") and not likely:
         return True
     card = [f"Apply via {board['id']}: {page.url[:120]}"]
+    if likely:
+        card[0] += " (contains best-guess answers — check them)"
     card += [f"- {d.label}: {d.value}" for d in decisions if d.label]
     return bool(ctx["human"].approve("\n".join(card)))
 
@@ -171,7 +174,7 @@ def _ask_human(needs, ctx):
     except Exception as e:                 # no terminal / Telegram down: leave the gap open
         print(f"[board] could not ask the human ({type(e).__name__}); leaving {len(needs)} field(s) open", flush=True)
         answers = {}
-    record_answers(needs, answers, ctx, human.get_events() or {})
+    record_answers(needs, answers, ctx)
     return apply_answers(needs, answers), [f for f in needs if not str(answers.get(f.ref) or "").strip()]
 
 
