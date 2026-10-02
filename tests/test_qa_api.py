@@ -187,3 +187,31 @@ def test_reply_404_and_blank_422(env):
 def test_ingredients_missing_file_is_empty(env):
     c, _ = env
     assert c.get("/api/ingredients").json() == {"units": [], "skills_pool": []}
+
+
+def _queue_state(db, job_id=1):
+    row = init_db(db).execute("SELECT state FROM apply_queue WHERE job_id = ?", (job_id,)).fetchone()
+    return row[0] if row else None
+
+
+def test_answering_the_last_open_question_requeues_a_parked_job(env):
+    from job_dashboard.apply import queue as q
+    c, db = env
+    first, second = _open(db, "Expected CTC?", "text"), _open(db, "Notice period?", "text")
+    conn = init_db(db)
+    q.enqueue(conn, 1)
+    q.mark(conn, 1, "parked", "needs_answers")
+    conn.close()
+    c.post(f"/api/jobs/1/questions/{first}/reply", json={"answer": "20 LPA"})
+    assert _queue_state(db) == "parked"                      # one still open
+    r = c.post(f"/api/jobs/1/questions/{second}/reply", json={"answer": "30 days"})
+    assert r.json()["requeued"] is True
+    assert _queue_state(db) == "queued"
+    assert init_db(db).execute("SELECT status FROM jobs WHERE id = 1").fetchone()[0] == "saved"
+
+
+def test_answering_does_not_queue_a_job_that_was_never_queued(env):
+    c, db = env
+    rid = _open(db, "Expected CTC?", "text")
+    assert c.post(f"/api/jobs/1/questions/{rid}/reply", json={"answer": "20 LPA"}).json()["requeued"] is False
+    assert _queue_state(db) is None
