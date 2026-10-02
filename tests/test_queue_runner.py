@@ -49,7 +49,7 @@ def test_runs_every_queued_job_in_order_and_maps_outcomes(tmp_path):
     assert [c[0] for c in launch.calls] == [1, 2, 3]
     assert _states(conn) == {1: ("done", "submitted"), 2: ("parked", "needs_answers"), 3: ("failed", "crashed")}
     status = dict(conn.execute("SELECT id, status FROM jobs").fetchall())
-    assert status[1] == "applied" and status[2] is None
+    assert (status[1], status[2], status[3]) == ("applied", "failed", "failed")
 
 
 def test_argv_parks_and_submits_only_where_authorized(tmp_path):

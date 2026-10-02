@@ -133,7 +133,7 @@ def test_dashboard_stats(tmp_path):
 
     stats = dashboard_stats(conn)
     assert stats == {"total": 3, "new": 2, "saved": 0, "applied": 1,
-                     "interviewing": 0, "offer": 0, "rejected": 0,
+                     "interviewing": 0, "offer": 0, "rejected": 0, "failed": 0,
                      "dismissed": 0, "unranked": 2,
                      "verdict_counts": {"Good Fit": 1}, "top_industries": []}
 

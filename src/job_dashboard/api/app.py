@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from job_dashboard.tracker import set_status
 from job_dashboard.api.agent_routes import AgentRunState, build_agent_router
 from job_dashboard.api.queue_routes import build_queue_router, make_agent_launch
 from job_dashboard.apply.queue_runner import QueueRunner
@@ -16,7 +17,7 @@ from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
     dashboard_stats, distinct_classification_values, init_db, job_detail, query_jobs,
-    set_job_status, suspected_duplicates, tracker_jobs,
+    suspected_duplicates, tracker_jobs,
 )
 
 DEFAULT_DB = "data/jobs.db"
@@ -24,6 +25,7 @@ DEFAULT_DB = "data/jobs.db"
 
 class StatusPatch(BaseModel):
     status: Optional[str] = None
+    round: Optional[int] = None          # interview round, with status "interviewing"
 
 
 def create_app(
@@ -126,7 +128,7 @@ def create_app(
     def patch_status(job_id: int, body: StatusPatch):
         with db() as conn:
             try:
-                set_job_status(conn, job_id, body.status)
+                set_status(conn, job_id, body.status, round=body.round)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except KeyError:

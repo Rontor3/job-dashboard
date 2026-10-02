@@ -3,7 +3,8 @@ queue's verdict: (queue state, reason, application status or None).
 
 A submission the board confirmed is always "done/applied", even if the process
 crashed afterwards. Anything that stopped short without crashing is "parked"
-for the human; only a crash or a missing result is "failed".
+for the human (and, on the tracker, a failed application with that reason);
+only a crash or a missing result is "failed" in the queue too.
 """
 from __future__ import annotations
 
@@ -20,5 +21,5 @@ def outcome(result: dict | None, exit_code: int) -> tuple[str, str, str | None]:
     if exit_code:
         return "failed", reason, "failed"
     if result.get("pending_human"):
-        return "parked", "needs_answers", None
-    return "parked", _RENAME.get(reason, reason), None
+        return "parked", "needs_answers", "failed"
+    return "parked", _RENAME.get(reason, reason), "failed"
