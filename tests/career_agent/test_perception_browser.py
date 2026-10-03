@@ -32,22 +32,38 @@ def test_snapshot_form_reads_fixture():
     assert any(f.kind == "radio_group" for f in fm)
 
 
+_FORM_FRAME = """<!doctype html><body><form>
+  <input aria-label="First name"><input type="email" aria-label="Email Address"><button>Apply now</button>
+</form></body>"""
+
+
+def _page_with_embedded_form(pw, frame_src):
+    """A careers page whose application form lives in an <iframe src=frame_src>,
+    served offline: the page from careers.test, the frame from wherever frame_src points."""
+    html = (f'<!doctype html><html><body><h1>Careers</h1><input aria-label="Search jobs">'
+            f'<iframe id="ats" src="{frame_src}"></iframe></body></html>')
+    browser = pw.chromium.launch()
+    page = browser.new_page()
+    page.route("**/*", lambda route: route.fulfill(
+        status=200, content_type="text/html",
+        body=_FORM_FRAME if "/embed" in route.request.url else html))
+    page.goto("https://careers.test/jobs")
+    page.wait_for_timeout(300)
+    return browser, page
+
+
 def test_scans_and_fills_inside_iframe():
-    """The application form is inside a cross-origin-style <iframe>; perception
-    must see its fields (frame-qualified refs) and the filler must fill them."""
+    """The application form is inside an embedded ATS <iframe> (a known job-site
+    host); perception must see its fields (frame-qualified refs) and the filler
+    must fill them."""
     from playwright.sync_api import sync_playwright
     from career_agent.browser.perception import snapshot_form
     from career_agent.browser.page_prep import is_application_form
     from career_agent.browser.filler import apply_decisions
     from career_agent.orchestrator.mapper import FillDecision
 
-    url = (Path(__file__).parent / "fixtures" / "iframe_form.html").resolve().as_uri()
     with sync_playwright() as pw:
-        browser = pw.chromium.launch()
-        page = browser.new_page()
-        page.goto(url)
-        page.wait_for_timeout(300)
-
+        browser, page = _page_with_embedded_form(pw, "https://boards.greenhouse.io/embed/job_app?for=acme")
         fm = snapshot_form(page)
         # the iframe's fields are present, and their refs are frame-qualified
         iframe_fields = [f for f in fm if f.ref.startswith("f") and "@@" in f.ref]
@@ -64,6 +80,20 @@ def test_scans_and_fills_inside_iframe():
         target, sel = frame_target(page, email.ref)
         assert target.input_value(sel) == "me@example.com"
         browser.close()
+
+
+def test_frames_from_unknown_hosts_are_not_scanned():
+    """Ad / analytics / widget frames are skipped on purpose: evaluating in one can
+    block indefinitely (perception._ATS_FRAME_HOSTS)."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    with sync_playwright() as pw:
+        browser, page = _page_with_embedded_form(pw, "https://widgets.example.net/embed/chat")
+        labels = [f.label for f in snapshot_form(page)]
+        browser.close()
+    assert any("Search jobs" in l for l in labels)            # the page itself is still read
+    assert not any("Email Address" in l for l in labels)      # the unknown frame is not
 
 
 def test_aria_role_radio_buttons_group_with_clean_labels():
