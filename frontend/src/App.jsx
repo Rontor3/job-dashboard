@@ -69,7 +69,7 @@ export default function App() {
 
   return (
     <div className="shell">
-      <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "relative", overflow: "hidden" }}>
+      <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, position: "relative", overflow: "hidden" }}>
         <HeaderScene />
         <div style={{ position: "relative" }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--green)", margin: 0 }}>
