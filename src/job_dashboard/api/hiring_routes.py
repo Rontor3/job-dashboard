@@ -6,11 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from job_dashboard.db import (
     init_db, hiring_posts as db_hiring_posts, dismiss_hiring_post, insert_job,
 )
-from job_dashboard.db_hiring import hiring_post
+from job_dashboard.db_hiring import hiring_post, set_hiring_status, contacted_elsewhere, HIRING_STATUSES
 from job_dashboard.artifacts_store import cover_letters_for_job, save_cover_letter
 from job_dashboard.db import job_detail
 from job_dashboard.apply import gmail_draft
@@ -19,6 +20,10 @@ from job_dashboard.linkedin.enrich import research_role, enriched_description
 from job_dashboard.linkedin.hiring_digest import KEYWORDS, run_digest
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.match.profile_text import current_resume_text, current_resume_pdf
+
+
+class StatusBody(BaseModel):
+    status: str | None = None   # drafted | emailed | applied | null (clear)
 
 
 def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=None) -> APIRouter:
@@ -60,6 +65,16 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
     def list_posts(within_hours: int = 168):
         with db() as conn:
             return {"posts": db_hiring_posts(conn, within_hours=within_hours)}
+
+    @router.post("/api/hiring/posts/{post_id}/status")
+    def set_status(post_id: int, body: StatusBody):
+        if body.status is not None and body.status not in HIRING_STATUSES:
+            raise HTTPException(status_code=422, detail=f"status must be one of {HIRING_STATUSES} or null")
+        with db() as conn:
+            if hiring_post(conn, post_id) is None:
+                raise HTTPException(status_code=404, detail="post not found")
+            set_hiring_status(conn, post_id, body.status)
+        return {"ok": True, "status": body.status}
 
     @router.post("/api/hiring/posts/{post_id}/dismiss")
     def dismiss(post_id: int):
@@ -119,6 +134,7 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
             job = conn.execute("SELECT id, title, company FROM jobs WHERE job_url = ?",
                                (post["url"],)).fetchone()
             letters = cover_letters_for_job(conn, job[0]) if job else []
+            already = contacted_elsewhere(conn, post_id, to)
             me = conn.execute("SELECT full_name, phone, linkedin_url, email FROM application_profile").fetchone()
         name, phone, linkedin, account = me or ("", "", "", "")
         guess = _regex_role(post)
@@ -139,14 +155,19 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
         pdf = current_resume_pdf()
         # What the recruiter sees — not the internal "current_resume.pdf".
         attach_name = (re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_") or "Resume") + "_Resume.pdf"
+        result = None
         if gmail_draft.authorized() and pdf.exists():
             try:
                 d = gmail_draft.create_draft(gmail_draft.compose_message(to, subject, body, pdf, filename=attach_name))
-                return {"gmail_url": gmail_draft.draft_url(d["message_id"], account),
-                        "attached": attach_name, "to": to}
+                result = {"gmail_url": gmail_draft.draft_url(d["message_id"], account),
+                          "attached": attach_name, "to": to}
             except Exception:  # noqa: BLE001 — token revoked etc. → compose URL below
                 pass
-        return {"gmail_url": gmail_draft.compose_url(to, subject, body, account),
-                "attached": None, "to": to}
+        if result is None:
+            result = {"gmail_url": gmail_draft.compose_url(to, subject, body, account),
+                      "attached": None, "to": to}
+        with db() as conn:   # remember it, without overriding a status the user set by hand
+            set_hiring_status(conn, post_id, "drafted", only_if_unset=True)
+        return {**result, "already": already}
 
     return router

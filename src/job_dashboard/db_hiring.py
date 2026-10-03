@@ -24,14 +24,18 @@ def _ensure_hiring_posts_table(conn):
            )"""
     )
     cols = {r[1] for r in conn.execute("PRAGMA table_info(hiring_posts)")}
-    for col in ("fit_reason", "role_title", "company"):
+    for col in ("fit_reason", "role_title", "company", "status", "status_at"):
         if col not in cols:
             conn.execute(f"ALTER TABLE hiring_posts ADD COLUMN {col} TEXT")
 
 
 _HIRING_COLS = ("id", "url", "poster_name", "poster_headline", "text",
                 "posted_at", "keyword", "fit_score", "fetched_at", "dismissed", "fit_reason",
-                "role_title", "company")
+                "role_title", "company", "status", "status_at")
+
+# What the user has done with a post. 'drafted' is automatic (Draft email); the
+# others are marked by hand. None = untouched.
+HIRING_STATUSES = ("drafted", "emailed", "applied")
 
 
 def upsert_hiring_post(conn, post):
@@ -56,7 +60,7 @@ def hiring_posts(conn, within_hours=24):
     rows = conn.execute(
         f"""SELECT {', '.join(_HIRING_COLS)} FROM hiring_posts
             WHERE dismissed = 0 AND fetched_at >= ?
-            ORDER BY fit_score DESC, id DESC""",
+            ORDER BY (status IS NOT NULL), fit_score DESC, id DESC""",   # untouched posts first
         (cutoff,),
     ).fetchall()
     from job_dashboard.linkedin.contacts import extract_contacts, text_key
@@ -89,3 +93,23 @@ def hiring_post(conn, post_id):
 def dismiss_hiring_post(conn, post_id):
     conn.execute("UPDATE hiring_posts SET dismissed = 1 WHERE id = ?", (post_id,))
     conn.commit()
+
+
+def set_hiring_status(conn, post_id, status, *, only_if_unset=False):
+    """Set a post's status (None clears it). ``only_if_unset`` lets the automatic
+    'drafted' mark never overwrite a status the user set by hand."""
+    if status is not None and status not in HIRING_STATUSES:
+        raise ValueError(f"bad status {status!r}")
+    guard = " AND status IS NULL" if only_if_unset else ""
+    conn.execute(f"UPDATE hiring_posts SET status = ?, status_at = ? WHERE id = ?{guard}",
+                 (status, datetime.now(timezone.utc).isoformat() if status else None, post_id))
+    conn.commit()
+
+
+def contacted_elsewhere(conn, post_id, email):
+    """Other posts whose text has this address and that you've already drafted/emailed to."""
+    rows = conn.execute(
+        "SELECT id, role_title, company, status FROM hiring_posts "
+        "WHERE id != ? AND status IN ('drafted','emailed') AND lower(text) LIKE ?",
+        (post_id, f"%{email.lower()}%")).fetchall()
+    return [dict(zip(("id", "role_title", "company", "status"), r)) for r in rows]

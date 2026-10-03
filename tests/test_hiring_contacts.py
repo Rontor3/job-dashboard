@@ -266,3 +266,21 @@ def test_judge_location_is_decided_in_code_not_by_the_model():
     india = C.judge_post({"text": "ML Engineer, Bengaluru (Hybrid)", "poster_name": "A"}, "resume", post_fn=llm)
     us = C.judge_post({"text": "ML Engineer, must have US work authorization", "poster_name": "A"}, "resume", post_fn=llm)
     assert india["fit"] == 80 and us["fit"] == 30
+
+
+def test_draft_marks_drafted_and_status_endpoint(tmp_path, monkeypatch):
+    import job_dashboard.api.hiring_routes as R
+    monkeypatch.setattr(R.gmail_draft, "authorized", lambda: False)
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), hiring_fetcher=_Fetcher(), embed_model=None))
+    c.post("/api/hiring/refresh")
+    pid = c.get("/api/hiring/posts").json()["posts"][0]["id"]
+    assert c.get("/api/hiring/posts").json()["posts"][0]["status"] is None
+    d = c.post(f"/api/hiring/posts/{pid}/email-draft").json()
+    assert d["already"] == []
+    assert c.get("/api/hiring/posts").json()["posts"][0]["status"] == "drafted"
+    assert c.post(f"/api/hiring/posts/{pid}/status", json={"status": "emailed"}).json()["status"] == "emailed"
+    c.post(f"/api/hiring/posts/{pid}/email-draft")                       # drafting again keeps the hand-set status
+    assert c.get("/api/hiring/posts").json()["posts"][0]["status"] == "emailed"
+    assert c.post(f"/api/hiring/posts/{pid}/status", json={"status": "bogus"}).status_code == 422
+    assert c.post("/api/hiring/posts/9999/status", json={"status": "applied"}).status_code == 404
+    assert c.post(f"/api/hiring/posts/{pid}/status", json={"status": None}).json()["status"] is None

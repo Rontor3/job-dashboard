@@ -49,3 +49,26 @@ def test_dismiss_hides_post(tmp_path):
     pid = hiring_posts(conn, within_hours=24)[0]["id"]
     dismiss_hiring_post(conn, pid)
     assert hiring_posts(conn, within_hours=24) == []
+
+
+def test_status_sorts_done_posts_last_and_survives_refetch(tmp_path):
+    import pytest
+    from job_dashboard.db_hiring import set_hiring_status, contacted_elsewhere
+    conn = init_db(str(tmp_path / "t.db"))
+    now = datetime.now(timezone.utc).isoformat()
+    upsert_hiring_post(conn, _post("hi", 0.9, now, text="Hiring A, mail x@acme.ai"))
+    upsert_hiring_post(conn, _post("lo", 0.2, now, text="Hiring B"))
+    ids = {r["url"]: r["id"] for r in hiring_posts(conn, within_hours=24)}
+    set_hiring_status(conn, ids["hi"], "emailed")
+    rows = hiring_posts(conn, within_hours=24)
+    assert [r["url"] for r in rows] == ["lo", "hi"]               # done post sinks despite the higher fit
+    assert rows[1]["status"] == "emailed" and rows[1]["status_at"]
+    upsert_hiring_post(conn, _post("hi", 0.95, now, text="Hiring A, mail x@acme.ai"))   # re-fetched
+    assert {r["url"]: r["status"] for r in hiring_posts(conn, within_hours=24)}["hi"] == "emailed"
+    set_hiring_status(conn, ids["hi"], "applied", only_if_unset=True)           # auto-mark never overwrites
+    assert {r["url"]: r["status"] for r in hiring_posts(conn, within_hours=24)}["hi"] == "emailed"
+    assert contacted_elsewhere(conn, ids["lo"], "X@acme.ai")[0]["id"] == ids["hi"]
+    set_hiring_status(conn, ids["hi"], None)
+    assert hiring_posts(conn, within_hours=24)[0]["url"] == "hi"                # cleared → back on top
+    with pytest.raises(ValueError):
+        set_hiring_status(conn, ids["hi"], "sent")

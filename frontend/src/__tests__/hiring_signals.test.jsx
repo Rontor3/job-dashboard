@@ -54,3 +54,31 @@ test("card buttons follow research state", async () => {
   await waitFor(() => expect(screen.getByRole("button", { name: "Draft email" })).toBeInTheDocument());
   expect(screen.queryByRole("button", { name: "Research company" })).toBeNull();
 });
+
+test("status badge, mark/undo, and draft warning", async () => {
+  const base = { ...POSTS.posts[0], contacts: { emails: ["a@acme.ai"], forms: [], links: [], phones: [], dm: false }, job_id: 7 };
+  const calls = [];
+  let current = { ...base, status: null };
+  global.fetch = vi.fn((url, opts) => {
+    if (String(url).includes("/status")) { calls.push(JSON.parse(opts.body).status); current = { ...current, status: JSON.parse(opts.body).status }; return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) }); }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ posts: [current] }) });
+  });
+  render(<HiringSignals />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Draft email" })).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "Mark applied" }));
+  await waitFor(() => expect(screen.getByText("✓ Applied")).toBeInTheDocument());
+  expect(calls).toEqual(["applied"]);
+  expect(screen.queryByRole("button", { name: "Draft email" })).toBeNull();      // done → no primary action
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Draft email" })).toBeInTheDocument());
+  expect(calls).toEqual(["applied", null]);
+});
+
+test("drafted post offers Mark emailed and Draft again", async () => {
+  global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ posts: [{
+    ...POSTS.posts[0], contacts: { emails: ["a@acme.ai"], forms: [], links: [], phones: [], dm: false }, job_id: 7, status: "drafted" }] }) }));
+  render(<HiringSignals />);
+  await waitFor(() => expect(screen.getByText("Draft created")).toBeInTheDocument());
+  expect(screen.getByRole("button", { name: "Mark emailed" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Draft again" })).toBeInTheDocument();
+});

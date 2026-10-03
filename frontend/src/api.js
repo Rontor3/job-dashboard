@@ -147,6 +147,10 @@ const postOrThrow = (url) =>
     if (!r.ok) throw new Error(d.detail || "request failed");
     return d;
   });
+export const setHiringStatus = (id, status) =>
+  fetch(`/api/hiring/posts/${id}/status`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+  }).then((r) => r.json());
 export const promoteHiring = (id) => postOrThrow(`/api/hiring/posts/${id}/promote`);
 
 export const draftHiringEmail = (id, to) =>
