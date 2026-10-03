@@ -42,7 +42,7 @@ def _filled(db, label="How many days is your notice?", matched="notice_period", 
 def test_questionnaire_lists_seed_with_unanswered_count(env):
     c, _ = env
     body = c.get("/api/answers").json()
-    assert len(body["answers"]) >= 90 and body["unanswered"] > 0
+    assert len(body["answers"]) >= 80 and body["unanswered"] > 0
     n = _entry(c, "notice_period")
     assert n["needs_input"] is False and "Notice period" in n["wordings"]
     s = _entry(c, "sponsorship_required")

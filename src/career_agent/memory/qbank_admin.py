@@ -92,3 +92,40 @@ def calibrate(conn, embed, negatives=NEGATIVES) -> dict:
         "negatives": {"p50": _pct(neg, 50), "p90": _pct(neg, 90)},
         "suggested": {"FLOOR": _pct(neg, 90), "HIGH": _pct(wrong, 95), "MARGIN": _pct(gaps, 10)},
     }
+
+
+MERGES = [("relevant_experience_years", "total_experience_years"), ("interviewed_recently", "interviewed_before"),
+          ("timeline_considerations", "earliest_start"), ("onsite_ok", "work_arrangement"),
+          ("shifts_ok", "shift_pattern"), ("contract_ok", "employment_type"), ("full_time_ok", "employment_type")]
+RETIRE = ["ctc_fixed_component", "ctc_variable_component", "other_offer_ctc", "whatsapp_ok", "sms_consent",
+          "drug_test_ok", "driving_license", "passport_valid", "home_office_setup"]
+
+
+def _active(conn, eid) -> bool:
+    e = qbank.get_entry(conn, eid)
+    return bool(e and e["status"] == "active")
+
+
+def merge_entry(conn, src, dst) -> int:
+    """Re-point src's wordings to dst and supersede src. Returns wordings moved; 0 if either side is missing
+    or src is already superseded (idempotent). Nothing is deleted."""
+    s, d = qbank.get_entry(conn, src), qbank.get_entry(conn, dst)
+    if s is None or d is None or s["status"] != "active":
+        return 0
+    n = conn.execute("UPDATE qbank_wording SET entry_id=? WHERE entry_id=?", (dst, src)).rowcount
+    qbank.set_status(conn, src, "superseded")
+    return n
+
+
+def cleanup(conn) -> dict:
+    """Merge overlapping entries and retire rarely-asked ones (idempotent). Load the seed first so survivors exist."""
+    merged = retired = 0
+    for s, d in MERGES:
+        if _active(conn, s) and qbank.get_entry(conn, d):
+            merge_entry(conn, s, d)
+            merged += 1
+    for i in RETIRE:
+        if _active(conn, i):
+            qbank.set_status(conn, i, "superseded")
+            retired += 1
+    return {"merged": merged, "retired": retired}
