@@ -10,11 +10,14 @@ vi.mock("../api.js", () => ({
 }));
 import RefreshButton from "../components/RefreshButton.jsx";
 
-test("shows per-site browser results; blocked note is an alert", async () => {
+test("one compact browser chip with per-site detail on hover; only a block/error gets its own alert", async () => {
   render(<RefreshButton onDone={() => {}} />);
   fireEvent.click(screen.getByRole("button"));
-  expect((await screen.findByText("linkedin +12")).getAttribute("role")).toBe("status");
-  expect(screen.getByText("naukri: blocked: authwall").getAttribute("role")).toBe("alert");
+  const chip = await screen.findByText("browser sources +12");
+  expect(chip.getAttribute("role")).toBe("status");
+  expect(chip.getAttribute("title")).toContain("linkedin +12");
+  expect(chip.getAttribute("title")).toContain("naukri: blocked: authwall");
+  expect(screen.getByText("naukri: blocked").getAttribute("role")).toBe("alert");
 });
 
 test("picks up a refresh already running when the page loads", async () => {

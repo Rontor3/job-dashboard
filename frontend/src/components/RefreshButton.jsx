@@ -46,12 +46,24 @@ export default function RefreshButton({ onDone }) {
           scoring skipped: {status.last_result.embed_skipped}
         </span>
       )}
-      {(status.last_result?.browser || []).map((b) => (
-        <span key={b.site} role={b.note?.startsWith("blocked") || b.note?.startsWith("error") ? "alert" : "status"}
-          style={{ fontSize: 11, background: "var(--warm-tint)", color: "var(--warm-ink)", borderRadius: 8, padding: "3px 8px" }}>
-          {b.note ? `${b.site}: ${b.note}` : `${b.site} +${b.new}`}
-        </span>
-      ))}
+      {(() => {
+        // One compact chip for the whole browser stage (details on hover); only real failures get their own alert.
+        const sites = status.last_result?.browser || [];
+        const bad = sites.filter((b) => b.note?.startsWith("blocked") || b.note?.startsWith("error"));
+        const total = sites.reduce((n, b) => n + (b.new || 0), 0);
+        const detail = sites.map((b) => (b.note ? `${b.site}: ${b.note}` : `${b.site} +${b.new}`)).join("\n");
+        const chip = { fontSize: 11, background: "var(--warm-tint)", color: "var(--warm-ink)", borderRadius: 8, padding: "3px 8px", whiteSpace: "nowrap" };
+        return (
+          <>
+            {sites.length > 0 && <span role="status" title={detail} style={chip}>browser sources +{total}</span>}
+            {bad.map((b) => (
+              <span key={b.site} role="alert" title={b.note} style={{ ...chip, color: "var(--dupe-ink)", background: "var(--dupe-bg)" }}>
+                {b.site}: {b.note.split(":")[0]}
+              </span>
+            ))}
+          </>
+        );
+      })()}
       <button
         onClick={click}
         disabled={status.running}
