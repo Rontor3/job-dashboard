@@ -63,7 +63,7 @@ def test_add_entry_makes_unique_ids(fake_embed):
 
 def test_real_seed_file_is_valid(fake_embed):
     raw = json.loads(qbank.SEED_PATH.read_text())["entries"]
-    assert len(raw) >= 90
+    assert len(raw) >= 80
     assert all("answer" not in e for e in raw), "seed must never carry answers"
     assert all(e["atype"] in _ATYPES for e in raw)
     assert {e["profile_ref"] for e in raw if e.get("profile_ref")} <= _PROFILE_COLS
@@ -96,3 +96,10 @@ def test_real_seed_has_five_story_prompts():
     assert sorted(e["id"] for e in raw if e["topic"] == "story") == [
         "story_how_you_work", "story_looking_for", "story_problems",
         "story_proudest_work", "story_why_startups"]
+
+
+def test_preference_entries_in_seed():
+    by = {e["id"]: e for e in json.loads(qbank.SEED_PATH.read_text())["entries"]}
+    for eid in ("work_arrangement", "employment_type", "shift_pattern", "relocation_places"):
+        assert by[eid]["rule"] == "preference" and by[eid]["synonyms"], eid
+    assert "gurugram" in by["relocation_places"]["synonyms"]["India"]

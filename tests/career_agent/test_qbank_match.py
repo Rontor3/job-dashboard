@@ -1,5 +1,6 @@
 from career_agent.memory.qbank_match import (CONFIDENT, LIKELY, NONE, answer_field, is_junk,
                                              llm_pick, match_question, split_escape)
+from career_agent.memory import qbank
 
 RELOC = ('What is the address from which you plan on working? '
          'If you would need to relocate, please type "relocating".')
@@ -95,3 +96,35 @@ def test_page_declared_input_type_drives_shape(qbank_conn, fake_embed, make_fiel
     assert (m.band, v) == (LIKELY, "30") and "shape email" in m.note
     m, _ = answer_field(qbank_conn, make_field("Notice period", input_type="number"), embed=fake_embed)
     assert m.band == CONFIDENT
+
+
+def test_preference_entry_answers_pick_one_and_yes_no(qbank_conn, fake_embed, make_field):
+    f = make_field("What is your preferred work arrangement (remote, hybrid or onsite)?", "radio_group",
+                   ["Onsite", "Hybrid", "Remote"])
+    m, v = answer_field(qbank_conn, f, embed=fake_embed)
+    assert (m.entry_id, v) == ("work_arrangement", "Remote")
+    f = make_field("Are you comfortable working in an onsite setting?", "radio_group", ["Yes", "No"])
+    m, v = answer_field(qbank_conn, f, embed=fake_embed)
+    assert (m.entry_id, v) == ("work_arrangement", "Yes")
+
+
+def test_bool_profile_ref_converts_1_0_to_yes_no(qbank_conn, fake_embed, make_field):
+    # Add a bool entry with profile_ref
+    wording_text = "Are you willing to relocate?"
+    qbank.upsert_entry(qbank_conn, {
+        "id": "willing_to_relocate",
+        "question": wording_text,
+        "atype": "bool",
+        "profile_ref": "willing_to_relocate",
+    })
+    qbank.add_wording(qbank_conn, wording_text, "willing_to_relocate",
+                      fake_embed([wording_text])[0], "seed")
+
+    # Test with profile value 1 (should become "Yes")
+    f = make_field(wording_text, "radio_group", ["Yes", "No"])
+    m, v = answer_field(qbank_conn, f, embed=fake_embed, contact={"willing_to_relocate": 1})
+    assert (m.entry_id, v) == ("willing_to_relocate", "Yes")
+
+    # Test with profile value 0 (should become "No")
+    m, v = answer_field(qbank_conn, f, embed=fake_embed, contact={"willing_to_relocate": 0})
+    assert (m.entry_id, v) == ("willing_to_relocate", "No")

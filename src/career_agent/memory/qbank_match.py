@@ -129,7 +129,7 @@ def match_question(conn, question, *, embed, llm=None, high=DEFAULT_HIGH,
     return m
 
 
-def resolve_value(conn, entry, *, question, escape, job, contact, _depth=0):
+def resolve_value(conn, entry, *, question, escape, job, contact, options=(), _depth=0):
     """Entry -> answer string, or None (unanswered / rule can't decide).
     Precedence: rule > profile_ref > stored answer."""
     if entry.get("rule"):
@@ -142,10 +142,19 @@ def resolve_value(conn, entry, *, question, escape, job, contact, _depth=0):
             return None if other is None else resolve_value(
                 conn, other, question=other["question"], escape=None,
                 job=job, contact=contact, _depth=_depth + 1)
-        return fn(RuleCtx(question, entry.get("answer"), escape, job or {}, bank))
+        return fn(RuleCtx(question, entry.get("answer"), escape, job or {}, bank,
+                          options=list(options), synonyms=entry.get("synonyms") or {}))
     if entry.get("profile_ref"):
         v = (contact or {}).get(entry["profile_ref"])
-        return None if v is None or str(v).strip() == "" else str(v).strip()
+        if v is None or str(v).strip() == "":
+            return None
+        v_str = str(v).strip().lower()
+        if entry.get("atype") == "bool":
+            if v_str in {"1", "true", "yes", "y"}:
+                return "Yes"
+            elif v_str in {"0", "false", "no", "n"}:
+                return "No"
+        return str(v).strip()
     a = entry.get("answer")
     return a if a and a.strip() else None
 
@@ -178,7 +187,8 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
     if m.entry_id is None:
         return m, None
     entry = qbank.get_entry(conn, m.entry_id)
-    value = resolve_value(conn, entry, question=question, escape=escape, job=job, contact=contact)
+    value = resolve_value(conn, entry, question=question, escape=escape, job=job, contact=contact,
+                           options=f.options)
     if value is None:
         m.band, m.note = NONE, "no answer for entry"
         return m, None
