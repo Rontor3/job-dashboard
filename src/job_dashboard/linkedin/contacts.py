@@ -218,13 +218,13 @@ Hard caps (apply them even if the skills match perfectly):
   requires that country's work authorization, and it does not offer visa
   sponsorship -> fit <= 30
 Remote-worldwide and India-based roles are open to the candidate. {constraints}
-{location_hint}
 
 Résumé:
 {resume}
 
 Post by {poster} ({headline}):
-{post}"""
+{post}
+{location_hint}"""   # post-specific parts last: the long résumé prefix stays identical across calls
 
 
 def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None) -> dict:
@@ -244,7 +244,8 @@ def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None
             headline=post.get("poster_headline") or "", post=(post.get("text") or "")[:3000])
         got = json.loads(post_fn(f"{host}/api/generate", {
             "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt, "stream": False,
-            "format": "json", "options": {"temperature": 0.1, "num_ctx": 12288}})["response"])
+            "format": "json", "keep_alive": "30m",
+            "options": {"temperature": 0.1, "num_ctx": 12288}})["response"])
         if isinstance(got.get("title"), str) and got["title"].strip():
             out["title"] = got["title"].strip()
         company = str(got.get("company") or "").strip()

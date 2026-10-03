@@ -38,6 +38,7 @@ class HiringPost:
     fit_reason: str = ""
     role_title: str = ""
     company: str = ""
+    judged: bool = False      # a model call produced the verdict (so it is worth caching)
 
 
 def to_hiring_post(d, keyword):
@@ -80,6 +81,7 @@ def judge(post, role_fn=None):
                            "poster_name": post.poster_name}) or {}
         except Exception:  # noqa: BLE001
             got = {}
+    post.judged = bool(got)
     title = got.get("title") or ""
     if not (is_target_role(title) if title else is_target_role(post.text[:300])):
         return False, None, ""
@@ -95,29 +97,57 @@ def is_target_post(post, role_fn=None):
 
 
 def run_digest(conn, fetcher, keywords, profile_text, *,
-               embed_model=None, fetched_at, on_progress=None, role_fn=None):
+               embed_model=None, fetched_at, on_progress=None, on_event=None, role_fn=None):
+    """Search each keyword, score the new posts, and store every kept post AS SOON
+    AS it is scored (a later failure or expired session loses nothing). A verdict
+    already paid for (same post text, same résumé) is reused, not re-asked.
+    ``on_event(dict)`` reports progress: stage 'search' / 'score' / 'done'."""
+    import hashlib
+    from job_dashboard.db_hiring import judged_get, judged_put
+    from job_dashboard.linkedin.contacts import text_key
     model = embed_model
     profile_vec = model.encode([profile_text])[0] if model else None
+    phash = hashlib.sha1(f"{profile_text}|{MIN_FIT}".encode()).hexdigest()
+    emit = on_event or (lambda e: None)
+    stats = {"found": 0, "scored": 0, "cached": 0, "kept": 0}
 
-    by_url = {}
-    for kw in keywords:
+    by_url, seen_text = {}, set()
+    for ki, kw in enumerate(keywords):
         if on_progress:
             on_progress(kw)
+        emit({"stage": "search", "i": ki + 1, "n": len(keywords), "keyword": kw, **stats})
         try:
             found = fetcher.search_posts(kw) or []
         except LinkedInAuthError:
             # Expired cookies won't recover mid-run — abort so the API can
-            # surface the re-paste message.
+            # surface the re-paste message (posts already stored stay).
             raise
         except Exception:  # noqa: BLE001
             # A transient per-keyword browser error must not discard the posts
             # already gathered from other keywords — skip this keyword.
             continue
+        fresh = []
         for d in found:
             post = to_hiring_post(d, kw)
-            if post is None or post.url in by_url:
+            tk = post and text_key(post.text)
+            if post is None or post.url in by_url or tk in seen_text:
                 continue
-            keep, fit, post.fit_reason = judge(post, role_fn)
+            seen_text.add(tk)
+            fresh.append((post, tk))
+        stats["found"] += len(fresh)
+        for j, (post, tk) in enumerate(fresh):
+            emit({"stage": "score", "i": ki + 1, "n": len(keywords), "keyword": kw,
+                  "j": j + 1, "m": len(fresh), **stats})
+            hit = judged_get(conn, tk, phash)
+            if hit:
+                keep, fit, post.fit_reason = bool(hit["keep"]), hit["fit"], hit["reason"] or ""
+                post.role_title, post.company = hit["title"] or "", hit["company"] or ""
+                stats["cached"] += 1
+            else:
+                keep, fit, post.fit_reason = judge(post, role_fn)
+                if post.judged and (fit is not None or not keep):   # a real verdict, not a model failure
+                    judged_put(conn, tk, phash, keep, fit, post.fit_reason, post.role_title, post.company)
+            stats["scored"] += 1
             if not keep:
                 continue
             if fit is not None:
@@ -125,10 +155,9 @@ def run_digest(conn, fetcher, keywords, profile_text, *,
             elif profile_vec is not None:
                 post.fit_score = rank_post(post.text, profile_vec, model)
             by_url[post.url] = post
-
-    ranked = sorted(by_url.values(), key=lambda p: -p.fit_score)
-    for post in ranked:
-        row = asdict(post)
-        row["fetched_at"] = fetched_at
-        upsert_hiring_post(conn, row)
-    return ranked
+            row = asdict(post)
+            row["fetched_at"] = fetched_at
+            upsert_hiring_post(conn, row)
+            stats["kept"] += 1
+    emit({"stage": "done", **stats})
+    return sorted(by_url.values(), key=lambda p: -p.fit_score)

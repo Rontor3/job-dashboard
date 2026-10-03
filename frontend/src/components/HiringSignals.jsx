@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { hiringPosts, refreshHiring, dismissHiring, promoteHiring, draftHiringEmail, setHiringStatus } from "../api.js";
+import { hiringPosts, refreshHiring, hiringRefreshStatus, dismissHiring, promoteHiring, draftHiringEmail, setHiringStatus } from "../api.js";
 
 const CHIP = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)",
   border: "0.5px solid var(--hairline)", color: "var(--ink-soft)", textDecoration: "none" };
@@ -29,16 +29,32 @@ const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14p
 
 export default function HiringSignals({ onOpenJob = () => {} }) {
   const [posts, setPosts] = useState([]);
-  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(null);   // refresh status while a background run is going
   const [error, setError] = useState(null);
+  const busy = progress?.state === "running";
 
   const load = () => hiringPosts().then((d) => setPosts(d.posts || [])).catch(() => {});
-  useEffect(() => { load(); }, []);
+  const poll = () => hiringRefreshStatus().then((st) => {
+    setProgress(st);
+    load();                                          // posts appear as they are scored
+    if (st.state === "error") setError(st.error);
+  }).catch(() => {});
+  useEffect(() => { load(); poll(); }, []);          // pick up a run that is already going (page reload)
+  useEffect(() => {
+    if (!busy) return undefined;
+    const t = setInterval(poll, 3000);
+    return () => clearInterval(t);
+  }, [busy]);
 
   const onRefresh = () => {
-    setBusy(true); setError(null);
-    refreshHiring().then(load).catch((e) => setError(e.message)).finally(() => setBusy(false));
+    setError(null);
+    refreshHiring().then((d) => setProgress(d.state ? d : { state: "running", stage: "starting" })).catch((e) => setError(e.message));
   };
+  const progressText = !busy ? "" : progress.stage === "score"
+    ? `Scoring post ${progress.j}/${progress.m} (search ${progress.i}/${progress.n}) · ${progress.kept} kept${progress.cached ? ` · ${progress.cached} remembered` : ""}`
+    : progress.stage === "search"
+      ? `Searching LinkedIn ${progress.i}/${progress.n}: ${(progress.keyword || "").replace(/^hiring /, "")}`
+      : "Starting…";
   const [note, setNote] = useState({});
   const say = (id, msg) => setNote((n) => ({ ...n, [id]: msg }));
   const onResearch = (id) => {
@@ -74,9 +90,20 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
           Individual LinkedIn hiring posts from the last 7 days, ranked for you.
         </div>
         <button style={BTN} onClick={onRefresh} disabled={busy}>
-          {busy ? "Searching LinkedIn…" : "Refresh"}
+          {busy ? `Refreshing… ${progress.i || 0}/${progress.n || "?"}` : "Refresh"}
         </button>
       </div>
+      {busy && (
+        <div role="status" style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 12 }}>
+          {progressText} — new posts appear below as they are scored.
+        </div>
+      )}
+      {!busy && progress?.state === "done" && progress.found != null && (
+        <div style={{ fontSize: 12, color: "var(--ink-faint)", marginBottom: 12 }}>
+          Last refresh: {progress.found} new posts looked at, {progress.kept} kept
+          {progress.cached ? ` (${progress.cached} already scored before)` : ""}.
+        </div>
+      )}
 
       {error && (
         <div role="alert" style={{ color: "var(--dupe-ink)", background: "var(--dupe-bg)", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>

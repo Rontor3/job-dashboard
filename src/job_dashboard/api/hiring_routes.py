@@ -18,6 +18,7 @@ from job_dashboard.apply import gmail_draft
 from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post_to_job, _regex_role, requested_subject
 from job_dashboard.linkedin.enrich import research_role, enriched_description
 from job_dashboard.linkedin.hiring_digest import KEYWORDS, run_digest
+from job_dashboard.linkedin.hiring_refresh import HiringRefresh, RefreshBusy
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.match.profile_text import current_resume_text, current_resume_pdf
 
@@ -37,29 +38,44 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
         finally:
             conn.close()
 
-    @router.post("/api/hiring/refresh")
-    def refresh():
-        if hiring_fetcher is None:
-            raise HTTPException(status_code=503,
-                                detail="LinkedIn fetcher not configured — set cookies in .env")
+    refresher = HiringRefresh()
+
+    def _run_refresh(on_event):
         try:
             profile_text = current_resume_text()
         except Exception:
             profile_text = ""
-        try:
-            with db() as conn:
-                ranked = run_digest(
-                    conn, hiring_fetcher, KEYWORDS, profile_text,
-                    embed_model=embed_model,
-                    fetched_at=datetime.now(timezone.utc).isoformat(),
-                    role_fn=role_fn,
-                )
-        except LinkedInAuthError as e:
-            raise HTTPException(status_code=503, detail=str(e))
-        except Exception as e:  # browser/driver failure → clear 503, not a 500
+        with db() as conn:   # the connection is opened inside the worker thread
+            run_digest(conn, hiring_fetcher, KEYWORDS, profile_text, embed_model=embed_model,
+                       fetched_at=datetime.now(timezone.utc).isoformat(),
+                       role_fn=role_fn, on_event=on_event)
+
+    @router.post("/api/hiring/refresh")
+    def refresh(background: bool = False):
+        """Search LinkedIn (through the user's Chrome), score and store new posts.
+        ``background=true`` returns at once; poll ``/api/hiring/refresh/status``.
+        Default blocks until done (scripts, tests)."""
+        if hiring_fetcher is None:
             raise HTTPException(status_code=503,
-                                detail=f"LinkedIn fetch failed: {e}")
-        return {"ranked": len(ranked), "fetched": len(ranked)}
+                                detail="LinkedIn fetcher not configured — set cookies in .env")
+        try:
+            status = refresher.start(_run_refresh, wait=not background)
+        except RefreshBusy:
+            if background:
+                return {"started": False, **refresher.status()}
+            raise HTTPException(status_code=409, detail="a refresh is already running")
+        if background:
+            return {"started": True, **status}
+        if status.get("state") == "error":
+            msg = status.get("error", "")
+            # auth/blocked problems keep their own message; anything else is a fetch failure
+            raise HTTPException(status_code=503, detail=msg if status.get("error_type") == "LinkedInAuthError"
+                                else f"LinkedIn fetch failed: {msg}")
+        return {"ranked": status.get("kept", 0), "fetched": status.get("kept", 0)}
+
+    @router.get("/api/hiring/refresh/status")
+    def refresh_status():
+        return refresher.status()
 
     @router.get("/api/hiring/posts")
     def list_posts(within_hours: int = 168):

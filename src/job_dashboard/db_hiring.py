@@ -23,6 +23,12 @@ def _ensure_hiring_posts_table(conn):
                dismissed        INTEGER NOT NULL DEFAULT 0
            )"""
     )
+    # Verdicts already paid for with a model call: (post text, résumé+threshold) -> result.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS hiring_judged (
+               text_key TEXT NOT NULL, profile_hash TEXT NOT NULL,
+               keep INTEGER NOT NULL, fit REAL, reason TEXT, title TEXT, company TEXT,
+               judged_at TEXT NOT NULL, PRIMARY KEY (text_key, profile_hash))""")
     cols = {r[1] for r in conn.execute("PRAGMA table_info(hiring_posts)")}
     for col in ("fit_reason", "role_title", "company", "status", "status_at"):
         if col not in cols:
@@ -113,3 +119,16 @@ def contacted_elsewhere(conn, post_id, email):
         "WHERE id != ? AND status IN ('drafted','emailed') AND lower(text) LIKE ?",
         (post_id, f"%{email.lower()}%")).fetchall()
     return [dict(zip(("id", "role_title", "company", "status"), r)) for r in rows]
+
+
+def judged_get(conn, text_key, profile_hash):
+    r = conn.execute("SELECT keep, fit, reason, title, company FROM hiring_judged "
+                     "WHERE text_key = ? AND profile_hash = ?", (text_key, profile_hash)).fetchone()
+    return dict(zip(("keep", "fit", "reason", "title", "company"), r)) if r else None
+
+
+def judged_put(conn, text_key, profile_hash, keep, fit, reason, title, company):
+    conn.execute("INSERT OR REPLACE INTO hiring_judged VALUES (?,?,?,?,?,?,?,?)",
+                 (text_key, profile_hash, int(bool(keep)), fit, reason, title, company,
+                  datetime.now(timezone.utc).isoformat()))
+    conn.commit()

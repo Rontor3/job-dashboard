@@ -134,8 +134,11 @@ export const fetchApplication = (id) => fetch(`/api/jobs/${id}/application`).the
 
 export const hiringPosts = () =>
   fetch("/api/hiring/posts").then((r) => r.json());
+export const hiringRefreshStatus = () =>
+  fetch("/api/hiring/refresh/status").then((r) => r.json());
+// Starts the refresh in the background (returns at once); progress via hiringRefreshStatus.
 export const refreshHiring = () =>
-  fetch("/api/hiring/refresh", { method: "POST" }).then(async (r) => {
+  fetch("/api/hiring/refresh?background=true", { method: "POST" }).then(async (r) => {
     if (!r.ok) throw new Error((await r.json()).detail || "refresh failed");
     return r.json();
   });

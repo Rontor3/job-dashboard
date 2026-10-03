@@ -60,7 +60,8 @@ test("status badge, mark/undo, and draft warning", async () => {
   const calls = [];
   let current = { ...base, status: null };
   global.fetch = vi.fn((url, opts) => {
-    if (String(url).includes("/status")) { calls.push(JSON.parse(opts.body).status); current = { ...current, status: JSON.parse(opts.body).status }; return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) }); }
+    if (String(url).includes("/refresh/status")) return Promise.resolve({ ok: true, json: () => Promise.resolve({ state: "idle" }) });
+    if (String(url).includes("/posts/") && String(url).includes("/status")) { calls.push(JSON.parse(opts.body).status); current = { ...current, status: JSON.parse(opts.body).status }; return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true }) }); }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({ posts: [current] }) });
   });
   render(<HiringSignals />);
@@ -81,4 +82,30 @@ test("drafted post offers Mark emailed and Draft again", async () => {
   await waitFor(() => expect(screen.getByText("Draft created")).toBeInTheDocument());
   expect(screen.getByRole("button", { name: "Mark emailed" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Draft again" })).toBeInTheDocument();
+});
+
+test("refresh runs in the background: shows progress, posts appear live, then summary", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  let status = { state: "idle" };
+  let posts = [];
+  global.fetch = vi.fn((url, opts) => {
+    const u = String(url);
+    if (u.includes("/refresh/status")) return Promise.resolve({ ok: true, json: () => Promise.resolve(status) });
+    if (u.includes("/refresh")) {
+      status = { state: "running", stage: "score", i: 2, n: 8, j: 3, m: 9, kept: 1, cached: 4, keyword: "hiring data scientist" };
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ started: true, ...status }) });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ posts }) });
+  });
+  render(<HiringSignals />);
+  fireEvent.click(await screen.findByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/Scoring post 3\/9 \(search 2\/8\) · 1 kept · 4 remembered/));
+  expect(screen.getByRole("button", { name: /Refreshing… 2\/8/ })).toBeDisabled();
+  posts = [{ ...POSTS.posts[0], contacts: { emails: [], forms: [], links: [], phones: [], dm: true }, job_id: null }];   // a post lands mid-run
+  status = { state: "done", stage: "done", found: 9, kept: 2, cached: 4 };
+  await vi.advanceTimersByTimeAsync(3500);
+  await waitFor(() => expect(screen.getByText("Jane Doe")).toBeInTheDocument());
+  expect(screen.getByText(/Last refresh: 9 new posts looked at, 2 kept \(4 already scored before\)/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Refresh" })).not.toBeDisabled();
+  vi.useRealTimers();
 });

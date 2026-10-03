@@ -112,3 +112,79 @@ def test_run_digest_skips_off_target_posts(tmp_path):
     run_digest(conn, F(), ["k"], "", fetched_at="2099-01-01T00:00:00+00:00",
                role_fn=lambda p: {"title": "ML Engineer" if "ML" in p["text"] else "Mechanical GET"})
     assert [p["url"] for p in hiring_posts(conn, within_hours=10**6)] == ["a"]
+
+
+class _Seq:
+    """Fetcher returning a fixed list per keyword; a keyword mapped to an exception raises it."""
+    def __init__(self, by_kw): self.by_kw, self.calls = by_kw, []
+
+    def search_posts(self, kw, **k):
+        self.calls.append(kw)
+        v = self.by_kw[kw]
+        if isinstance(v, Exception):
+            raise v
+        return v
+
+
+def _d(url, text):
+    return dict(DICT_OK, url=url, text=text)
+
+
+def test_verdicts_are_cached_across_runs(tmp_path):
+    from job_dashboard.db import init_db, hiring_posts
+    conn = init_db(str(tmp_path / "t.db"))
+    asked = []
+
+    def role_fn(p):
+        asked.append(p["text"])
+        return {"title": "ML Engineer", "company": "X", "fit": 20 if "junior" in p["text"] else 90, "reason": "r"}
+    posts = [_d("a", "Hiring a Senior ML Engineer"), _d("b", "Hiring a junior ML intern")]   # b scores below MIN_FIT
+    run = lambda: run_digest(conn, _Seq({"k": posts}), ["k"], "résumé v1",  # noqa: E731
+                             fetched_at="2099-01-01T00:00:00+00:00", role_fn=role_fn)
+    run(); assert len(asked) == 2                                       # first run pays for both
+    run(); assert len(asked) == 2                                       # second run: kept AND rejected come from the cache
+    assert [p["url"] for p in hiring_posts(conn, within_hours=10**6)] == ["a"]
+    run_digest(conn, _Seq({"k": posts}), ["k"], "résumé v2 (edited)",
+               fetched_at="2099-01-01T00:00:00+00:00", role_fn=role_fn)
+    assert len(asked) == 4                                              # a new résumé invalidates the cache
+
+
+def test_model_failure_is_not_cached(tmp_path):
+    from job_dashboard.db import init_db
+    conn = init_db(str(tmp_path / "t.db"))
+    n = []
+
+    def flaky(p):
+        n.append(1)
+        if len(n) == 1:
+            raise RuntimeError("ollama down")
+        return {"title": "ML Engineer", "fit": 80, "reason": "r"}
+    f = lambda: run_digest(conn, _Seq({"k": [_d("a", "Hiring an ML Engineer")]}), ["k"], "p",  # noqa: E731
+                           fetched_at="2099-01-01T00:00:00+00:00", role_fn=flaky)
+    f(); f()
+    assert len(n) == 2                                                  # the failed call was retried, not remembered
+
+
+def test_posts_are_saved_as_scored_even_if_a_later_keyword_aborts(tmp_path):
+    import pytest
+    from job_dashboard.db import init_db, hiring_posts
+    from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
+    conn = init_db(str(tmp_path / "t.db"))
+    events = []
+    f = _Seq({"k1": [_d("a", "Hiring an ML Engineer")], "k2": LinkedInAuthError("blocked")})
+    with pytest.raises(LinkedInAuthError):
+        run_digest(conn, f, ["k1", "k2"], "p", fetched_at="2099-01-01T00:00:00+00:00",
+                   role_fn=lambda p: {"title": "ML Engineer", "fit": 90, "reason": "r"}, on_event=events.append)
+    assert [p["url"] for p in hiring_posts(conn, within_hours=10**6)] == ["a"]   # not lost
+    assert [e["stage"] for e in events][:3] == ["search", "score", "search"]
+    assert events[-1]["kept"] == 1 and events[1]["m"] == 1
+
+
+def test_reshared_text_is_scored_once(tmp_path):
+    from job_dashboard.db import init_db
+    conn = init_db(str(tmp_path / "t.db"))
+    asked = []
+    run_digest(conn, _Seq({"k": [_d("a", "Hiring an ML Engineer!"), _d("b", "hiring an ml engineer")]}), ["k"], "p",
+               fetched_at="2099-01-01T00:00:00+00:00",
+               role_fn=lambda p: asked.append(1) or {"title": "ML Engineer", "fit": 90, "reason": "r"})
+    assert len(asked) == 1
