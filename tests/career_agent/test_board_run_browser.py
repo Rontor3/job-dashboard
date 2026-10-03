@@ -153,3 +153,19 @@ def test_perception_refs_escape_ids_with_css_metacharacters():
         f = next(x for x in BrowserDeps().snapshot(pg) if x.label == "City")
         assert pg.locator(f.ref).count() == 1
         b.close()
+
+
+BANK = """<html><body><h1>Data Scientist</h1>
+<button id="apply" onclick="document.getElementById('m').style.display='block'">Apply</button>
+<div id="m" style="display:none">
+  <label for="n">Full name</label><input id="n" type="text">
+  <label for="b">Bank account number</label><input id="b" type="text" required>
+  <button onclick="fetch('/api/submit',{method:'POST',body:'{}'})">Submit application</button>
+</div></body></html>"""
+
+
+def test_a_required_bank_field_stops_the_run_and_is_never_asked_or_submitted(monkeypatch):
+    h = Human(answers={"Bank account number": "000111222"})
+    out, hits = _run(BANK, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
+    assert out["stopped_reason"] == "sensitive_field" and not out["submitted"] and hits == []
+    assert [f["label"] for f in out["pending_human"]] == ["Bank account number"]

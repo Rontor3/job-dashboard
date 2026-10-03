@@ -7,6 +7,7 @@ export const QUEUE_REASON = {
   no_result: "agent crashed", launch_error: "couldn't start the agent", job_missing: "job missing",
   unconfirmed: "submitted, not confirmed", stuck: "stuck on a page", no_entry: "no apply button",
   auth_wall: "login wall", error: "agent error",
+  sensitive_field: "needs bank/ID details — fill them yourself",
 };
 
 export const reasonText = (reason) => (reason ? QUEUE_REASON[reason] || reason.replace(/_/g, " ") : "");

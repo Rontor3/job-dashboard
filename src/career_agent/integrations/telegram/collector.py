@@ -91,7 +91,10 @@ class TelegramCollector:
         drain = getattr(self.client, "drain", None)
         if drain:
             drain()               # discard stale updates so they aren't read as answers
+        from ...orchestrator.sensitive import is_sensitive
         for f in fields:
+            if is_sensitive(f):
+                continue                       # bank / ID details are never asked over Telegram
             label = (f.label or "").strip() or f.ref
             if f.kind != "file" and label.strip().lower() in _JUNK:
                 continue                       # unresolved placeholder -> leave for browser

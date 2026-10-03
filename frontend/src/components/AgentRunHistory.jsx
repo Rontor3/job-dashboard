@@ -26,6 +26,7 @@ const STOP_LABEL = {
   challenge: "Blocked by a bot check",
   no_entry: "Couldn't find the apply button",
   daily_cap: "Daily cap for this board reached",
+  sensitive_field: "The form requires bank or ID details — the agent never fills or asks for these. Fill them yourself.",
 };
 
 function stopLabel(reason) {

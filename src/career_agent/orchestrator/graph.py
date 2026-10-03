@@ -303,6 +303,13 @@ def fill_node(state: AgentState, config) -> dict:
 
     form = [_d2f(d) for d in state["form"]]
     fillable = [f for f in form if f.kind != "button"]
+    # Bank / ID details never flow through the agent: a required one ends the run
+    # for the human to fill; optional ones are skipped (orchestrator/sensitive.py).
+    from .sensitive import split_sensitive
+    fillable, blocked = split_sensitive(fillable)
+    if any(f.required for f in blocked):
+        print(f"[fill] stopping: form requires bank/ID details {[f.label for f in blocked if f.required]}", flush=True)
+        return {"stopped_reason": "sensitive_field", "pending_human": [_f2d(f) for f in blocked if f.required]}
     # Shared ladder (question bank → rules → judge) — also used by boards/;
     # it records every field to the QA recorder itself.
     from .answering import answer_fields

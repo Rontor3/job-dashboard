@@ -20,6 +20,8 @@ def outcome(result: dict | None, exit_code: int) -> tuple[str, str, str | None]:
     reason = result.get("stopped_reason") or "stopped"
     if exit_code:
         return "failed", reason, "failed"
+    if reason == "sensitive_field":                  # bank / ID details: yours to fill, nothing to answer here
+        return "parked", "sensitive_field", "failed"
     if result.get("pending_human"):
         return "parked", "needs_answers", "failed"
     return "parked", _RENAME.get(reason, reason), "failed"

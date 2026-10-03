@@ -108,3 +108,10 @@ test("board runs: the stop page says why, and a plain-string pending list still 
   expect(screen.getByText(/Stopped for questions you need to answer/)).toBeInTheDocument();
   expect(screen.getByText(/Stuck on: Expected CTC/)).toBeInTheDocument();
 });
+
+test("a sensitive-field stop says the agent never handles those details", async () => {
+  mock({ job_id: 1, unpaged: [], steps: [STEP(0, [], { kind: "stop", stopped_reason: "sensitive_field", pending_human: [{ label: "Bank account number" }] })] });
+  render(<AgentRunHistory jobId={1} />);
+  expect(await screen.findByText(/never fills or asks for these/)).toBeInTheDocument();
+  expect(screen.getByText(/Stuck on: Bank account number/)).toBeInTheDocument();
+});

@@ -30,6 +30,9 @@ def promote_answer(conn, field, answer, embed) -> str | None:
     label = (getattr(field, "label", "") or "").strip()
     if not text or not label or getattr(field, "kind", "") == "file" or _COMPANY_SPECIFIC.search(label):
         return None
+    from ..orchestrator.sensitive import is_sensitive
+    if is_sensitive(field):
+        return None                                   # bank / ID details never enter the Answers
     question = split_escape(label)[0] or label
     eid = qbank.exact(conn, question)
     if eid is None:

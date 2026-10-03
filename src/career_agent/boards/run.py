@@ -13,6 +13,7 @@ from ..orchestrator.answering import answer_fields, record_answers
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 from ..orchestrator.screen_review import apply_answers
 from ..browser.form_model import Field
+from ..orchestrator.sensitive import split_sensitive
 from .drivers import DRIVERS
 from .run_log import BoardRunLog
 from .signals import confirmed, is_challenge, is_logged_out
@@ -253,7 +254,10 @@ def run_board(page, board, ctx):
             if blocked:
                 return stop(blocked, page)
             ctx["page_index"] = log.page(page)
-            fields = driver.fields(page, board, ctx, cap)
+            fields, blocked = split_sensitive(driver.fields(page, board, ctx, cap))
+            if any(f.required for f in blocked):          # bank / ID details: yours to fill, never asked
+                res["pending_human"] = [dataclasses.asdict(f) for f in blocked if f.required]
+                return stop("sensitive_field", page)
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
             if ctx.get("probe"):
                 # Probe: report what would be filled / asked on the first form
