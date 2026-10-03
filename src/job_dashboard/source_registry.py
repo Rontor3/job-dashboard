@@ -5,7 +5,6 @@ profile's target titles (see search-queries.md) — remote-first, not overfit.
 """
 from job_dashboard.sources.himalayas_source import fetch_himalayas_jobs
 from job_dashboard.sources.jobspy_source import fetch_jobspy_jobs
-from job_dashboard.sources.naukri_source import fetch_naukri_jobs
 from job_dashboard.sources.remoteok_source import fetch_remoteok_jobs
 from job_dashboard.sources.remotive_source import fetch_remotive_jobs
 from job_dashboard.sources.startup_sheet import fetch_funded_startups
@@ -44,10 +43,9 @@ SEARCH_TERMS = [
 #   US      -> remote-only searches
 #   Europe  -> remote-preferred searches
 #   India   -> remote + hybrid + onsite all welcome (indeed regionalized via
-#              country param; naukri direct dropped from jobspy 2026-07-17 —
-#              captcha-blocked 406. Replaced by fetch_naukri_jobs below, the
-#              vendored-NopeRi read-only source fed by a cached login session
-#              — see scripts/naukri_login.py)
+#              country param). LinkedIn and Naukri are browser (CDP) sources
+#              now (sources/cdp/); the old jobspy-LinkedIn and fetch_naukri_jobs
+#              wiring was removed 2026-10-03 (naukri_source.py kept, unwired).
 # LinkedIn is a browser (CDP) source. Indeed's web page sits behind a
 # Cloudflare challenge in CDP, but jobspy hits Indeed's API and isn't blocked.
 REGION_SEARCHES = [("India", ["indeed"], "india")]
@@ -70,7 +68,6 @@ def job_sources():
             )
         fetchers.append(lambda t=term: _target_only(fetch_remotive_jobs(t)))
         fetchers.append(lambda t=term: _target_only(fetch_himalayas_jobs(t)))
-        fetchers.append(lambda t=term: _target_only(fetch_naukri_jobs(t)))
     # remoteok has no keyword search — it returns its entire board — and
     # remotive's search is loose, so both are gated to ML/AI/DS titles only.
     fetchers.append(lambda: _target_only(fetch_remoteok_jobs()))
