@@ -184,3 +184,25 @@ def test_site_search_box_is_not_a_question():
     from career_agent.browser.form_model import guess_purpose
     assert guess_purpose("Search title or skill...", "text") is None             # Pelicon's job search, live 2026-10-12
     assert guess_purpose("Search and add skills", "text") == "skills"            # a tag input that collects an answer
+
+def test_skill_years_fields_use_the_skill_table_by_shape_not_wording():
+    # Live LinkedIn CRUCIFER 2026-10-03: Azure OpenAI / AI for Data Scientists were not
+    # matched to the skill_years entry by embedding, so the human was asked.
+    import sqlite3
+    from career_agent.memory import qbank
+    from career_agent.memory.qbank_memory import QBankMemory
+    from career_agent.browser.form_model import guess_purpose
+    conn = sqlite3.connect(":memory:")
+    qbank.ensure(conn)
+    qbank.upsert_entry(conn, {"id": "skill_years", "question": "Years of experience with a skill", "topic": "experience",
+                              "atype": "number", "rule": "years_in_skill"})
+    qbank.set_answer(conn, "skill_years", "python=3, azure openai=3, ai for data scientists=2")
+    mem = QBankMemory(conn, embed=lambda texts: [[1.0, 0.0]] * len(texts), contact={}, job={})
+    mem.seed_if_empty = None
+    def fld(ref, label):
+        return Field(ref, "text", label, True, [], None, guess_purpose(label, "text"))
+    got, rest = mem.recall([fld("a", "How many years of work experience do you have with Azure OpenAI?"),
+                            fld("b", "How many years of work experience do you have with AI for Data Scientists?"),
+                            fld("c", "How many years of work experience do you have with Docker?")])
+    assert {d.ref: d.value for d in got} == {"a": "3", "b": "2"}
+    assert [f.ref for f in rest] == ["c"]          # unlisted skill is never invented

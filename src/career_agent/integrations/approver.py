@@ -42,3 +42,40 @@ class CliCollector:
             if answer:
                 out[f.ref] = answer
         return out
+
+
+
+class PresetCollector:
+    """Answers the human already gave (e.g. in chat), matched by label, so a run
+    does not wait on Telegram for them. `answers` maps a phrase to a value; a field
+    is answered when its normalized label contains the normalized phrase. Fields
+    with no preset go to `inner` (Telegram/CLI) unchanged."""
+
+    def __init__(self, answers: dict, inner=None):
+        import re
+        self._norm = lambda s: re.sub(r"\W+", " ", str(s or "").lower()).strip()
+        self.answers = {self._norm(k): str(v) for k, v in (answers or {}).items() if self._norm(k)}
+        self.inner = inner
+        self._last_events: dict = {}
+
+    def __getattr__(self, name):          # jd_text etc. belong to the inner collector
+        if name.startswith("__") or self.inner is None:
+            raise AttributeError(name)
+        return getattr(self.inner, name)
+
+    def __call__(self, fields) -> dict:
+        out, rest = {}, []
+        self._last_events = {}
+        for f in fields:
+            label = self._norm(f.label)
+            hit = next((v for k, v in self.answers.items() if k in label), None)
+            if hit is None:
+                rest.append(f)
+            else:
+                out[f.ref] = hit
+                self._last_events[f.ref] = "approve"
+                print(f"[preset] {f.label[:60]!r} -> {hit!r}", flush=True)
+        if rest and self.inner is not None:
+            out.update(dict(self.inner(rest) or {}))
+            self._last_events.update(getattr(self.inner, "_last_events", {}) or {})
+        return out

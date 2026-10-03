@@ -121,6 +121,8 @@ def main() -> None:
                          "falls back to the old drafter on any failure.")
     ap.add_argument("--no-longform", action="store_true",
                     help="use the old single-prompt drafter instead (also CAREER_AGENT_LONGFORM=0)")
+    ap.add_argument("--answers", default=None, metavar="JSON",
+                    help="JSON file {label phrase: answer} of answers already given; matched fields skip the human prompt")
     ap.add_argument("--no-telegram", action="store_true",
                     help="force CLI collector (stdin) even if Telegram is configured")
     ap.add_argument("--screenshot", default=None,
@@ -355,6 +357,11 @@ def _apply(args, box: dict) -> None:
             approver = CliApprover()
             collector = CliCollector()
 
+    if args.answers:
+        import json as _json
+        from .integrations.approver import PresetCollector
+        collector = PresetCollector(_json.loads(open(args.answers).read()), inner=collector)
+        print(f"[preset] {len(collector.answers)} pre-supplied answer(s) loaded", flush=True)
     human = HumanLoop(approver, remote_solve_factory=remote_solve_factory,
                       deadline_s=settings.remote_solve_ttl, collector=collector)
     jd_seen: dict = {}                       # filled once the landing page is scraped

@@ -261,7 +261,12 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
     question, escape = split_escape(f.label, f.description)
     if is_junk(f) or not question:
         return Match(NONE, note="junk label"), None
-    m = match_question(conn, without_format_hint(question), embed=embed, llm=llm, high=high)
+    if getattr(f, "purpose", None) == "skill_years" and qbank.get_entry(conn, "skill_years"):
+        # "Years of experience with <skill>" is recognised by its shape (form_model),
+        # so any skill named in the user's table answers — no per-wording seed needed.
+        m = Match(CONFIDENT, "skill_years", 1.0, "structure")
+    else:
+        m = match_question(conn, without_format_hint(question), embed=embed, llm=llm, high=high)
     m.escape = escape
     if m.entry_id is None:
         value, composed = _compose_from_facts(conn, f, question, None, embed, llm, job, contact)
