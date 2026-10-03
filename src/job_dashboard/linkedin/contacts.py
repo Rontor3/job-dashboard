@@ -162,6 +162,48 @@ def text_key(text: str) -> str:
     return hashlib.sha1(norm[:400].encode()).hexdigest()
 
 
+# --- Location, decided in code (the model contradicts itself on this) ---------
+# ponytail: single home-country gazetteer (India) — swap/extend when the candidate relocates.
+_HOME_PLACES = ("india|bengaluru|bangalore|mumbai|delhi|ncr|gurgaon|gurugram|noida|pune|hyderabad|"
+                "chennai|kolkata|ahmedabad|jaipur|kochi|indore|chandigarh|navi mumbai|thane|coimbatore")
+_FOREIGN = ("us|u\\.s\\.|usa|u\\.s\\.a\\.|united states|uk|u\\.k\\.|united kingdom|canada|eu|europe|germany|"
+            "france|australia|brazil|latam|latin america|africa|north america|emea|singapore|uae|dubai|saudi")
+_HOME = re.compile(rf"\b({_HOME_PLACES})\b", re.I)
+_REMOTE = re.compile(r"\b(remote|work from home|wfh|work from anywhere|worldwide)\b", re.I)
+_CLOSED = [re.compile(p, re.I) for p in (
+    rf"\b({_FOREIGN})[\s-]*(only|based|residents?|citizens?)(?![A-Za-z])",
+    rf"\bremote\s*[\(\-–,:|]\s*({_FOREIGN})(?![A-Za-z])",
+    rf"\b({_FOREIGN})\s*[|,/\-–—]\s*remote\b",
+    rf"\bremote\s+(?:across|within|in|from)\s+(?:the\s+)?({_FOREIGN})(?![A-Za-z])",
+    rf"\b(?:must|need to|required to|should)\s+(?:be\s+)?(?:located|based|reside|residing|living)\s+(?:in|within)\s+(?:the\s+)?({_FOREIGN})(?![A-Za-z])",
+    rf"\b(?:authori[sz]ed|authori[sz]ation|eligible|right)\s+to work\s+in\s+(?:the\s+)?({_FOREIGN})(?![A-Za-z])",
+    rf"\b({_FOREIGN})\s+work\s+(?:authori[sz]ation|permit|visa)\b",
+    r"\bW-?2\b|\bC2C\b|\bcorp[- ]to[- ]corp\b|\b1099\b",          # US-only contracting forms
+)]
+_NO_SPONSOR = re.compile(r"\b(no|not offer(?:ing)?|cannot|can't|do not|don't|unable to)\s+(?:\w+\s+){0,2}(?:visa\s+)?sponsor", re.I)
+
+
+def location_verdict(text: str) -> str:
+    """'open' | 'closed' | 'unknown' for a candidate based in India, from the
+    post text alone: another country's work-authorization/only/W2 wording closes
+    it; a home city/country or unrestricted remote opens it."""
+    t = text or ""
+    if any(p.search(t) for p in _CLOSED):
+        return "closed"
+    if _HOME.search(t):
+        return "open"
+    if _REMOTE.search(t) and not _NO_SPONSOR.search(t):
+        return "open"
+    return "closed" if _NO_SPONSOR.search(t) else "unknown"
+
+
+_LOC_HINT = {
+    "open": "LOCATION CHECK (done in code, do not contradict): OPEN to the candidate — do not penalize location; location_open must be true.",
+    "closed": "LOCATION CHECK (done in code, do not contradict): CLOSED to the candidate — say so in the reason; location_open must be false.",
+    "unknown": "",
+}
+
+
 _JUDGE_PROMPT = """You screen LinkedIn hiring posts for one candidate. Compare the post to the
 candidate's résumé and return ONLY JSON:
 {{"title": "role being hired for, \"\" if none",
@@ -176,6 +218,7 @@ Hard caps (apply them even if the skills match perfectly):
   requires that country's work authorization, and it does not offer visa
   sponsorship -> fit <= 30
 Remote-worldwide and India-based roles are open to the candidate. {constraints}
+{location_hint}
 
 Résumé:
 {resume}
@@ -196,7 +239,8 @@ def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None
             post_fn = lambda url, body: requests.post(url, json=body, timeout=180).json()  # noqa: E731
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         prompt = _JUDGE_PROMPT.format(
-            constraints=constraints, resume=resume_text[:6000], poster=post.get("poster_name") or "",
+            constraints=constraints, location_hint=_LOC_HINT[location_verdict(post.get("text"))],
+            resume=resume_text[:6000], poster=post.get("poster_name") or "",
             headline=post.get("poster_headline") or "", post=(post.get("text") or "")[:3000])
         got = json.loads(post_fn(f"{host}/api/generate", {
             "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt, "stream": False,
@@ -209,7 +253,9 @@ def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None
         out["fit"] = max(0, min(100, int(fit))) if isinstance(fit, (int, float)) else None
         # Enforce the location cap in code: the model states the mismatch in its
         # reason yet still scores 50-75 when skills match.
-        if got.get("location_open") is False and out["fit"] is not None:
+        verdict = location_verdict(post.get("text"))
+        closed = verdict == "closed" or (verdict == "unknown" and got.get("location_open") is False)
+        if closed and out["fit"] is not None:
             out["fit"] = min(out["fit"], 30)
         out["reason"] = str(got.get("reason") or "").strip()
     except Exception:  # noqa: BLE001

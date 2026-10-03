@@ -237,3 +237,32 @@ def test_email_subject_is_the_title(tmp_path, monkeypatch):
     subj = lambda i: parse_qs(urlparse(c.post(f"/api/hiring/posts/{i}/email-draft").json()["gmail_url"]).query)["su"][0]  # noqa: E731
     assert subj(ids["u1"]) == "AIML Engineer – Remote"                        # what the post asked for
     assert subj(ids["u2"]) == "AIML Engineer"                                   # no ask → the role title
+
+
+def test_location_verdict_from_real_wording():
+    lv = C.location_verdict
+    # candidate-country cities / unrestricted remote → open
+    assert lv("Locations: Bengaluru | Mumbai. Experience 6+ years") == "open"
+    assert lv("Lead AI Engineer | Full-Time | Remote. Gramatix is hiring") == "open"
+    assert lv("fully remote from India. They're building") == "open"
+    # other country's authorization / only / W2 / region → closed
+    assert lv("In-person + must have US work authorization") == "closed"
+    assert lv("Generative AI Engineer (Remote, USA)") == "closed"
+    assert lv("Remote, U.S. Staff Data Scientist") == "closed"          # trailing-dot country
+    assert lv("Remote | W2 Opportunity | Any Visa") == "closed"
+    assert lv("Lead AI Solutions Architect — LATAM | Remote") == "closed"
+    assert lv("it's remote across Africa") == "closed"
+    # company-name 'Global' is not a location; nothing stated → defer to the model
+    assert lv("serving Global Enterprises and Tier 1 Global VCs") == "unknown"
+    assert lv("Senior MLOps Engineer, Atlanta, GA") == "unknown"
+    assert lv("Remote role. We do not offer visa sponsorship") == "closed"
+
+
+def test_judge_location_is_decided_in_code_not_by_the_model():
+    def llm(url, body):  # model wrongly says location closed for an India post, open for a US-only one
+        wrong = "US work authorization" in body["prompt"]
+        return {"response": json.dumps({"title": "ML Engineer", "company": "X", "location_open": wrong,
+                                        "fit": 80, "reason": "r"})}
+    india = C.judge_post({"text": "ML Engineer, Bengaluru (Hybrid)", "poster_name": "A"}, "resume", post_fn=llm)
+    us = C.judge_post({"text": "ML Engineer, must have US work authorization", "poster_name": "A"}, "resume", post_fn=llm)
+    assert india["fit"] == 80 and us["fit"] == 30
