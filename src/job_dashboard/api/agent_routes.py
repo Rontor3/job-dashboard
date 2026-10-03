@@ -24,6 +24,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
+from job_dashboard import qa_store
 from job_dashboard.db import init_db, job_detail
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -212,6 +213,14 @@ def _read_live_page(cdp_url: str, job_id: int) -> dict:
         return {"url": None, "title": None, "screenshot_path": None}
 
 
+def _with_questions(job_id, steps, by_page) -> dict:
+    """The run's pages, each with the questions asked on it; rows with no page
+    (older runs) come back under `unpaged`."""
+    for s in steps:
+        s["questions"] = by_page.get(s["step"], [])
+    return {"job_id": job_id, "steps": steps, "unpaged": by_page.get(None, [])}
+
+
 def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRouter:
     router = APIRouter()
     state = state or AgentRunState()      # shared with the apply queue's runner
@@ -289,6 +298,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         conn = db()
         try:
             detail = job_detail(conn, job_id)
+            by_page = qa_store.questions_by_page(conn, job_id)
         finally:
             conn.close()
         if detail is None:
@@ -309,7 +319,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
             for s in steps:
                 s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
                                    if s.get("screenshot") else None)
-            return {"job_id": job_id, "steps": steps}
+            return _with_questions(job_id, steps, by_page)
 
         import hashlib
         from career_agent.orchestrator.run_history import summarize_run
@@ -322,6 +332,6 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         for s in steps:
             s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
                                if s["screenshot"] else None)
-        return {"job_id": job_id, "steps": steps}
+        return _with_questions(job_id, steps, by_page)
 
     return router

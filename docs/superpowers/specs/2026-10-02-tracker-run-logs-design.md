@@ -60,3 +60,15 @@ shape `run_history.summarize_run` returns. `GET /api/jobs/{id}/agent-runs/latest
 
 Email status scan (slice 4) — it will set `interviewing`/round/`offer`/`rejected` through the
 same `set_job_status`.
+
+## Addendum 2026-10-03 — run view by page
+
+The expanded job's "Last agent run" is page by page: each form page is a block with its
+screenshot, stop reason, and the questions asked on it. `application_qa` gets a `page` column,
+set by `answering.answer_fields` (`ctx["page_index"]`: the graph's step, the board pipeline's
+`BoardRunLog` page number). Each question shows the answer as filled (line breaks kept) and its
+origin: From your Answers (exact / matched), Best guess from a similar answer, Written by the
+model (confidence, basis, claims not found in context, prompt), From your profile, Filled in by
+the board, Your answer, Needs your answer. Saved/similar answers keep the ✓ Correct / ✗ Wrong
+review. `GET /api/jobs/{id}/agent-runs/latest` returns `steps[].questions` plus `unpaged`
+(runs recorded before this). The separate "Answers filled" list is removed.

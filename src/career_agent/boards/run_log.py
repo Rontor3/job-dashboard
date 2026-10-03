@@ -18,6 +18,7 @@ class BoardRunLog:
     def __init__(self, run_dir: str | None):
         self.dir = Path(run_dir) if run_dir else None
         self.steps: list[dict] = []
+        self._pages = 0
         if self.dir is None:
             return
         try:
@@ -42,10 +43,12 @@ class BoardRunLog:
                            "stopped_reason": stopped_reason, "pending_human": pending or [],
                            "screenshot": self._shot(page)})
 
-    def page(self, page) -> None:
-        """Before the driver reads a page."""
+    def page(self, page) -> int:
+        """Before the driver reads a page; its page number (counted even when logging is off)."""
+        n, self._pages = self._pages, self._pages + 1
         if self.dir is not None:
             self._add(page, "form")
+        return n
 
     def finish(self, page, reason: str, pending: list) -> None:
         if self.dir is None:

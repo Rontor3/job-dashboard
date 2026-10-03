@@ -12,6 +12,7 @@ class QARecorder:
         self.conn, self.job_id = conn, job_id
         self.run_key = run_key or uuid.uuid4().hex
         self.tracer = None      # f -> retrieval fields (memory.retrieval_trace.explain)
+        self.page = None            # form page being answered (set by answer_fields)
         self.promote_embed = None   # set -> human answers also join the Answers tab (qbank_promote)
         self._labels: dict = {}
         self._meta: dict = {}   # ref -> retrieval fields, merged into that ref's row
@@ -33,6 +34,8 @@ class QARecorder:
     def _rec(self, ref, label, **fields):
         self._labels[ref] = label
         fields = {**self._meta.get(ref, {}), **fields}
+        if self.page is not None:
+            fields["page"] = self.page
         try:
             qa_store.record(self.conn, job_id=self.job_id, run_key=self.run_key,
                             ref=ref, label=label, **fields)

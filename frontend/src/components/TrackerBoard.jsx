@@ -4,7 +4,6 @@ import AgentRunHistory from "./AgentRunHistory.jsx";
 import QuestionsPanel from "./QuestionsPanel.jsx";
 import MailPanel from "./MailPanel.jsx";
 import MailBar from "./MailBar.jsx";
-import AnswersUsed from "./AnswersUsed.jsx";
 import { fetchTracker, patchStatus, fetchApplyAgentStatus, fetchOpenCounts, fetchJob } from "../api.js";
 import { cleanJd } from "../cleanJd.js";
 import { reasonText } from "../queueReasons.js";
@@ -146,7 +145,6 @@ function Row({ job, agentStatus, onSelect, onMove, expanded, onToggle, openCount
         <MailPanel jobId={job.id} />
         <JobDescription jobId={job.id} />
         <QuestionsPanel jobId={job.id} onChanged={onChanged} />
-        <AnswersUsed jobId={job.id} />
         <AgentRunHistory jobId={job.id} />
       </div>
     )}

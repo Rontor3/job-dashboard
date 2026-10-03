@@ -306,7 +306,7 @@ def fill_node(state: AgentState, config) -> dict:
     # Shared ladder (question bank → rules → judge) — also used by boards/;
     # it records every field to the QA recorder itself.
     from .answering import answer_fields
-    decisions, needs = answer_fields(fillable, c)
+    decisions, needs = answer_fields(fillable, {**c, "page_index": state.get("steps", 0)})
 
     deps.fill(page, decisions)
 

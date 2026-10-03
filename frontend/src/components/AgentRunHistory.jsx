@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
-import { fetchAgentRunHistory, fetchAgentLog } from "../api.js";
+import React, { useCallback, useEffect, useState } from "react";
+import { fetchAgentRunHistory, fetchAgentLog, reviewAnswer } from "../api.js";
+import EntryPicker from "./EntryPicker.jsx";
 
 const KIND_LABEL = {
   password: "Login wall",
@@ -60,19 +61,108 @@ function RunLog({ jobId }) {
   );
 }
 
-export default function AgentRunHistory({ jobId }) {
-  const [steps, setSteps] = useState(undefined); // undefined = loading, null = no run yet
+// Where each answer came from. `tone` picks the chip colours; `reviewable` ones
+// can be marked right or wrong (a wrong one is re-pointed to the right saved entry).
+const ORIGIN = {
+  saved_exact: { label: "From your Answers", tone: "good", reviewable: true },
+  saved: { label: "From your Answers", tone: "good", reviewable: true },
+  similar: { label: "Best guess from a similar answer", tone: "guess", reviewable: true },
+  model: { label: "Written by the model", tone: "model", reviewable: false },
+  profile: { label: "From your profile", tone: "plain", reviewable: false },
+  board: { label: "Filled in by the job board", tone: "plain", reviewable: false },
+  you: { label: "Your answer", tone: "plain", reviewable: false },
+  open: { label: "Needs your answer", tone: "open", reviewable: false },
+};
+const TONE = {
+  good: { bg: "var(--green-tint)", fg: "var(--green)" },
+  guess: { bg: "var(--gold)", fg: "var(--gold-ink)" },
+  model: { bg: "var(--peach)", fg: "var(--warm-ink)" },
+  plain: { bg: "var(--canvas)", fg: "var(--ink-soft)" },
+  open: { bg: "var(--dupe-bg)", fg: "var(--dupe-ink)" },
+};
+const BTN = { border: "none", cursor: "pointer", fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)" };
 
-  useEffect(() => {
-    let cancelled = false;
-    setSteps(undefined);
-    fetchAgentRunHistory(jobId)
-      .then((body) => { if (!cancelled) setSteps(body ? body.steps : null); })
-      .catch(() => { if (!cancelled) setSteps(null); });
-    return () => { cancelled = true; };
+function matchNote(q) {
+  if (!q.matched) return null;
+  const how = q.origin === "saved_exact" || q.match_kind === "exact" ? "exact wording"
+    : q.score != null ? `match ${q.score}` : "";
+  return `matched “${q.matched}”${how ? ` · ${how}` : ""}`;
+}
+
+// One question on a page: the question as the form worded it, the answer as it
+// was filled (line breaks kept), and what produced it.
+function Question({ q, onReviewed }) {
+  const o = ORIGIN[q.origin] || ORIGIN.profile;
+  const tone = TONE[o.tone];
+  const [fixing, setFixing] = useState(null);
+  const send = (verdict, entry) => reviewAnswer(q.id, verdict, entry).then(() => { setFixing(null); onReviewed(); });
+  return (
+    <li data-testid={`q-${q.id}`} style={{ background: "var(--canvas)", borderRadius: 8, padding: "7px 10px", fontSize: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+        <span style={{ color: "var(--ink)", fontWeight: 600 }}>{q.label}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 8px", borderRadius: "var(--radius-pill)", background: tone.bg, color: tone.fg }}>
+          {o.label}
+        </span>
+      </div>
+      {q.answer ? (
+        <div style={{ color: "var(--ink)", margin: "3px 0", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{q.answer}</div>
+      ) : null}
+      <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>
+        {[matchNote(q),
+          q.origin === "model" && q.confidence != null ? `confidence ${q.confidence}/100${q.basis ? ` — ${q.basis}` : ""}` : null,
+          q.origin === "model" && q.unsupported_claims.length ? `not found in context: ${q.unsupported_claims.join(", ")}` : null,
+          q.origin === "similar" ? "check it" : null].filter(Boolean).join(" · ")}
+      </div>
+      {q.prompt && (
+        <details style={{ marginTop: 3 }}>
+          <summary style={{ fontSize: 11, color: "var(--ink-soft)", cursor: "pointer" }}>Prompt used</summary>
+          <pre style={{ margin: "4px 0 0", fontSize: 10, maxHeight: 160, overflowY: "auto", whiteSpace: "pre-wrap", color: "var(--ink-soft)" }}>{q.prompt}</pre>
+        </details>
+      )}
+      {o.reviewable && (fixing ? (
+        <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
+          <EntryPicker id={`fix-${q.id}`} label={`Right question for ${q.label}`} onChange={(entry) => setFixing({ entry })} />
+          <button style={{ ...BTN, background: "var(--green)", color: "#fff", whiteSpace: "nowrap" }}
+                  disabled={!fixing.entry} onClick={() => send("wrong", fixing.entry)}>Save fix</button>
+        </div>
+      ) : q.outcome ? (
+        <span style={{ fontSize: 11, fontWeight: 600, color: q.outcome === "edited" ? "var(--dupe-ink)" : "var(--green)" }}>
+          {q.outcome === "edited" ? "marked wrong" : "marked correct"}
+        </span>
+      ) : (
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          <button aria-label={`Correct: ${q.label}`} style={{ ...BTN, background: "var(--green-tint)", color: "var(--green)" }}
+                  onClick={() => send("correct")}>✓ Correct</button>
+          <button aria-label={`Wrong: ${q.label}`} style={{ ...BTN, background: "var(--dupe-bg)", color: "var(--dupe-ink)" }}
+                  onClick={() => setFixing({ entry: null })}>✗ Wrong</button>
+        </div>
+      ))}
+    </li>
+  );
+}
+
+function Questions({ qs, onReviewed }) {
+  if (!qs || qs.length === 0) return null;
+  return (
+    <ul aria-label="Questions on this page" style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
+      {qs.map((q) => <Question key={q.id} q={q} onReviewed={onReviewed} />)}
+    </ul>
+  );
+}
+
+// The last run, page by page: what the page was, where the agent stopped, a
+// screenshot, and every question on it with its answer and where that came from.
+export default function AgentRunHistory({ jobId }) {
+  const [run, setRun] = useState(undefined); // undefined = loading, null = no run yet
+  const load = useCallback(() => {
+    fetchAgentRunHistory(jobId).then((body) => setRun(body || null)).catch(() => setRun(null));
   }, [jobId]);
 
-  if (steps === undefined || steps === null || steps.length === 0) return null;
+  useEffect(() => { setRun(undefined); load(); }, [load]);
+
+  if (!run || !run.steps || run.steps.length === 0) return null;
+  const steps = run.steps;
+  const unpaged = run.unpaged || [];
 
   return (
     <div style={{ marginTop: 12, borderTop: "0.5px solid var(--hairline)", paddingTop: 12 }}>
@@ -83,9 +173,9 @@ export default function AgentRunHistory({ jobId }) {
         {steps.map((s) => {
           const stuck = !!s.stopped_reason && !["reached_submit_dry_run", "submitted"].includes(s.stopped_reason);
           return (
-            <li key={s.step} style={{
+            <li key={s.step} data-testid={`page-${s.step}`} style={{
               borderRadius: 10, padding: "8px 12px",
-              background: stuck ? "var(--warm-tint)" : "var(--canvas)",
+              background: stuck ? "var(--warm-tint)" : "var(--card)",
               border: "0.5px solid var(--hairline)",
             }}>
               <div style={{ fontSize: 12, fontWeight: 500, color: stuck ? "var(--warm-ink)" : "var(--ink)" }}>
@@ -104,7 +194,7 @@ export default function AgentRunHistory({ jobId }) {
               )}
               {s.pending_human && s.pending_human.length > 0 && (
                 <div style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 2 }}>
-                  Stuck on: {s.pending_human.map((f) => f.label || f.ref).join(", ")}
+                  Stuck on: {s.pending_human.map((f) => (typeof f === "string" ? f : f.label || f.ref)).join(", ")}
                 </div>
               )}
               {s.screenshot && (
@@ -113,10 +203,17 @@ export default function AgentRunHistory({ jobId }) {
                        style={{ marginTop: 6, maxWidth: "100%", maxHeight: 160, borderRadius: 6, display: "block" }} />
                 </a>
               )}
+              <Questions qs={s.questions} onReviewed={load} />
             </li>
           );
         })}
       </ul>
+      {unpaged.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: "var(--ink)" }}>Other questions in this run</div>
+          <Questions qs={unpaged} onReviewed={load} />
+        </div>
+      )}
       <RunLog jobId={jobId} />
     </div>
   );

@@ -252,7 +252,7 @@ def run_board(page, board, ctx):
             blocked = _blocked(page, board)
             if blocked:
                 return stop(blocked, page)
-            log.page(page)
+            ctx["page_index"] = log.page(page)
             fields = driver.fields(page, board, ctx, cap)
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
             if ctx.get("probe"):
