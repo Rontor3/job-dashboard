@@ -37,7 +37,7 @@ def _page_survey(page, label: str, run_dir: str | None = None) -> None:
             ss = str(Path(run_dir) / f"{label}.png")
         else:
             ss = f"/tmp/career_agent_{label}_survey.png"
-        page.screenshot(path=ss, full_page=True)
+        page.screenshot(path=ss, full_page=True, timeout=5000)
         print(f"[nav] survey → {ss}", flush=True)
     except Exception:
         pass
@@ -125,7 +125,7 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         deps.fill(page, decisions)
         try:
             _ss = f"/tmp/career_agent_step{steps}_filled.png"
-            page.screenshot(path=_ss, full_page=True)
+            page.screenshot(path=_ss, full_page=True, timeout=5000)
             print(f"[screenshot] {_ss}", flush=True)
         except Exception:
             pass

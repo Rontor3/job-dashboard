@@ -14,7 +14,7 @@ class Page:
     def wait_for_timeout(self, *_):
         return None
 
-    def screenshot(self, path, full_page=False):
+    def screenshot(self, path, full_page=False, **_):
         Path(path).write_bytes(b"png")
 
 
@@ -45,7 +45,7 @@ def test_without_run_dir_it_is_a_no_op(tmp_path):
 
 def test_a_failing_screenshot_never_breaks_the_run(tmp_path):
     class Broken(Page):
-        def screenshot(self, path, full_page=False):
+        def screenshot(self, path, full_page=False, **_):
             raise RuntimeError("page closed")
 
     log = BoardRunLog(str(tmp_path))

@@ -33,7 +33,7 @@ class BoardRunLog:
         try:
             page.evaluate("window.scrollTo(0, 0)")
             page.wait_for_timeout(300)
-            page.screenshot(path=str(path), full_page=True)
+            page.screenshot(path=str(path), full_page=True, timeout=5000)
             return str(path)
         except Exception:
             return None

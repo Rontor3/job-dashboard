@@ -94,7 +94,7 @@ def test_board_run_log_hands_out_page_numbers_even_when_logging_is_off(tmp_path)
         def wait_for_timeout(self, *_):
             pass
 
-        def screenshot(self, path, full_page=False):
+        def screenshot(self, path, full_page=False, **_):
             open(path, "wb").write(b"x")
 
     off, on = BoardRunLog(None), BoardRunLog(str(tmp_path))
