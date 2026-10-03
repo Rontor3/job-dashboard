@@ -71,3 +71,21 @@ def test_current_ctc_is_its_own_purpose_resolved_from_profile():
     assert guess_purpose("What is your current CTC?", "text") == "current_ctc"
     assert guess_purpose("What is your expected CTC?", "text") == "salary_expectation"
     assert resolve("current_ctc", NS(contact={"current_ctc": "22"})) == "22"
+
+
+
+def test_skill_specific_years_never_take_the_total_experience():
+    # Live Naukri chatbot 2026-10-03: "years in Generative Ai" was answered with the
+    # candidate's TOTAL experience (3) — an unfounded per-skill claim.
+    from types import SimpleNamespace as NS
+    from career_agent.browser.form_model import guess_purpose
+    from career_agent.orchestrator.profile_resolver import resolve
+    for label in ("How many years of experience do you have in Generative Ai?",
+                  "How many years of work experience do you have with SQL?",
+                  "Years of experience using Python"):
+        assert guess_purpose(label, "text") == "skill_years", label
+    for label in ("How many total years of experience you have ?", "Years of experience",
+                  "How many years of experience do you have in total?",
+                  "Years of experience in this role"):
+        assert guess_purpose(label, "text") == "years_experience", label
+    assert resolve("skill_years", NS(contact={"years_experience": "3"})) is None

@@ -61,6 +61,22 @@ def _option_range(opt):
     return (nums[0], nums[0])
 
 
+_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+
+
+def _unit_days(text):
+    """Days per unit named in `text` ('60 days' -> 1, '2 Months' -> 30), or None."""
+    m = re.search(r"\b(day|week|month|year)s?\b", (text or "").lower())
+    return _UNIT_DAYS[m[1]] if m else None
+
+
+def _in_days(text):
+    """(unit_days, lo, hi) of a quantity-with-unit option/value, in days; None if unitless."""
+    u = _unit_days(text)
+    band = _option_range(text) if u else None
+    return (u, band) if u and band else None
+
+
 def _coerce_option(value, options):
     """Map a profile value onto one of a field's real options. Tries, in order:
     exact, yes/no word, numeric-range containment (e.g. 3 -> '3-5 years'), then
@@ -84,7 +100,17 @@ def _coerce_option(value, options):
     vnums = re.findall(r"\d+(?:\.\d+)?", v)             # 3. numeric range (never for a dial code like +91)
     if len(vnums) == 1 and not v.startswith("+"):
         n = float(vnums[0])
-        hits = [(o, b) for o in options if (b := _option_range(o)) and b[0] <= n <= b[1]]
+        vu = _unit_days(v)
+        if vu and any(_unit_days(o) for o in options):
+            # "60 days" against "2 Months" / "15 Days or less": compare in days, never the bare number against a
+            # band in another unit. Options without a unit ("Immediate") take no part.
+            n *= vu
+            bands = [(o, (b[0] * u, b[1] * u)) for o in options if (u := _unit_days(o)) and (b := _option_range(o))]
+            if not any(lo <= n <= hi for _, (lo, hi) in bands):
+                return None
+        else:
+            bands = [(o, b) for o in options if (b := _option_range(o))]
+        hits = [(o, b) for o, b in bands if b[0] <= n <= b[1]]
         # Neighbouring bands share their edge ('1-3', '3-5'; '3-5', '5+'): read each as [lo, hi), so a value on the
         # edge belongs to the band it STARTS, as years of experience do (3 years in service = '3-5', not '1-3').
         inside = [o for o, b in hits if n < b[1]]

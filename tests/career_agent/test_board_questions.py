@@ -14,7 +14,7 @@ def test_naukri_questionnaire_to_fields_and_prefill():
     fields, pre = naukri(Q)
     assert [f.ref for f in fields] == ["q:51426676", "q:51426680"]
     ml, city = fields
-    assert ml.kind == "text" and ml.required and ml.purpose == "years_experience"
+    assert ml.kind == "text" and ml.required and ml.purpose == "skill_years"
     assert city.kind == "radio_group" and not city.required
     assert city.options == ["Hyderabad, Telangana", "Bengaluru, Karnataka"]
     assert pre == {"q:51426676": "2.6"}

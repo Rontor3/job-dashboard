@@ -13,6 +13,7 @@ KNOWN_PURPOSES = frozenset({
     "portfolio_url", "work_authorization", "visa_sponsorship", "prior_contact",
     "conflict_of_interest",
     "years_experience",
+    "skill_years",   # years with ONE named skill/domain — never answered from total experience
     "notice_period", "salary_expectation", "current_ctc", "willing_to_relocate",
     "attestation", "resume_upload", "phone_type", "phone_extension",
     "postal_code", "referral_source",
@@ -117,6 +118,8 @@ _RULES: list[tuple[str, str]] = [
     # No bare \bexperience\b: a long essay prompt ("talk about relevant experience
     # you have...") merely mentions the word and must fall through to judgment,
     # not be forced into this single short numeric-years purpose.
+    (r"\byears? of (?:\w+ ){0,2}experience\b.{0,25}?\b(?:in|with|using|on)\b\s+(?!total\b|overall\b|this\b|the\b|your\b)\S",
+     "skill_years"),
     (r"\byears? of experience\b|\byears? experience\b", "years_experience"),
     (r"\bnotice period\b|\bavailab|\bearliest start\b|\bstart date\b", "notice_period"),
     # What you earn NOW is a different answer from what you expect: the qualifier decides, before the generic rule.

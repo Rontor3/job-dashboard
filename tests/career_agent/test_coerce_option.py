@@ -57,3 +57,14 @@ def test_a_value_on_the_edge_of_two_bands_takes_the_band_it_starts():
     assert pick("2.5") == "1-3 years" and pick("3.2 years") == "3-5 years"
     assert _coerce_option("3", ["Less than 3", "3-5", "More than 5"]) == "3-5"      # exclusive wording unchanged
     assert _coerce_option("3", ["0-3", "4-6"]) == "0-3"                              # no neighbour starts at 3: keep the only fit
+
+def test_duration_values_are_compared_in_days_not_as_bare_numbers():
+    # Live Naukri chatbot 2026-10-03: "60 days" was coerced to "More than 3 Months".
+    from career_agent.orchestrator.screen_review import _coerce_option
+    opts = ["Immediate", "15 Days or less", "1 Month", "2 Months", "3 Months", "More than 3 Months"]
+    assert _coerce_option("60 days", opts) == "2 Months"
+    assert _coerce_option("30 days", opts) == "1 Month"
+    assert _coerce_option("10 days", opts) == "15 Days or less"
+    assert _coerce_option("120 days", opts) == "More than 3 Months"
+    # unitless numbers keep working against unitless bands
+    assert _coerce_option(4, ["1-3 years", "3-5 years"]) == "3-5 years"

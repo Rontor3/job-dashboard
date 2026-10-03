@@ -39,6 +39,8 @@ def resolve(purpose, profile, index=0):
         return profile.contact.get("middle_name") or None   # escalate if absent
     if purpose in _DEMO:                                     # user-provided self-ID
         return profile.contact.get(_DEMO[purpose]) or None
+    if purpose == "skill_years":
+        return None          # no per-skill table: total experience would overclaim -> ask once
     if purpose == "current_ctc":
         return profile.contact.get("current_ctc") or None
     if purpose == "phone_country_code":
