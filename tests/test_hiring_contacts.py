@@ -204,28 +204,24 @@ def test_email_uses_stored_title_company_and_real_first_name(tmp_path, monkeypat
     c = TestClient(create_app(db_path=db, embed_model=None))
     pid = c.get("/api/hiring/posts?within_hours=1000000").json()["posts"][0]["id"]
     q = parse_qs(urlparse(c.post(f"/api/hiring/posts/{pid}/email-draft").json()["gmail_url"]).query)
-    assert q["su"][0] == "Application for the AIML Engineer opening at HIIL"
+    assert q["su"][0] == "AIML Engineer"
     assert q["body"][0].startswith("Hi Ammna,") and "the AIML Engineer role at HIIL" in q["body"][0]
 
 
-def test_requested_subject_from_real_post_formats():
+def test_requested_subject_is_just_the_title():
     rs = C.requested_subject
     # "Subject: …" stops before the hashtags
-    assert rs("resume at: a.b@gramatix.com Subject: Lead AI Engineer – Remote #Hiring #AI", "Rakshit Singh", "30 days") \
-        == "Lead AI Engineer – Remote"
-    # placeholders filled from the profile
-    assert rs("📌 Subject Line: Senior MLOps Engineer - [Your Name] - [Notice Period] 👉 If you have expertise",
-              "Rakshit Singh", "30 days") == "Senior MLOps Engineer - Rakshit Singh - 30 days"
+    assert rs("resume at: a.b@gramatix.com Subject: Lead AI Engineer – Remote #Hiring #AI") == "Lead AI Engineer – Remote"
+    # placeholder parts (name, notice period) are dropped, not filled
+    assert rs("📌 Subject Line: Senior MLOps Engineer - [Your Name] - [Notice Period] 👉 If you have expertise") \
+        == "Senior MLOps Engineer"
     # 'mention “…”' form
-    assert rs("share on my mail. Please mention “Senior Data Scientist – Bangalore” in your application. #Hiring") \
+    assert rs("Please mention “Senior Data Scientist – Bangalore” in your application. #Hiring") \
         == "Senior Data Scientist – Bangalore"
-    # unknown placeholder or nothing asked → None so the caller falls back
-    assert rs("Subject: ML Engineer - [Current CTC] #x", "R", "30 days") is None
-    assert rs("Send your CV to hr@x.com", "R", "30 days") is None
-    assert rs("Subject: Senior MLOps - [Your Name] - [Notice Period]", "R", "") is None   # no notice period on file
+    assert rs("Send your CV to hr@x.com") is None
 
 
-def test_email_subject_uses_requested_else_opening(tmp_path, monkeypatch):
+def test_email_subject_is_the_title(tmp_path, monkeypatch):
     import job_dashboard.api.hiring_routes as R
     from urllib.parse import parse_qs, urlparse
     from job_dashboard.db import init_db, upsert_hiring_post
@@ -240,4 +236,4 @@ def test_email_subject_uses_requested_else_opening(tmp_path, monkeypatch):
     ids = {p["url"]: p["id"] for p in c.get("/api/hiring/posts?within_hours=1000000").json()["posts"]}
     subj = lambda i: parse_qs(urlparse(c.post(f"/api/hiring/posts/{i}/email-draft").json()["gmail_url"]).query)["su"][0]  # noqa: E731
     assert subj(ids["u1"]) == "AIML Engineer – Remote"                        # what the post asked for
-    assert subj(ids["u2"]) == "Application for the AIML Engineer opening at HIIL"
+    assert subj(ids["u2"]) == "AIML Engineer"                                   # no ask → the role title

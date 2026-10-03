@@ -223,22 +223,15 @@ _SUBJ_MENTION = re.compile(r"mention\s+[“\"'‘]([^”\"'’]{4,90})[”\"'’
 _PLACEHOLDER = re.compile(r"[\[<(]\s*([^\]>)]{2,30}?)\s*[\]>)]")
 
 
-def requested_subject(text: str, name: str = "", notice_period: str = "") -> str | None:
-    """The email subject a post asks applicants to use ("Subject: …", "Subject
-    Line: … - [Your Name] - [Notice Period]", 'mention “…” in your application').
-    Known placeholders are filled; None if absent or any placeholder is left
-    unfilled, so the caller falls back to its own subject."""
+def requested_subject(text: str) -> str | None:
+    """The opening title a post asks applicants to use as the email subject
+    ("Subject: …", "Subject Line: … - [Your Name] - [Notice Period]", 'mention
+    “…” in your application'). Parts holding a [placeholder] (name, notice
+    period, CTC…) are dropped, so only the title remains; None if absent."""
     m = _SUBJ_ASK.search(text or "") or _SUBJ_MENTION.search(text or "")
     if not m:
         return None
-    subj = re.sub(r"\s+", " ", m.group(1)).strip(" .-–")
-    fills = {"your name": name, "name": name, "candidate name": name,
-             "full name": name, "notice period": notice_period}
-
-    def fill(mm):
-        v = fills.get(mm.group(1).strip().lower())
-        return v if v else mm.group(0)
-    subj = _PLACEHOLDER.sub(fill, subj)
-    if _PLACEHOLDER.search(subj) or "@" in subj or not (4 <= len(subj) <= 100):
-        return None
-    return subj
+    parts = re.split(r"\s+[-–—|]\s+", re.sub(r"\s+", " ", m.group(1)).strip())
+    keep = [p for p in parts if not _PLACEHOLDER.search(p)]
+    subj = " – ".join(keep).strip(" .-–")
+    return subj if 4 <= len(subj) <= 100 and "@" not in subj else None
