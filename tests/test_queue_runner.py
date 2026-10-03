@@ -112,3 +112,12 @@ def test_missing_job_row_fails_without_launching(tmp_path):
     launch = FakeLaunch({})
     QueueRunner(path, launch, result_dir=str(tmp_path)).drain()
     assert _states(conn)[99] == ("failed", "job_missing") and [c[0] for c in launch.calls] == [1]
+
+
+def test_argv_asks_on_telegram_for_the_configured_wait_unless_zero(tmp_path):
+    path, conn = _db(tmp_path, ids=(1,))
+    runner = QueueRunner(path, None, result_dir=str(tmp_path))
+    argv = runner.argv(conn, URLS[1], 1, "r.json")
+    assert argv[argv.index("--ask-wait-minutes") + 1] == "10"
+    qa_store.set_setting(conn, "telegram_wait_minutes", 0)
+    assert "--ask-wait-minutes" not in runner.argv(conn, URLS[1], 1, "r.json")

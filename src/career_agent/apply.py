@@ -107,6 +107,9 @@ def main() -> None:
     ap.add_argument("--park", action="store_true",
                     help="unattended (apply queue): never wait on the human; unanswerable "
                          "questions are left for the tracker and approvals are denied")
+    ap.add_argument("--ask-wait-minutes", type=float, default=0,
+                    help="with --park and Telegram: ask unanswerable questions live for this long "
+                         "(JD and company page first), then park whatever is still unanswered")
     ap.add_argument("--result-json", default=None, metavar="PATH",
                     help="write a JSON summary of the run here on every exit path")
     args = ap.parse_args()
@@ -294,9 +297,14 @@ def _apply(args, box: dict) -> None:
 
     human = HumanLoop(approver, remote_solve_factory=remote_solve_factory,
                       deadline_s=settings.remote_solve_ttl, collector=collector)
+    jd_seen: dict = {}                       # filled once the landing page is scraped
     if args.park:
         from .integrations.park import park_human
-        human = park_human(notify=_tg.send_message if "_tg" in locals() else None)
+        _client = locals().get("_tg")
+        human = park_human(notify=_client.send_message if _client else None,
+                           telegram=collector if _client else None, client=_client,
+                           wait_s=int(args.ask_wait_minutes * 60),
+                           context_fn=lambda: _escalation_context(conn, args.job_id, jd_seen.get("text")))
         collector, on_link = human.collector, None
     from .browser.page_prep import prepare, classify_entry, enter_application, email_auth, is_application_form
     _cdp_url = args.cdp_url or settings.cdp_url
@@ -325,6 +333,7 @@ def _apply(args, box: dict) -> None:
             jd_text = (page.inner_text("body") or "")[:5000].strip() or None
         except Exception:
             jd_text = None
+        jd_seen["text"] = jd_text
         if jd_text and hasattr(collector, "jd_text"):
             collector.jd_text = jd_text
         # Update judgment ctx with scraped JD so qwen has company context
@@ -537,6 +546,17 @@ def _append_pending_memory(db_path: str, url: str, job_id, result: dict) -> None
         print(f"[memory] pending update written → {out_path}", flush=True)
     except Exception as _e:
         print(f"[memory] pending update failed ({_e})", flush=True)
+
+
+def _escalation_context(conn, job_id, jd_text):
+    """(job description, company page) messages sent ahead of live questions."""
+    from .integrations.escalation import build_context
+    from job_dashboard.artifacts_store import company_resources_for, selected_resources_for
+    from job_dashboard.db import get_job
+    job = (get_job(conn, job_id) if job_id else None) or {}
+    key = (job.get("company") or "").strip().lower()
+    resources = selected_resources_for(conn, key) or company_resources_for(conn, key)
+    return build_context(job, resources, jd_text)
 
 
 def _existing_tab(context, new_page, url):

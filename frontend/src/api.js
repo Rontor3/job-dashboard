@@ -226,3 +226,6 @@ export const pauseQueue = () => fetch("/api/queue/pause", { method: "POST" }).th
 export const fetchAutosubmit = () => fetch("/api/queue/autosubmit").then(json);   // {board: bool}
 export const setAutosubmit = (board, on) =>
   fetch("/api/queue/autosubmit", jsonBody("PUT", { board, on })).then(json);
+export const fetchQueueSettings = () => fetch("/api/queue/settings").then(json);   // {telegram_wait_minutes}
+export const saveQueueSettings = (telegram_wait_minutes) =>
+  fetch("/api/queue/settings", jsonBody("PUT", { telegram_wait_minutes })).then(json);

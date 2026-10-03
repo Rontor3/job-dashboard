@@ -96,6 +96,9 @@ class QueueRunner:
             authorized = qa_store.get_setting(conn, autosubmit_key(url)) == "1"
         except KeyError:
             authorized = False
+        wait = qa_store.get_setting(conn, "telegram_wait_minutes")
+        if wait.isdigit() and int(wait) > 0:
+            argv += ["--ask-wait-minutes", wait]
         return argv + (["--submit", "--autonomous"] if authorized else ["--review"])
 
     def _run_one(self, conn, job_id: int) -> None:

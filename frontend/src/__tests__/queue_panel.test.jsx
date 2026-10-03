@@ -67,3 +67,20 @@ test("auto-submit toggles load on open and save per board", async () => {
   fireEvent.click(naukri);
   await waitFor(() => expect(calls.at(-1)).toEqual(["/api/queue/autosubmit", "PUT", { board: "naukri", on: true }]));
 });
+
+test("the Telegram wait loads, is clamped to 0-120 and saved on blur", async () => {
+  global.fetch = vi.fn((url, opts = {}) => {
+    calls.push([String(url), opts.method || "GET", opts.body ? JSON.parse(opts.body) : null]);
+    const body = String(url).includes("settings") ? { telegram_wait_minutes: 10 }
+      : String(url).includes("autosubmit") ? { naukri: false } : { items: [] };
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+  });
+  render(<QueuePanel queue={{ items: [] }} onChange={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: /auto-submit/i }));
+  const input = await screen.findByLabelText("Telegram wait minutes");
+  expect(input.value).toBe("10");
+  fireEvent.change(input, { target: { value: "999" } });
+  fireEvent.blur(input);
+  await waitFor(() => expect(calls.at(-1)).toEqual(["/api/queue/settings", "PUT", { telegram_wait_minutes: 120 }]));
+  expect(input.value).toBe("120");
+});

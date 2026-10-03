@@ -31,6 +31,10 @@ class QueueMove(BaseModel):
     before: Optional[int] = None
 
 
+class QueueSettings(BaseModel):
+    telegram_wait_minutes: int
+
+
 class AutosubmitSet(BaseModel):
     board: str
     on: bool
@@ -145,6 +149,25 @@ def build_queue_router(db_path, runner: QueueRunner) -> APIRouter:
         try:
             qa_store.set_setting(conn, AUTOSUBMIT_PREFIX + body.board, "1" if body.on else "0")
             return toggles(conn)
+        finally:
+            conn.close()
+
+    @router.get("/api/queue/settings")
+    def get_queue_settings():
+        conn = db()
+        try:
+            return {"telegram_wait_minutes": int(qa_store.get_setting(conn, "telegram_wait_minutes"))}
+        finally:
+            conn.close()
+
+    @router.put("/api/queue/settings")
+    def put_queue_settings(body: QueueSettings):
+        if not 0 <= body.telegram_wait_minutes <= 120:
+            raise HTTPException(status_code=422, detail="telegram_wait_minutes must be 0-120")
+        conn = db()
+        try:
+            qa_store.set_setting(conn, "telegram_wait_minutes", body.telegram_wait_minutes)
+            return {"telegram_wait_minutes": body.telegram_wait_minutes}
         finally:
             conn.close()
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
-  fetchAutosubmit, moveInQueue, pauseQueue, removeFromQueue, setAutosubmit, startQueue,
+  fetchAutosubmit, fetchQueueSettings, moveInQueue, pauseQueue, removeFromQueue, saveQueueSettings,
+  setAutosubmit, startQueue,
 } from "../api.js";
 import { reasonText } from "../queueReasons.js";
 
@@ -57,13 +58,21 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
   const items = queue?.items || [];
   const [auto, setAuto] = useState(null);
   const [showAuto, setShowAuto] = useState(false);
+  const [wait, setWait] = useState(null);
   const queued = items.filter((i) => i.state === "queued").length;
   const parked = items.filter((i) => i.state === "parked").length;
   const running = !!queue?.running;
 
   useEffect(() => {
     if (showAuto && auto === null) fetchAutosubmit().then(setAuto).catch(() => setAuto({}));
-  }, [showAuto, auto]);
+    if (showAuto && wait === null) fetchQueueSettings().then((s) => setWait(s.telegram_wait_minutes)).catch(() => setWait(10));
+  }, [showAuto, auto, wait]);
+
+  const saveWait = (v) => {
+    const n = Math.max(0, Math.min(120, Number(v) || 0));
+    setWait(n);
+    saveQueueSettings(n).catch(() => {});
+  };
 
   const toggle = (board) => setAutosubmit(board, !auto[board]).then(setAuto);
 
@@ -96,8 +105,17 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
       {parked > 0 && <div style={{ fontSize: 11, color: "#9A6B12", marginTop: 6 }}>{parked} parked — answer on the tracker, then re-queue.</div>}
       <button onClick={() => setShowAuto((s) => !s)} aria-expanded={showAuto}
         style={{ ...small, marginTop: 8, padding: 0, fontSize: 11 }}>
-        {showAuto ? "▾" : "▸"} Auto-submit
+        {showAuto ? "▾" : "▸"} Auto-submit &amp; Telegram
       </button>
+      {showAuto && wait !== null && (
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--ink-soft)", marginTop: 6 }}>
+          Ask me on Telegram for
+          <input type="number" min="0" max="120" value={wait} aria-label="Telegram wait minutes"
+            onChange={(e) => setWait(e.target.value)} onBlur={(e) => saveWait(e.target.value)}
+            style={{ width: 46, fontSize: 12, padding: "2px 4px", border: "1px solid var(--hairline)", borderRadius: 6, background: "var(--card)", color: "var(--ink)" }} />
+          min before parking (0 = never ask)
+        </label>
+      )}
       {showAuto && auto && (
         <div style={{ marginTop: 4 }}>
           <p style={{ fontSize: 10, color: "var(--ink-faint)", margin: "0 0 4px" }}>

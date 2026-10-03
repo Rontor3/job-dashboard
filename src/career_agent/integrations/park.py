@@ -37,8 +37,16 @@ class ParkCollector:
         return {}
 
 
-def park_human(notify=None) -> HumanLoop:
-    return HumanLoop(AutoDenyApprover(), remote_solve_factory=None, collector=ParkCollector(notify))
+def park_human(notify=None, telegram=None, client=None, wait_s: int = 0, context_fn=None) -> HumanLoop:
+    """Unattended HumanLoop. With a Telegram collector and a wait, questions are
+    asked live (escalation.py) and only the unanswered ones are parked; without,
+    nothing is asked. Approvals are always denied: submitting is auto-submit's job."""
+    if telegram is not None and client is not None and wait_s > 0:
+        from .escalation import EscalationCollector
+        collector = EscalationCollector(telegram, client, context_fn=context_fn, wait_s=wait_s, notify=notify)
+    else:
+        collector = ParkCollector(notify)
+    return HumanLoop(AutoDenyApprover(), remote_solve_factory=None, collector=collector)
 
 
 def result_summary(out: dict | None) -> dict:

@@ -104,3 +104,12 @@ def test_agent_launch_waits_for_a_busy_agent_then_returns_its_exit_code(monkeypa
     state = State()
     assert make_agent_launch(state, poll_s=0)(7, ["python", "-m", "career_agent.apply"], "/tmp/r.json") == 3
     assert State.tries == 2 and state.cmd[-1] == "career_agent.apply"
+
+
+def test_telegram_wait_setting_roundtrip_and_bounds(tmp_path):
+    c, *_ = _client(tmp_path)
+    assert c.get("/api/queue/settings").json() == {"telegram_wait_minutes": 10}
+    assert c.put("/api/queue/settings", json={"telegram_wait_minutes": 25}).status_code == 200
+    assert c.get("/api/queue/settings").json()["telegram_wait_minutes"] == 25
+    assert c.put("/api/queue/settings", json={"telegram_wait_minutes": 500}).status_code == 422
+    assert c.put("/api/queue/settings", json={"telegram_wait_minutes": -1}).status_code == 422

@@ -80,3 +80,21 @@ def test_graph_loop_asks_a_parked_human_once(monkeypatch):
     out = ap._run_graph({"configurable": {}}, "u", None, False, False, 5, park_human(sent.append))
     assert out["pending_human"] == pending
     assert App.invokes == 1 and len(sent) == 1
+
+
+def test_escalation_context_reads_job_and_company_page_from_the_db(tmp_path):
+    from career_agent.apply import _escalation_context
+    from job_dashboard.artifacts_store import upsert_company_resources
+    from job_dashboard.db import init_db, insert_job
+    from job_dashboard.models import JobListing
+    conn = init_db(str(tmp_path / "t.db"))
+    insert_job(conn, JobListing(source="s", title="ML Eng", company="Acme AI", job_url="http://x/1",
+                                description="Ship models."))
+    jid = conn.execute("SELECT id FROM jobs").fetchone()[0]
+    upsert_company_resources(conn, "acme ai", [{"source_url": "https://acme.ai/about", "title": "About",
+                                                "summary": "Agent tooling."}])
+    jd, company = _escalation_context(conn, jid, None)
+    assert "ML Eng at Acme AI" in jd and "Ship models." in jd
+    assert "https://acme.ai/about" in company and "Agent tooling." in company
+    jd2, company2 = _escalation_context(conn, None, "scraped page text")
+    assert "scraped page text" in jd2 and company2 == ""
