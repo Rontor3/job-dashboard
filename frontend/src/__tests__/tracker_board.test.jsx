@@ -156,3 +156,14 @@ test("running row shows live screenshot and streaming log; other rows don't", as
   expect(screen.getByAltText(/Live view/)).toBeInTheDocument();
   expect(screen.queryByTestId("live-view-2")).toBeNull();
 });
+
+test("a general question defaults to Add to Answers; a why-this-company essay stays with the application", async () => {
+  const general = { id: 8, label: "Expected CTC in LPA?", source: "human", answer: "" };
+  global.fetch = mockFetch({ questions: [general, OPEN_Q] });
+  render(<TrackerBoard onSelect={() => {}} />);
+  fireEvent.click(await screen.findByText("DS"));
+  await screen.findByText("Expected CTC in LPA?");
+  const radios = (id) => screen.getByTestId("questions-1").querySelectorAll(`input[name="mode-${id}"]`);
+  expect([...radios(8)].find((r) => r.checked).parentElement.textContent).toContain("Add to Answers");
+  expect([...radios(7)].find((r) => r.checked).parentElement.textContent).toContain("Just this application");
+});

@@ -254,6 +254,7 @@ def _apply(args, box: dict) -> None:
         print(f"[warn] memory router unavailable ({type(_me).__name__}: {_me})")
     if learn is not None:
         qa_rec.tracer = learn.explain
+        qa_rec.promote_embed = learn.embed         # human replies (Telegram too) join the Answers tab
 
     settings = load_settings()
 

@@ -12,6 +12,7 @@ class QARecorder:
         self.conn, self.job_id = conn, job_id
         self.run_key = run_key or uuid.uuid4().hex
         self.tracer = None      # f -> retrieval fields (memory.retrieval_trace.explain)
+        self.promote_embed = None   # set -> human answers also join the Answers tab (qbank_promote)
         self._labels: dict = {}
         self._meta: dict = {}   # ref -> retrieval fields, merged into that ref's row
 
@@ -59,3 +60,11 @@ class QARecorder:
 
     def answered(self, f, answer):
         self._rec(f.ref, f.label, answer=str(answer), source="human", status="answered")
+        if self.promote_embed is None:
+            return
+        try:
+            from ..memory.qbank_promote import promote_answer
+            if promote_answer(self.conn, f, answer, self.promote_embed):
+                print(f"[qa] saved to Answers: {f.label[:60]!r}", flush=True)
+        except Exception as e:
+            print(f"[qa] could not save to Answers: {e!r}", flush=True)

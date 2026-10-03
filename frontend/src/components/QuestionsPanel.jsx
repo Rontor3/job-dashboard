@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useState } from "react";
 import { fetchJobQuestions, replyQuestion } from "../api.js";
 import EntryPicker from "./EntryPicker.jsx";
 
+// About THIS company ("why do you want to join us") -> stays with the application.
+// Everything else defaults to the Answers tab so it is answered from there next time.
+const COMPANY_Q = /why\s+(this\s+)?(company|role|join|apply|us\b|our|do you want|are you interested)|motivat|what.{0,20}attract|interest\s+in\s+(this|the|our)\s+(role|position|company|job)|tell\s+us\s+why|what\s+interests\s+you/i;
+const defaultMode = (q) => (COMPANY_Q.test(q.label || "") ? "once" : "new");
+
 const INPUT = { fontSize: 12, padding: "6px 10px", border: "0.5px solid var(--hairline)", borderRadius: 8, background: "var(--canvas)", color: "var(--ink)", width: "100%", boxSizing: "border-box" };
 
 // Open questions for one application: ones the agent couldn't answer, or
@@ -21,7 +26,7 @@ export default function QuestionsPanel({ jobId, onChanged }) {
 
   const reply = (q) => {
     const answer = (text[q.id] ?? q.answer ?? "").trim();
-    const m = mode[q.id] || "once";
+    const m = mode[q.id] || defaultMode(q);
     if (!answer || (m === "wording" && !pick[q.id])) return;
     replyQuestion(jobId, q.id, answer, m, m === "wording" ? pick[q.id] : null)
       .then(() => { setErr(null); load(); if (onChanged) onChanged(); })
@@ -69,8 +74,8 @@ export default function QuestionsPanel({ jobId, onChanged }) {
                       value={text[q.id] ?? q.answer ?? ""} placeholder="Your answer"
                       onChange={(e) => setText({ ...text, [q.id]: e.target.value })} />
             <div role="radiogroup" aria-label={`Save ${q.label} as`} style={{ display: "flex", gap: 10, fontSize: 11, margin: "6px 0" }}>
-              {[["once", "Just this application"], ["new", "New questionnaire entry"], ["wording", "Another wording of…"]].map(([v, t]) => (
-                <label key={v}><input type="radio" name={`mode-${q.id}`} checked={(mode[q.id] || "once") === v}
+              {[["new", "Add to Answers"], ["once", "Just this application"], ["wording", "Another wording of…"]].map(([v, t]) => (
+                <label key={v}><input type="radio" name={`mode-${q.id}`} checked={(mode[q.id] || defaultMode(q)) === v}
                                       onChange={() => setMode({ ...mode, [q.id]: v })} /> {t}</label>
               ))}
             </div>
