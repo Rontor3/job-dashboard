@@ -113,6 +113,8 @@ def init_db(path):
     ensure_apply_queue(conn)
     from job_dashboard.tracker import ensure as ensure_tracker
     ensure_tracker(conn)
+    from job_dashboard.mail_scan import ensure as ensure_mail
+    ensure_mail(conn)
     conn.commit()
     return conn
 

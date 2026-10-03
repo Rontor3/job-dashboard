@@ -13,7 +13,8 @@ import json
 import re
 from datetime import datetime, timezone
 
-DEFAULT_SETTINGS = {"telegram_wait_minutes": "10",     # apply queue: live Telegram questions, then park
+DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
+                    "telegram_wait_minutes": "10",     # apply queue: live Telegram questions, then park
                     "answer_confidence_min": "60", "qbank_confident_min": "87", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
                     "browser_naukri_enabled": "0", "browser_wellfound_enabled": "0",
                     "browser_instahyre_enabled": "0", "browser_iimjobs_enabled": "0",

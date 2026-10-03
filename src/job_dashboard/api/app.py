@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from job_dashboard.tracker import set_status
 from job_dashboard.api.agent_routes import AgentRunState, build_agent_router
+from job_dashboard.api.mail_routes import MailScanner, build_mail_router
 from job_dashboard.api.queue_routes import build_queue_router, make_agent_launch
 from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.api.apply_routes import build_apply_router
@@ -32,7 +33,7 @@ def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_embed=None,
-    hiring_role_fn=None, queue_launch=None,
+    hiring_role_fn=None, queue_launch=None, mail_scanner=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -85,6 +86,9 @@ def create_app(
     # inject a fake); default launches career_agent via the shared agent state.
     app.state.queue_runner = QueueRunner(str(db_path), queue_launch or make_agent_launch(agent_state))
     app.include_router(build_queue_router(db_path, app.state.queue_runner))
+    # Mail scan: ``mail_scanner`` overrides Gmail + the LLM (tests); serve.py runs its daily loop.
+    app.state.mail_scanner = mail_scanner or MailScanner(db_path)
+    app.include_router(build_mail_router(db_path, app.state.mail_scanner))
     app.include_router(build_qa_router(db_path, qa_embed))
 
     @contextmanager
