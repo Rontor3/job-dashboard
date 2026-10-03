@@ -44,6 +44,6 @@ def test_dial_code_plus_is_not_an_open_range():
     # so a phone number coerced to Andorra.
     from career_agent.orchestrator.screen_review import _coerce_option
     opts = ["Andorra (+376)", "United Arab Emirates (+971)", "India (+91)"]
-    assert _coerce_option("7565052330", opts) is None
+    assert _coerce_option("9876543210", opts) is None
     assert _coerce_option("+91", opts) == "India (+91)"
     assert _coerce_option(7, ["1-3 years", "5+ years"]) == "5+ years"
