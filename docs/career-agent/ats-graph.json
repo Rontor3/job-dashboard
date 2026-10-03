@@ -746,7 +746,10 @@
         "checkpoint/challenge"
       ],
       "daily_cap": 15,
-      "notes": "Modal (shadow DOM) pages: contact (email select, phone) -> resume -> screening ('years of work experience with <skill>', CTC) -> Review -> Submit application. 'Job search safety reminder' interstitial once per session. SDUI endpoints (flagship-web/rsc-action). Observed 2026-09-27."
+      "notes": "Modal (shadow DOM) pages: contact (email select, phone) -> resume -> screening ('years of work experience with <skill>', CTC) -> Review -> Submit application. 'Job search safety reminder' interstitial once per session. SDUI endpoints (flagship-web/rsc-action). Observed 2026-09-27.",
+      "uncheck": [
+        "Follow .* to stay up to date"
+      ]
     },
     {
       "id": "board:indeed",
@@ -779,7 +782,10 @@
         "secure.indeed.com/auth"
       ],
       "daily_cap": 20,
-      "notes": "smartapply.indeed.com wizard; contact + saved resume prefilled from the Indeed profile; screener questions (graphql FindSQDraftAnswers) -> review-module -> 'Submit your application'. Cloudflare challenge on automated sessions. Observed 2026-09-27."
+      "notes": "smartapply.indeed.com wizard; contact + saved resume prefilled from the Indeed profile; screener questions (graphql FindSQDraftAnswers) -> review-module -> 'Submit your application'. Cloudflare challenge on automated sessions. Observed 2026-09-27.",
+      "uncheck": [
+        "email updates for the latest"
+      ]
     },
     {
       "id": "board:iimjobs",

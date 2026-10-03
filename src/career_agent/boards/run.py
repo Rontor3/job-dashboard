@@ -119,6 +119,24 @@ def _authorized(ctx, board, page, decisions):
     return ok
 
 
+def _untick(page, board):
+    """Before the final click, untick pre-ticked optional opt-ins (LinkedIn's "Follow <company> to stay up to date",
+    Indeed's job-alert emails): applying is not consent to follow or to be mailed. Any checked, non-required box whose
+    label reads as an opt-in (screen_review._MARKETING) goes, plus any pattern the board profile lists."""
+    from ..orchestrator.screen_review import _MARKETING
+    pats = [re.compile(p, re.I) for p in board.get("uncheck", [])] + [_MARKETING]
+    try:
+        boxes = page.locator("input[type=checkbox]:checked:not([required]):not([aria-required=true])")
+        for i in reversed(range(boxes.count())):
+            b = boxes.nth(i)
+            label = b.evaluate("e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label') || '').trim()")
+            if label and any(p.search(label) for p in pats):
+                b.uncheck(timeout=5000, force=True)
+                print(f"[board] unticked optional box {label[:60]!r}", flush=True)
+    except Exception:
+        pass
+
+
 def _interstitials(page, board):
     for sel in board.get("interstitial", []):
         try:
@@ -432,6 +450,7 @@ def run_board(page, board, ctx):
             if final:
                 if not _authorized(ctx, board, page, done_decisions):
                     return stop("dry_run", page)
+                _untick(page, board)
                 irreversible = True
                 try:
                     from ..browser.form_values import read_form_values

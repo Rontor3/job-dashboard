@@ -45,6 +45,10 @@ COVERED = """<html><body><div style="position:relative;width:200px;height:40px">
 <button id="apply" style="position:absolute;inset:0" onclick="fetch('/api/apply',{method:'POST',body:'{}'})">Apply now</button>
 <a style="position:absolute;inset:0;background:#fff" onclick="fetch('/api/apply',{method:'POST',body:'{}'})">Apply now</a></div></body></html>"""
 
+FOLLOW = """<html><body><button id="apply" onclick="m.style.display='block'">Apply</button>
+<div id="m" style="display:none"><label><input id="f" type="checkbox" checked>Follow Acme to stay up to date with their page</label>
+<button onclick="fetch('/api/submit',{method:'POST',body:JSON.stringify({follow:document.getElementById('f').checked})})">Submit application</button></div></body></html>"""
+
 CHALLENGE = "<html><body><h2>Please verify you are human</h2><button id='apply'>Apply</button></body></html>"
 
 
@@ -415,3 +419,19 @@ def test_dialog_membership_is_one_browser_round_trip_for_all_fields():
         got = _dialog_refs(pg, ["#a", "#b", "group:g", "button:Send", "button:Save", "#missing", "f2@@#x"])
         b.close()
     assert got == {"#b", "group:g", "button:Send"} and len(calls) == 1
+
+
+
+def test_optional_follow_box_is_unticked_before_the_final_click(monkeypatch):
+    # Live LinkedIn 2026-10-03: "Follow <company>" is pre-ticked; the user does not want to follow.
+    board = {**_board("no", "/api/submit"), "uncheck": ["Follow .* to stay up to date"]}
+    out, hits = _run(FOLLOW, board, Human(), monkeypatch, do_submit=True, autonomous=True)
+    assert out["submitted"], out
+    assert json.loads(hits[0]) == {"follow": False}
+
+
+def test_a_pre_ticked_opt_in_is_unticked_without_a_board_pattern(monkeypatch):
+    # the opt-in is read from its label (screen_review._MARKETING), not from a per-board list
+    out, hits = _run(FOLLOW, _board("no", "/api/submit"), Human(), monkeypatch, do_submit=True, autonomous=True)
+    assert out["submitted"], out
+    assert json.loads(hits[0]) == {"follow": False}

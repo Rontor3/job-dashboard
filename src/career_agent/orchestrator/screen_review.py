@@ -27,7 +27,7 @@ _NON_RESUME_FILE = re.compile(
 # An opt-in to receive things (never ticked unless the form requires it), as opposed to consent to apply.
 _MARKETING = re.compile(r"newsletter|marketing|promotion|offers?\b|job alerts?|similar (jobs|roles)|notif|"
                         r"\bsms\b|whatsapp|text messages?|updates? (about|on|from)|talent (community|network|pool)|"
-                        r"future (opportunities|openings|roles)|keep me (informed|updated)", re.I)
+                        r"future (opportunities|openings|roles)|keep me (informed|updated)|stay up to date", re.I)
 
 
 def _normalize(value):
