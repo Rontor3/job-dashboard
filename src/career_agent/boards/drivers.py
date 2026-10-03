@@ -13,6 +13,26 @@ from .profiles import json_path
 _DIALOG = "[role=dialog],[aria-modal=true],[class*=modal i]"
 
 
+_DIALOG_REFS_JS = """(refs) => refs.map(r => { try {
+    let el = null;
+    if (r.startsWith('group:')) el = document.querySelector('input[name="' + CSS.escape(r.slice(6)) + '"]');
+    else if (r.startsWith('button:')) el = [...document.querySelectorAll('button')].find(b => (b.innerText || '').trim() === r.slice(7));
+    else el = document.querySelector(r);
+    return !!(el && el.closest('[role=dialog],[aria-modal=true],[class*=modal i]'));
+  } catch (e) { return false; } })"""
+
+
+def _dialog_refs(page, refs):
+    """{ref: True} for top-frame refs sitting inside an open dialog — ONE browser
+    round-trip for all of them (a per-field check cost minutes on LinkedIn)."""
+    top = [r for r in refs if "@@" not in r]
+    try:
+        flags = page.evaluate(_DIALOG_REFS_JS, top)
+    except Exception:
+        return set()
+    return {r for r, inside in zip(top, flags) if inside}
+
+
 def _in_dialog(page, ref):
     """Is the element behind a perception ref inside an open dialog/modal?"""
     try:
@@ -41,8 +61,10 @@ class FormDriver:
         # an open dialog: a board may render its apply modal before the click
         # (Wellfound re-opens an interrupted application on load).
         base = ctx.get("baseline", set())
-        return [f for f in ctx["deps"].snapshot(page)
-                if (f.label, f.kind) not in base or _in_dialog(page, f.ref)]
+        fields = ctx["deps"].snapshot(page)
+        old = [f for f in fields if (f.label, f.kind) in base]
+        inside = _dialog_refs(page, [f.ref for f in old]) if old else set()
+        return [f for f in fields if (f.label, f.kind) not in base or f.ref in inside]
 
     def fields(self, page, board, ctx, cap):
         return [f for f in self._snapshot(page, ctx) if f.kind != "button"]

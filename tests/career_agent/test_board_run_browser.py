@@ -397,3 +397,21 @@ def test_naukri_style_chat_zero_size_wrapper_radio_then_text_then_confirm(monkey
     assert out["submitted"], out
     final = _json.loads(hits[-1])
     assert final["applyData"] == ["Yes", "2 Months"]
+
+
+
+def test_dialog_membership_is_one_browser_round_trip_for_all_fields():
+    # Live LinkedIn 2026-10-03: a per-field check (1.5s each x ~60 baseline fields x several
+    # snapshots per page) made one application take 10+ minutes.
+    from playwright.sync_api import sync_playwright
+    from career_agent.boards.drivers import _dialog_refs
+    html = ("<input id='a'><div role='dialog'><input id='b'><fieldset><input type='radio' name='g'></fieldset></div>"
+            "<button>Save</button><div role='dialog'><button>Send</button></div>")
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page(); pg.set_content(html)
+        calls = []
+        orig = pg.evaluate
+        pg.evaluate = lambda *a, **k: (calls.append(1), orig(*a, **k))[1]
+        got = _dialog_refs(pg, ["#a", "#b", "group:g", "button:Send", "button:Save", "#missing", "f2@@#x"])
+        b.close()
+    assert got == {"#b", "group:g", "button:Send"} and len(calls) == 1
