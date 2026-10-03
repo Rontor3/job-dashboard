@@ -229,3 +229,8 @@ export const setAutosubmit = (board, on) =>
 export const fetchQueueSettings = () => fetch("/api/queue/settings").then(json);   // {telegram_wait_minutes}
 export const saveQueueSettings = (telegram_wait_minutes) =>
   fetch("/api/queue/settings", jsonBody("PUT", { telegram_wait_minutes })).then(json);
+
+// Daily Gmail scan of the companies we applied to (spec: tracker / mail).
+export const fetchJobMail = (id) => fetch(`/api/jobs/${id}/mail`).then(json).then((d) => d.mail || []);
+export const startMailScan = () => fetch("/api/mail-scan", { method: "POST" }).then(json);
+export const fetchMailScanStatus = () => fetch("/api/mail-scan/status").then(json);

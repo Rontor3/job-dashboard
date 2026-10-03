@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import AgentLiveView from "./AgentLiveView.jsx";
 import AgentRunHistory from "./AgentRunHistory.jsx";
 import QuestionsPanel from "./QuestionsPanel.jsx";
+import MailPanel from "./MailPanel.jsx";
+import MailBar from "./MailBar.jsx";
 import AnswersUsed from "./AnswersUsed.jsx";
 import { fetchTracker, patchStatus, fetchApplyAgentStatus, fetchOpenCounts, fetchJob } from "../api.js";
 import { cleanJd } from "../cleanJd.js";
@@ -141,6 +143,7 @@ function Row({ job, agentStatus, onSelect, onMove, expanded, onToggle, openCount
                               borderRadius: "var(--radius-pill)", background: "var(--canvas)", color: "var(--ink-soft)" }}>
           Details
         </button></div>
+        <MailPanel jobId={job.id} />
         <JobDescription jobId={job.id} />
         <QuestionsPanel jobId={job.id} onChanged={onChanged} />
         <AnswersUsed jobId={job.id} />
@@ -201,6 +204,7 @@ export default function TrackerBoard({ onSelect, refreshTick, onStatsChange }) {
 
   return (
     <div style={{ marginTop: 14 }}>
+      <MailBar onChanged={changed} />
       {rows.length > 0 && (
         <>
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 }}>{rows.length} active</div>

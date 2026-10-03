@@ -28,6 +28,8 @@ function mockFetch({ agentStatus = { running: false, job_id: null }, questions =
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 1, lines: ["[step] snapshot...", "[fill] step 1: 4 filled"] }) });
     if (u.includes("/api/apply-agent/status"))
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(agentStatus) });
+    if (u.includes("/mail-scan/status"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ running: false, last_scan: 0, connected: true, last_result: null }) });
     if (u.includes("/api/tracker"))
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(BOARD) });
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
