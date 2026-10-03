@@ -66,3 +66,24 @@ def test_each_yes_no_question_gets_its_own_answer_over_the_sites_prefill():
             return c ? c.parentElement.innerText.trim() : null; })""")
         browser.close()
     assert got == want
+
+def test_check_group_ticks_the_option_in_its_own_group_when_several_share_yes_no():
+    # Live LinkedIn 2026-10-03: three Yes/No questions; "Yes" for the 2nd/3rd landed on the 1st.
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.filler import apply_decisions
+    from career_agent.orchestrator.mapper import FillDecision
+    html = ("<fieldset><legend>Onsite?</legend><label><input type=radio name=q1 value=y>Yes</label>"
+            "<label><input type=radio name=q1 value=n>No</label></fieldset>"
+            "<fieldset><legend>Salary?</legend><label><input type=radio name=q2 value=y>Yes</label>"
+            "<label><input type=radio name=q2 value=n>No</label></fieldset>"
+            "<div role='radiogroup' data-cref-group='g9'><div role='radio' tabindex=0 onclick=\"this.setAttribute('aria-checked','true')\">Yes</div>"
+            "<div role='radio' tabindex=0 onclick=\"this.setAttribute('aria-checked','true')\">No</div></div>")
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page(); pg.set_content(html)
+        apply_decisions(pg, [FillDecision("group:q2", "radio_group", "Salary?", "Yes", "check_group", "human"),
+                             FillDecision("group:q1", "radio_group", "Onsite?", "No", "check_group", "human"),
+                             FillDecision("group:g9", "radio_group", "Custom?", "No", "check_group", "human")])
+        state = pg.evaluate("()=>({q1:document.querySelector('input[name=q1]:checked')?.value, q2:document.querySelector('input[name=q2]:checked')?.value,"
+                            " g9:[...document.querySelectorAll('[data-cref-group=g9] [role=radio]')].map(e=>e.getAttribute('aria-checked'))})")
+        b.close()
+    assert state == {"q1": "n", "q2": "y", "g9": [None, "true"]}

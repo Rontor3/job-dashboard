@@ -161,6 +161,25 @@ def _pick_in_group(page, target, group: str, want: str) -> None:
             continue
 
 
+def _pick_in_aria_group(page, target, group: str, want: str) -> None:
+    """A custom ARIA radiogroup (perception stamped it data-cref-group): click `want` among ITS options only, so several
+    Yes/No questions on one page each get their own answer."""
+    opts = target.locator(f'[data-cref-group="{group}"]').first.locator("[role=radio], label")
+    norm = lambda t: re.sub(r"\W+", " ", (t or "").lower()).strip()
+    texts = [norm(opts.nth(i).inner_text()) for i in range(opts.count())]
+    w = norm(want)
+    idx = next((i for i, t in enumerate(texts) if t == w), None)
+    if idx is None:
+        idx = next((i for i, t in enumerate(texts) if t and (t.startswith(w) or w.startswith(t))), None)
+    if idx is None:
+        return                                  # no such option in this question: leave it for the human
+    try:
+        pace(page)
+        opts.nth(idx).click(timeout=_SOFT_TIMEOUT_MS)
+    except Exception:
+        pass
+
+
 def _pick_radio(page, target, want: str, group: str | None = None) -> None:
     """Select the radio option labelled `want`. Styled radios hide the real <input> (opacity 0, readonly)
     and often carry the question text in their aria-label, so try, in order: label match, the input by
@@ -168,6 +187,8 @@ def _pick_radio(page, target, want: str, group: str | None = None) -> None:
     group = (group or "").replace('"', '\\"')
     if group and target.locator(f'input[type=radio][name="{group}"]').count():
         return _pick_in_group(page, target, group, want)
+    if group and target.locator(f'[data-cref-group="{group}"]').count():
+        return _pick_in_aria_group(page, target, group, want)
     q = want.replace('"', '\\"')
     attempts = (
         lambda: target.get_by_label(want, exact=True).check(timeout=_SOFT_TIMEOUT_MS),
