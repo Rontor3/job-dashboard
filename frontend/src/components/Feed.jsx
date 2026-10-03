@@ -7,7 +7,25 @@ function monogram(company) {
 
 const PILL = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)" };
 
-export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent }) {
+const FILL = {
+  agent: { icon: "⚡ ", bg: "var(--green-tint)", ink: "var(--green)", tip: "The board agent applies here (form or chatbot)" },
+  easy: { icon: "⚡ ", bg: "var(--green-tint)", ink: "var(--green)", tip: "One-click auto-fill works well here (company ATS form)" },
+  maybe: { icon: "◐ ", bg: "#FBF0DC", ink: "#9A6B12", tip: "Auto-fill may work — an external company form" },
+  manual: { icon: "○ ", bg: "#EFEAE1", ink: "var(--ink-faint)", tip: "No agent recognizes this apply flow yet" },
+};
+
+const DONE = ["applied", "interviewing", "offer", "rejected"];
+const BTN = { fontSize: 12, padding: "5px 12px", borderRadius: "var(--radius-pill)", cursor: "pointer", whiteSpace: "nowrap" };
+
+// queue: {items:[{job_id, state}]} — a job still waiting shows its place ("✓ #2").
+function queueLabel(queue, jobId) {
+  const waiting = (queue?.items || []).filter((i) => i.state === "queued" || i.state === "running");
+  const at = waiting.findIndex((i) => i.job_id === jobId);
+  if (at < 0) return null;
+  return waiting[at].state === "running" ? "Filling…" : `✓ #${at + 1}`;
+}
+
+export default function Feed({ jobs, selectedId, onSelect, onApply, onQueue, queue }) {
   if (!jobs.length) {
     return (
       <div style={{ textAlign: "center", padding: "48px 0", color: "var(--ink-soft)" }}>
@@ -17,7 +35,10 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent
   }
   return (
     <ul style={{ listStyle: "none", margin: 0, padding: "10px 0 0", display: "flex", flexDirection: "column", gap: 10 }}>
-      {jobs.map((j, i) => (
+      {jobs.map((j, i) => {
+        const inQueue = queueLabel(queue, j.id);
+        const canApply = j.apply_type?.fill !== "manual" && !DONE.includes(j.status);
+        return (
         <li
           key={j.id}
           role="listitem"
@@ -49,25 +70,36 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent
                     {j.status}
                   </span>
                 )}
+                <span style={{ marginLeft: 8 }}>
+                  {j.verdict ? (
+                    <span
+                      style={{
+                        ...PILL,
+                        ...(j.verdict === "Strong Fit"
+                          ? { background: "var(--gold)", color: "var(--gold-ink)" }
+                          : { background: "var(--green-tint)", color: "var(--green-mid)" }),
+                        animation: "popIn 0.4s var(--ease-pop) both",
+                        animationDelay: `${300 + i * 100}ms`,
+                      }}
+                    >
+                      {j.verdict}
+                    </span>
+                  ) : (
+                    <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>Ranking…</span>
+                  )}
+                </span>
               </div>
               <div className="meta" style={{ color: "var(--ink-soft)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span>{j.company} · {j.location || "—"} · {j.posted_date || ""} · {j.source}</span>
                 {j.apply_type && (
                   <span
-                    title={
-                      j.apply_type.fill === "easy"
-                        ? "One-click auto-fill works well here (company ATS form)"
-                        : j.apply_type.fill === "maybe"
-                          ? "Auto-fill may work — LinkedIn Easy Apply (if logged in) or an external form"
-                          : "Likely manual — Naukri native/chatbot or unknown apply flow"
-                    }
+                    title={(FILL[j.apply_type.fill] || FILL.manual).tip}
                     style={{
                       fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: "var(--radius-pill)", whiteSpace: "nowrap",
-                      background: j.apply_type.fill === "easy" ? "var(--green-tint)" : j.apply_type.fill === "maybe" ? "#FBF0DC" : "#EFEAE1",
-                      color: j.apply_type.fill === "easy" ? "var(--green)" : j.apply_type.fill === "maybe" ? "#9A6B12" : "var(--ink-faint)",
+                      background: (FILL[j.apply_type.fill] || FILL.manual).bg, color: (FILL[j.apply_type.fill] || FILL.manual).ink,
                     }}
                   >
-                    {j.apply_type.fill === "easy" ? "⚡ " : j.apply_type.fill === "maybe" ? "◐ " : "○ "}{j.apply_type.label}
+                    {(FILL[j.apply_type.fill] || FILL.manual).icon}{j.apply_type.label}
                   </span>
                 )}
               </div>
@@ -88,43 +120,29 @@ export default function Feed({ jobs, selectedId, onSelect, onTrack, onApplyAgent
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {j.verdict ? (
-              <span
-                style={{
-                  ...PILL,
-                  ...(j.verdict === "Strong Fit"
-                    ? { background: "var(--gold)", color: "var(--gold-ink)" }
-                    : { background: "var(--green-tint)", color: "var(--green-mid)" }),
-                  animation: "popIn 0.4s var(--ease-pop) both",
-                  animationDelay: `${300 + i * 100}ms`,
-                }}
-              >
-                {j.verdict}
-              </span>
-            ) : (
-              <span style={{ ...PILL, background: "#F1EBE0", color: "var(--ink-soft)" }}>Ranking…</span>
-            )}
             <ScoreBadge value={j.llm_score != null ? j.llm_score / 100 : j.embed_score} />
-            {["saved","applied","interviewing","offer","rejected"].includes(j.status) || j.apply_type?.fill === "easy" ? null : (
-              <button
-                onClick={(e) => { e.stopPropagation(); onTrack && onTrack(j.id); }}
-                style={{ ...PILL, background: "transparent", border: "1px solid var(--green)",
-                         color: "var(--green)", cursor: "pointer" }}>
-                + Track
-              </button>
-            )}
-            {j.apply_type?.fill === "easy" && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onApplyAgent && onApplyAgent(j.id); }}
-                title="Have the career agent fill this application in your Chrome"
-                style={{ ...PILL, background: "var(--green)", color: "#FFFFFF",
-                         border: "none", cursor: "pointer" }}>
-                ⚡ Apply with agent
-              </button>
+            {canApply && (
+                <>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onApply && onApply(j.id); }}
+                    disabled={inQueue === "Filling…"}
+                    title="Fill this application now (jumps the queue)"
+                    style={{ ...BTN, background: "var(--green)", color: "#FFFFFF", border: "none" }}>
+                    Apply
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (!inQueue && onQueue) onQueue(j.id); }}
+                    aria-label={inQueue ? `Queued ${inQueue}` : "Add to queue"}
+                    style={{ ...BTN, background: "transparent", border: "1px solid var(--green)", color: "var(--green)",
+                             cursor: inQueue ? "default" : "pointer" }}>
+                    {inQueue || "+ Queue"}
+                  </button>
+                </>
             )}
           </div>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

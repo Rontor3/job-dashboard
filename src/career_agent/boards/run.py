@@ -13,7 +13,9 @@ from ..orchestrator.answering import answer_fields, record_answers
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 from ..orchestrator.screen_review import apply_answers
 from ..browser.form_model import Field
+from ..orchestrator.sensitive import split_sensitive
 from .drivers import DRIVERS
+from .run_log import BoardRunLog
 from .signals import confirmed, is_challenge, is_logged_out
 
 MAX_STEPS = 8
@@ -201,10 +203,12 @@ def run_board(page, board, ctx):
     res = {"url": page.url, "job_id": ctx.get("job_id"), "board": board["id"], "submitted": False,
            "stopped_reason": None, "decisions": [], "pending_human": []}
     done_decisions = []
+    log = BoardRunLog(ctx.get("run_dir"))           # screenshots + steps for the tracker
 
     def stop(reason, pg):
         res.update(stopped_reason=reason, url=pg.url, submitted=reason == "submitted",
                    decisions=[dataclasses.asdict(d) for d in done_decisions])
+        log.finish(pg, reason, res["pending_human"])
         return res
 
     blocked = _blocked(page, board)
@@ -249,7 +253,11 @@ def run_board(page, board, ctx):
             blocked = _blocked(page, board)
             if blocked:
                 return stop(blocked, page)
-            fields = driver.fields(page, board, ctx, cap)
+            ctx["page_index"] = log.page(page)
+            fields, blocked = split_sensitive(driver.fields(page, board, ctx, cap))
+            if any(f.required for f in blocked):          # bank / ID details: yours to fill, never asked
+                res["pending_human"] = [dataclasses.asdict(f) for f in blocked if f.required]
+                return stop("sensitive_field", page)
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
             if ctx.get("probe"):
                 # Probe: report what would be filled / asked on the first form

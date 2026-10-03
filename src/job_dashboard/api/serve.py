@@ -57,4 +57,10 @@ def _judge(post):
 # résumé; off-family titles and fits below MIN_FIT are dropped.
 app = create_app(hiring_fetcher=_fetcher, embed_model=_model, hiring_role_fn=_judge)
 
+# Daily Gmail scan of the companies we applied to (moves jobs to Interview round /
+# Selected / Rejected). Off in tests: they import api.app directly, never serve.
+import threading  # noqa: E402
+
+threading.Thread(target=app.state.mail_scanner.loop, name="mail-scan-daily", daemon=True).start()
+
 __all__ = ["app"]

@@ -1,6 +1,7 @@
 <!doctype html><html><body>
   <input type="text" aria-label="Light DOM search">
-  <div id="host"></div>
+  <ats-form id="host"></ats-form>      <!-- a custom element, like real web-component ATS forms -->
+  <div id="plain-host"></div>
   <script>
     const r = document.getElementById('host').attachShadow({mode: 'open'});
     r.innerHTML =
@@ -8,9 +9,12 @@
       '<textarea id="wt" aria-label="Why this role"></textarea>' +
       '<button>Submit application</button>';
     // a nested shadow root, to prove recursion
-    const inner = document.createElement('div');
+    const inner = document.createElement('x-phone');
     r.appendChild(inner);
     const r2 = inner.attachShadow({mode: 'open'});
     r2.innerHTML = '<input id="ph" type="tel" aria-label="Phone number">';
+    // a plain <div> shadow host is NOT pierced (perception only walks custom elements)
+    document.getElementById('plain-host').attachShadow({mode: 'open'}).innerHTML =
+      '<input aria-label="Hidden in plain div">';
   </script>
 </body></html>

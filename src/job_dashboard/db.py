@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS match_scores (
 """
 
 VALID_VERDICTS = {"Strong Fit", "Good Fit", "Moderate Fit", "Weak Fit", "Poor Fit"}
-VALID_STATUSES = {"saved", "applied", "interviewing", "offer", "rejected", "dismissed"}
+VALID_STATUSES = {"saved", "applied", "failed", "interviewing", "offer", "rejected", "dismissed"}
 
 
 def init_db(path):
@@ -109,6 +109,12 @@ def init_db(path):
     _ensure_resume_layouts_table(conn)
     from job_dashboard.apply.store import ensure_application_tables
     ensure_application_tables(conn)
+    from job_dashboard.apply.queue import ensure as ensure_apply_queue
+    ensure_apply_queue(conn)
+    from job_dashboard.tracker import ensure as ensure_tracker
+    ensure_tracker(conn)
+    from job_dashboard.mail_scan import ensure as ensure_mail
+    ensure_mail(conn)
     conn.commit()
     return conn
 
@@ -531,22 +537,9 @@ def job_detail(conn, job_id):
 
 
 def tracker_jobs(conn):
-    rows = conn.execute(
-        """SELECT j.id, j.title, j.company, j.location, j.source, j.status,
-                  m.embed_score, m.llm_score, m.verdict, cc.industry, cc.company_type
-           FROM jobs j
-           LEFT JOIN match_scores m ON m.job_id = j.id
-           LEFT JOIN company_classifications cc ON cc.company_key = LOWER(TRIM(j.company))
-           WHERE j.duplicate_of IS NULL
-             AND j.status IN ('saved','applied','interviewing','offer','rejected')
-           ORDER BY j.status_updated_at IS NULL, j.status_updated_at DESC, j.id DESC""").fetchall()
-    keys = ("id","title","company","location","source","status","embed_score",
-            "llm_score","verdict","industry","company_type")
-    buckets = {"saved": [], "applied": [], "interviewing": [], "offer": [], "archived": []}
-    for r in rows:
-        d = dict(zip(keys, r))
-        buckets["archived" if d["status"] == "rejected" else d["status"]].append(d)
-    return buckets
+    """Moved to job_dashboard.tracker (500-line cap); kept here for importers."""
+    from job_dashboard.tracker import tracker_jobs as _tracker_jobs
+    return _tracker_jobs(conn)
 
 
 def dashboard_stats(conn):
@@ -564,6 +557,7 @@ def dashboard_stats(conn):
         "interviewing": one(f"SELECT COUNT(*) {canonical} AND status = 'interviewing'"),
         "offer": one(f"SELECT COUNT(*) {canonical} AND status = 'offer'"),
         "rejected": one(f"SELECT COUNT(*) {canonical} AND status = 'rejected'"),
+        "failed": one(f"SELECT COUNT(*) {canonical} AND status = 'failed'"),
         "dismissed": one(f"SELECT COUNT(*) {canonical} AND status = 'dismissed'"),
         "unranked": one(
             """SELECT COUNT(*) FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id

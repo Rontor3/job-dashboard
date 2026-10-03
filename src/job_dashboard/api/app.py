@@ -5,7 +5,11 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from job_dashboard.api.agent_routes import build_agent_router
+from job_dashboard.tracker import set_status
+from job_dashboard.api.agent_routes import AgentRunState, build_agent_router
+from job_dashboard.api.mail_routes import MailScanner, build_mail_router
+from job_dashboard.api.queue_routes import build_queue_router, make_agent_launch
+from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.api.apply_routes import build_apply_router
 from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
@@ -14,7 +18,7 @@ from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
     dashboard_stats, distinct_classification_values, init_db, job_detail, query_jobs,
-    set_job_status, suspected_duplicates, tracker_jobs,
+    suspected_duplicates, tracker_jobs,
 )
 
 DEFAULT_DB = "data/jobs.db"
@@ -22,13 +26,14 @@ DEFAULT_DB = "data/jobs.db"
 
 class StatusPatch(BaseModel):
     status: Optional[str] = None
+    round: Optional[int] = None          # interview round, with status "interviewing"
 
 
 def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_embed=None,
-    hiring_role_fn=None,
+    hiring_role_fn=None, queue_launch=None, mail_scanner=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -75,7 +80,15 @@ def create_app(
     )
     app.include_router(build_letter_router(db_path, letter_engine))
     app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model, hiring_role_fn))
-    app.include_router(build_agent_router(db_path))
+    agent_state = AgentRunState()
+    app.include_router(build_agent_router(db_path, agent_state))
+    # Apply queue: ``queue_launch`` overrides how a queued job is run (tests
+    # inject a fake); default launches career_agent via the shared agent state.
+    app.state.queue_runner = QueueRunner(str(db_path), queue_launch or make_agent_launch(agent_state))
+    app.include_router(build_queue_router(db_path, app.state.queue_runner))
+    # Mail scan: ``mail_scanner`` overrides Gmail + the LLM (tests); serve.py runs its daily loop.
+    app.state.mail_scanner = mail_scanner or MailScanner(db_path)
+    app.include_router(build_mail_router(db_path, app.state.mail_scanner))
     app.include_router(build_qa_router(db_path, qa_embed))
 
     @contextmanager
@@ -119,7 +132,7 @@ def create_app(
     def patch_status(job_id: int, body: StatusPatch):
         with db() as conn:
             try:
-                set_job_status(conn, job_id, body.status)
+                set_status(conn, job_id, body.status, round=body.round)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except KeyError:

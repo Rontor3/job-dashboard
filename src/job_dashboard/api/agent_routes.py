@@ -24,6 +24,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
+from job_dashboard import qa_store
 from job_dashboard.db import init_db, job_detail
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -64,6 +65,12 @@ class AgentRunState:
             job_id = self._job_id
             return {"running": False, "job_id": job_id,
                     "status": "done" if code == 0 else "error", "exit_code": code}
+
+    def wait(self) -> int:
+        """Block until the current run exits; its exit code (0 if nothing ran)."""
+        with self._lock:
+            proc = self._proc
+        return 0 if proc is None else proc.wait()
 
 
 def _cdp_reachable(cdp_url: str, timeout: float = 1.5) -> bool:
@@ -206,9 +213,17 @@ def _read_live_page(cdp_url: str, job_id: int) -> dict:
         return {"url": None, "title": None, "screenshot_path": None}
 
 
-def build_agent_router(db_path) -> APIRouter:
+def _with_questions(job_id, steps, by_page) -> dict:
+    """The run's pages, each with the questions asked on it; rows with no page
+    (older runs) come back under `unpaged`."""
+    for s in steps:
+        s["questions"] = by_page.get(s["step"], [])
+    return {"job_id": job_id, "steps": steps, "unpaged": by_page.get(None, [])}
+
+
+def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRouter:
     router = APIRouter()
-    state = AgentRunState()
+    state = state or AgentRunState()      # shared with the apply queue's runner
 
     def db():
         return init_db(db_path)
@@ -283,24 +298,40 @@ def build_agent_router(db_path) -> APIRouter:
         conn = db()
         try:
             detail = job_detail(conn, job_id)
+            by_page = qa_store.questions_by_page(conn, job_id)
         finally:
             conn.close()
         if detail is None:
             raise HTTPException(status_code=404, detail="job not found")
         job_url = detail.get("job_url") or ""
+        run_dir = REPO_ROOT / "data" / "agent_runs" / str(job_id)
+
+        from career_agent.boards.profiles import board_for
+        board_log = run_dir / "board_run.json"
+        if board_for(job_url) and board_log.exists():      # board runs log themselves
+            import json
+            try:
+                steps = json.loads(board_log.read_text())
+            except ValueError:
+                steps = []
+            if not steps:
+                raise HTTPException(status_code=404, detail="no agent run found for this job")
+            for s in steps:
+                s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
+                                   if s.get("screenshot") else None)
+            return _with_questions(job_id, steps, by_page)
 
         import hashlib
         from career_agent.orchestrator.run_history import summarize_run
 
         thread_id = hashlib.sha1(job_url.encode()).hexdigest()[:16]
         checkpoint_db = str(REPO_ROOT / "data" / "jobs_graph.db")
-        run_dir = str(REPO_ROOT / "data" / "agent_runs" / str(job_id))
-        steps = summarize_run(thread_id, checkpoint_db, run_dir=run_dir)
+        steps = summarize_run(thread_id, checkpoint_db, run_dir=str(run_dir))
         if not steps:
             raise HTTPException(status_code=404, detail="no agent run found for this job")
         for s in steps:
             s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
                                if s["screenshot"] else None)
-        return {"job_id": job_id, "steps": steps}
+        return _with_questions(job_id, steps, by_page)
 
     return router

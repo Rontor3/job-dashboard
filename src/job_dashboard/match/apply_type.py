@@ -8,11 +8,14 @@ at-a-glance signal, not a guarantee:
 
 - ``kind``  : short machine label
 - ``label`` : short human badge text
-- ``fill``  : how reliably the auto-fill works — "easy" | "maybe" | "manual"
+- ``fill``  : how reliably the auto-fill works — "agent" (a job board the
+  board pipeline applies on, per the board profiles in ats-graph.json) |
+  "easy" | "maybe" | "manual" (no pipeline recognizes it)
 """
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 # Known applicant-tracking-system / company-careers hosts. A job_url on one of
 # these is a real external ATS form (Litmus7-style) the fill handles well.
@@ -30,14 +33,33 @@ _ATS_HOST = re.compile(
 _LINKS_OUT = ("himalayas", "remoteok", "remotive")
 
 
+@lru_cache(maxsize=1)
+def _boards() -> tuple:
+    try:
+        from career_agent.boards.profiles import load_boards
+        return tuple(load_boards())
+    except Exception:
+        return ()
+
+
+def _board(url):
+    try:
+        from career_agent.boards.profiles import board_for
+        return board_for(url, list(_boards()))
+    except Exception:
+        return None
+
+
 def classify_apply_type(source, job_url, apply_kind=None, apply_url=None):
     """Return ``{"kind", "label", "fill"}`` for a job. Never raises."""
-    if apply_kind == "native":  # LinkedIn shadow-DOM Easy Apply: agent can't drive it
-        return {"kind": "easy-apply", "label": "Easy Apply", "fill": "manual"}
     if apply_kind == "external" and apply_url:
         if _ATS_HOST.search(apply_url):
             return {"kind": "external-ats", "label": "ATS form", "fill": "easy"}
         return {"kind": "external", "label": "Company site", "fill": "maybe"}
+    board = _board(job_url)
+    if board:
+        return {"kind": board["id"].split(":", 1)[1], "label": board.get("label") or board["id"],
+                "fill": "agent"}
     src = (source or "").lower()
     url = job_url or ""
 

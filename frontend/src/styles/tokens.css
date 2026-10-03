@@ -15,6 +15,9 @@
   --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --hover-shadow: 0 2px 8px rgba(74, 58, 30, 0.08);
+  /* Status pie (tracker): validated categorical slots 1-6, fixed order, adjacent+wrap pairs. */
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a;
+  --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300;
 }
 
 :root[data-theme="dark"] {
@@ -28,4 +31,6 @@
   --ink:#E8EAED; --ink-soft:#A9B0BA; --ink-faint:#6B7280;
   --ring-track:#2B313B;
   --hover-shadow:0 2px 10px rgba(0,0,0,0.35);
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
+  --series-4:#c98500; --series-5:#d55181; --series-6:#008300;
 }

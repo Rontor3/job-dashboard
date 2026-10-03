@@ -13,16 +13,21 @@ import json
 import re
 from datetime import datetime, timezone
 
-DEFAULT_SETTINGS = {"answer_confidence_min": "60", "qbank_confident_min": "87", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
+DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
+                    "telegram_wait_minutes": "10",     # apply queue: live Telegram questions, then park
+                    "answer_confidence_min": "60", "qbank_confident_min": "87", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
                     "browser_naukri_enabled": "0", "browser_wellfound_enabled": "0",
                     "browser_instahyre_enabled": "0", "browser_iimjobs_enabled": "0",
-                    "browser_indeed_enabled": "0", "browser_ycstartups_enabled": "0"}
+                    "browser_indeed_enabled": "0", "browser_ycstartups_enabled": "0",
+                    # Apply queue: standing per-board authorization to auto-submit (0/1).
+                    **{f"autosubmit_{b}": "0" for b in ("naukri", "linkedin", "indeed", "iimjobs", "instahyre",
+                                                        "wellfound", "workatastartup", "career_site")}}
 
 _COLS = (
     "qkey", "label", "kind", "purpose", "answer", "source", "status",
     "confidence", "basis", "context_json", "unsupported_claims",
     "retrieval_kind", "retrieved_qkey", "retrieval_score", "candidates_json",
-    "outcome",
+    "outcome", "page",
 )
 
 
@@ -42,6 +47,8 @@ def ensure(conn) -> None:
         candidates_json TEXT, outcome TEXT,
         created_at TEXT, updated_at TEXT,
         UNIQUE(run_key, ref))""")
+    if "page" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
+        conn.execute("ALTER TABLE application_qa ADD COLUMN page INTEGER")      # which form page asked it
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_job_status ON application_qa(job_id, status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_qkey ON application_qa(qkey)")
     conn.execute("CREATE TABLE IF NOT EXISTS agent_settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -189,6 +196,42 @@ def answers_used(conn, job_id: int) -> list[dict]:
            AND id = (SELECT MAX(id) FROM application_qa b WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
            ORDER BY id""", (job_id,))
     return [_row(cur, r) for r in cur.fetchall()]
+
+
+def origin(row: dict) -> str:
+    """Where an answer came from, for the tracker's run view:
+    saved_exact / saved (your Answers), similar (a best guess from a similar saved
+    question), model (written by the model), profile (your profile / standard
+    rules), board (prefilled by the job board), you (typed by you), open (no answer)."""
+    src, status = row.get("source"), row.get("status")
+    if src == "qbank_likely":
+        return "similar"
+    if status == "needs_answer":
+        return "open"
+    if src in ("qbank", "learned"):
+        return "saved_exact" if row.get("retrieval_kind") == "exact" else "saved"
+    return {"judgment": "model", "human": "you", "board_prefill": "board"}.get(src, "profile")
+
+
+def questions_by_page(conn, job_id: int) -> dict:
+    """The latest run's questions grouped by form page ({page|None: [question]}),
+    in the order they were asked. Each carries its origin, the saved question it
+    matched, and for model drafts the confidence, basis and prompt used."""
+    ensure(conn)
+    cur = conn.execute("""SELECT * FROM application_qa WHERE job_id = ? AND run_key =
+                          (SELECT run_key FROM application_qa WHERE job_id = ? ORDER BY id DESC LIMIT 1)
+                          ORDER BY id""", (job_id, job_id))
+    out: dict = {}
+    for r in cur.fetchall():
+        d = _row(cur, r)
+        ctx = d.get("context_json")
+        out.setdefault(d.get("page"), []).append({
+            "id": d["id"], "label": d["label"], "kind": d["kind"], "answer": d["answer"], "source": d["source"],
+            "status": d["status"], "origin": origin(d), "matched": d["retrieved_qkey"],
+            "match_kind": d["retrieval_kind"], "score": d["retrieval_score"], "confidence": d["confidence"],
+            "basis": d["basis"], "unsupported_claims": d["unsupported_claims"] or [],
+            "prompt": ctx.get("prompt") if isinstance(ctx, dict) else None, "outcome": d["outcome"]})
+    return out
 
 
 def set_outcome(conn, row_id: int, outcome: str) -> bool:

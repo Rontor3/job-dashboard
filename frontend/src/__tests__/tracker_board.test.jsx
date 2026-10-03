@@ -28,6 +28,8 @@ function mockFetch({ agentStatus = { running: false, job_id: null }, questions =
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 1, lines: ["[step] snapshot...", "[fill] step 1: 4 filled"] }) });
     if (u.includes("/api/apply-agent/status"))
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(agentStatus) });
+    if (u.includes("/mail-scan/status"))
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ running: false, last_scan: 0, connected: true, last_result: null }) });
     if (u.includes("/api/tracker"))
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(BOARD) });
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
@@ -49,21 +51,38 @@ test("renders rows (not columns) with a status pill, plus archived", async () =>
   render(<TrackerBoard onSelect={() => {}} />);
   expect(await screen.findByText("DS")).toBeInTheDocument();
   expect(screen.getByText("MLE")).toBeInTheDocument();
-  expect(screen.getByTestId("status-pill-1")).toHaveTextContent("Saved");
+  expect(screen.getByTestId("status-pill-1")).toHaveTextContent("Queued");
   expect(screen.getByTestId("status-pill-2")).toHaveTextContent("Applied");
   expect(screen.queryByTestId("col-interviewing")).toBeNull(); // no column layout anymore
   expect(screen.getByText("AI")).toBeInTheDocument(); // inside the archived <details>
 });
 
-test("changing the stage select patches to that stage", async () => {
-  render(<TrackerBoard onSelect={() => {}} />);
+test("changing the stage select patches to that stage, with the interview round", async () => {
+  const onStatsChange = vi.fn();
+  render(<TrackerBoard onSelect={() => {}} onStatsChange={onStatsChange} />);
   await screen.findByText("DS");
-  fireEvent.change(screen.getByTestId("stage-1"), { target: { value: "interviewing" } });
+  fireEvent.change(screen.getByTestId("stage-1"), { target: { value: "interviewing:2" } });
   await waitFor(() => {
     const p = lastPatch();
     expect(p.url).toContain("/api/jobs/1/status");
-    expect(p.body.status).toBe("interviewing");
+    expect(p.body).toEqual({ status: "interviewing", round: 2 });
   });
+  await waitFor(() => expect(onStatsChange).toHaveBeenCalled());
+  fireEvent.change(screen.getByTestId("stage-1"), { target: { value: "failed" } });
+  await waitFor(() => expect(lastPatch().body).toEqual({ status: "failed" }));
+});
+
+test("failed rows say why, interviewing rows say the round", async () => {
+  const board = { ...BOARD,
+    failed: [{ id: 4, title: "SWE", company: "Baz", status: "failed", queue_state: "parked", queue_reason: "needs_answers" }],
+    interviewing: [{ id: 5, title: "PM", company: "Qux", status: "interviewing", interview_round: 2 }] };
+  const base = mockFetch();
+  global.fetch = vi.fn((url, opts) => String(url).includes("/api/tracker")
+    ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(board) }) : base(url, opts));
+  render(<TrackerBoard onSelect={() => {}} />);
+  expect(await screen.findByTestId("status-pill-4")).toHaveTextContent("Failed — questions to answer");
+  expect(screen.getByTestId("status-pill-5")).toHaveTextContent("Round 2");
+  expect(screen.getByTestId("stage-5").value).toBe("interviewing:2");
 });
 
 test("select Remove untracks via status null", async () => {
@@ -136,4 +155,15 @@ test("running row shows live screenshot and streaming log; other rows don't", as
   expect(await screen.findByText(/\[fill\] step 1: 4 filled/)).toBeInTheDocument();
   expect(screen.getByAltText(/Live view/)).toBeInTheDocument();
   expect(screen.queryByTestId("live-view-2")).toBeNull();
+});
+
+test("a general question defaults to Add to Answers; a why-this-company essay stays with the application", async () => {
+  const general = { id: 8, label: "Expected CTC in LPA?", source: "human", answer: "" };
+  global.fetch = mockFetch({ questions: [general, OPEN_Q] });
+  render(<TrackerBoard onSelect={() => {}} />);
+  fireEvent.click(await screen.findByText("DS"));
+  await screen.findByText("Expected CTC in LPA?");
+  const radios = (id) => screen.getByTestId("questions-1").querySelectorAll(`input[name="mode-${id}"]`);
+  expect([...radios(8)].find((r) => r.checked).parentElement.textContent).toContain("Add to Answers");
+  expect([...radios(7)].find((r) => r.checked).parentElement.textContent).toContain("Just this application");
 });

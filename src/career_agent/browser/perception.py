@@ -420,7 +420,7 @@ def enrich_with_vision(page, form, vision_fn, shot_path=None):
     import os, tempfile
     path = shot_path or os.path.join(tempfile.gettempdir(), "career_vision_form.png")
     try:
-        page.screenshot(path=path, full_page=True)
+        page.screenshot(path=path, full_page=True, timeout=10000)
     except Exception:
         return form
     info = [{"ref": f.ref, "kind": f.kind, "current_label": f.label,
@@ -432,11 +432,12 @@ def enrich_with_vision(page, form, vision_fn, shot_path=None):
     return apply_vision_labels(form, labels)
 
 
-# Child frames are scanned ONLY when they come from a known embedded ATS.
-# Scanning any other frame (hcaptcha, GTM, analytics, LinkedIn widgets) can
-# block indefinitely — fr.evaluate() has no timeout and will wait for a
-# still-loading or cross-origin frame without throwing.
-_ATS_FRAME_HOSTS = (
+# Which child frames to read. Reading the wrong one can hang (fr.evaluate() has no
+# timeout and waits on a still-loading or cross-origin frame), but an allow-list of
+# hiring providers misses every provider not on it, and a company's own embedded form.
+# So: skip frames known NOT to be applications, skip hidden / tiny ones, give the rest a
+# short load window, then keep a frame only if it holds real form fields.
+ATS_FRAME_HOSTS = (            # trusted: read without the size / content checks
     "greenhouse.io", "ashbyhq.com", "recruitee.com",
     "workable.com", "lever.co",
     "talentrecruit.com", "darwinbox.in",
@@ -444,27 +445,71 @@ _ATS_FRAME_HOSTS = (
     "jobvite.com", "smartrecruiters.com",
     "keka.com", "freshteam.com",
 )
+NON_APPLICATION_FRAME_HOSTS = (  # captcha, analytics, ads, chat / media widgets
+    "recaptcha", "hcaptcha.com", "challenges.cloudflare.com", "turnstile", "arkoselabs.com", "funcaptcha",
+    "geetest.com", "googletagmanager.com", "google-analytics.com", "doubleclick.net", "googlesyndication.com",
+    "facebook.com/tr", "facebook.com/plugins", "connect.facebook.net", "hotjar.com", "intercom.io", "intercomcdn.com",
+    "driftt.com", "drift.com", "zdassets.com", "zendesk.com", "zopim.com", "crisp.chat", "tawk.to",
+    "youtube.com", "youtube-nocookie.com", "player.vimeo.com", "linkedin.com/talentwidget",
+)
+_MIN_FRAME_W, _MIN_FRAME_H = 200, 100       # a reCAPTCHA checkbox is ~300x78; trackers are 0-1px
+_LOAD_WAIT_MS, _TRUSTED_LOAD_WAIT_MS = 1500, 8000
+_FIELD_KINDS = {"text", "email", "tel", "number", "url", "textarea", "select", "combobox", "date", "password"}
+_CAPTCHA_FIELD = re.compile(r"captcha|turnstile|g-recaptcha-response", re.I)
+
+
+def is_denied_frame(url: str) -> bool:
+    """Known not to be an application (captcha / analytics / ads / chat / media), or empty."""
+    return not url or url == "about:blank" or any(h in url for h in NON_APPLICATION_FRAME_HOSTS)
+
+
+def is_trusted_frame(url: str) -> bool:
+    return any(h in (url or "") for h in ATS_FRAME_HOSTS)
+
+
+def looks_like_application(rows: list[dict]) -> bool:
+    """Real form fields: two labelled fields you type or pick into, or one plus a
+    button (a first step that asks only for an email). Captcha response fields,
+    unlabelled inputs and checkbox/radio-only frames (cookie banners) don't count."""
+    fields = [r for r in rows if r.get("kind") in _FIELD_KINDS and (r.get("label") or "").strip()
+              and not _CAPTCHA_FIELD.search(f"{r.get('ref') or ''} {r.get('label') or ''}")]
+    has_button = any(r.get("kind") == "button" for r in rows)
+    return len(fields) >= 2 or (len(fields) >= 1 and has_button)
+
+
+def _frame_is_visible_and_sizeable(fr) -> bool:
+    try:
+        el = fr.frame_element()
+        box = el.bounding_box()
+        return bool(box) and el.is_visible() and box["width"] >= _MIN_FRAME_W and box["height"] >= _MIN_FRAME_H
+    except Exception:
+        return False                              # detached / not attached to a visible element
 
 
 def collect_raw(page) -> list[dict]:
-    """Scan the main frame AND every child frame (embedded ATS iframes). Child
-    frames' refs are frame-qualified so the filler targets the right frame."""
+    """Scan the main frame AND the child frames that can hold an application (embedded
+    ATS iframes). Child frames' refs are frame-qualified so the filler targets the right frame."""
     out = []
     frames = page.frames
     print(f"[perc] {len(frames)} frames", flush=True)
     for idx, fr in enumerate(frames):        # frames[0] is the main frame
-        print(f"[perc] frame {idx}: {fr.url[:60]!r}", flush=True)
+        url = fr.url or ""
+        print(f"[perc] frame {idx}: {url[:60]!r}", flush=True)
+        trusted = False
         try:
             if idx > 0:
-                url = fr.url or ""
-                if not any(h in url for h in _ATS_FRAME_HOSTS):
-                    continue                      # not an ATS embed — skip to avoid blocking
+                if is_denied_frame(url):
+                    continue                      # captcha / analytics / ads / chat: never an application
+                trusted = is_trusted_frame(url)
+                if not trusted and not _frame_is_visible_and_sizeable(fr):
+                    continue                      # hidden, tracking pixel or widget-sized
+                fr.wait_for_load_state("domcontentloaded", timeout=_TRUSTED_LOAD_WAIT_MS if trusted else _LOAD_WAIT_MS)
             rows = fr.evaluate(_INPUT_JS)
         except Exception:
-            continue                              # detached / cross-origin / blocked
+            continue                              # detached / cross-origin / still loading / blocked
         if idx == 0:
             out.extend(rows)
-        else:
+        elif trusted or looks_like_application(rows):
             for r in rows:
                 r["ref"] = f"f{idx}{_FRAME_SEP}{r['ref']}"
                 out.append(r)
@@ -500,7 +545,7 @@ def snapshot_form(page, verify_shot: str | None = None) -> list[Field]:
     # visible was missed. Saved to /tmp by default; caller can override.
     shot = verify_shot or os.path.join(tempfile.gettempdir(), "career_agent_perception.png")
     try:
-        page.screenshot(path=shot, full_page=True)
+        page.screenshot(path=shot, full_page=True, timeout=5000)   # debug record: never wait 30s on a stuck frame
         print(f"[perc] snapshot: {len(fields)} fields — verify screenshot → {shot}", flush=True)
     except Exception:
         print(f"[perc] snapshot: {len(fields)} fields", flush=True)

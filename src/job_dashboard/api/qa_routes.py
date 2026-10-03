@@ -60,6 +60,19 @@ def _browser_flags(conn) -> dict:
     return {f"browser_{s}_enabled": qa_store.get_setting(conn, f"browser_{s}_enabled") == "1" for s in BROWSER_SITES}
 
 
+def _requeue_if_unblocked(conn, job_id: int) -> bool:
+    """A job the apply queue parked or failed goes back to the end of the queue
+    once its last open question is answered — the bank now has the answers."""
+    from job_dashboard.apply import queue as apply_queue
+    row = conn.execute("SELECT state FROM apply_queue WHERE job_id = ?", (job_id,)).fetchone()
+    if row is None or row[0] not in ("parked", "failed") or qa_store.open_questions(conn, job_id):
+        return False
+    apply_queue.enqueue(conn, job_id)
+    from job_dashboard.db import set_job_status
+    set_job_status(conn, job_id, "saved")          # Failed -> Queued on the tracker
+    return True
+
+
 def build_qa_router(db_path, embed=None) -> APIRouter:
     router = APIRouter()
 
@@ -197,9 +210,10 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
                 same = (prior_answer or "").strip().casefold() == ans.casefold()
                 qa_store.set_outcome(conn, row_id, "kept" if same else "edited")
             qa_store.mark_answered(conn, job_id, qa_store.norm_key(label), ans, keep_source=keep_source)
+            requeued = _requeue_if_unblocked(conn, job_id)
         finally:
             conn.close()
-        return {"ok": True}
+        return {"ok": True, "requeued": requeued}
 
     @router.get("/api/jobs/{job_id}/answers-used")
     def answers_used(job_id: int):

@@ -11,6 +11,8 @@ def answer_fields(fields, ctx):
     so likely fills and gaps surface for review on every path (graph and boards)."""
     qa = ctx.get("qa")
     if qa:
+        if ctx.get("page_index") is not None:
+            qa.page = ctx["page_index"]            # the tracker groups questions by form page
         qa.trace_all(fields)
     recalled, remaining = [], list(fields)
     learn = ctx.get("learn")

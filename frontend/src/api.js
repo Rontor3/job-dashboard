@@ -11,11 +11,11 @@ export function fetchJobs(params = {}) {
   return fetch(`/api/jobs?${qs}`).then(json);
 }
 export const fetchJob = (id) => fetch(`/api/jobs/${id}`).then(json);
-export const patchStatus = (id, status) =>
+export const patchStatus = (id, status, round = null) =>
   fetch(`/api/jobs/${id}/status`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(round ? { status, round } : { status }),
   }).then(json);
 export const fetchTracker = () => fetch("/api/tracker").then(json);
 export const fetchDuplicates = () => fetch("/api/duplicates").then(json);
@@ -196,7 +196,26 @@ export const fetchIngredients = () => fetch("/api/ingredients").then(json);
 export const fetchRetrievalStats = () => fetch("/api/retrieval/stats").then(json);
 export const fetchRetrievalRecent = (limit = 30) =>
   fetch(`/api/retrieval/recent?limit=${limit}`).then(json).then((d) => d.recent || []);
-export const fetchAnswersUsed = (id) =>
-  fetch(`/api/jobs/${id}/answers-used`).then(json).then((d) => d.answers || []);
 export const reviewAnswer = (rowId, verdict, entry_id = null) =>
   fetch(`/api/application-qa/${rowId}/review`, jsonBody("POST", { verdict, entry_id })).then(json);
+
+// Apply queue (spec 2026-09-27-jobs-page-queue): jobs filled one after another.
+export const fetchQueue = () => fetch("/api/queue").then(json);          // {items, running, paused, job_id}
+export const addToQueue = (jobId, { front = false, start = false } = {}) =>
+  fetch("/api/queue", jsonBody("POST", { job_id: jobId, front, start })).then(json);
+export const removeFromQueue = (jobId) => fetch(`/api/queue/${jobId}`, { method: "DELETE" }).then(json);
+export const moveInQueue = (jobId, before) =>
+  fetch(`/api/queue/${jobId}/move`, jsonBody("POST", { before })).then(json);
+export const startQueue = () => fetch("/api/queue/start", { method: "POST" }).then(json);
+export const pauseQueue = () => fetch("/api/queue/pause", { method: "POST" }).then(json);
+export const fetchAutosubmit = () => fetch("/api/queue/autosubmit").then(json);   // {board: bool}
+export const setAutosubmit = (board, on) =>
+  fetch("/api/queue/autosubmit", jsonBody("PUT", { board, on })).then(json);
+export const fetchQueueSettings = () => fetch("/api/queue/settings").then(json);   // {telegram_wait_minutes}
+export const saveQueueSettings = (telegram_wait_minutes) =>
+  fetch("/api/queue/settings", jsonBody("PUT", { telegram_wait_minutes })).then(json);
+
+// Daily Gmail scan of the companies we applied to (spec: tracker / mail).
+export const fetchJobMail = (id) => fetch(`/api/jobs/${id}/mail`).then(json).then((d) => d.mail || []);
+export const startMailScan = () => fetch("/api/mail-scan", { method: "POST" }).then(json);
+export const fetchMailScanStatus = () => fetch("/api/mail-scan/status").then(json);

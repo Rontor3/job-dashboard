@@ -29,3 +29,5 @@ def test_perception_pierces_shadow_dom():
     assert any("Phone number" in l for l in labels)
     # shadow button captured
     assert any(l == "Submit application" and kinds[l] == "button" for l in labels)
+    # only custom elements are walked (a plain <div> shadow host is skipped on purpose)
+    assert not any("Hidden in plain div" in l for l in labels)

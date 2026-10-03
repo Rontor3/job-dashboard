@@ -2,6 +2,15 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: var(--font-sans); background: var(--canvas); color: var(--ink); }
 .shell { max-width: 1100px; margin: 0 auto; padding: 32px 16px; }
+/* Jobs page: sidebar (nav, filters, queue) on the left, content fills the rest. */
+.layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 20px; max-width: 1360px; margin: 0 auto; padding: 24px 16px; align-items: start; }
+.sidebar { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 14px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.sidebar > * { flex-shrink: 0; }
+.sidebar-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin: 0 0 6px; }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: static; max-height: none; }
+}
 .meta { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em; }
 @keyframes rowIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes popIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: scale(1); } }

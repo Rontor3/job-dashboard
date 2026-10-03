@@ -14,7 +14,7 @@ const CHIPS = [
 // sources actually present in the feed, so naukri/wellfound show up too).
 const FALLBACK_SOURCES = ["remotive", "remoteok", "himalayas", "jobspy:linkedin", "jobspy:indeed"];
 
-export default function FilterBar({ filters, setFilters }) {
+export default function FilterBar({ filters, setFilters, stacked = false }) {
   const [classifications, setClassifications] = useState({ industries: [], company_types: [], sources: [] });
 
   useEffect(() => {
@@ -39,7 +39,9 @@ export default function FilterBar({ filters, setFilters }) {
     });
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "12px 0 0" }}>
+    <div style={stacked
+      ? { display: "flex", flexDirection: "column", alignItems: "stretch", gap: 8 }
+      : { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "12px 0 0" }}>
       <input
         type="search"
         placeholder="Search roles, companies…"
