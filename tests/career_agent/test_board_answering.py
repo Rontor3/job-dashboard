@@ -56,19 +56,7 @@ def test_ladder_ignores_memory_router(monkeypatch):
     assert d == [] and [f.ref for f in needs] == ["a"]
 
 
-def test_every_field_is_recorded_to_qa(monkeypatch):
-    import career_agent.orchestrator.screen_review as sr
-    monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
-    qa = QA()
-    answer_fields([_f("a", "Known"), _f("b", "Other")], {"learn": Learn(), "profile": None, "qa": qa})
-    assert qa.log == [("trace", ["a", "b"]), ("decision", "a"), ("needs", "b")]
 
-
-def test_record_answers_keeps_them_per_application_only():
-    qa = QA()
-    record_answers([_f("a", "CTC"), _f("b", "Blank")], {"a": " 22 ", "b": "  "}, {"qa": qa})
-    assert qa.log == [("answered", "a", "22")]
-    record_answers([_f("a", "CTC")], {"a": "22"}, {})      # no recorder: nothing to do, no error
 
 
 def test_unlabelled_widget_gets_a_readable_name_for_the_human():
@@ -148,3 +136,16 @@ def test_paired_location_is_answered_from_the_profile_without_asking():
     prof.contact["willing_to_relocate"] = False
     d, _ = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
     assert {x.ref: x.value for x in d} == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
+def test_every_field_is_recorded_to_qa(monkeypatch):
+    import career_agent.orchestrator.screen_review as sr
+    monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
+    qa = QA()
+    answer_fields([_f("a", "Known"), _f("b", "Other")], {"learn": Learn(), "profile": None, "qa": qa})
+    assert qa.log == [("trace", ["a", "b"]), ("decision", "a"), ("needs", "b")]
+
+
+def test_record_answers_keeps_them_per_application_only():
+    qa = QA()
+    record_answers([_f("a", "CTC"), _f("b", "Blank")], {"a": " 22 ", "b": "  "}, {"qa": qa})
+    assert qa.log == [("answered", "a", "22")]
+    record_answers([_f("a", "CTC")], {"a": "22"}, {})      # no recorder: nothing to do, no error

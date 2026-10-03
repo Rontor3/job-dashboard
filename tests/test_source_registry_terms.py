@@ -17,5 +17,5 @@ def test_jobspy_is_indeed_only_and_himalayas_results_are_title_gated():
     assert sr.REGION_SEARCHES == [("India", ["indeed"], "india")]   # LinkedIn stays a CDP source
     jobs = [_job("AI Engineer"), _job("Social Media Executive")]
     with patch.object(sr, "fetch_himalayas_jobs", return_value=jobs):
-        himalayas = sr.job_sources()[2]           # per term: jobspy-indeed, remotive, himalayas, naukri
+        himalayas = sr.job_sources()[2]           # per term: jobspy-indeed, remotive, himalayas
         assert [j.title for j in himalayas()] == ["AI Engineer"]

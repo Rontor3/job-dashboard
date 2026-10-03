@@ -122,7 +122,7 @@ Block **"Apply With LinkedIn"**, **"Apply With Indeed"**, **"Apply with SEEK"** 
 
 ### Remaining gaps (open)
 
-- **Phone country code**: `spl-phone-field` stores `{country}` separately from the number. DOM fill sets the number (`inpValue: "7565052330"`) but the country code stays at the form's default (Romania +40). Need to select country from the `spl-dropdown-search` inside `spl-phone-field` before filling the number.
+- **Phone country code**: `spl-phone-field` stores `{country}` separately from the number. DOM fill sets the number (`inpValue: "9876543210"`) but the country code stays at the form's default (Romania +40). Need to select country from the `spl-dropdown-search` inside `spl-phone-field` before filling the number.
 - **City autocomplete**: `get_by_label("City").click()` opens the input, but options only appear after typing. Need to type the city name first, then read and click options. City options are inside the shadow DOM — `[role=option]` search on the whole page may miss them.
 - **Resume upload visual confirmation**: `set_input_files` via chained locator succeeds, but SR parses the resume asynchronously. Experience/Education sections auto-populate after a ~2s delay — check those sections, not the dropzone label, to verify the upload worked.
 

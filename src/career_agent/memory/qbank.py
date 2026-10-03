@@ -6,7 +6,7 @@ qbank_entry   one row per distinct question: type, the user's answer (or the
 qbank_wording every wording confirmed to mean an entry, with its MiniLM vector:
               repeat wordings are exact hits, new ones are compared by meaning.
 
-data/qbank_seed.json carries questions/wordings/rules but NEVER answers —
+qbank_seed.json (next to this module) carries questions/wordings/rules but NEVER answers —
 answers are typed on the dashboard and live only in jobs.db (PII stays local)."""
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import numpy as np
 
 from job_dashboard.qa_store import norm_key as norm
 
-SEED_PATH = Path(__file__).resolve().parents[3] / "data" / "qbank_seed.json"
+SEED_PATH = Path(__file__).with_name("qbank_seed.json")
 _JSON_COLS = ("slots", "synonyms")
 _DEF_COLS = ("question", "topic", "atype", "profile_ref", "rule", "slots", "synonyms", "shape")
 _KIND_ATYPE = {"select": "choice", "radio_group": "choice", "combobox": "choice", "checkbox": "bool"}

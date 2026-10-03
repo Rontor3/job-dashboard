@@ -201,6 +201,16 @@ def test_judge_confident_answer_fills_and_unknown_confidence_does_not():
     assert [d.ref for d in ok] == ["#q"]
 
 
+def test_judge_drafts_prose_purposes_the_profile_cannot_fill():
+    # Live Work at a Startup 2026-09-27: the founder-message box was classified
+    # (motivation/summary) and so never reached the drafter.
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    msg = _f("#m", "Start a conversation with the team at Acme. Why does Acme interest you?",
+             kind="textarea", purpose="motivation", required=False)
+    answered, still_need, _ = judge([msg], ctx, _conf_llm(90), min_conf=60)
+    assert [x.ref for x in answered] == ["#m"] and answered[0].source == "judgment"
+
+
 def test_judge_forwards_story_text(monkeypatch):
     from career_agent.orchestrator import judgment
     seen = {}
@@ -215,13 +225,3 @@ def test_judge_forwards_story_text(monkeypatch):
     f = Field("#m", "textarea", "Why do you want to join us?", True, [], None, None)
     judge([f], ctx, llm=lambda p: "")
     assert seen["story"] == "Q: a\nA: b"
-
-
-def test_judge_drafts_prose_purposes_the_profile_cannot_fill():
-    # Live Work at a Startup 2026-09-27: the founder-message box was classified
-    # (motivation/summary) and so never reached the drafter.
-    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
-    msg = _f("#m", "Start a conversation with the team at Acme. Why does Acme interest you?",
-             kind="textarea", purpose="motivation", required=False)
-    answered, still_need, _ = judge([msg], ctx, _conf_llm(90), min_conf=60)
-    assert [x.ref for x in answered] == ["#m"] and answered[0].source == "judgment"

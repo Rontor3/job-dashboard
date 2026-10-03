@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from .screen_review import PROSE_PURPOSES
 try:
     from job_dashboard.apply.screening import draft_screening_answer
 except Exception:
     draft_screening_answer = None      # answerer unavailable -> free-text escalates
-from .screen_review import PROSE_PURPOSES
 
 
 @dataclass
