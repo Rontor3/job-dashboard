@@ -81,6 +81,7 @@ def _detail(session, url):
 def run(session, ctx):
     from job_dashboard.match.relevance import is_target_role
     seen, queue, found = set(), [], {}
+    ctx.partial = found                  # salvaged by the runner if this run dies midway
     ctx.stats.setdefault("off_target", 0)
     try:
         for term in ctx.terms:

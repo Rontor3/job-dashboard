@@ -235,3 +235,21 @@ def test_insert_as_you_go_stores_each_site_immediately_and_returns_nothing():
         session_factory=lambda cap: make_session(FakePage(), max_loads=cap), insert_as_you_go=True)
     assert listings == [] and results[0].new == 2
     assert c.execute("SELECT COUNT(*) FROM jobs WHERE source='linkedin'").fetchone()[0] == 2
+
+
+def test_failed_run_keeps_what_it_already_collected():
+    import os, tempfile
+    from job_dashboard.db import init_db
+    c = init_db(os.path.join(tempfile.mkdtemp(), "j.db"))
+    qa_store.set_setting(c, "browser_linkedin_enabled", "1")
+
+    def run(s, ctx):
+        found = {"1": L(1), "2": L(2)}
+        ctx.partial = found
+        raise RuntimeError("Target page, context or browser has been closed")
+    listings, results = runner.fetch_browser_sources(
+        c, adapters={"linkedin": (run, ["t"])}, reachable=lambda u: True,
+        session_factory=lambda cap: make_session(FakePage(), max_loads=cap), insert_as_you_go=True)
+    assert results[0].new == 2 and "kept 2" in results[0].note and "error" in results[0].note
+    assert c.execute("SELECT COUNT(*) FROM jobs WHERE source='linkedin'").fetchone()[0] == 2
+    assert state.get(c, "linkedin")["last_error"].startswith("RuntimeError")      # still recorded as a failure

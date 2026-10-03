@@ -81,6 +81,7 @@ def run(session, ctx):
     hours = 720 if ctx.mode == "backfill" else ctx.hours
     cutoff = time.time() - hours * 3600
     seen, pending, found = set(), {}, {}
+    ctx.partial = found                  # salvaged by the runner if this run dies midway
     ctx.stats.setdefault("off_target", 0)
     try:
         for term in ctx.terms:

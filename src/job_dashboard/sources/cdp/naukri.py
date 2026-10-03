@@ -94,6 +94,7 @@ def run(session, ctx):
     hours = 720 if ctx.mode == "backfill" else ctx.hours
     ctx.stats.setdefault("off_target", 0)
     seen_ids, seen_text, pending, found = set(), set(), {}, {}
+    ctx.partial = found                  # salvaged by the runner if this run dies midway
     ctx.stats.setdefault("collapsed", 0)
     try:
         for term in ctx.terms:

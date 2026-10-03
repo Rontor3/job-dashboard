@@ -75,13 +75,25 @@ def fetch_browser_sources(conn, *, adapters=ADAPTERS, cdp_url=CDP_URL, session_f
             state.record_run(conn, site, ok=True, new=res.new, skipped=res.skipped_known,
                              backfill_done=done, now=now)
         except Blocked as exc:
-            res.note = f"blocked: {exc}"
+            res.new = _salvage(conn, ctx, listings, insert_as_you_go)
+            res.note = f"blocked: {exc}" + (f" (kept {res.new} already collected)" if res.new else "")
             state.record_run(conn, site, ok=False, error=f"Blocked: {exc}", now=now)
         except Exception as exc:                       # one site must never break Refresh
-            res.note = f"error: {exc}"
+            res.new = _salvage(conn, ctx, listings, insert_as_you_go)
+            res.note = f"error: {exc}" + (f" (kept {res.new} already collected)" if res.new else "")
             state.record_run(conn, site, ok=False, error=f"{type(exc).__name__}: {exc}", now=now)
         results.append(res)
     return listings, results
+
+
+def _salvage(conn, ctx, listings, insert_as_you_go):
+    """A run that dies midway (block, closed tab, timeout) must not throw away the jobs it already read."""
+    p = ctx.partial
+    got = list(p.values()) if isinstance(p, dict) else list(p or [])
+    if insert_as_you_go:
+        return sum(1 for j in got if insert_job(conn, j))
+    listings.extend(got)
+    return len(got)
 
 
 def _save_anchor_fn(conn, site):

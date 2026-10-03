@@ -28,6 +28,7 @@ class AdapterContext:
     anchor: int = 0                            # per-site persisted cursor (e.g. highest id seen)
     save_anchor: Optional[Callable[[int], None]] = None  # persists the anchor immediately
     hours: float = 48                          # incremental look-back window: a site bucket, or exact hours (EXACT_WINDOW sites)
+    partial: object = None                     # the adapter's live `found` collection (dict or list), for salvage on failure
     stats: dict = field(default_factory=lambda: {"skipped_known": 0, "pages": 0})
 
 

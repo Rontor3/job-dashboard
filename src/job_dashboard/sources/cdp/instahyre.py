@@ -67,6 +67,7 @@ def run(session, ctx, today=None):
     today = today or date.today()
     cutoff = today - timedelta(days=RETENTION_DAYS)
     cands, found, off = {}, [], set()
+    ctx.partial = found                  # salvaged by the runner if this run dies midway
     ctx.stats.setdefault("skipped_stale", 0)
     ctx.stats.setdefault("off_target", 0)
     try:

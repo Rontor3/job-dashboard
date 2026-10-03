@@ -46,6 +46,7 @@ def run(session, ctx):
     ctx.stats.setdefault("off_target", 0)
     days = POSTING[next((b for b in sorted(POSTING) if b >= hours), max(POSTING))]   # round up to a supported window
     seen, todo, found = set(), [], []
+    ctx.partial = found                  # salvaged by the runner if this run dies midway
     try:
         session.goto("https://www.iimjobs.com/k/data-scientist-jobs")
         for term in ctx.terms:

@@ -81,6 +81,7 @@ def run(session, ctx):
     from job_dashboard.match.relevance import is_target_role
     cutoff = time.time() - (720 if ctx.mode == "backfill" else ctx.hours) * 3600
     seen, found = set(), []
+    ctx.partial = found                  # salvaged by the runner if this run dies midway
     ctx.stats.setdefault("off_target", 0)
 
     def walk(tpl, title, max_pages):
