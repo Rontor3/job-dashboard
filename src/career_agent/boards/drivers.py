@@ -113,11 +113,19 @@ class ChatDriver(FormDriver):
                 box.wait_for(timeout=8000)
                 text = _norm(box.inner_text())
             except Exception:
+                try:
+                    seen = page.evaluate("""() => [...document.querySelectorAll('[class*=chat i],[id*=chat i]')]
+                        .filter(e => e.checkVisibility()).map(e => (e.className || e.id).toString().slice(0, 50) + ' :: ' +
+                        (e.innerText || '').slice(0, 80).replace(/\\n/g, ' ')).slice(0, 5)""")
+                except Exception:
+                    seen = "?"
+                print(f"[board] chat container {chat['container']!r} not found; chat-like elements: {seen}", flush=True)
                 return
             if _norm(chat["done"]) in text:
                 return
             asked = [f for f in pending if _norm(f.label) in text]
             if not asked:
+                print(f"[board] chat asked something not in our answers: {text[-160:]!r}", flush=True)
                 return                        # bot asked something we hold no answer for
             f = max(asked, key=lambda f: text.rfind(_norm(f.label)))   # the latest bubble
             pending.remove(f)
