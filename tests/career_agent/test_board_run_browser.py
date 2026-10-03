@@ -333,3 +333,67 @@ def test_entry_covered_by_an_overlay_link_is_still_clicked(monkeypatch):
     out, hits = _run(COVERED, _board("yes", "/api/apply"), Human(), monkeypatch, do_submit=True, autonomous=True)
     assert out["submitted"], out
     assert len(hits) == 1
+
+
+
+CHAT_PAGE = """<html><body><button id="apply-button">Apply</button>
+<div class="_chatBotContainer" style="position:relative;width:0;height:0"><div id="bub" style="position:absolute;width:320px"></div></div>
+<script>
+const QS = [{t:'radio', q:'Are you currently residing in Gurugram or willing to relocate to Gurugram?', o:['Yes','No']},
+            {t:'text', q:'What is your notice period?'}];
+let i = 0, answers = [];
+function post(body) { return fetch('/api/apply', {method:'POST', body: JSON.stringify(body)}); }
+function show() {
+  const b = document.getElementById('bub');
+  if (i >= QS.length) { b.innerHTML += '<p>Thank you for your responses.</p>'; post({applyData: answers}); return; }
+  const q = QS[i]; let h = '<p>' + q.q + '</p>';
+  if (q.t == 'radio') h += q.o.map(o => '<label class="ssrc__label"><input type="radio" class="ssrc__radio" name="r">' + o + '</label>').join('') +
+      '<label class="ssrc__label"><input type="radio" class="ssrc__radio" name="r">Skip this question</label><div class="sendMsg">Save</div>';
+  else h += '<div class="textArea" contenteditable="true" tabindex="0"></div>';
+  b.innerHTML += h;
+  const ta = b.querySelector('.textArea:last-of-type');
+  if (ta) ta.addEventListener('keydown', e => { if (e.key == 'Enter') { answers.push(ta.innerText.trim()); i++; show(); } });
+  const sv = b.querySelector('.sendMsg:last-of-type');
+  if (sv) sv.addEventListener('click', () => { const c = b.querySelector('input:checked'); answers.push(c ? c.parentElement.innerText.trim() : ''); i++; show(); });
+}
+document.getElementById('apply-button').onclick = async () => { await post({flowtype:'show'}); show(); };
+</script></body></html>"""
+
+
+def test_naukri_style_chat_zero_size_wrapper_radio_then_text_then_confirm(monkeypatch):
+    # Live Naukri chatbot 2026-10-03: wrapper has zero size (never "visible"), single
+    # choice = ssrc__radio/label + Save, text = contenteditable textArea + Enter.
+    import json as _json
+    from career_agent.boards.profiles import board_for
+    board = {**board_for("https://www.naukri.com/job-listings-x-1"),
+             "entry": {"selector": "#apply-button", "submits": "maybe"},
+             "questions": {"capture": "/api/apply", "path": "jobs[0].questionnaire", "parser": "naukri"},
+             "confirm": [{"capture": "/api/apply", "request_match": "applyData", "status": 200}]}
+    qn = [{"questionId": "1", "questionName": "Are you currently residing in Gurugram or willing to relocate to Gurugram?",
+           "questionType": "Radio Button", "isMandatory": True, "answerOption": {"1": "Yes", "2": "No"}},
+          {"questionId": "2", "questionName": "What is your notice period?", "questionType": "Text Box", "isMandatory": True}]
+    hits = []
+
+    def handle(route):
+        if "/api/" in route.request.url:
+            body = route.request.post_data or ""
+            hits.append(body)
+            payload = {"jobs": [{"questionnaire": qn}]} if "flowtype" in body else {"ok": True}
+            return route.fulfill(status=200, content_type="application/json", body=_json.dumps(payload))
+        route.fulfill(status=200, content_type="text/html", body=CHAT_PAGE)
+
+    from playwright.sync_api import sync_playwright
+    from career_agent.boards import run as run_mod
+    from career_agent.orchestrator.browser_deps import BrowserDeps
+    monkeypatch.setattr(run_mod, "answer_fields", lambda fields, c: ([], list(fields)))
+    h = Human(answers={qn[0]["questionName"]: "Yes", qn[1]["questionName"]: "2 Months"})
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page()
+        page.route("http://board.test/**", handle)
+        page.goto("http://board.test/job")
+        out = run_mod.run_board(page, board, {"deps": BrowserDeps(), "human": h, "profile": None,
+                                              "do_submit": True, "autonomous": True})
+        b.close()
+    assert out["submitted"], out
+    final = _json.loads(hits[-1])
+    assert final["applyData"] == ["Yes", "2 Months"]

@@ -680,7 +680,7 @@
       "chat": {
         "container": "._chatBotContainer",
         "input": "div.textArea",
-        "option": "label.mcc__label",
+        "option": "label.mcc__label, label.ssrc__label",
         "send": "div.sendMsg",
         "done": "Thank you for your responses"
       },
@@ -705,7 +705,7 @@
         "register to apply"
       ],
       "daily_cap": 40,
-      "notes": "Apply POST returns either 'successfully applied' (no questions = instant apply) or questionnaire[] with Naukri-profile prefillData; chat answers POST chatbot-services/botapi/v5/respond until isLeafNode, then apply POST carries applyData. Never open myapply/saveApply as a page (error page, yet it applies). Observed 2026-09-26. Second apply path (2026-10-02): Apply does a full-page redirect to myapply/saveApply?...&multiApplyResp={\"<jobId>\":200} = applied."
+      "notes": "Apply POST returns either 'successfully applied' (no questions = instant apply) or questionnaire[] with Naukri-profile prefillData; chat answers POST chatbot-services/botapi/v5/respond until isLeafNode, then apply POST carries applyData. Never open myapply/saveApply as a page (error page, yet it applies). Observed 2026-09-26. Second apply path (2026-10-02): Apply does a full-page redirect to myapply/saveApply?...&multiApplyResp={\"<jobId>\":200} = applied. Chat wrapper ._chatBotContainer has zero size (use state=attached); single-choice = input.ssrc__radio + label.ssrc__label (+ 'Skip this question'), multi = mcc__label; answer then div.sendMsg 'Save'; text = div.textArea + Enter."
     },
     {
       "id": "board:linkedin",

@@ -110,7 +110,9 @@ class ChatDriver(FormDriver):
         box = page.locator(chat["container"]).first
         for _ in range(len(pending) + 2):
             try:
-                box.wait_for(timeout=8000)
+                # Naukri's wrapper has zero size (content overflows it), so Playwright
+                # calls it "hidden": wait for it to be attached, not visible.
+                box.wait_for(state="attached", timeout=8000)
                 text = _norm(box.inner_text())
             except Exception:
                 try:
@@ -134,12 +136,14 @@ class ChatDriver(FormDriver):
 
     def _answer(self, page, chat, value):
         opts, hit = page.locator(chat["option"]), False
-        for i in range(opts.count()):
-            o = opts.nth(i)
-            t = _norm(o.inner_text())
-            if t and (t in _norm(value) or _norm(value) in t):
-                o.click()
-                hit = True
+        want = _norm(value)
+        labels = [(i, _norm(opts.nth(i).inner_text())) for i in range(opts.count())]
+        # An exact option wins ("No" must not match "Not sure" / "Skip this question").
+        picks = [i for i, t in labels if t and t == want] or \
+                [i for i, t in labels if t and not t.startswith("skip") and (t in want or want in t)]
+        for i in picks:
+            opts.nth(i).click()
+            hit = True
         if hit:
             page.locator(chat["send"]).last.click()
             return
