@@ -215,3 +215,30 @@ def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None
     except Exception:  # noqa: BLE001
         pass
     return out
+
+
+_SUBJ_ASK = re.compile(
+    r"Subject(?:\s*Line)?\s*[:\-–]\s*(.+?)(?=\s+(?:[#👉📌📧📩✉]|If |Please |Like |Comment|Reactions?)|\s*…|\s*$)", re.I)
+_SUBJ_MENTION = re.compile(r"mention\s+[“\"'‘]([^”\"'’]{4,90})[”\"'’]", re.I)
+_PLACEHOLDER = re.compile(r"[\[<(]\s*([^\]>)]{2,30}?)\s*[\]>)]")
+
+
+def requested_subject(text: str, name: str = "", notice_period: str = "") -> str | None:
+    """The email subject a post asks applicants to use ("Subject: …", "Subject
+    Line: … - [Your Name] - [Notice Period]", 'mention “…” in your application').
+    Known placeholders are filled; None if absent or any placeholder is left
+    unfilled, so the caller falls back to its own subject."""
+    m = _SUBJ_ASK.search(text or "") or _SUBJ_MENTION.search(text or "")
+    if not m:
+        return None
+    subj = re.sub(r"\s+", " ", m.group(1)).strip(" .-–")
+    fills = {"your name": name, "name": name, "candidate name": name,
+             "full name": name, "notice period": notice_period}
+
+    def fill(mm):
+        v = fills.get(mm.group(1).strip().lower())
+        return v if v else mm.group(0)
+    subj = _PLACEHOLDER.sub(fill, subj)
+    if _PLACEHOLDER.search(subj) or "@" in subj or not (4 <= len(subj) <= 100):
+        return None
+    return subj

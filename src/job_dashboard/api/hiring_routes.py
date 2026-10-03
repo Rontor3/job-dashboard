@@ -14,7 +14,7 @@ from job_dashboard.db_hiring import hiring_post
 from job_dashboard.artifacts_store import cover_letters_for_job, save_cover_letter
 from job_dashboard.db import job_detail
 from job_dashboard.apply import gmail_draft
-from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post_to_job, _regex_role
+from job_dashboard.linkedin.contacts import extract_contacts, extract_role, post_to_job, _regex_role, requested_subject
 from job_dashboard.linkedin.enrich import research_role, enriched_description
 from job_dashboard.linkedin.hiring_digest import KEYWORDS, run_digest
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
@@ -119,8 +119,8 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
             job = conn.execute("SELECT id, title, company FROM jobs WHERE job_url = ?",
                                (post["url"],)).fetchone()
             letters = cover_letters_for_job(conn, job[0]) if job else []
-            me = conn.execute("SELECT full_name, phone, linkedin_url, email FROM application_profile").fetchone()
-        name, phone, linkedin, account = me or ("", "", "", "")
+            me = conn.execute("SELECT full_name, phone, linkedin_url, email, notice_period FROM application_profile").fetchone()
+        name, phone, linkedin, account, notice = me or ("", "", "", "", "")
         guess = _regex_role(post)
         title = (job[1] if job else "") or post.get("role_title") or guess["title"]
         company = (job[2] if job else "") or post.get("company") or guess["company"]
@@ -133,7 +133,9 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
                 f"to be considered. I'm a Data Scientist at Tata AIG working on ML fraud-detection "
                 f"systems and LLM pipelines; my résumé is attached.\n\n"
                 f"Happy to share more or set up a quick call.\n\nBest,\n{name}\n{phone}\n{linkedin}")
-        subject = f"Application: {title or 'your opening'}{at} — {name}"
+        # The subject the post asks for, else a plain description of the opening.
+        subject = (requested_subject(post["text"], name, notice)
+                   or f"Application for the {title or 'open'} opening{at}")
         # Always the résumé the user supplied — never a generated one.
         pdf = current_resume_pdf()
         # What the recruiter sees — not the internal "current_resume.pdf".
