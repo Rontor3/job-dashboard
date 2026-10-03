@@ -7,9 +7,10 @@ from career_agent.memory.qbank_rules import (NO_INPUT_RULES, RULE_HELP, RULES, R
 BANK = {"home_address": "C-12, Sector 5, Noida 201301", "local_cities": "Noida, Delhi, Gurugram"}
 
 
-def ctx(question="", answer=None, escape=None, job=None, bank=None):
+def ctx(question="", answer=None, escape=None, job=None, bank=None, options=None, synonyms=None):
     b = bank or {}
-    return RuleCtx(question, answer, escape, job or {}, lambda eid: b.get(eid))
+    return RuleCtx(question, answer, escape, job or {}, lambda eid: b.get(eid),
+                   options=options or [], synonyms=synonyms or {})
 
 
 def test_local_or_escape():
@@ -83,3 +84,37 @@ def test_shapes():
 def test_seed_only_uses_known_rules():
     used = {e["rule"] for e in json.loads(SEED_PATH.read_text())["entries"] if e.get("rule")}
     assert used <= set(RULES) and NO_INPUT_RULES <= set(RULES) and set(RULE_HELP) == set(RULES)
+
+
+ARR = "Remote > Hybrid > Onsite"
+SYN = {"Remote": ["remote", "remotely", "work from home", "wfh"], "Hybrid": ["hybrid"],
+       "Onsite": ["onsite", "on-site", "in office", "in-person", "from the office"]}
+
+
+def pctx(question="", answer=ARR, options=None, synonyms=SYN):
+    return RuleCtx(question, answer, None, {}, lambda e: None, options=options or [], synonyms=synonyms)
+
+
+def test_preference_pick_one_takes_highest_ranked_offered():
+    r = RULES["preference"]
+    assert r(pctx(options=["Onsite", "Hybrid", "Remote"])) == "Remote"
+    assert r(pctx(options=["On-site (office)", "Hybrid"])) == "Hybrid"
+    assert r(pctx(options=["On-site (office)"])) == "On-site (office)"     # only onsite offered -> onsite is fine
+    assert r(pctx(options=["Contract", "Intern"])) is None                 # nothing maps -> no answer
+
+
+def test_preference_yes_no_uses_named_alternative():
+    r = RULES["preference"]
+    for q in ("Are you comfortable working in an onsite setting?", "Open to working remotely?",
+              "Are you open to remote or hybrid roles?"):
+        assert r(pctx(q, options=["Yes", "No"])) == "Yes", q
+    assert r(pctx("Are you open to onsite?", answer="Remote > Hybrid; not: Onsite", options=["Yes", "No"])) == "No"
+    assert r(pctx("Open to remote or onsite?", answer="Remote; not: Onsite")) is None      # mixed
+    assert r(pctx("Are you open to the arrangement?", options=["Yes", "No"])) is None      # none named
+
+
+def test_preference_text_and_unanswered():
+    r = RULES["preference"]
+    assert r(pctx("What is your preferred work mode?")) == "Remote"        # no options, none named -> top choice
+    assert r(pctx("Open to onsite?", answer=None)) is None
+    assert r(pctx("Open to onsite?", answer="")) is None

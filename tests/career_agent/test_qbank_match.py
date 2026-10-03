@@ -95,3 +95,13 @@ def test_page_declared_input_type_drives_shape(qbank_conn, fake_embed, make_fiel
     assert (m.band, v) == (LIKELY, "30") and "shape email" in m.note
     m, _ = answer_field(qbank_conn, make_field("Notice period", input_type="number"), embed=fake_embed)
     assert m.band == CONFIDENT
+
+
+def test_preference_entry_answers_pick_one_and_yes_no(qbank_conn, fake_embed, make_field):
+    f = make_field("What is your preferred work arrangement (remote, hybrid or onsite)?", "radio_group",
+                   ["Onsite", "Hybrid", "Remote"])
+    m, v = answer_field(qbank_conn, f, embed=fake_embed)
+    assert (m.entry_id, v) == ("work_arrangement", "Remote")
+    f = make_field("Are you comfortable working in an onsite setting?", "radio_group", ["Yes", "No"])
+    m, v = answer_field(qbank_conn, f, embed=fake_embed)
+    assert (m.entry_id, v) == ("work_arrangement", "Yes")
