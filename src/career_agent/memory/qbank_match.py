@@ -146,7 +146,15 @@ def resolve_value(conn, entry, *, question, escape, job, contact, options=(), _d
                           options=list(options), synonyms=entry.get("synonyms") or {}))
     if entry.get("profile_ref"):
         v = (contact or {}).get(entry["profile_ref"])
-        return None if v is None or str(v).strip() == "" else str(v).strip()
+        if v is None or str(v).strip() == "":
+            return None
+        v_str = str(v).strip().lower()
+        if entry.get("atype") == "bool":
+            if v_str in {"1", "true", "yes", "y"}:
+                return "Yes"
+            elif v_str in {"0", "false", "no", "n"}:
+                return "No"
+        return str(v).strip()
     a = entry.get("answer")
     return a if a and a.strip() else None
 
