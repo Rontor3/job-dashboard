@@ -187,8 +187,8 @@ def test_email_draft_opens_gmail(tmp_path, monkeypatch):
     monkeypatch.setattr(R.gmail_draft, "create_draft",
                         lambda msg: sent.append(msg) or {"draft_id": "r1", "message_id": "abc123"})
     d = c.post(f"/api/hiring/posts/{pid}/email-draft").json()
-    assert d["gmail_url"].endswith("#drafts?compose=abc123") and d["attached"] == "cv.pdf"
-    assert sent[0]["To"] == "hiring@fship.in" and sent[0].get_payload()[1].get_filename() == "cv.pdf"
+    assert d["gmail_url"].endswith("#drafts?compose=abc123") and d["attached"].endswith("_Resume.pdf") and "cv" not in d["attached"]
+    assert sent[0]["To"] == "hiring@fship.in" and sent[0].get_payload()[1].get_filename() == d["attached"]
 
 
 def test_email_uses_stored_title_company_and_real_first_name(tmp_path, monkeypatch):

@@ -24,13 +24,14 @@ class DraftAuthError(RuntimeError):
     pass
 
 
-def compose_message(to, subject, body, attachment: pathlib.Path | None = None) -> EmailMessage:
+def compose_message(to, subject, body, attachment: pathlib.Path | None = None,
+                    filename: str | None = None) -> EmailMessage:
     msg = EmailMessage()
     msg["To"], msg["Subject"] = to, subject
     msg.set_content(body)
     if attachment is not None:
         msg.add_attachment(attachment.read_bytes(), maintype="application",
-                           subtype="pdf", filename=attachment.name)
+                           subtype="pdf", filename=filename or attachment.name)
     return msg
 
 

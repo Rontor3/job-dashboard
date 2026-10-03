@@ -136,11 +136,13 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
         subject = f"Application: {title or 'your opening'}{at} — {name}"
         # Always the résumé the user supplied — never a generated one.
         pdf = current_resume_pdf()
+        # What the recruiter sees — not the internal "current_resume.pdf".
+        attach_name = (re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_") or "Resume") + "_Resume.pdf"
         if gmail_draft.authorized() and pdf.exists():
             try:
-                d = gmail_draft.create_draft(gmail_draft.compose_message(to, subject, body, pdf))
+                d = gmail_draft.create_draft(gmail_draft.compose_message(to, subject, body, pdf, filename=attach_name))
                 return {"gmail_url": gmail_draft.draft_url(d["message_id"], account),
-                        "attached": pdf.name, "to": to}
+                        "attached": attach_name, "to": to}
             except Exception:  # noqa: BLE001 — token revoked etc. → compose URL below
                 pass
         return {"gmail_url": gmail_draft.compose_url(to, subject, body, account),
