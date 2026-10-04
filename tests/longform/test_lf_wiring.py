@@ -1,0 +1,51 @@
+from types import SimpleNamespace as NS
+
+from career_agent.orchestrator import judgment
+from career_agent.orchestrator.judgment import JudgmentContext, judge
+
+
+def field(label="Why do you want to join us?"):
+    return NS(ref="r1", kind="textarea", label=label, purpose=None, required=True, options=[], description="")
+
+
+def test_the_longform_hook_answers_prose_fields_instead_of_the_old_drafter(monkeypatch):
+    def old_drafter(*a, **k): raise AssertionError("the old drafter must not run")
+    monkeypatch.setattr(judgment, "draft_screening_answer", old_drafter)
+    res = {"answer": "From longform.", "confidence": 90, "flags": [], "unsupported_company_claims": [], "basis": "b",
+           "prompt": "p", "needs": ["why_company"], "project_id": "p-graph", "used": ["story:x"]}
+    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": "d"}, longform=lambda q, f: res)
+    seen = []
+    answered, still, _ = judge([field()], ctx, llm=lambda p: "", on_draft=lambda f, r, filled: seen.append(r))
+    assert [d.value for d in answered] == ["From longform."] and still == []
+    assert seen[0]["project_id"] == "p-graph"
+
+
+def test_a_failing_or_empty_hook_falls_back_to_the_old_drafter(monkeypatch):
+    calls = []
+    monkeypatch.setattr(judgment, "draft_screening_answer",
+                        lambda *a, **k: calls.append(1) or {"answer": "Old.", "confidence": 80, "flags": [],
+                                                           "unsupported_company_claims": []})
+
+    def boom(q, f): raise RuntimeError("longform broke")
+    for hook in (boom, lambda q, f: None):
+        ctx = JudgmentContext(job={"title": "t", "company": "c", "description": "d"}, longform=hook)
+        answered, _, _ = judge([field()], ctx, llm=lambda p: "")
+        assert [d.value for d in answered] == ["Old."]
+    assert len(calls) == 2
+
+
+def test_without_a_hook_nothing_changes(monkeypatch):
+    monkeypatch.setattr(judgment, "draft_screening_answer",
+                        lambda *a, **k: {"answer": "Old.", "confidence": 80, "flags": [], "unsupported_company_claims": []})
+    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": "d"})
+    assert [d.value for d in judge([field()], ctx, llm=lambda p: "")[0]] == ["Old."]
+
+
+def test_the_recorder_keeps_how_the_draft_was_built():
+    from career_agent.orchestrator.qa_recorder import QARecorder
+    rec = QARecorder.__new__(QARecorder)
+    captured = {}
+    rec._rec = lambda ref, label, **kw: captured.update(kw)
+    rec.on_draft(field(), {"answer": "A", "confidence": 90, "basis": "b", "prompt": "P", "needs": ["intro"],
+                           "project_id": "p-ocr", "used": ["card:p-ocr"], "unsupported_company_claims": []}, True)
+    assert captured["context_json"] == {"prompt": "P", "needs": ["intro"], "project_id": "p-ocr", "used": ["card:p-ocr"]}

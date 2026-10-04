@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 from pathlib import Path as _RunPath
 
 
@@ -93,6 +94,9 @@ def main() -> None:
                     help="jobs-table id whose JD grounds judgment-tier free-text answers")
     ap.add_argument("--no-llm", action="store_true",
                     help="skip judgment + combobox LLM tiers (fast dry-run)")
+    ap.add_argument("--longform", action="store_true",
+                    help="long free-text answers via the need-based pipeline (plan -> retrieve -> write -> verify); "
+                         "also on if CAREER_AGENT_LONGFORM=1. Falls back to the old drafter on any failure.")
     ap.add_argument("--no-telegram", action="store_true",
                     help="force CLI collector (stdin) even if Telegram is configured")
     ap.add_argument("--screenshot", default=None,
@@ -200,6 +204,11 @@ def _apply(args, box: dict) -> None:
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
+            if args.longform or os.getenv("CAREER_AGENT_LONGFORM") == "1":
+                from .longform.pipeline import make_longform
+                ctx.longform = make_longform(conn, job, contact, llm, ctx.research,
+                                             _RunPath(args.db).parent / "answer_style" / "ingredients.json")
+                print("[longform] need-based long answers ON", flush=True)
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
