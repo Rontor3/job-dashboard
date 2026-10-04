@@ -43,4 +43,6 @@ def draft(question, chunks, job, llm, limit=None, avoid=()) -> dict:
             answer, confidence, basis = _parse_reply(raw)
     except Exception:
         answer = confidence = basis = None
-    return {"answer": answer or None, "confidence": confidence, "basis": basis, "prompt": prompt}
+    # parsed: True if JSON was successfully parsed (confidence or basis extracted), False for prose/empty/error
+    parsed = confidence is not None or basis is not None
+    return {"answer": answer or None, "confidence": confidence, "basis": basis, "parsed": parsed, "prompt": prompt}

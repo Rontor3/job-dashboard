@@ -26,6 +26,33 @@ def test_draft_parses_the_models_json_and_survives_failure():
     assert draft("q", CHUNKS, JOB, lambda p: "")["answer"] is None
 
 
+def test_draft_parsed_true_for_valid_json():
+    result = draft("q", CHUNKS, JOB, lambda p: json.dumps({"answer": "Hello", "confidence": 88, "basis": "story"}))
+    assert result["parsed"] is True
+    assert result["answer"] == "Hello"
+    assert result["confidence"] == 88
+    assert result["basis"] == "story"
+
+
+def test_draft_parsed_false_for_prose():
+    result = draft("q", CHUNKS, JOB, lambda p: "Sure! I would say I love fraud detection.")
+    assert result["answer"] == "Sure! I would say I love fraud detection."
+    assert result["confidence"] is None
+    assert result["basis"] is None
+    assert result["parsed"] is False
+
+
+def test_draft_parsed_false_for_empty_or_error():
+    result_empty = draft("q", CHUNKS, JOB, lambda p: "")
+    assert result_empty["answer"] is None
+    assert result_empty["parsed"] is False
+
+    def boom(p): raise TimeoutError
+    result_error = draft("q", CHUNKS, JOB, boom)
+    assert result_error["answer"] is None
+    assert result_error["parsed"] is False
+
+
 def test_distinct_terms_are_unique_to_the_project(kb):
     graph = distinct_terms(kb, "p-graph")
     assert {"neo4j", "gnn", "graph entity resolution", "fraud"} <= graph and "ml" not in graph
