@@ -1,0 +1,26 @@
+{
+  "version": 1, "updated": "2026-10-04", "note": "synthetic test fixture",
+  "skills_pool": ["Python", "SQL", "PyTorch", "AWS", "Docker"],
+  "units": [
+    {"id": "p-churn", "type": "project", "title": "Churn Prediction Service", "org": "Acme Corp",
+     "problem": "customer churn was found too late", "approach": "gradient boosting models served behind a REST API",
+     "tech": ["XGBoost", "FastAPI", "Docker"], "impact": ["cut churn 8%"], "tags": ["churn", "ML", "production", "API"],
+     "source": "Churn Prediction Service - built gradient boosting churn models and served them via FastAPI."},
+    {"id": "p-ocr", "type": "project", "title": "Document OCR Scoring", "org": "Acme Corp",
+     "problem": "claim documents were reviewed by hand", "approach": "OCR plus a vision model to score document authenticity",
+     "tech": ["OCR", "PyTorch", "Vision"], "impact": ["review time down 60%"], "tags": ["OCR", "vision", "documents", "LLM"],
+     "source": "Document OCR Scoring - OCR and vision model scoring of claim documents."},
+    {"id": "p-graph", "type": "project", "title": "Graph Entity Resolution", "org": "Acme Corp",
+     "problem": "fraud rings were invisible in tabular data", "approach": "graph neural network to find communities of linked accounts",
+     "tech": ["GNN", "NetworkX", "Neo4j"], "impact": ["found 40 rings"], "tags": ["graph-ML", "GNN", "fraud", "community-detection"],
+     "source": "Graph Entity Resolution - GNN based community detection over account graphs."},
+    {"id": "p-portfolio", "type": "project", "title": "Portfolio Optimizer", "org": "Acme Corp",
+     "problem": "passive ETF allocation ignored risk", "approach": "Monte-Carlo simulation to optimise weights",
+     "tech": ["Monte-Carlo", "cvxpy", "Pandas"], "impact": ["Sharpe +0.3"], "tags": ["quant-finance", "optimization", "ETF"],
+     "source": "Portfolio Optimizer - Monte-Carlo driven ETF weight optimisation."},
+    {"id": "role-current", "type": "work_experience", "title": "Data Scientist", "org": "Acme Corp",
+     "problem": "", "approach": "", "tech": [], "impact": [], "tags": ["ML"], "source": "Data Scientist at Acme Corp."},
+    {"id": "edu-btech", "type": "education", "title": "B.Tech", "org": "Some University",
+     "problem": "", "approach": "", "tech": [], "impact": [], "tags": ["education"], "source": "B.Tech, Some University."}
+  ]
+}
