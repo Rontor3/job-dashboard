@@ -56,3 +56,30 @@ def test_a_prior_choice_wins_and_is_marked(kb):
     plan = plan_needs("Describe a project", "jd", kb, llm, prior_project="p-ocr")
     assert plan.project_id == "p-ocr" and plan.source == "prior"
     assert plan_needs("Describe a project", "jd", kb, llm, prior_project="nope").project_id == "p-churn"
+
+
+def test_deduplicates_repeated_needs_before_capping():
+    """Duplicate needs should be deduped before MAX_NEEDS slice, not eaten by it."""
+    result = parse_plan(json.dumps({"needs": ["intro", "intro", "intro", "why_company"]}), IDS)
+    assert result is not None
+    assert result.needs == ("intro", "why_company")
+
+
+def test_never_raises_on_unhashable_project_id():
+    """parse_plan should guard against unhashable project_id values (list/dict) that would raise TypeError."""
+    # Test 1: project_id is a list
+    result = parse_plan(json.dumps({"needs": ["intro"], "project_id": ["p-ocr"]}), IDS)
+    assert result is not None
+    assert result.project_id is None
+    assert result.needs == ("intro",)
+
+    # Test 2: project_id is a dict
+    result = parse_plan(json.dumps({"needs": ["intro"], "project_id": {"id": "p-ocr"}}), IDS)
+    assert result is not None
+    assert result.project_id is None
+    assert result.needs == ("intro",)
+
+    # Test 3: needs contains unhashable items (list, int) that should be filtered
+    result = parse_plan(json.dumps({"needs": ["intro", ["x"], 5]}), IDS)
+    assert result is not None
+    assert result.needs == ("intro",)

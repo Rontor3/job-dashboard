@@ -63,10 +63,13 @@ def parse_plan(reply, project_ids) -> Plan | None:
         return None
     if not isinstance(d, dict) or not isinstance(d.get("needs"), list):
         return None
-    needs = tuple(n for n in d["needs"] if n in NEEDS)[:MAX_NEEDS]
+    # Filter to strings only (to handle unhashable items), dedupe while preserving order, then cap
+    needs = tuple(dict.fromkeys(n for n in d["needs"] if isinstance(n, str) and n in NEEDS))[:MAX_NEEDS]
     if not needs:
         return None
-    pid = d.get("project_id") if d.get("project_id") in project_ids else None
+    # Guard against unhashable project_id (list/dict)
+    project_id = d.get("project_id")
+    pid = project_id if isinstance(project_id, str) and project_id in project_ids else None
     reason = d.get("reason") if isinstance(d.get("reason"), str) else ""
     return Plan(needs, pid, reason, "model")
 
