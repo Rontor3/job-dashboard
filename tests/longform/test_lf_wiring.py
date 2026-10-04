@@ -101,3 +101,15 @@ def test_the_recorder_stores_flags_only_when_present():
     assert captured["context_json"]["flags"] == ["project_leak:p-churn"]
     rec.on_draft(field(), {"answer": "A", "flags": []}, True)
     assert "flags" not in captured["context_json"]
+
+
+def test_the_recorder_stores_plan_provenance_only_when_present():
+    from career_agent.orchestrator.qa_recorder import QARecorder
+    rec = QARecorder.__new__(QARecorder)
+    captured = {}
+    rec._rec = lambda ref, label, **kw: captured.update(kw)
+    rec.on_draft(field(), {"answer": "A", "plan_source": "llm", "plan_reason": "asks about goals"}, True)
+    assert captured["context_json"]["plan_source"] == "llm"
+    assert captured["context_json"]["plan_reason"] == "asks about goals"
+    rec.on_draft(field(), {"answer": "A", "plan_source": "", "plan_reason": ""}, True)
+    assert "plan_source" not in captured["context_json"] and "plan_reason" not in captured["context_json"]

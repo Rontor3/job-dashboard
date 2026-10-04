@@ -182,6 +182,7 @@ def _apply(args, box: dict) -> None:
     qa_rec = QARecorder(conn, args.job_id)
     qa_min_conf = qa_store.confidence_min(conn)     # editable on the dashboard
     judge_fn = None
+    longform_kb = None
     option_matcher = None
     if not args.no_llm:
         try:
@@ -209,6 +210,7 @@ def _apply(args, box: dict) -> None:
                 ctx.longform = make_longform_or_none(conn, job, contact, llm, ctx.research,
                                                      _RunPath(args.db).parent / "answer_style" / "ingredients.json",
                                                      job_id=args.job_id)
+                longform_kb = getattr(ctx.longform, "kb", None)
                 if ctx.longform is not None:
                     print("[longform] need-based long answers ON", flush=True)
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
@@ -462,7 +464,7 @@ def _apply(args, box: dict) -> None:
         try:
             from . import mcp_server as _mcp
             _mcp.set_session(page=page, deps=deps, memory_router=memory_router,
-                             human_loop=human, profile=profile)
+                             human_loop=human, profile=profile, knowledge=longform_kb)
         except ImportError:
             pass
         # Prefer stored JD from DB (full description) over page body scrape (3 kB cap).

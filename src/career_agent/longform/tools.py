@@ -3,7 +3,8 @@ from __future__ import annotations
 
 
 def _out(chunks) -> list[dict]:
-    return [{"id": c.id, "kind": c.kind, "text": c.text} for c in chunks if c is not None]
+    return [{"id": c.id, "kind": c.kind, "text": c.text,
+             "project_id": c.project_id, "section": c.section} for c in chunks if c is not None]
 
 
 def knowledge_dispatch(kb, op, args) -> list[dict]:
@@ -18,4 +19,7 @@ def knowledge_dispatch(kb, op, args) -> list[dict]:
         return _out([kb.get_story(args.get("slot", ""))])
     if op == "GET_FACTS":
         return _out(kb.get_facts(tuple(args.get("keys", ()))))
-    raise ValueError(f"unknown op {op!r}; expected LIST_PROJECTS, GET_PROJECT, GET_STORY or GET_FACTS")
+    if op == "GET_COMPANY_CONTEXT":
+        from .recipes import Ctx, _company
+        return _out(_company(Ctx(company_text=args.get("company_text") or "", jd_text=args.get("jd_text") or "")))
+    raise ValueError(f"unknown op {op!r}; expected LIST_PROJECTS, GET_PROJECT, GET_STORY, GET_FACTS or GET_COMPANY_CONTEXT")

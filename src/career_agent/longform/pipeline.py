@@ -9,6 +9,7 @@ from job_dashboard.apply.screening import _facts_block, _general_answer
 from job_dashboard.letter.grounding import check_grounding
 
 from .kb import KnowledgeBase
+from .limits import field_limit
 from .needs import plan_needs
 from .recipes import retrieve
 from .verify import fit_length, leak_check
@@ -57,7 +58,8 @@ def answer_longform(question, *, job, kb, llm, research=None, limit=None, prior=
     confidence = None if any(f.startswith("project_leak") for f in flags) else out["confidence"]
     return {"answer": answer, "flags": flags, "unsupported_company_claims": unsupported,
             "confidence": confidence, "basis": out["basis"], "prompt": out["prompt"],
-            "needs": list(plan.needs), "project_id": plan.project_id, "used": [c.id for c in chunks]}
+            "needs": list(plan.needs), "project_id": plan.project_id, "used": [c.id for c in chunks],
+            "plan_source": plan.source, "plan_reason": plan.reason}
 
 
 def prior_project(conn, job_id, label) -> str | None:
@@ -80,7 +82,8 @@ def make_longform(conn, job, contact, llm, research, ingredients_path, job_id=No
         j = current_job if isinstance(current_job, dict) and current_job else job   # apply.py may swap the job later
         jid = job_id if job_id is not None else (job.get("id") if isinstance(job, dict) else None)
         prior = prior_project(conn, jid, question) if jid else None
-        return answer_longform(question, job=j, kb=kb, llm=llm, research=research, prior=prior)
+        return answer_longform(question, job=j, kb=kb, llm=llm, research=research, prior=prior, limit=field_limit(field))
+    run.kb = kb
     return run
 
 

@@ -133,3 +133,9 @@ def test_prior_project_matches_the_normalized_question_and_needs_a_real_key():
     qa_store.record(conn, job_id=7, run_key="r2", ref="y", label="Describe a project", kind="textarea", status="filled",
                     context_json={"prompt": "mentions project_id in the text", "needs": ["intro"]})
     assert prior_project(conn, 7, "Describe a project") == "p-ocr"
+
+
+def test_the_result_carries_plan_provenance(kb):
+    llm = scripted({"needs": ["looking_for"], "reason": "asks about goals"}, [reply("Hard ML problems.")])
+    out = answer_longform("What are you looking for?", job=JOB, kb=kb, llm=llm)
+    assert out["plan_source"] and "plan_reason" in out

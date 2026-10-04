@@ -36,6 +36,7 @@ class Field:
     description: str = ""      # accessible description (aria-describedby helper text)
     input_type: str = ""       # HTML type attribute (email/tel/url/number/date…) — shape clue
     autocomplete: str = ""     # HTML autocomplete token (address-line1, postal-code…) — shape clue
+    max_length: int = 0        # HTML maxlength (0 = none)
 
 
 # Ordered most-specific-first; first hit wins.

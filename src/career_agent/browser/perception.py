@@ -80,6 +80,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             description=r.get("description", ""),
             input_type=r.get("input_type", ""),
             autocomplete=r.get("autocomplete", ""),
+            max_length=int(r.get("max_length") or 0),
         ))
 
     for name, g in radio_groups.items():
@@ -276,6 +277,7 @@ _INPUT_JS = r"""
       disabled: !!el.disabled || (!!el.readOnly && !isCombo),
       role, haspopup,
       input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
+      max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : 0,
     });
   }
   // Custom ARIA choice buttons: <button role="radio"> grouped under a

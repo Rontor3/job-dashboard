@@ -8,7 +8,7 @@ def test_list_projects_and_get_project(kb):
     assert [c["id"] for c in cards] == ["card:p-churn", "card:p-ocr", "card:p-graph", "card:p-portfolio"]
     got = knowledge_dispatch(kb, "GET_PROJECT", {"project_id": "p-graph", "sections": ["hardest"]})
     assert [c["id"] for c in got] == ["project:p-graph:hardest", "source:p-graph"]
-    assert set(got[0]) == {"id", "kind", "text"}
+    assert set(got[0]) == {"id", "kind", "text", "project_id", "section"}
 
 
 def test_story_and_facts(kb):
@@ -33,3 +33,11 @@ def test_the_mcp_tool_uses_the_session_knowledge(kb):
     mcp_server.set_session()                                  # leave no session behind
     with pytest.raises(RuntimeError):
         mcp_server.knowledge_access("LIST_PROJECTS", {})
+
+
+def test_get_company_context(kb):
+    both = knowledge_dispatch(kb, "GET_COMPANY_CONTEXT", {"company_text": " Acme builds X ", "jd_text": "the jd"})
+    assert [(c["id"], c["text"]) for c in both] == [("company", "Acme builds X")]
+    jd = knowledge_dispatch(kb, "GET_COMPANY_CONTEXT", {"jd_text": "the jd"})
+    assert [(c["id"], c["kind"]) for c in jd] == [("jd", "jd")]
+    assert knowledge_dispatch(kb, "GET_COMPANY_CONTEXT", {}) == []

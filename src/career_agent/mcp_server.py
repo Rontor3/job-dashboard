@@ -166,6 +166,7 @@ def knowledge_access(op: str, args: dict[str, Any]) -> Any:
       GET_PROJECT(project_id, sections?)     — story sections + verbatim résumé text (sections: problem, built, tech, hardest, result, improve)
       GET_STORY(slot)                        — one of the candidate's own-words story answers
       GET_FACTS(keys)                        — short profile facts
+      GET_COMPANY_CONTEXT(company_text?, jd_text?) — the company / job-description chunk
     """
     from .longform.tools import knowledge_dispatch
     kb = _require().get("knowledge")
