@@ -21,11 +21,14 @@ def distinct_terms(kb, pid) -> set[str]:
 def leak_check(answer, chunks, kb) -> list[str]:
     used = {c.project_id for c in chunks if c.project_id}
     low = (answer or "").lower()
+    seen = " ".join(c.text for c in chunks).lower()     # a term that is in the retrieved material is not a leak
     leaks = []
     for unit in kb.projects():
         if unit["id"] in used:
             continue
-        if any(re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", low) for t in distinct_terms(kb, unit["id"])):
+        def hit(t, text):
+            return re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", text)
+        if any(hit(t, low) and not hit(t, seen) for t in distinct_terms(kb, unit["id"])):
             leaks.append(unit["id"])
     return leaks
 

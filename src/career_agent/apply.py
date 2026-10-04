@@ -207,7 +207,8 @@ def _apply(args, box: dict) -> None:
             if args.longform or os.getenv("CAREER_AGENT_LONGFORM") == "1":
                 from .longform.pipeline import make_longform_or_none
                 ctx.longform = make_longform_or_none(conn, job, contact, llm, ctx.research,
-                                                     _RunPath(args.db).parent / "answer_style" / "ingredients.json")
+                                                     _RunPath(args.db).parent / "answer_style" / "ingredients.json",
+                                                     job_id=args.job_id)
                 if ctx.longform is not None:
                     print("[longform] need-based long answers ON", flush=True)
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,

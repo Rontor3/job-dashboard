@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from job_dashboard import qa_store
 from job_dashboard.apply.screening import _facts_block, _general_answer
 from job_dashboard.letter.grounding import check_grounding
 
@@ -51,35 +52,42 @@ def answer_longform(question, *, job, kb, llm, research=None, limit=None, prior=
         unsupported = check_grounding(answer, research, "\n".join(c.text for c in chunks), job_text).unsupported_company_claims
     except Exception:
         unsupported = []
+    # A draft that still names another project must not be filled: confidence=None makes judge()'s min_conf
+    # gate hold the field as needs-answer for the human instead.
+    confidence = None if any(f.startswith("project_leak") for f in flags) else out["confidence"]
     return {"answer": answer, "flags": flags, "unsupported_company_claims": unsupported,
-            "confidence": out["confidence"], "basis": out["basis"], "prompt": out["prompt"],
+            "confidence": confidence, "basis": out["basis"], "prompt": out["prompt"],
             "needs": list(plan.needs), "project_id": plan.project_id, "used": [c.id for c in chunks]}
 
 
 def prior_project(conn, job_id, label) -> str | None:
-    """The project recorded for this job's earlier draft of this question (the user's override sticks)."""
+    """The project recorded for this job's earlier draft of this question (the user's override sticks).
+    With no override UI yet (Phase 2) this remembers the pipeline's own first pick as well."""
     try:
-        row = conn.execute("SELECT context_json FROM application_qa WHERE job_id=? AND label=? "
-                           "AND context_json LIKE '%project_id%' ORDER BY id DESC LIMIT 1", (job_id, label)).fetchone()
+        row = conn.execute("SELECT context_json FROM application_qa WHERE job_id=? AND qkey IN (?, ?) "
+                           "AND json_extract(context_json, '$.project_id') IS NOT NULL ORDER BY id DESC LIMIT 1",
+                           (job_id, qa_store.norm_key(label), qa_store.norm_key(label.rstrip(" *")))).fetchone()   # norm_key keeps a required-marker "*"
         return (json.loads(row[0]) if row and row[0] else {}).get("project_id")
     except Exception:
         return None
 
 
-def make_longform(conn, job, contact, llm, research, ingredients_path):
+def make_longform(conn, job, contact, llm, research, ingredients_path, job_id=None):
     """The callable judgment.py uses: run(question, field) -> result dict. The knowledge base is loaded once."""
     kb = KnowledgeBase.load(conn, ingredients_path, contact)
 
-    def run(question, field=None):
-        prior = prior_project(conn, job.get("id"), question) if isinstance(job, dict) and job.get("id") else None
-        return answer_longform(question, job=job, kb=kb, llm=llm, research=research, prior=prior)
+    def run(question, field=None, current_job=None):
+        j = current_job if isinstance(current_job, dict) and current_job else job   # apply.py may swap the job later
+        jid = job_id if job_id is not None else (job.get("id") if isinstance(job, dict) else None)
+        prior = prior_project(conn, jid, question) if jid else None
+        return answer_longform(question, job=j, kb=kb, llm=llm, research=research, prior=prior)
     return run
 
 
-def make_longform_or_none(conn, job, contact, llm, research, ingredients_path):
+def make_longform_or_none(conn, job, contact, llm, research, ingredients_path, job_id=None):
     """make_longform, or None (with a warning) when it cannot be built — the old drafter then answers."""
     try:
-        return make_longform(conn, job, contact, llm, research, ingredients_path)
+        return make_longform(conn, job, contact, llm, research, ingredients_path, job_id=job_id)
     except Exception as e:
         print(f"[warn] longform unavailable ({type(e).__name__}: {e}); using the standard drafter", flush=True)
         return None

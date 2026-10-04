@@ -67,6 +67,13 @@ def test_leak_check_flags_only_projects_that_were_not_retrieved(kb):
     assert leak_check("GNN, Neo4j, OCR, Monte-Carlo", everyone, kb) == []     # an overview may mention all of them
 
 
+def test_a_term_in_the_retrieved_text_is_not_a_leak(kb):
+    pool = [Chunk("skills:pool", "fact", "Skills: Python, SQL, PyTorch, AWS, Docker")]
+    assert leak_check("I use Docker and PyTorch daily.", pool, kb) == []
+    used = [Chunk("source:p-churn", "source", "x", "p-churn")]
+    assert leak_check("I also built a GNN on Neo4j.", used, kb) == ["p-graph"]
+
+
 def test_fit_length_trims_at_a_sentence_boundary():
     assert fit_length("Short.", 100) == ("Short.", False)
     assert fit_length("Short.", None) == ("Short.", False)

@@ -13,7 +13,7 @@ def test_the_longform_hook_answers_prose_fields_instead_of_the_old_drafter(monke
     monkeypatch.setattr(judgment, "draft_screening_answer", old_drafter)
     res = {"answer": "From longform.", "confidence": 90, "flags": [], "unsupported_company_claims": [], "basis": "b",
            "prompt": "p", "needs": ["why_company"], "project_id": "p-graph", "used": ["story:x"]}
-    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": "d"}, longform=lambda q, f: res)
+    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": "d"}, longform=lambda q, f, j=None: res)
     seen = []
     answered, still, _ = judge([field()], ctx, llm=lambda p: "", on_draft=lambda f, r, filled: seen.append(r))
     assert [d.value for d in answered] == ["From longform."] and still == []
@@ -26,8 +26,8 @@ def test_a_failing_or_empty_hook_falls_back_to_the_old_drafter(monkeypatch):
                         lambda *a, **k: calls.append(1) or {"answer": "Old.", "confidence": 80, "flags": [],
                                                            "unsupported_company_claims": []})
 
-    def boom(q, f): raise RuntimeError("longform broke")
-    for hook in (boom, lambda q, f: None):
+    def boom(q, f, j=None): raise RuntimeError("longform broke")
+    for hook in (boom, lambda q, f, j=None: None):
         ctx = JudgmentContext(job={"title": "t", "company": "c", "description": "d"}, longform=hook)
         answered, _, _ = judge([field()], ctx, llm=lambda p: "")
         assert [d.value for d in answered] == ["Old."]
@@ -81,3 +81,23 @@ def test_make_longform_or_none_returns_callable_with_real_ingredients():
                                    lambda p: "", None, fixtures_path)
     assert result is not None
     assert callable(result)
+
+
+def test_the_hook_receives_the_current_job(monkeypatch):
+    got = []
+    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": "d"},
+                          longform=lambda q, f, j=None: got.append(j) or {"answer": "A", "confidence": 90, "flags": []})
+    ctx.job = {"title": "page", "description": "scraped"}                  # apply.py swaps the job after the page loads
+    judge([field()], ctx, llm=lambda p: "")
+    assert got == [ctx.job]
+
+
+def test_the_recorder_stores_flags_only_when_present():
+    from career_agent.orchestrator.qa_recorder import QARecorder
+    rec = QARecorder.__new__(QARecorder)
+    captured = {}
+    rec._rec = lambda ref, label, **kw: captured.update(kw)
+    rec.on_draft(field(), {"answer": "A", "flags": ["project_leak:p-churn"]}, False)
+    assert captured["context_json"]["flags"] == ["project_leak:p-churn"]
+    rec.on_draft(field(), {"answer": "A", "flags": []}, True)
+    assert "flags" not in captured["context_json"]

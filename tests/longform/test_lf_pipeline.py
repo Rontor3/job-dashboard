@@ -42,6 +42,7 @@ def test_a_leaked_project_is_redrafted_once_then_flagged(kb):
                    [reply("GNN plus XGBoost."), reply("Still GNN plus XGBoost.")])
     flagged = answer_longform("Describe a project", job=JOB, kb=kb, llm=llm)
     assert flagged["flags"] == ["project_leak:p-churn"]
+    assert flagged["confidence"] is None and clean["confidence"] == 90      # a leak holds the answer back
 
 
 def test_length_limit_is_enforced_and_flagged(kb):
@@ -91,3 +92,44 @@ def test_make_longform_loads_once_and_reuses_the_prior_choice(tmp_path, kb):
     run = make_longform(conn, JOB, {"years_experience": "3"}, llm, None, FIXTURE)
     out = run("Describe a project", NS(label="Describe a project"))
     assert out["project_id"] == "p-ocr"                                  # the user's earlier choice sticks
+
+
+def test_sticky_choice_works_when_the_job_dict_has_no_id(kb):
+    from career_agent.memory import qbank
+    from tests.longform.conftest import FIXTURE
+    conn = sqlite3.connect(":memory:")
+    qbank.ensure(conn)
+    qa_store.ensure(conn)
+    qa_store.record(conn, job_id=7, run_key="r", ref="x", label="Describe a project", kind="textarea", status="filled",
+                    context_json={"project_id": "p-ocr"})
+    llm = scripted({"needs": ["one_project"], "project_id": "p-graph"}, [reply("About OCR scoring.")])
+    job = {"title": "t", "company": "c", "description": "d"}               # what job_dashboard.db.get_job returns: no id
+    run = make_longform(conn, job, {"years_experience": "3"}, llm, None, FIXTURE, job_id=7)
+    assert run("Describe a project", NS(label="Describe a project"))["project_id"] == "p-ocr"
+
+
+def test_the_hook_uses_the_job_it_is_passed(kb):
+    from career_agent.memory import qbank
+    from tests.longform.conftest import FIXTURE
+    conn = sqlite3.connect(":memory:")
+    qbank.ensure(conn)
+    qa_store.ensure(conn)
+    seen = []
+
+    def llm(prompt):
+        seen.append(prompt)
+        return json.dumps({"needs": ["intro"]}) if "Allowed needs" in prompt else reply("Hi.")
+    run = make_longform(conn, {"title": "", "company": "", "description": ""}, {}, llm, None, FIXTURE)
+    run("Tell me about yourself", None, {"title": "Role", "company": "ZetaCorp", "description": "d"})
+    assert any("ZetaCorp" in p for p in seen)
+
+
+def test_prior_project_matches_the_normalized_question_and_needs_a_real_key():
+    conn = sqlite3.connect(":memory:")
+    qa_store.ensure(conn)
+    qa_store.record(conn, job_id=7, run_key="r", ref="x", label="Describe a project", kind="textarea", status="filled",
+                    context_json={"project_id": "p-ocr"})
+    assert prior_project(conn, 7, "  Describe  a project *") == "p-ocr"
+    qa_store.record(conn, job_id=7, run_key="r2", ref="y", label="Describe a project", kind="textarea", status="filled",
+                    context_json={"prompt": "mentions project_id in the text", "needs": ["intro"]})
+    assert prior_project(conn, 7, "Describe a project") == "p-ocr"
