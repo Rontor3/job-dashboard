@@ -74,3 +74,12 @@ def make_longform(conn, job, contact, llm, research, ingredients_path):
         prior = prior_project(conn, job.get("id"), question) if isinstance(job, dict) and job.get("id") else None
         return answer_longform(question, job=job, kb=kb, llm=llm, research=research, prior=prior)
     return run
+
+
+def make_longform_or_none(conn, job, contact, llm, research, ingredients_path):
+    """make_longform, or None (with a warning) when it cannot be built — the old drafter then answers."""
+    try:
+        return make_longform(conn, job, contact, llm, research, ingredients_path)
+    except Exception as e:
+        print(f"[warn] longform unavailable ({type(e).__name__}: {e}); using the standard drafter", flush=True)
+        return None

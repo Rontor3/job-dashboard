@@ -49,3 +49,35 @@ def test_the_recorder_keeps_how_the_draft_was_built():
     rec.on_draft(field(), {"answer": "A", "confidence": 90, "basis": "b", "prompt": "P", "needs": ["intro"],
                            "project_id": "p-ocr", "used": ["card:p-ocr"], "unsupported_company_claims": []}, True)
     assert captured["context_json"] == {"prompt": "P", "needs": ["intro"], "project_id": "p-ocr", "used": ["card:p-ocr"]}
+
+
+def test_make_longform_or_none_returns_none_when_ingredients_missing(tmp_path, capsys):
+    """make_longform_or_none returns None (not raising) when ingredients.json does not exist."""
+    import sqlite3
+    from pathlib import Path
+    from career_agent.longform.pipeline import make_longform_or_none
+    from career_agent.memory.qbank import ensure
+
+    conn = sqlite3.connect(":memory:")
+    ensure(conn)
+    result = make_longform_or_none(conn, {"id": 1, "title": "t", "company": "c"}, {},
+                                   lambda p: "", None, tmp_path / "missing.json")
+    assert result is None
+    out, _ = capsys.readouterr()
+    assert "longform unavailable" in out
+
+
+def test_make_longform_or_none_returns_callable_with_real_ingredients():
+    """make_longform_or_none returns a callable when ingredients.json exists."""
+    import sqlite3
+    from pathlib import Path
+    from career_agent.longform.pipeline import make_longform_or_none
+    from career_agent.memory.qbank import ensure
+
+    conn = sqlite3.connect(":memory:")
+    ensure(conn)
+    fixtures_path = Path(__file__).parent / "fixtures" / "ingredients.json"
+    result = make_longform_or_none(conn, {"id": 1, "title": "t", "company": "c"}, {},
+                                   lambda p: "", None, fixtures_path)
+    assert result is not None
+    assert callable(result)

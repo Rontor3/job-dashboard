@@ -205,10 +205,11 @@ def _apply(args, box: dict) -> None:
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             if args.longform or os.getenv("CAREER_AGENT_LONGFORM") == "1":
-                from .longform.pipeline import make_longform
-                ctx.longform = make_longform(conn, job, contact, llm, ctx.research,
-                                             _RunPath(args.db).parent / "answer_style" / "ingredients.json")
-                print("[longform] need-based long answers ON", flush=True)
+                from .longform.pipeline import make_longform_or_none
+                ctx.longform = make_longform_or_none(conn, job, contact, llm, ctx.research,
+                                                     _RunPath(args.db).parent / "answer_style" / "ingredients.json")
+                if ctx.longform is not None:
+                    print("[longform] need-based long answers ON", flush=True)
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
