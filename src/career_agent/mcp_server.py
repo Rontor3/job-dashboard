@@ -33,6 +33,7 @@ def set_session(
     memory_router=None,
     human_loop=None,
     profile: dict | None = None,
+    knowledge: Any = None,
 ) -> None:
     global _session
     _session = dict(
@@ -41,6 +42,7 @@ def set_session(
         memory_router=memory_router,
         human_loop=human_loop,
         profile=profile,
+        knowledge=knowledge,
     )
 
 
@@ -149,6 +151,27 @@ def memory_access(op: str, args: dict[str, Any]) -> Any:
     if router is None:
         raise RuntimeError("No memory_router in session")
     return router.dispatch(op, args)
+
+
+# ---------------------------------------------------------------------------
+# Tool: knowledge_access
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def knowledge_access(op: str, args: dict[str, Any]) -> Any:
+    """Long-answer knowledge: typed chunks of the candidate's projects, stories and facts.
+
+    op:
+      LIST_PROJECTS                          — one-line card per project
+      GET_PROJECT(project_id, sections?)     — story sections + verbatim résumé text (sections: problem, built, tech, hardest, result, improve)
+      GET_STORY(slot)                        — one of the candidate's own-words story answers
+      GET_FACTS(keys)                        — short profile facts
+    """
+    from .longform.tools import knowledge_dispatch
+    kb = _require().get("knowledge")
+    if kb is None:
+        raise RuntimeError("No knowledge base in session")
+    return knowledge_dispatch(kb, op, args)
 
 
 # ---------------------------------------------------------------------------
