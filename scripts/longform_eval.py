@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests" / "longform"))
 
 from career_agent.longform.kb import KnowledgeBase                      # noqa: E402
-from career_agent.longform.needs import plan_needs                       # noqa: E402
 from career_agent.longform.pipeline import answer_longform               # noqa: E402
 from job_dashboard.letter.draft import make_default_llm                 # noqa: E402
 
@@ -29,15 +29,15 @@ def main() -> int:
     llm = make_default_llm()
     exact = jaccard = leaks = 0
     for c in cases:
-        plan = plan_needs(c["question"], c["jd"], kb, llm)
-        gold, got = set(c["gold_needs"]), set(plan.needs)
+        research = SimpleNamespace(facts=[SimpleNamespace(text=c["company"], source_url="eval")]) if c["company"] else None
+        out = answer_longform(c["question"], job={"title": "ML Engineer", "company": "Acme", "description": c["jd"]},
+                              kb=kb, llm=llm, research=research)
+        gold, got = set(c["gold_needs"]), set(out["needs"])
         exact += gold == got
         jaccard += len(gold & got) / len(gold | got)
-        out = answer_longform(c["question"], job={"title": "ML Engineer", "company": "Acme", "description": c["jd"]},
-                              kb=kb, llm=llm, prior=c["gold_project"])
         leak = any(f.startswith("project_leak") for f in out["flags"])
         leaks += leak
-        print(f"{c['id']:28s} needs={sorted(got)} gold={sorted(gold)} project={plan.project_id} "
+        print(f"{c['id']:28s} needs={sorted(got)} gold={sorted(gold)} project={out['project_id']} "
               f"flags={out['flags']} {'LEAK' if leak else ''}")
     n = len(cases)
     print(f"\nplan exact match {exact}/{n} | mean Jaccard {jaccard / n:.2f} | drafts with a project leak {leaks}/{n}")
