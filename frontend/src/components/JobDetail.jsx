@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchJob, patchStatus } from "../api.js";
+import { fetchJob, patchStatus, agentLink } from "../api.js";
 import { cleanJd } from "../cleanJd.js";
 import { XIcon, ArrowUpRightIcon } from "./icons.jsx";
 import ResumePanel from "./ResumePanel.jsx";
@@ -9,7 +9,7 @@ import AgentRunHistory from "./AgentRunHistory.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
 
-export default function JobDetail({ id, onStatusChange, onClose }) {
+export default function JobDetail({ id, onApply, onStatusChange, onClose }) {
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
 
@@ -57,7 +57,7 @@ export default function JobDetail({ id, onStatusChange, onClose }) {
         <button style={{ ...BTN, background: "var(--green-tint)", color: "var(--green)" }} onClick={() => setStatus("saved")}>Save</button>
         <button style={{ ...BTN, background: "var(--gold)", color: "var(--gold-ink)" }} onClick={() => setStatus("applied")}>Applied</button>
         <button style={{ ...BTN, background: "#F1EBE0", color: "var(--ink-faint)" }} onClick={() => setStatus("dismissed")}>Dismiss</button>
-        <a href={job.job_url} target="_blank" rel="noreferrer"
+        <a href={job.job_url} target="_blank" rel="noreferrer" onClick={onApply ? (e) => { e.preventDefault(); onApply(id); } : agentLink(job.job_url)}
            style={{ ...BTN, background: "var(--green)", color: "#FFFFFF", marginLeft: "auto", textDecoration: "none" }}>
           Apply <ArrowUpRightIcon />
         </a>

@@ -16,6 +16,8 @@ from ..browser.form_model import Field
 from ..orchestrator.sensitive import split_sensitive
 from .drivers import DRIVERS
 from .run_log import BoardRunLog
+from .profiles import on_board
+from ..browser.page_prep import is_login_page
 from .signals import confirmed, is_challenge, is_logged_out
 
 MAX_STEPS = 8
@@ -41,18 +43,41 @@ def _blocked(page, board):
     return None
 
 
+def _form_already_open(page) -> bool:
+    """An application dialog with fields and an enabled button is already on screen (the entry control sits
+    behind it, so clicking it times out). Structural: a visible dialog holding a text field."""
+    try:
+        return bool(page.evaluate("""() => Array.from(document.querySelectorAll('[role=dialog],[aria-modal=true]')).some(d => {
+            const r = d.getBoundingClientRect();
+            return r.width > 50 && r.height > 50 && d.querySelector('textarea,input:not([type=hidden]):not([type=checkbox]):not([type=radio]),select,[role=combobox]');
+        })"""))
+    except Exception:
+        return False
+
+
 def _authorized(ctx, board, page, decisions):
-    """The irreversible click needs --submit AND (standing authorization or a human yes)."""
+    """The irreversible click: allowed by the dashboard's policy (switch for this site, answers with 3 approvals, a first
+    submit there already done by you, daily cap), or by --submit plus a human yes. ctx["how"] records which."""
+    policy = ctx.get("autosubmit_policy")
+    if policy:
+        verdict = policy(page.url, [dataclasses.asdict(d) for d in decisions])
+        ctx["eligibility"] = verdict
+        if verdict["allow"]:
+            ctx["how"] = "auto"
+            return True
     if not ctx.get("do_submit"):
         return False
     likely = any(getattr(d, "source", "") == "qbank_likely" for d in decisions)
     if ctx.get("autonomous") and not likely:
+        ctx["how"] = "auto"
         return True
     card = [f"Apply via {board['id']}: {page.url[:120]}"]
     if likely:
         card[0] += " (contains best-guess answers — check them)"
     card += [f"- {d.label}: {d.value}" for d in decisions if d.label]
-    return bool(ctx["human"].approve("\n".join(card)))
+    ok = bool(ctx["human"].approve("\n".join(card)))
+    ctx["how"] = "tap"
+    return ok
 
 
 def _interstitials(page, board):
@@ -204,10 +229,13 @@ def run_board(page, board, ctx):
            "stopped_reason": None, "decisions": [], "pending_human": []}
     done_decisions = []
     log = BoardRunLog(ctx.get("run_dir"))           # screenshots + steps for the tracker
+    assist = ctx.get("assist")                      # opt-in Claude help at dead ends (orchestrator/claude_assist.py)
 
     def stop(reason, pg):
         res.update(stopped_reason=reason, url=pg.url, submitted=reason == "submitted",
                    decisions=[dataclasses.asdict(d) for d in done_decisions])
+        if ctx.get("eligibility"):
+            res["eligibility"] = ctx["eligibility"]
         log.finish(pg, reason, res["pending_human"])
         return res
 
@@ -228,13 +256,20 @@ def run_board(page, board, ctx):
             return stop("probe" if found else "no_entry", page)
         if irreversible and not _authorized(ctx, board, page, []):
             return stop("dry_run", page)
+        from ..browser.clicks import pace
+        pace(page)
+        _before = list(page.context.pages)
         try:
-            page.locator(board["entry"]["selector"]).filter(visible=True).first.click(timeout=15000)
+            page.locator(board["entry"]["selector"]).filter(visible=True).first.click(timeout=15000, no_wait_after=True)
         except Exception as e:
-            res["error"] = f"{type(e).__name__}: {str(e)[:300]}"
-            return stop("no_entry", page)
+            if _form_already_open(page):
+                ctx["baseline"] = set()           # an earlier run left the form open: every field on it is the form's
+            elif not (assist and assist.recover(page, "no_entry")):     # a recovery click replaces the entry click
+                res["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+                return stop("no_entry", page)
         page.wait_for_timeout(3000)
-        page = page.context.pages[-1]            # the entry click may open a new tab
+        from ..browser.page_prep import new_tab_since
+        page = new_tab_since(page, _before)      # the entry click may open a new tab
         _interstitials(page, board)
         try:
             title = page.title().split("|")[0].strip()
@@ -247,12 +282,19 @@ def run_board(page, board, ctx):
             ctx["job_location"] = None
 
         asked_optional = False
+        unanswered = 0
         for _ in range(MAX_STEPS):
             if confirmed(board, cap.responses, page.url):
                 break
+            from ..browser.clicks import wait_until_stable
+            wait_until_stable(page)                   # the step may still be drawing after the URL changed
             blocked = _blocked(page, board)
             if blocked:
                 return stop(blocked, page)
+            if not on_board(page.url, board):
+                return stop("left_board", page)     # e.g. "Apply on company site": another engine takes over
+            if is_login_page(page):
+                return stop("auth_wall", page)      # a login/sign-up wall is never a question for a human
             ctx["page_index"] = log.page(page)
             fields, blocked = split_sensitive(driver.fields(page, board, ctx, cap))
             if any(f.required for f in blocked):          # bank / ID details: yours to fill, never asked
@@ -271,6 +313,7 @@ def run_board(page, board, ctx):
                 return stop("needs_human", page)
             driver.put(page, board, ctx, fields, decisions)
             done_decisions += decisions
+            log.filled(page)                              # screenshot of the filled page, before Next
             nxt = driver.next_control(page, board, ctx)
             if nxt is None and optional and not asked_optional:
                 # The form will not advance (Next/Submit absent or disabled) while
@@ -281,17 +324,40 @@ def run_board(page, board, ctx):
                 if got:
                     driver.put(page, board, ctx, fields, got)
                     done_decisions += got
+                    log.filled(page)
                     page.wait_for_timeout(1500)
                     continue
             if nxt is None:
+                if assist and assist.recover(page, "no_advance_control"):
+                    continue
                 break
             label, final = nxt
             if final:
                 if not _authorized(ctx, board, page, done_decisions):
                     return stop("dry_run", page)
                 irreversible = True
+                try:
+                    from ..browser.form_values import read_form_values
+                    before_submit = read_form_values(page)             # what the form holds as it goes out
+                except Exception:
+                    before_submit = {}
+            from ..browser.clicks import page_signature, wait_for_change
+            before_click = page_signature(page)
             driver.click(page, label, ctx)
             page.wait_for_timeout(2500)
+            if page_signature(page) == before_click and not wait_for_change(page, before_click):
+                # The page has not answered the click. Clicking again is how a step gets skipped (the second click
+                # lands on the page that was merely slow): allow one more wait-and-retry, then stop as stuck.
+                unanswered += 1
+                if unanswered >= 2:
+                    return stop("stuck", page)
+            else:
+                unanswered = 0
         page.wait_for_timeout(1500)
         ok = confirmed(board, cap.responses, page.url)
+    if ok and irreversible and ctx.get("on_submit"):
+        try:
+            ctx["on_submit"](before_submit if "before_submit" in locals() else {}, ctx.get("how", "tap"), page.url)
+        except Exception:
+            pass
     return stop("submitted" if ok else "unconfirmed" if irreversible else "stuck", page)

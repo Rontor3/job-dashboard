@@ -471,7 +471,9 @@ def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=N
         where.append("j.status = ?")
         params.append(status)
     elif not include_dismissed:
-        where.append("(j.status IS NULL OR j.status != 'dismissed')")
+        # A job the agent has run (outcome: failed / applied) lives on the tracker, not in Browse. Response
+        # statuses (interviewing / offer / rejected) deliberately stay in the default feed.
+        where.append("(j.status IS NULL OR j.status NOT IN ('dismissed', 'failed', 'applied'))")
     # Auto-hidden (expired / bad-fit) jobs drop out of the feed unless the
     # candidate flips "show dismissed" to review them.
     if not include_dismissed:

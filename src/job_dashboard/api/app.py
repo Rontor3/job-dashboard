@@ -84,7 +84,13 @@ def create_app(
     app.include_router(build_agent_router(db_path, agent_state))
     # Apply queue: ``queue_launch`` overrides how a queued job is run (tests
     # inject a fake); default launches career_agent via the shared agent state.
-    app.state.queue_runner = QueueRunner(str(db_path), queue_launch or make_agent_launch(agent_state))
+    app.state.submit_watcher = None
+    if queue_launch is None:                        # the real thing (not a test's fake launch): watch parked forms for a hand submit
+        from job_dashboard.apply.submit_watch import SubmitWatcher
+        app.state.submit_watcher = SubmitWatcher(str(db_path))
+        app.state.submit_watcher.start()
+    app.state.queue_runner = QueueRunner(str(db_path), queue_launch or make_agent_launch(agent_state),
+                                         watcher=app.state.submit_watcher)
     app.include_router(build_queue_router(db_path, app.state.queue_runner))
     # Mail scan: ``mail_scanner`` overrides Gmail + the LLM (tests); serve.py runs its daily loop.
     app.state.mail_scanner = mail_scanner or MailScanner(db_path)

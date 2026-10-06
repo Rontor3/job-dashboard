@@ -42,6 +42,27 @@ _ACCEPT = [
     "Accept", "Agree", "Allow", "OK", "Got it", "I understand",
     "I agree", "I accept",
 ]
+_TRAIL: list = []   # ponytail: module-global; one apply run per process. Per-run object if runs ever share a process.
+
+
+def trail_note(**ev) -> None:
+    """Record one reach step (hop, modal kept/dismissed, ...) for the run's pending-memory entry."""
+    _TRAIL.append(ev)
+
+
+def take_trail() -> list:
+    t = list(_TRAIL)
+    _TRAIL.clear()
+    return t
+
+
+def _bare(url: str) -> str:
+    """host/path only — query strings carry tracking ids, never stored."""
+    from urllib.parse import urlparse
+    u = urlparse(url or "")
+    return f"{u.netloc}{u.path}"[:90]
+
+
 _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Dismiss", "Close"]
 
 
@@ -87,14 +108,24 @@ def dismiss_consent(page) -> bool:
 
 
 def dismiss_dialogs(page) -> bool:
-    """Dismiss an idle/blocking modal (e.g. Oracle 'Continue Working'). Never a
-    destructive/submit control."""
+    """Dismiss an idle/blocking modal (e.g. Oracle 'Continue Working'). Never a destructive/submit control, and
+    never a button OUTSIDE the modal: a page that merely carries a (hidden) dialog element has its own "Continue"
+    that advances the form, and clicking that here skipped a whole step (Indeed's questions page)."""
     try:
-        if page.locator("[role=dialog], [role=alertdialog]").first.count() == 0:
+        dialog = page.locator("[role=dialog]:visible, [role=alertdialog]:visible").first
+        if dialog.count() == 0:
+            return False
+        # A modal that offers an Apply step ("I'm ready to apply") is the next hop, not noise.
+        names = dialog.locator("a[href], button").all_inner_texts()
+        if _best_apply([{"name": " ".join(n.split())} for n in names]) is not None:
+            trail_note(step="modal_kept", why="offers an apply control")
             return False
     except Exception:
         return False
-    return _click_first(page, _DIALOG_DISMISS) is not None
+    via = _click_first(page, _DIALOG_DISMISS, within=dialog)       # inside the modal only
+    if via:
+        trail_note(step="modal_dismissed", via=via)
+    return via is not None
 
 
 _CLOSED_RE = re.compile(
@@ -154,13 +185,46 @@ def classify_entry(page, status=None) -> str:
         return "none"
     if d["hasPw"]:
         return "password"
-    if d["hasEmail"] and d["verify"]:
+    # An email-first gate is a tiny page; a long form that merely mentions "signing"/"sign in" is not.
+    if d["hasEmail"] and d["verify"] and d["fillable"] <= 4:
         return "email_auth"
     if d["fillable"] >= 2:
         return "form"                       # a form is present -> never 'closed'
     if is_closed_posting(page):             # no form + dead-posting language -> closed
         return "closed"
     return "none"                           # no form, but alive -> unreached, not dead
+
+
+# --- What a login / sign-up wall looks like -------------------------------
+
+_LOGIN_SIGNALS_JS = r"""() => {
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
+  const hint = e => ((e.name||'')+' '+(e.id||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.placeholder||'')+' '+
+                     (e.labels && e.labels[0] ? e.labels[0].innerText : ''));
+  const ctl = Array.from(document.querySelectorAll('button,a[href],[role=button],input[type=submit]')).filter(vis)
+    .map(e => (e.innerText || e.value || '').trim().replace(/\s+/g,' ')).filter(Boolean);
+  return {
+    hasPassword: ins.some(e => e.type === 'password'),
+    hasUser: ins.some(e => ['text','email','tel'].includes(e.type) && /mail|user|login|account/i.test(hint(e))),
+    authControl: ctl.some(t => /^(sign ?in|log ?in|login|sign ?up|register|create (an? )?account|forgot( your)? password\??)\b/i.test(t)),
+    credInputs: ins.filter(e => !['hidden','submit','button','checkbox','radio','search'].includes(e.type)).length,
+  };
+}"""
+
+
+def login_from_signals(d: dict) -> bool:
+    """A login / account wall, however the site words it: a password box next to a username/email box or a
+    sign-in / create-account / forgot-password control, on a SMALL form (at most 4 inputs). A password box
+    inside a long application form is the combined registration+application case, not a wall."""
+    return bool(d.get("hasPassword") and (d.get("hasUser") or d.get("authControl")) and d.get("credInputs", 99) <= 4)
+
+
+def is_login_page(page) -> bool:
+    try:
+        return login_from_signals(page.evaluate(_LOGIN_SIGNALS_JS))
+    except Exception:
+        return False
 
 
 # --- Reaching the real application form ----------------------------------
@@ -222,8 +286,12 @@ _CLICKABLES_JS = r"""() => {
   const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
   if (window.__affN === undefined) window.__affN = 0;
   const out = [];
-  for (const e of document.querySelectorAll('button, a[href], [role=button], input[type=submit], input[type=button]')) {
-    if (!vis(e)) continue;
+  // Controls inside an open modal/dialog come first: a modal is what the page is asking
+  // about right now, and it sits at the end of the DOM — past the 200 cap on busy pages.
+  const inModal = e => !!e.closest('[role=dialog],[aria-modal=true],dialog[open]');
+  const els = [...document.querySelectorAll('button, a[href], [role=button], input[type=submit], input[type=button]')]
+    .filter(vis).sort((a, b) => inModal(b) - inModal(a));
+  for (const e of els) {
     const name = (e.getAttribute('aria-label') || e.value || e.textContent || '').trim().replace(/\s+/g,' ');
     if (!name) continue;
     // Stable id: reuse an existing stamp so a control keeps the same ref across
@@ -254,12 +322,30 @@ def auth_cleared(page) -> bool:
     return not is_auth_wall(page)
 
 
-def _site_of(page) -> str:
-    """The host the wall is on (e.g. 'career4.successfactors.com') — the per-ATS
-    key an operator provider uses to generate/look up the right credential."""
-    from urllib.parse import urlparse
+_TENANT_PARAMS = ("company", "tenant", "org", "orgid", "client", "companyid")
+
+
+def site_key(url: str) -> str:
+    """The key a saved login is filed under: the host, plus the tenant when the URL names one. Multi-company
+    hosts (SuccessFactors: career44.sapsf.com?company=birlasoftl) hold a separate account per company, so a
+    login saved for one company must not be taken for another's (that skipped sign-up and failed the login)."""
+    from urllib.parse import parse_qs, urlparse
     try:
-        return (urlparse(page.url).hostname or "").lower()
+        u = urlparse(url)
+        host = (u.hostname or "").lower()
+        q = {k.lower(): v for k, v in parse_qs(u.query).items()}
+    except Exception:
+        return ""
+    for k in _TENANT_PARAMS:
+        if q.get(k) and q[k][0].strip():
+            return f"{host}?{k}={q[k][0].strip().lower()}"
+    return host
+
+
+def _site_of(page) -> str:
+    """The key an operator provider uses to generate/look up the right credential for the wall's site."""
+    try:
+        return site_key(page.url)
     except Exception:
         return ""
 
@@ -282,6 +368,7 @@ def clear_auth_wall(page, credential_provider=None) -> bool:
 
 
 _APPLY_ALLOW = (
+    "i'm ready to apply", "im ready to apply", "ready to apply",   # pre-apply modals (e.g. Himalayas)
     "apply for this job", "apply for this role", "apply to this job",
     "apply now", "apply online", "submit application", "start application",
     "apply", "get started", "i'm interested", "im interested",
@@ -291,19 +378,40 @@ _APPLY_DENY = (
     "create account", "filter", "refer", "subscribe", "share", "print",
     "job alert", "view all", "back to", "learn more",
     "apply with",      # blocks "Apply With LinkedIn/Indeed/SEEK/Google" OAuth buttons
+    "facebook", "instagram", "youtube", "twitter", "whatsapp", "external link",   # a site's footer social links
 )
 
 
-def _best_apply(cands, exclude=()):
+_AD_HOSTS = ("doubleclick.net", "googlesyndication.com", "googleadservices.com",
+             "adservice.google", "amazon-adsystem.com", "taboola.com", "outbrain.com")
+
+
+def _is_ad_frame(url: str, title: str = "", name: str = "") -> bool:
+    """True for an advertising iframe: ad-network host, <iframe title="Advertisement">,
+    or an AdSense slot name (aswift_*, google_ads_*). Its "Apply Now" is an ad's, not the job's."""
+    u, t, n = (url or "").lower(), (title or "").lower(), (name or "").lower()
+    return (any(h in u for h in _AD_HOSTS) or t == "advertisement"
+            or n.startswith(("aswift_", "google_ads_")))
+
+
+def _best_apply(cands, exclude=(), prefer=()):
     """cands: [{'name', 'role', 'ref'?}]. Return the best Apply control
     (highest-priority allow phrase, not denied), skipping any whose ref is in
-    `exclude` (already clicked). Or None. Pure — the ranking core, unit-tested."""
+    `exclude` (already clicked). `prefer`: control names the ATS graph learned for this
+    site, in click order — an exact match outranks every phrase (still never a denied
+    name). Or None. Pure — the ranking core, unit-tested."""
+    prefer = [p.strip().lower() for p in prefer]
     best, best_rank = None, len(_APPLY_ALLOW)
     for c in cands:
         if c.get("ref") in exclude:
             continue
         name = (c.get("name") or "").strip().lower()
         if not name or len(name) > 80 or any(d in name for d in _APPLY_DENY):
+            continue
+        if name in prefer:
+            rank = prefer.index(name) - len(prefer)       # negative: beats any phrase; earlier step first
+            if rank < best_rank:
+                best, best_rank = c, rank
             continue
         for rank, allow in enumerate(_APPLY_ALLOW):
             if allow in name:
@@ -388,12 +496,14 @@ def _is_wizard_step(page) -> bool:
     return _fillable_count(page) >= 1 and _has_advance(page)
 
 
-def find_apply_affordance(page, exclude=()):
+def find_apply_affordance(page, exclude=(), prefer=()):
     """The best Apply button/link across all frames, as {'name','role','frame',
     'ref'}, skipping refs in `exclude` (already clicked). `frame` is the index
     into page.frames the control lives in."""
     cands = []
     for idx, fr in enumerate(page.frames):
+        if idx and _frame_is_ad(fr):
+            continue
         try:
             rows = fr.evaluate(_CLICKABLES_JS)
         except Exception:
@@ -401,7 +511,17 @@ def find_apply_affordance(page, exclude=()):
         for c in (rows or []):
             c["frame"] = idx
             cands.append(c)
-    return _best_apply(cands, exclude)
+    return _best_apply(cands, exclude, prefer)
+
+
+def _frame_is_ad(fr) -> bool:
+    title = name = ""
+    try:
+        el = fr.frame_element()
+        title, name = el.get_attribute("title") or "", el.get_attribute("name") or ""
+    except Exception:
+        pass
+    return _is_ad_frame(fr.url, title, name)
 
 
 def _hop(page, aff):
@@ -415,8 +535,10 @@ def _hop(page, aff):
     ref, name, role = aff.get("ref"), aff["name"], aff["role"]
     loc = (clicker.locator(ref).first if ref
            else clicker.get_by_role(role, name=name, exact=True).first)
+    from .clicks import pace
+    pace(page)
     try:
-        loc.click(timeout=5000)
+        loc.click(timeout=5000, no_wait_after=True)
     except Exception:
         # Covered by a consent/chatbot overlay, or a JS-handler <a> with no href:
         # dispatch the click straight to the element (bypasses the overlay).
@@ -424,7 +546,7 @@ def _hop(page, aff):
             loc.dispatch_event("click")
         except Exception:
             try:
-                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000)
+                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000, no_wait_after=True)
             except Exception:
                 return page
     page.wait_for_timeout(3000)   # settle: page/SPA may navigate after apply click
@@ -446,7 +568,28 @@ def _hop(page, aff):
     return active
 
 
+def _known_clicks(url: str) -> list:
+    """Click names the ATS graph learned for this URL's site (empty when unknown). Never raises."""
+    try:
+        from .ats_lookup import site_hint
+        hint = site_hint(url)
+    except Exception:
+        return []
+    if not hint:
+        return []
+    clicks = list(hint["reach_clicks"])
+    trail_note(step="graph_hint", site=hint["id"], clicks=clicks)
+    print(f"[ats] known route for {hint['id']}: {' -> '.join(clicks)}", flush=True)
+    return clicks
+
+
 def reach_application_form(page, max_hops=4):
+    active, status = _reach(page, max_hops)
+    trail_note(step="reach_end", status=status, url=_bare(active.url))
+    return active, status
+
+
+def _reach(page, max_hops=4):
     """Drill from any landing (JD / search / SPA) to the real application form by
     following the Apply affordance until real applicant fields appear. Bounded and
     loop-safe (a no-progress hop stops it). Login/OTP/captcha gates are returned
@@ -454,10 +597,12 @@ def reach_application_form(page, max_hops=4):
     active = page
     clicked = set()                        # affordance refs already clicked
     last_url = active.url
+    prefer = _known_clicks(active.url)      # ATS-graph: the route this site's Apply took last time
     for _ in range(max_hops):
         if active.url != last_url:          # new page -> refs are fresh
             clicked.clear()
             last_url = active.url
+            prefer = prefer or _known_clicks(active.url)
         prepare(active)
         st = classify_entry(active)
         if st == "closed":
@@ -472,7 +617,7 @@ def reach_application_form(page, max_hops=4):
         # "Next" carousel) for a wizard step. Poll briefly for a late-rendering
         # Apply control (Phenom's JD is JS-heavy). Skip affordances already
         # clicked so a dropdown TOGGLE is followed by its revealed menu OPTION.
-        aff = find_apply_affordance(active, exclude=clicked)
+        aff = find_apply_affordance(active, exclude=clicked, prefer=prefer)
         if aff is None:
             for _ in range(6):
                 try:
@@ -484,12 +629,15 @@ def reach_application_form(page, max_hops=4):
                     break
                 if is_application_form(active):
                     return active, "form"
-                aff = find_apply_affordance(active, exclude=clicked)
+                aff = find_apply_affordance(active, exclude=clicked, prefer=prefer)
                 if aff is not None:
                     break
         if aff is not None:
             clicked.add(aff.get("ref"))
+            before = active.url
             active = _hop(active, aff)
+            trail_note(step="hop", click=aff["name"], role=aff["role"], frame=aff.get("frame", 0),
+                       url_before=_bare(before), url_after=_bare(active.url))
             continue
         # No Apply left to follow: are we already ON a form step (wizard whose
         # first screen is a screening question, so is_application_form missed it)?
@@ -497,6 +645,7 @@ def reach_application_form(page, max_hops=4):
             return active, "form"
         nxt = _try_url_variants(active)
         if nxt is not None:
+            trail_note(step="url_variant", url_after=_bare(nxt.url))
             active = nxt
             continue
         break
@@ -537,6 +686,16 @@ def _apply_url_variants(url: str) -> list:
     return out
 
 
+def new_tab_since(page, before):
+    """The newest tab opened since the `before` snapshot of context.pages, else `page` itself. Never "the last tab":
+    other jobs' tabs stay open in the same Chrome, and the last one is not this job's."""
+    try:
+        fresh = [p for p in page.context.pages if p not in before and not p.is_closed()]
+    except Exception:
+        return page
+    return fresh[-1] if fresh else page
+
+
 def enter_application(page) -> str:
     """Reach the application form from a JD/landing page. Thin wrapper over the
     bounded drill (`reach_application_form`); returns the status only. Callers
@@ -568,7 +727,7 @@ def _advance(page, names=("NEXT", "Next", "Continue", "Verify", "Submit")):
         try:
             el = page.get_by_role("button", name=n, exact=False).first
             if el.count() > 0:
-                el.click(timeout=5000); page.wait_for_timeout(1200); return True
+                el.click(timeout=5000, no_wait_after=True); page.wait_for_timeout(1200); return True
         except Exception:
             pass
     return False

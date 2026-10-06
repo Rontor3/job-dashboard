@@ -209,6 +209,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 on_draft(f, res, not low)
             if low:
                 still_need.append(f); continue      # untrusted -> never filled silently
+            if orchestrator is None and "general_fallback" in (res.get("flags") or []):
+                still_need.append(f); continue      # a canned template is never filled as the answer
             weak = res.get("flags") or res.get("unsupported_company_claims")
             if weak and orchestrator is not None:
                 hard.append(f); continue       # route the weak ones to tier-3

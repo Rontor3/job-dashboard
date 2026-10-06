@@ -14,7 +14,13 @@ def launch(settings, cdp_url: str | None = None):
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
     if cdp_url:
-        browser = pw.chromium.connect_over_cdp(cdp_url)
+        try:
+            browser = pw.chromium.connect_over_cdp(cdp_url, timeout=60000)
+        except Exception as e:
+            pw.stop()
+            # attaching waits for EVERY tab to answer; one frozen tab ("Page unresponsive") blocks it for good
+            raise RuntimeError("could not attach to Chrome in 60 s — a tab is probably frozen; close it "
+                               f"(Chrome's task manager, Shift+Esc, shows which): {type(e).__name__}") from e
         if browser.contexts:
             context = browser.contexts[0]
         else:
@@ -29,6 +35,76 @@ def launch(settings, cdp_url: str | None = None):
     )
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page, None
+
+
+class TabLedger:
+    """The tabs THIS run opened. A tab opened only to read something (a JD, a pop-up, a social link, a stale step) is
+    closed once it has served; the tab the run ends on stays for the human. A tab the user already had open (reused
+    for the job) or anything this run did not open is never touched."""
+
+    def __init__(self, context, first_page=None, max_open: int = 2):
+        self.opened, self.user, self.max_open = [], set(), max_open
+        if first_page is not None:
+            self.opened.append(first_page)
+        try:
+            context.on("page", lambda p: self.opened.append(p))
+        except Exception:
+            pass
+
+    def mark_user_owned(self, page) -> None:
+        self.user.add(id(page))
+
+    def _mine(self, p) -> bool:
+        return id(p) not in self.user
+
+    def trim(self, keep) -> int:
+        """While working: keep at most `max_open` of this run's tabs, `keep` (the current one) first."""
+        live = [p for p in self.opened if self._mine(p) and not _closed(p)]
+        n = 0
+        for p in live[:-self.max_open] if len(live) > self.max_open else []:
+            if p is not keep:
+                n += _close(p)
+        return n
+
+    def close_all_but(self, keep=(), keep_urls=()) -> int:
+        """End of run: close every tab this run opened except `keep` and any showing one of `keep_urls`."""
+        keep = [k for k in keep if k is not None]
+        n = 0
+        for p in list(self.opened):
+            if not self._mine(p) or _closed(p) or any(p is k for k in keep):
+                continue
+            if any(u and p.url and p.url.split("#")[0] == u.split("#")[0] for u in keep_urls):
+                continue
+            n += _close(p)
+        return n
+
+
+def tab_id_for(context, url: str):
+    """Chrome's own id for the tab showing `url` (the id /json/list reports), so a later process can find that tab again
+    even after it navigates (a submit lands on a confirmation URL). None if it cannot be read."""
+    want = (url or "").split("#")[0]
+    for pg in getattr(context, "pages", []):
+        try:
+            if pg.url.split("#")[0] == want:
+                return context.new_cdp_session(pg).send("Target.getTargetInfo")["targetInfo"]["targetId"]
+        except Exception:
+            continue
+    return None
+
+
+def _closed(p) -> bool:
+    try:
+        return p.is_closed()
+    except Exception:
+        return True
+
+
+def _close(p) -> int:
+    try:
+        p.close()
+        return 1
+    except Exception:
+        return 0
 
 
 def close(pw, context, page=None, cdp_browser=None) -> None:

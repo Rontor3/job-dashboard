@@ -66,6 +66,17 @@ class AgentRunState:
             return {"running": False, "job_id": job_id,
                     "status": "done" if code == 0 else "error", "exit_code": code}
 
+    def stop(self) -> None:
+        """Terminate the current run (SIGTERM, then SIGKILL after 5s)."""
+        with self._lock:
+            proc = self._proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
     def wait(self) -> int:
         """Block until the current run exits; its exit code (0 if nothing ran)."""
         with self._lock:
@@ -174,6 +185,23 @@ def _live_screenshot_path(job_id: int) -> Path:
     return REPO_ROOT / "data" / "agent_runs" / str(job_id) / "live.png"
 
 
+def _run_page(ctx, job_id):
+    """The tab the run records in tab.json (apply.py); the last tab only when it recorded none."""
+    import json
+    pages = ctx.pages if ctx else []
+    try:
+        want = json.loads((_live_screenshot_path(job_id).parent / "tab.json").read_text()).get("tab_id")
+    except (OSError, ValueError):
+        want = None
+    for pg in pages if want else ():
+        try:
+            if ctx.new_cdp_session(pg).send("Target.getTargetInfo")["targetInfo"]["targetId"] == want:
+                return pg
+        except Exception:
+            continue
+    return pages[-1] if pages else None
+
+
 def _read_live_page(cdp_url: str, job_id: int) -> dict:
     """Read-only peek at the page career_agent is currently driving: url,
     title, and (if the screenshot save succeeds) a saved screenshot.
@@ -199,7 +227,7 @@ def _read_live_page(cdp_url: str, job_id: int) -> dict:
             browser = pw.chromium.connect_over_cdp(cdp_url, timeout=5000)
             try:
                 ctx = browser.contexts[0] if browser.contexts else None
-                page = ctx.pages[-1] if ctx and ctx.pages else None
+                page = _run_page(ctx, job_id)
                 if page is None:
                     return {"url": None, "title": None, "screenshot_path": None}
                 url, title = page.url, page.title()
@@ -219,6 +247,17 @@ def _with_questions(job_id, steps, by_page) -> dict:
     for s in steps:
         s["questions"] = by_page.get(s["step"], [])
     return {"job_id": job_id, "steps": steps, "unpaged": by_page.get(None, [])}
+
+
+def _with_eligibility(run_dir, body):
+    """Add the run's auto-submit verdict (autonomy.autosubmit_policy), if the run recorded one."""
+    import json
+    try:
+        body = dict(body)
+        body["eligibility"] = json.loads((run_dir / "eligibility.json").read_text())
+    except (OSError, ValueError, TypeError):
+        pass
+    return body
 
 
 def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRouter:
@@ -249,14 +288,37 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
             if problem:
                 raise HTTPException(status_code=503, detail=problem)
 
+        from job_dashboard.apply import local_model
+        local_model.ensure_running()                 # the drafting model; left running for this single run
         cmd = [sys.executable, "-m", "career_agent.apply",
-               "--job-id", str(job_id), "--url", job_url]
+               "--job-id", str(job_id), "--url", job_url, "--claude-assist"]   # same as the queue: capped at 5 calls
         env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
         log_path = _log_path(job_id)
         started = state.start(job_id, cmd, str(REPO_ROOT), env, log_path)
         if not started:
             raise HTTPException(status_code=409, detail="agent already running")
         return {"started": True, "job_id": job_id}
+
+    @router.post("/api/open-in-agent-chrome")
+    def open_in_agent_chrome(body: dict):
+        """Open a URL as a new tab in the career-agent Chrome (CDP), so job/ATS
+        links land in the logged-in agent profile instead of the dashboard's browser."""
+        from urllib.parse import quote, urlparse
+        import urllib.request
+        url = str(body.get("url") or "")
+        if urlparse(url).scheme not in ("http", "https"):
+            raise HTTPException(status_code=422, detail="url must be http(s)")
+        from career_agent.config.settings import load_settings
+        cdp_url = load_settings().cdp_url or "http://localhost:9222"
+        problem = _ensure_cdp_chrome(cdp_url)
+        if problem:
+            raise HTTPException(status_code=503, detail=problem)
+        req = urllib.request.Request(f"{cdp_url}/json/new?{quote(url, safe='')}", method="PUT")
+        try:
+            urllib.request.urlopen(req, timeout=5).close()
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"CDP open failed: {e}")
+        return {"opened": True}
 
     @router.get("/api/apply-agent/status")
     def agent_status():
@@ -287,8 +349,10 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         return FileResponse(path, media_type="image/png")
 
     @router.get("/api/jobs/{job_id}/agent-runs/screenshot/{step}")
-    def agent_step_screenshot(job_id: int, step: int):
-        path = REPO_ROOT / "data" / "agent_runs" / str(job_id) / f"perceive{step}.png"
+    def agent_step_screenshot(job_id: int, step: int, part: int = 1):
+        """`part` > 1 = the next scrolled segment of a long page (perceive<N>_<part>.png)."""
+        name = f"perceive{step}.png" if part <= 1 else f"perceive{step}_{part}.png"
+        path = REPO_ROOT / "data" / "agent_runs" / str(job_id) / name
         if not path.exists():
             raise HTTPException(status_code=404, detail="no screenshot for this step")
         return FileResponse(path, media_type="image/png")
@@ -319,7 +383,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
             for s in steps:
                 s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
                                    if s.get("screenshot") else None)
-            return _with_questions(job_id, steps, by_page)
+            return _with_eligibility(run_dir, _with_questions(job_id, steps, by_page))
 
         import hashlib
         from career_agent.orchestrator.run_history import summarize_run
@@ -332,6 +396,6 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         for s in steps:
             s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"
                                if s["screenshot"] else None)
-        return _with_questions(job_id, steps, by_page)
+        return _with_eligibility(run_dir, _with_questions(job_id, steps, by_page))
 
     return router

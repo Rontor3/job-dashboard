@@ -89,6 +89,20 @@ def lookup(url: str) -> dict | None:
     return vendor
 
 
+def site_hint(url: str) -> dict | None:
+    """The graph's `site:` node for this URL's host, but only once it carries a learned reach path
+    (`reach_clicks`, written by memory/ats_promote.py). Lets reach follow the known route first."""
+    if not url:
+        return None
+    host = urlparse(url).netloc.lower()
+    _, nodes_by_id, _ = _load_graph()
+    for n in nodes_by_id.values():
+        if (n.get("type") == "site" and n.get("reach_clicks")
+                and any(host == d or host.endswith("." + d) for d in n.get("domains", []))):
+            return n
+    return None
+
+
 def find_fixes(symptom: str) -> list[dict]:
     """Cross-vendor: find {error, fix} pairs whose symptom matches the hint.
 

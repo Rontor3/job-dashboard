@@ -77,13 +77,15 @@ def _coerce_option(value, options):
             # text uses "not" not "no"; skip "prefer not to answer" / "decline" options.
             if toks is _NO and re.search(r"\bnot\b", ol) and not re.search(r"\bprefer\b|\bdecline\b", ol):
                 return o
-    vnums = re.findall(r"\d+", v)                        # 3. numeric range
-    if len(vnums) == 1:
-        n = int(vnums[0])
-        for o in options:
-            band = _option_range(o)
-            if band and band[0] <= n <= band[1]:
-                return o
+    vnums = re.findall(r"\d+(?:\.\d+)?", v)             # 3. numeric range (never for a dial code like +91)
+    if len(vnums) == 1 and not v.startswith("+"):
+        n = float(vnums[0])
+        hits = [(o, b) for o in options if (b := _option_range(o)) and b[0] <= n <= b[1]]
+        # Neighbouring bands share their edge ('1-3', '3-5'; '3-5', '5+'): read each as [lo, hi), so a value on the
+        # edge belongs to the band it STARTS, as years of experience do (3 years in service = '3-5', not '1-3').
+        inside = [o for o, b in hits if n < b[1]]
+        if hits:
+            return (inside or [o for o, _ in hits])[0]
     vt = [t for t in re.findall(r"[a-z0-9]+", v) if len(t) > 1]   # 4. word containment
     if vt:
         vset = set(vt)
@@ -166,8 +168,8 @@ def map_screen(form, profile, resume_pdf=None):
         value = resolve(f.purpose, profile) if f.purpose else None
         if value is not None:
             _place(f, value, "resume", decisions, needs_human)
-        elif f.required or (f.kind in ("text", "textarea")
-                            and (f.purpose is None or f.purpose in PROSE_PURPOSES)):
+        elif f.required or (f.kind == "textarea" or (f.kind == "text" and f.purpose in PROSE_PURPOSES)):
+            # an OPTIONAL single-line field with no answer stays blank — escalating it parks the run on a human
             needs_human.append(f)
     return decisions, needs_human
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
-  fetchAutosubmit, fetchQueueSettings, moveInQueue, pauseQueue, removeFromQueue, saveQueueSettings,
+  fetchAutosubmit, fetchQueueSettings, moveInQueue, pauseQueue, removeFromQueue, saveQueueSettings, saveGmailConfirmation, reconcileApplied,
   setAutosubmit, startQueue,
 } from "../api.js";
 import { reasonText } from "../queueReasons.js";
@@ -57,15 +57,17 @@ function Row({ item, idx, items, onChange, onOpenJob }) {
 export default function QueuePanel({ queue, onChange, onOpenJob }) {
   const items = queue?.items || [];
   const [auto, setAuto] = useState(null);
-  const [showAuto, setShowAuto] = useState(false);
+  const [showAuto, setShowAuto] = useState(true);
   const [wait, setWait] = useState(null);
+  const [gmailCheck, setGmailCheck] = useState(null);
+  const [reconciled, setReconciled] = useState("");
   const queued = items.filter((i) => i.state === "queued").length;
   const parked = items.filter((i) => i.state === "parked").length;
   const running = !!queue?.running;
 
   useEffect(() => {
-    if (showAuto && auto === null) fetchAutosubmit().then(setAuto).catch(() => setAuto({}));
-    if (showAuto && wait === null) fetchQueueSettings().then((s) => setWait(s.telegram_wait_minutes)).catch(() => setWait(10));
+    if (auto === null) fetchAutosubmit().then(setAuto).catch(() => setAuto({}));
+    if (showAuto && wait === null) fetchQueueSettings().then((s) => { setWait(s.telegram_wait_minutes); setGmailCheck(!!s.gmail_confirmation_check); }).catch(() => { setWait(10); setGmailCheck(false); });
   }, [showAuto, auto, wait]);
 
   const saveWait = (v) => {
@@ -74,7 +76,14 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
     saveQueueSettings(n).catch(() => {});
   };
 
-  const toggle = (board) => setAutosubmit(board, !auto[board]).then(setAuto);
+  const toggle = (board) => {
+    const on = !auto[board];
+    if (on && !window.confirm(
+      `Turn auto-submit ON for ${BOARD_LABEL[board] || board}?\n\nThe agent will SUBMIT applications there without you reviewing them, `
+      + "only when every answer is confident. You can turn it off at any time.")) return;
+    setAutosubmit(board, on).then(setAuto);
+  };
+  const onBoards = Object.keys(auto || {}).filter((b) => auto[b]).map((b) => BOARD_LABEL[b] || b);
 
   return (
     <section aria-label="Apply queue" style={{ background: "var(--card)", border: "0.5px solid var(--hairline)", borderRadius: "var(--radius-card)", padding: "12px 14px" }}>
@@ -92,6 +101,13 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
           </button>
         )}
       </div>
+      {auto && (
+        <div data-testid="autosubmit-status" role="status"
+          style={{ fontSize: 11, margin: "0 0 6px", padding: "3px 8px", borderRadius: "var(--radius-pill)", display: "inline-block",
+                   background: onBoards.length ? "#F6E7C8" : "var(--hairline)", color: onBoards.length ? "#7A5206" : "var(--ink-soft)" }}>
+          {onBoards.length ? `Auto-submit ON: ${onBoards.join(", ")}` : "Auto-submit OFF — every application waits for your review"}
+        </div>
+      )}
       {running && queue.paused && <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>Pausing after the current job…</div>}
       {items.length === 0 ? (
         <p style={{ fontSize: 12, color: "var(--ink-faint)", margin: "4px 0" }}>Add jobs with + Queue, then press Start.</p>
@@ -116,16 +132,40 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
           min before parking (0 = never ask)
         </label>
       )}
+      {showAuto && gmailCheck !== null && (
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 11, color: "var(--ink-soft)", marginTop: 6 }}>
+          <input type="checkbox" checked={gmailCheck} aria-label="Confirm submissions from Gmail"
+            onChange={(e) => { setGmailCheck(e.target.checked); saveGmailConfirmation(e.target.checked).catch(() => setGmailCheck(!e.target.checked)); }} />
+          <span>Confirm submissions from Gmail — looks for the "application sent / thank you for applying" email after a form is left for you.
+            Reads subject, sender and date only (never the message); nothing else in your inbox.</span>
+        </label>
+      )}
+      {showAuto && gmailCheck && (
+        <div style={{ marginTop: 4, fontSize: 11 }}>
+          <button onClick={() => { setReconciled("Checking…"); reconcileApplied().then((r) => setReconciled(
+              `Marked ${r.matched.length} applied` + (r.ambiguous.length ? `, ${r.ambiguous.length} need you to pick the job` : "") + ` (${r.emails} emails)`))
+            .catch(() => setReconciled("Could not check Gmail")); }}
+            style={{ ...small, padding: "2px 8px", border: "1px solid var(--hairline)", borderRadius: "var(--radius-pill)" }}>
+            Mark applied jobs from Gmail now
+          </button>
+          {reconciled && <span role="status" style={{ marginLeft: 6, color: "var(--ink-soft)" }}>{reconciled}</span>}
+        </div>
+      )}
       {showAuto && auto && (
         <div style={{ marginTop: 4 }}>
           <p style={{ fontSize: 10, color: "var(--ink-faint)", margin: "0 0 4px" }}>
             Submits only when every answer is confident. Off = fill and leave for your review.
           </p>
           {Object.keys(auto).map((b) => (
-            <label key={b} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "2px 0" }}>
-              <input type="checkbox" checked={!!auto[b]} onChange={() => toggle(b)} aria-label={`Auto-submit on ${BOARD_LABEL[b] || b}`} />
-              {BOARD_LABEL[b] || b}
-            </label>
+            <div key={b} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
+              <span>{BOARD_LABEL[b] || b}</span>
+              <button role="switch" aria-checked={!!auto[b]} aria-label={`Auto-submit on ${BOARD_LABEL[b] || b}`} onClick={() => toggle(b)}
+                style={{ minWidth: 46, fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: "var(--radius-pill)", cursor: "pointer",
+                         border: "1px solid " + (auto[b] ? "#C99A2E" : "var(--hairline)"),
+                         background: auto[b] ? "#F6E7C8" : "transparent", color: auto[b] ? "#7A5206" : "var(--ink-faint)" }}>
+                {auto[b] ? "ON" : "OFF"}
+              </button>
+            </div>
           ))}
         </div>
       )}

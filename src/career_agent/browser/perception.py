@@ -4,6 +4,7 @@
 thin browser-bound collectors."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import tempfile
@@ -45,11 +46,46 @@ def apply_vision_labels(form, labels: dict):
     return out
 
 
+_DATE_PART = {"day": "day", "dd": "day", "month": "month", "mm": "month", "year": "year", "yyyy": "year", "yy": "year"}
+DATE_PARTS_PREFIX = "dateparts:"
+
+
+def _part_of(r: dict):
+    """'day' / 'month' / 'year' when the box says so: by its label, placeholder, first option ("Month") or name/id."""
+    if r.get("kind") not in ("select", "text", "number", "combobox"):
+        return None
+    clean = lambda t: re.sub(r"[*:\s]", "", t or "").lower()
+    for t in (r.get("label"), r.get("placeholder"), *(r.get("part_hint") or "").split()):
+        if clean(t) in _DATE_PART:
+            return _DATE_PART[clean(t)]
+    return None
+
+
+def merge_date_parts(raw: list[dict]) -> list[dict]:
+    """Three neighbouring boxes labelled Day / Month / Year are ONE date question. Replace each such run with a single
+    'date_parts' row whose ref carries the three part refs; the label is the question they share."""
+    out, i = [], 0
+    while i < len(raw):
+        run = raw[i:i + 3]
+        parts = [_part_of(r) for r in run]
+        if len(run) == 3 and None not in parts and set(parts) == {"day", "month", "year"}:
+            refs = {p: r["ref"] for p, r in zip(parts, run)}
+            kinds = {p: r["kind"] for p, r in zip(parts, run)}
+            label = next((r.get("group_label") for r in run if r.get("group_label")), "") or "Date"
+            out.append({"ref": DATE_PARTS_PREFIX + json.dumps({"refs": refs, "kinds": kinds}), "kind": "date_parts",
+                        "label": label, "required": any(r.get("required") for r in run), "options": [],
+                        "input_type": "date", "description": "", "autocomplete": "", "placeholder": ""})
+            i += 3
+        else:
+            out.append(raw[i]); i += 1
+    return out
+
+
 def to_form_model(raw: list[dict]) -> list[Field]:
     fields: list[Field] = []
     radio_groups: dict[str, dict] = {}
 
-    for r in raw:
+    for r in merge_date_parts(raw):
         # Disabled / read-only inputs aren't part of the fillable form — a human
         # can't type in them either. Drop them so the mapper never targets one
         # (a strict fill on a disabled field blocks and crashes the run).
@@ -74,12 +110,13 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             continue
         fields.append(Field(
             ref=r["ref"], kind=kind, label=r["label"],
-            required=bool(r.get("required")), options=list(r.get("options", [])),
+            required=bool(r.get("required")) or bool(re.search(r"^\s*\*|\*\s*$", r["label"] or "")), options=list(r.get("options", [])),
             group=r.get("group"),
             purpose=guess_purpose(r["label"], kind),
             description=r.get("description", ""),
             input_type=r.get("input_type", ""),
             autocomplete=r.get("autocomplete", ""),
+            placeholder=r.get("placeholder", ""),
         ))
 
     for name, g in radio_groups.items():
@@ -135,12 +172,14 @@ _INPUT_JS = r"""
     if (lb) return lb;
     const al = (el.getAttribute('aria-label') || '').trim(); // 2
     if (al) return al;
+    // a label's OWN text: a <label> wrapping a <select> also contains the option list, which is not the question
+    const ownText = (l) => { const c = l.cloneNode(true); c.querySelectorAll('select,option,input,textarea,button,[role=listbox],[role=option]').forEach(x => x.remove()); return (c.textContent || '').trim().slice(0, 200); };
     if (el.id) {                                             // 3: <label for>
       const l = root.querySelector(`label[for="${el.id}"]`);
-      if (l) { const t = (l.textContent || '').trim().slice(0, 200); if (t) return t; }
+      if (l) { const t = ownText(l); if (t) return t; }
     }
     const wrap = el.closest('label');                        // 3: wrapping <label>
-    if (wrap) { const t = (wrap.textContent || '').trim().slice(0, 200); if (t) return t; }
+    if (wrap) { const t = ownText(wrap); if (t) return t; }
     const fs = el.closest('fieldset');                       // 3: fieldset legend
     if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (t) return t; } }
     const title = (el.getAttribute('title') || '').trim();   // 4
@@ -268,15 +307,58 @@ _INPUT_JS = r"""
     const isCombo = role === 'combobox' || haspopup === 'listbox' || isUxiSelect;
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);          // unique, id/name-independent handle
+    // A read-only text box that opens a calendar: it cannot be typed into, so it is its own kind ('datepicker')
+    // and is kept even though it is readonly. Signals are structural (date-ish name/class/placeholder/popup role).
+    const dateish = /date|calendar|picker|dd.?mm|yyyy/i;
+    const lab0 = labelFor(el);
+    const isPicker = !!el.readOnly && !isCombo && ['text', ''].includes(type) && tag === 'input' &&
+      (dateish.test((el.name || '') + ' ' + (el.id || '') + ' ' + (el.getAttribute('placeholder') || '') + ' ' + (el.className || '')) ||
+       ['dialog', 'grid'].includes(haspopup) || /\bdate\b/i.test(lab0) || !!el.closest('[class*="datepicker" i], [class*="date-picker" i], [class*="calendar" i]'));
+    if (isPicker) kind = 'datepicker';
+    // One date split over day / month / year boxes: each part reports the question shared by the three
+    const partWords = [lab0, el.getAttribute('placeholder'), el.name, el.id, tag === 'select' && el.options.length ? el.options[0].text : '']
+      .map(t => (t || '').replace(/[*:\s]/g, ''));
+    const isDatePart = partWords.some(t => /^(day|dd|month|mm|year|yyyy|yy)$/i.test(t));
+    const dateGroup = () => {
+      const fs = el.closest('fieldset');
+      const lg = fs && fs.querySelector('legend');
+      if (lg && lg.textContent.trim()) return lg.textContent.trim().slice(0, 200);
+      return groupLabel(el);
+    };
     out.push({
       ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
-      kind, label: labelFor(el), description: describedBy(el), required: !!el.required,
+      kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value : labelFor(el), description: describedBy(el), required: !!el.required || el.getAttribute('aria-required') === 'true',
       options, group: (kind === 'radio') ? (el.name || null) : null,
-      group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : '',
-      disabled: !!el.disabled || (!!el.readOnly && !isCombo),
+      group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : (isDatePart ? dateGroup() : ''),
+      disabled: !!el.disabled || (!!el.readOnly && !isCombo && !isPicker && !['radio','checkbox'].includes(type)),   // React sets readonly on radios
       role, haspopup,
       input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
+      placeholder: (el.getAttribute('placeholder') || '').trim().slice(0, 60),
+      part_hint: [tag === 'select' && el.options.length ? el.options[0].text : '', el.name || '', el.id || ''].join(' ').trim().slice(0, 80),
     });
+  }
+  // A combobox that is not an <input>/<select>/<button>: a styled <div role="combobox"> that opens a listbox popup
+  // (Indeed's single-select employer question). Same kind as the input comboboxes; the filler opens it and picks.
+  for (const el of deepQuery('[role="combobox"]')) {
+    const tag = el.tagName.toLowerCase();
+    if (['input', 'select', 'textarea', 'button'].includes(tag) || el.hasAttribute('data-cref')) continue;
+    if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
+    if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
+    const cref = 'f' + (_ci++);
+    el.setAttribute('data-cref', cref);
+    const lab = labelFor(el);
+    const row = {
+      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+      kind: 'combobox', label: lab, description: describedBy(el),
+      required: el.getAttribute('aria-required') === 'true' || /[*]\s*$|\(\*\)/.test(lab),
+      options: [], group: null, group_label: '',
+      disabled: el.getAttribute('aria-disabled') === 'true',
+      role: 'combobox', haspopup: (el.getAttribute('aria-haspopup') || '').toLowerCase(),
+      input_type: '', autocomplete: '', placeholder: '', part_hint: '',
+    };
+    // keep page order: before the first collected row whose element comes after this one in the document
+    const at = out.findIndex(r => { try { const o = document.querySelector(r.ref); return !!o && !!(el.compareDocumentPosition(o) & 4); } catch (e) { return false; } });
+    if (at >= 0) out.splice(at, 0, row); else out.push(row);
   }
   // Custom ARIA choice buttons: <button role="radio"> grouped under a
   // [role="radiogroup"] container (Typeform and similar React choice-button

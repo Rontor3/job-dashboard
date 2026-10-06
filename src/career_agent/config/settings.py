@@ -34,7 +34,10 @@ def _as_bool(val: str | None, default: bool) -> bool:
     return val.strip().lower() not in ("0", "false", "no", "")
 
 
-def _load_dotenv(path: str = ".env") -> None:
+_REPO_ENV = str(Path(__file__).resolve().parents[3] / ".env")  # not cwd-relative: servers start anywhere
+
+
+def _load_dotenv(path: str = _REPO_ENV) -> None:
     """Load KEY=VALUE (or export KEY=VALUE) from path without overriding set vars."""
     try:
         for line in open(path):

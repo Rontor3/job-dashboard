@@ -21,6 +21,10 @@ from job_dashboard.apply import queue as q
 from job_dashboard.apply.outcome import outcome
 from job_dashboard.db import VALID_STATUSES, init_db, set_job_status
 
+# parked reasons that mean "a filled form was left open waiting for you": only those can be submitted by hand
+LEFT_FOR_REVIEW = {"review", "reached_submit_dry_run", "needs_approval", "submit_unconfirmed", "one_click_needs_autosubmit"}
+
+
 def autosubmit_key(url: str) -> str:
     from career_agent.boards.profiles import board_for
     board = board_for(url or "")
@@ -46,8 +50,9 @@ def _job(conn, job_id: int) -> dict | None:
 
 
 class QueueRunner:
-    def __init__(self, db_path: str, launch, result_dir: str | None = None):
+    def __init__(self, db_path: str, launch, result_dir: str | None = None, watcher=None):
         self.db_path, self.launch = db_path, launch
+        self.watcher = watcher                     # SubmitWatcher: told where a parked form was left open
         self.result_dir = result_dir or tempfile.gettempdir()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -73,9 +78,24 @@ class QueueRunner:
         return {"running": running, "paused": self._paused, "job_id": self._job_id if running else None}
 
     # -- work -----------------------------------------------------------
+    @staticmethod
+    def _promote_trails() -> None:
+        """Fold finished runs' reach trails into the ATS graph so the next job benefits."""
+        try:
+            from career_agent.memory.ats_promote import promote
+            promote()
+        except Exception as e:                      # learning must never break the queue
+            print(f"[queue] ats-graph promote skipped: {type(e).__name__}: {e}", flush=True)
+
     def drain(self) -> None:
         """Run queued jobs until none are left or the queue is paused."""
         conn = init_db(self.db_path)
+        self._promote_trails()                      # runs finished outside the queue (CLI, manual)
+        # a 'running' row at drain start belongs to a run the server restart orphaned: back to the queue, not stuck
+        conn.execute("UPDATE apply_queue SET state='queued', started_at=NULL WHERE state='running'")
+        conn.commit()
+        from . import local_model
+        started_model = local_model.ensure_running()
         try:
             while not self._paused:
                 job_id = q.next_queued(conn)
@@ -86,20 +106,21 @@ class QueueRunner:
                     self._run_one(conn, job_id)
                 finally:
                     self._job_id = None
+                    self._promote_trails()
         finally:
             conn.close()
+            if started_model:
+                local_model.stop()
 
     def argv(self, conn, url: str, job_id: int, result_path: str) -> list[str]:
         argv = [sys.executable, "-m", "career_agent.apply", "--job-id", str(job_id), "--url", url,
-                "--park", "--result-json", result_path]
-        try:
-            authorized = qa_store.get_setting(conn, autosubmit_key(url)) == "1"
-        except KeyError:
-            authorized = False
+                "--park", "--result-json", result_path, "--claude-assist"]   # capped at 5 Claude calls per run
         wait = qa_store.get_setting(conn, "telegram_wait_minutes")
         if wait.isdigit() and int(wait) > 0:
             argv += ["--ask-wait-minutes", wait]
-        return argv + (["--submit", "--autonomous"] if authorized else ["--review"])
+        # Whether the form goes out without you is decided at its last step, from the destination site's switch and the
+        # answers' approvals (autonomy.autosubmit_policy); otherwise it is left open for your review.
+        return argv + ["--review", "--autosubmit-policy"]
 
     def _run_one(self, conn, job_id: int) -> None:
         job = _job(conn, job_id)
@@ -125,5 +146,12 @@ class QueueRunner:
             pass
         state, reason, status = outcome(result, code)
         q.mark(conn, job_id, state, reason)
-        if status in VALID_STATUSES:
-            set_job_status(conn, job_id, status)
+        if self.watcher and state == "parked" and reason in LEFT_FOR_REVIEW and result and result.get("url") and not result.get("submitted"):
+            try:
+                self.watcher.register(conn, job_id, result["url"], result.get("run_key"), result.get("final_tab_id"),
+                                      "auto" if reason == "submit_unconfirmed" else "manual")
+            except Exception as e:
+                print(f"[queue] could not register a submit watch for job {job_id}: {e}", flush=True)
+        now = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if status in VALID_STATUSES and not (now and now[0] in ("applied", "interviewing", "offer")):
+            set_job_status(conn, job_id, status)       # a re-run never downgrades a job you already applied to

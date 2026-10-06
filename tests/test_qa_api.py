@@ -215,3 +215,68 @@ def test_answering_does_not_queue_a_job_that_was_never_queued(env):
     rid = _open(db, "Expected CTC?", "text")
     assert c.post(f"/api/jobs/1/questions/{rid}/reply", json={"answer": "20 LPA"}).json()["requeued"] is False
     assert _queue_state(db) is None
+
+
+def _row(db, rid):
+    conn = init_db(db)
+    try:
+        return conn.execute("SELECT answer, source, status FROM application_qa WHERE id=?", (rid,)).fetchone()
+    finally:
+        conn.close()
+
+
+def test_edit_a_filled_answer_for_this_application_only(env):
+    c, db = env
+    rid = _filled(db)
+    assert c.put(f"/api/application-qa/{rid}/answer", json={"answer": " 45 days "}).status_code == 200
+    assert _row(db, rid) == ("45 days", "human", "answered")
+    assert _entry(c, "notice_period")["answer"] != "45 days"           # "once" leaves the saved answer alone
+
+
+def test_edit_can_update_the_saved_answer_it_came_from(env):
+    c, db = env
+    rid = _filled(db)
+    assert c.put(f"/api/application-qa/{rid}/answer", json={"answer": "60 days", "save_as": "entry"}).status_code == 200
+    assert _entry(c, "notice_period")["answer"] == "60 days"           # the saved answer itself is corrected
+    assert _row(db, rid)[0] == "60 days"
+
+
+def test_edit_can_save_as_a_new_saved_answer_and_rejects_bad_input(env):
+    c, db = env
+    rid = _filled(db, label="Preferred joining month?")
+    before = len(c.get("/api/answers").json()["answers"])
+    assert c.put(f"/api/application-qa/{rid}/answer", json={"answer": "November", "save_as": "new"}).status_code == 200
+    assert len(c.get("/api/answers").json()["answers"]) == before + 1
+    assert c.put(f"/api/application-qa/{rid}/answer", json={"answer": "  "}).status_code == 422
+    assert c.put(f"/api/application-qa/{rid}/answer", json={"answer": "x", "save_as": "bogus"}).status_code == 422
+    assert c.put("/api/application-qa/99999/answer", json={"answer": "x"}).status_code == 404
+    open_row = _open(db)                                                 # an unmatched row has no entry to update
+    assert c.put(f"/api/application-qa/{open_row}/answer", json={"answer": "x", "save_as": "entry"}).status_code == 422
+
+
+def _write_ingredients(db):
+    import json
+    from pathlib import Path
+    p = Path(db).parent / "answer_style"
+    p.mkdir(exist_ok=True)
+    (p / "ingredients.json").write_text(json.dumps({"version": 1, "units": [
+        {"id": "u1", "type": "project", "title": "Fraud", "org": "Tata", "problem": "slow", "tech": ["ML"],
+         "impact": ["ROC > 0.85"], "tags": ["fraud"], "source": "verbatim text"}], "skills_pool": []}))
+    return p / "ingredients.json"
+
+
+def test_ingredient_edit_keeps_source_locked_and_backs_up(env):
+    import json
+    c, db = env
+    path = _write_ingredients(db)
+    assert c.get("/api/ingredients").json()["units"][0]["problem"] == "slow"
+    r = c.put("/api/ingredients/u1", json={"problem": "manual review was slow", "tags": ["fraud", "ML"]})
+    assert r.status_code == 200 and r.json()["problem"] == "manual review was slow"
+    assert json.loads(path.read_text())["units"][0]["tags"] == ["fraud", "ML"]
+    assert len(list(path.parent.glob("ingredients.json.bak-*"))) == 1
+    assert c.put("/api/ingredients/u1", json={"source": "changed"}).status_code == 422
+    assert json.loads(path.read_text())["units"][0]["source"] == "verbatim text"
+    assert c.put("/api/ingredients/u1", json={"source": "changed", "confirm_source": True}).status_code == 200
+    assert json.loads(path.read_text())["units"][0]["source"] == "changed"
+    assert c.put("/api/ingredients/nope", json={"title": "x"}).status_code == 404
+    assert c.put("/api/ingredients/u1", json={"title": " "}).status_code == 422

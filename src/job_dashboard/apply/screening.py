@@ -11,6 +11,7 @@ general, truthful answer assembled from the profile. This function NEVER raises.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 from typing import Callable
 
@@ -20,7 +21,7 @@ from job_dashboard.letter.grounding import check_grounding
 LlmFn = Callable[[str], str]
 
 _MAX_PROFILE_CHARS = 1200
-_MAX_PAGE_CHARS = 2000
+_MAX_PAGE_CHARS = 6000
 _MAX_STORY_CHARS = 2500
 
 
@@ -31,6 +32,42 @@ def _facts_block(research) -> str:
         for f in facts if getattr(f, "text", "")
     ]
     return "\n".join(lines) or "(none)"
+
+
+_INGREDIENTS = Path(__file__).resolve().parents[3] / "data" / "answer_style" / "ingredients.json"
+_STOP = {"the", "and", "for", "with", "you", "your", "our", "are", "this", "that", "what", "why", "how", "have"}
+
+
+def _words(text) -> set:
+    return {w for w in re.findall(r"[a-z0-9+#]{3,}", str(text).lower()) if w not in _STOP}
+
+
+def _project_blocks(question, job, limit: int = 2) -> str:
+    """The 1-2 projects / roles most relevant to THIS question and job, each as its own labelled block, so the
+    model never blends facts from different projects. Ranked by word overlap with the unit's title, tags and tech; education units are not projects. "" when the ingredient bank is missing."""
+    try:
+        units = json.loads(_INGREDIENTS.read_text()).get("units", [])
+    except (OSError, ValueError):
+        return ""
+    job = job if isinstance(job, dict) else {}
+    want = _words(f"{question} {job.get('title') or ''} {(job.get('description') or '')[:1500]}")
+    scored = []
+    for i, u in enumerate(x for x in units if x.get("type") in ("project", "work_experience")):
+        have = _words(" ".join([u.get("title", ""), " ".join(u.get("tags", [])),
+                                " ".join(u["tech"]) if isinstance(u.get("tech"), list) else str(u.get("tech", ""))]))
+        scored.append((-len(want & have), i, u))
+    blocks = []
+    for n, (_, _, u) in enumerate(sorted(scored, key=lambda t: t[:2])[:limit], 1):
+        impact = "; ".join(u["impact"]) if isinstance(u.get("impact"), list) else u.get("impact", "")
+        blocks.append(f"PROJECT {n} — {u.get('title', '')} ({u.get('org', '')})\n"
+                      f"  Problem: {u.get('problem', '')}\n  Approach: {u.get('approach', '')}\n"
+                      f"  Impact: {impact}\n  Verbatim from résumé: {u.get('source', '')}")
+    return "\n\n".join(blocks)
+
+
+def _projects_section(question, job) -> str:
+    blocks = _project_blocks(question, job)
+    return f"THE CANDIDATE'S PROJECTS (ground truth, kept apart):\n{blocks}\n\n" if blocks else ""
 
 
 def _build_prompt(job, question, profile_text, research, resume_text, story_text="") -> str:
@@ -52,10 +89,13 @@ def _build_prompt(job, question, profile_text, research, resume_text, story_text
         "ROLE or VERIFIED COMPANY FACTS. Never invent a company fact.\n"
         "3. Be concrete and specific; no generic filler.\n"
         "4. Connect what the candidate says they want and enjoy to what this "
-        "company does. Warm, specific, first person; no generic filler.\n\n"
+        "company does. Warm, specific, first person; no generic filler.\n"
+        "5. Each PROJECT block is a SEPARATE project. Draw on at most two, never blend them: a tool, number or "
+        "outcome belongs only to the project whose block states it. Name the project when you cite it.\n\n"
         f"ROLE: {title} at {company}\n"
         f"QUESTION: {question}\n\n"
-        f"CANDIDATE PROFILE:\n{(profile_text or '')[:_MAX_PROFILE_CHARS]}\n\n"
+        f"CANDIDATE PROFILE (overview only; specifics come from the PROJECT blocks):\n{(profile_text or '')[:_MAX_PROFILE_CHARS]}\n\n"
+        f"{_projects_section(question, job)}"
         f"{own_words}"
         f"COMPANY & ROLE (from the job page):\n{(resume_text or '')[:_MAX_PAGE_CHARS]}\n\n"
         f"VERIFIED COMPANY FACTS (the ONLY source for company specifics):\n"

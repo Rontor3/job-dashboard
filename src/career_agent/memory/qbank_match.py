@@ -27,6 +27,10 @@ CONFIDENT, LIKELY, NONE = "confident", "likely", "none"
 _ESCAPE = re.compile(
     r'''\b(type|enter|write|put|respond with)\b[^"“']{0,20}["“']([^"”']{2,30})["”']''', re.I)
 _POLARITY = {"not", "no", "without", "never", "ever", "require", "required", "need"}
+# Contrasting qualifiers that make two otherwise identical questions different ("current" vs "expected" salary).
+# A small embedding model scores them near-identical, so a clash is never auto-confident.
+_QUALIFIERS = {"now": {"current", "present", "existing", "last", "previous", "today"},
+               "later": {"expected", "desired", "target", "expecting", "preferred", "future", "minimum", "maximum"}}
 _NAME_LIKE = re.compile(r"^[\w.-]+\[")
 _OPTION_WORDS = {"yes", "no", "true", "false", "n/a", "na", "-"}
 _THINK = re.compile(r"<think>.*?</think>", re.S)
@@ -60,6 +64,16 @@ def split_escape(label: str, description: str = ""):
     return " ".join(kept).strip(), escape
 
 
+_FORMAT_HINT = re.compile(r"\(?\b(?:dd|mm|yyyy|yy)(?:[/.\-](?:dd|mm|yyyy|yy)){1,2}\b\)?", re.I)
+
+
+def without_format_hint(question: str) -> str:
+    """'Joining date (dd/mm/yyyy)' asks the same thing as 'Joining date': the format only shapes the answer."""
+    q = re.sub(r"\s+", " ", _FORMAT_HINT.sub("", question or "")).strip(" -:(,;")
+    q = re.sub(r"(?:\b(?:use|in|the|date)\s+)*\bformat\s*:?\s*$", "", q, flags=re.I).strip(" -:(,;")
+    return q or question
+
+
 def is_junk(f) -> bool:
     """Not a question: empty/placeholder (perception's own test), a bare option
     word, an input name like cards[uuid][field3], or one of its own options."""
@@ -74,6 +88,23 @@ def _polarity(text: str) -> set:
     return {t for t in re.findall(r"[a-z]+", (text or "").lower()) if t in _POLARITY}
 
 
+def _qualifiers(text: str) -> set:
+    words = set(re.findall(r"[a-z]+", (text or "").lower()))
+    return {k for k, v in _QUALIFIERS.items() if words & v}
+
+
+def qualifier_clash(question: str, wording: str) -> bool:
+    """Both name a qualifier and they point opposite ways (current vs expected)."""
+    a, b = _qualifiers(question), _qualifiers(wording)
+    return bool(a and b and a != b)
+
+
+def _slot_note(entry) -> str:
+    """An entry with slots (skill, company) stands for every instance of it: 'with this skill' is the same
+    question as 'with Docker'. Say so, or a strict matcher answers NONE for any named one."""
+    return "".join(f' [the {s} can be any specific {s} the form names]' for s in entry.get("slots") or [])
+
+
 def llm_pick(question, entry_ids, conn, llm):
     """Which shortlisted entry is this question? The reply must be a letter or
     NONE; anything else counts as NONE (flag, never guess)."""
@@ -84,7 +115,7 @@ def llm_pick(question, entry_ids, conn, llm):
               f'"{question}"\n\n'
               "Which ONE of these questions asks exactly the same thing (same meaning, "
               "same yes/no direction)? Reply with the letter only, or NONE if none match.\n\n"
-              + "\n".join(f"({'abc'[i]}) {e['question']}" for i, e in enumerate(ents))
+              + "\n".join(f"({'abc'[i]}) {e['question']}{_slot_note(e)}" for i, e in enumerate(ents))
               + "\n\nAnswer:")
     try:
         reply = _THINK.sub("", llm(prompt) or "").strip().lower()
@@ -116,7 +147,7 @@ def match_question(conn, question, *, embed, llm=None, high=DEFAULT_HIGH,
     s2 = top[1][1] if len(top) > 1 else 0.0
     if s1 < floor:
         return Match(NONE, None, s1, "none", cands, note="below floor")
-    if s1 >= high and s1 - s2 >= margin:
+    if s1 >= high and s1 - s2 >= margin and not qualifier_clash(question, best_text[top[0][0]]):
         m = Match(CONFIDENT, top[0][0], s1, "shortlist", cands)
     else:
         pick = llm_pick(question, [e for e, s in top if s >= floor], conn, llm)
@@ -176,22 +207,52 @@ def fit_option(label, value, options, synonyms, llm=None):
     return hit
 
 
+def _compose_from_facts(conn, f, question, entry, embed, llm, job, contact):
+    """(value, 'fact1; fact2') written by the model from the bank's related facts, or (None, None).
+    Only when the matched entry holds no value of its own; never for sensitive or free-essay fields."""
+    from ..orchestrator.judgment import _is_sensitive
+    from . import qbank_compose
+    if llm is None or f.kind == "textarea" or _is_sensitive(f):
+        return None, None
+    if entry is None and f.purpose:
+        return None, None          # an unmatched field with a known purpose (phone, email...) is the rule mapper's job
+    yes_no = {qbank.norm(o) for o in (f.options or [])} <= {"yes", "no"} and bool(f.options)
+    if yes_no or (entry and entry.get("atype") == "bool"):
+        return None, None          # a Yes/No is a statement about you, never something to work out from other facts
+    facts = qbank_compose.related_facts(
+        conn, question, embed=embed, exclude={entry["id"]} if entry else (),
+        min_relevance=qbank_compose.MIN_RELEVANCE if entry else qbank_compose.UNMATCHED_RELEVANCE,
+        topic=entry.get("topic") if entry else None,
+        resolve=lambda e: resolve_value(conn, e, question=e["question"], escape=None, job=job, contact=contact))
+    value = qbank_compose.compose(question, f, facts, llm,
+                                  date_only=bool(entry and entry.get("atype") == "date") or qbank_compose.asks_for_date(question, f))
+    return (value, "; ".join(q for q, _, _ in facts)) if value else (None, None)
+
+
 def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAULT_HIGH):
     if f.kind in ("file", "button") or f.purpose == "attestation":
         return Match(NONE, note="not a bank field"), None
     question, escape = split_escape(f.label, f.description)
     if is_junk(f) or not question:
         return Match(NONE, note="junk label"), None
-    m = match_question(conn, question, embed=embed, llm=llm, high=high)
+    m = match_question(conn, without_format_hint(question), embed=embed, llm=llm, high=high)
     m.escape = escape
     if m.entry_id is None:
-        return m, None
+        value, composed = _compose_from_facts(conn, f, question, None, embed, llm, job, contact)
+        fitted = fit_option(f.label, value, f.options, None, llm) if value else None
+        if fitted is None:
+            return m, None
+        m.band, m.kind, m.note = LIKELY, "composed", f"composed from your saved facts: {composed}"
+        return m, fitted
     entry = qbank.get_entry(conn, m.entry_id)
     value = resolve_value(conn, entry, question=question, escape=escape, job=job, contact=contact,
                            options=f.options)
+    composed = None
     if value is None:
-        m.band, m.note = NONE, "no answer for entry"
-        return m, None
+        value, composed = _compose_from_facts(conn, f, question, entry, embed, llm, job, contact)
+        if value is None:
+            m.band, m.note = NONE, "no answer for entry"
+            return m, None
     shape = infer_shape(entry["shape"], getattr(f, "input_type", ""),
                         getattr(f, "autocomplete", ""), f.label)
     if not shape_ok(shape, value, escape):
@@ -199,4 +260,6 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
     fitted = fit_option(f.label, value, f.options, entry["synonyms"], llm)
     if fitted is None:
         m.band, m.note = NONE, "no option fits"
+    elif composed:
+        m.band, m.note = LIKELY, f"composed from your saved facts: {composed}"     # written, not looked up: review it
     return m, fitted

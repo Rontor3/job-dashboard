@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 
-_JD_CHARS = 1500
+_JD_CHARS = 3800          # Telegram's message limit is 4096; a JD longer than this is cut, never silently at 1500
 _ABOUT_CHARS = 900
 _MIN_ASK_S = 30            # don't start a question with less than this left
 

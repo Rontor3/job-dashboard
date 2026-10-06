@@ -225,3 +225,16 @@ def test_judge_forwards_story_text(monkeypatch):
     f = Field("#m", "textarea", "Why do you want to join us?", True, [], None, None)
     judge([f], ctx, llm=lambda p: "")
     assert seen["story"] == "Q: a\nA: b"
+
+
+def test_judge_never_fills_canned_fallback_answer():
+    from career_agent.orchestrator import judgment as J
+    f = Field("#q", "textarea", "What interests you about working for this company?", True, [], None, None)
+    orig = J.draft_screening_answer
+    J.draft_screening_answer = lambda *a, **k: {"answer": "canned", "flags": ["general_fallback"], "confidence": None}
+    try:
+        ctx = J.JudgmentContext(job={}, profile_text="x", resume_text="")
+        answered, still, _ = J.judge([f], ctx, lambda p: "")
+    finally:
+        J.draft_screening_answer = orig
+    assert not answered and still == [f]

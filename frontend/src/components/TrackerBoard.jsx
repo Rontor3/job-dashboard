@@ -82,7 +82,7 @@ function AgentLiveTag({ jobId, agentStatus }) {
   );
 }
 
-function Row({ job, agentStatus, onSelect, onMove, expanded, onToggle, openCount, onChanged }) {
+function Row({ job, agentStatus, onSelect, onMove, onRequeue, expanded, onToggle, openCount, onChanged }) {
   const running = agentStatus && agentStatus.running && agentStatus.job_id === job.id;
   return (
     <div>
@@ -115,6 +115,14 @@ function Row({ job, agentStatus, onSelect, onMove, expanded, onToggle, openCount
         </span>
       )}
       {running ? <AgentLiveTag jobId={job.id} agentStatus={agentStatus} /> : <StagePill job={job} />}
+      {job.status === "failed" && onRequeue && (
+        <button type="button" data-testid={`requeue-${job.id}`} title="Put this job back on the apply queue (after you've corrected what stopped it)"
+                onClick={(e) => { e.stopPropagation(); onRequeue(job.id); }}
+                style={{ border: "none", cursor: "pointer", fontSize: 11, padding: "4px 12px", whiteSpace: "nowrap",
+                         borderRadius: "var(--radius-pill)", background: "var(--green)", color: "#FFFFFF" }}>
+          Re-queue
+        </button>
+      )}
       <select
         data-testid={`stage-${job.id}`}
         value={stageValue(job)}
@@ -152,7 +160,7 @@ function Row({ job, agentStatus, onSelect, onMove, expanded, onToggle, openCount
   );
 }
 
-export default function TrackerBoard({ onSelect, refreshTick, onStatsChange }) {
+export default function TrackerBoard({ onSelect, refreshTick, onStatsChange, onStatsPoll, onRequeue }) {
   const [board, setBoard] = useState(null);
   const [err, setErr] = useState(null);
   const [agentStatus, setAgentStatus] = useState(null);
@@ -171,6 +179,15 @@ export default function TrackerBoard({ onSelect, refreshTick, onStatsChange }) {
   // A change made here (stage menu, an answer that re-queues) also moves the pie.
   const changed = useCallback(() => { load(); if (onStatsChange) onStatsChange(); }, [load, onStatsChange]);
   useEffect(() => { load(); }, [load, refreshTick]);
+  // Statuses also change without you (the submit watcher, the Gmail confirmation check, a run finishing): re-read the board
+  // while this tab is on screen, and the moment you come back to it.
+  // (The donut is refreshed through onStatsPoll: just the counts, not the whole job feed.)
+  useEffect(() => {
+    const tick = () => { if (!document.hidden) { load(); if (onStatsPoll) onStatsPoll(); } };
+    const t = setInterval(tick, 20000);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", tick); };
+  }, [load, onStatsPoll]);
 
   useEffect(() => {
     const poll = () => {
@@ -208,7 +225,7 @@ export default function TrackerBoard({ onSelect, refreshTick, onStatsChange }) {
           <div style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 8 }}>{rows.length} active</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {rows.map((j) => (
-              <Row key={j.id} job={j} agentStatus={agentStatus} onSelect={onSelect} onMove={move}
+              <Row key={j.id} job={j} agentStatus={agentStatus} onSelect={onSelect} onMove={move} onRequeue={onRequeue}
               expanded={expandedId === j.id} onToggle={(id) => setExpandedId(expandedId === id ? null : id)}
               openCount={openCounts[j.id] || 0} onChanged={changed} />
             ))}

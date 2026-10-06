@@ -24,4 +24,6 @@ def _action_for_kind(kind: str) -> str:
         return "check_group"
     if kind == "combobox":
         return "combobox"           # open the fake dropdown + click a live option
+    if kind in ("datepicker", "date_parts"):
+        return kind                 # read-only calendar popup / separate day-month-year boxes (browser/date_widgets.py)
     return "fill"

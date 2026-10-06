@@ -32,7 +32,13 @@ class QueueMove(BaseModel):
 
 
 class QueueSettings(BaseModel):
-    telegram_wait_minutes: int
+    telegram_wait_minutes: Optional[int] = None
+    gmail_confirmation_check: Optional[bool] = None       # look for the "application sent" email as proof (subjects only)
+
+
+class ReconcileBody(BaseModel):
+    days: int = 14
+    apply: bool = True
 
 
 class AutosubmitSet(BaseModel):
@@ -55,7 +61,10 @@ def make_agent_launch(state, poll_s: float = 2.0):
         env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
         while not state.start(job_id, argv, str(REPO_ROOT), env, _log_path(job_id)):
             time.sleep(poll_s)
-        return state.wait()
+        from job_dashboard.apply.stall import STALL_EXIT, watch
+        stalled = watch(lambda: state.poll()["running"], state.stop, str(_log_path(job_id)))
+        code = state.wait()
+        return STALL_EXIT if stalled else code
 
     return launch
 
@@ -152,22 +161,44 @@ def build_queue_router(db_path, runner: QueueRunner) -> APIRouter:
         finally:
             conn.close()
 
+    @router.post("/api/applied/reconcile")
+    def reconcile_applied(body: ReconcileBody):
+        """Mark tracked jobs applied from their confirmation emails (metadata only). Needs the Gmail switch on."""
+        if not 1 <= body.days <= 60:
+            raise HTTPException(status_code=422, detail="days must be 1-60")
+        conn = db()
+        try:
+            if qa_store.get_setting(conn, "gmail_confirmation_check") != "1":
+                raise HTTPException(status_code=409, detail="turn on 'Confirm submissions from Gmail' first")
+            import time as _time
+            from career_agent.integrations.gmail_confirm import list_confirmations
+            from job_dashboard.apply.reconcile import reconcile
+            msgs = list_confirmations(int(_time.time()) - body.days * 86400)
+            return {"emails": len(msgs), **reconcile(conn, msgs, apply=body.apply)}
+        finally:
+            conn.close()
+
     @router.get("/api/queue/settings")
     def get_queue_settings():
         conn = db()
         try:
-            return {"telegram_wait_minutes": int(qa_store.get_setting(conn, "telegram_wait_minutes"))}
+            return {"telegram_wait_minutes": int(qa_store.get_setting(conn, "telegram_wait_minutes")),
+                    "gmail_confirmation_check": qa_store.get_setting(conn, "gmail_confirmation_check") == "1"}
         finally:
             conn.close()
 
     @router.put("/api/queue/settings")
     def put_queue_settings(body: QueueSettings):
-        if not 0 <= body.telegram_wait_minutes <= 120:
-            raise HTTPException(status_code=422, detail="telegram_wait_minutes must be 0-120")
         conn = db()
         try:
-            qa_store.set_setting(conn, "telegram_wait_minutes", body.telegram_wait_minutes)
-            return {"telegram_wait_minutes": body.telegram_wait_minutes}
+            if body.telegram_wait_minutes is not None:
+                if not 0 <= body.telegram_wait_minutes <= 120:
+                    raise HTTPException(status_code=422, detail="telegram_wait_minutes must be 0-120")
+                qa_store.set_setting(conn, "telegram_wait_minutes", body.telegram_wait_minutes)
+            if body.gmail_confirmation_check is not None:
+                qa_store.set_setting(conn, "gmail_confirmation_check", "1" if body.gmail_confirmation_check else "0")
+            return {"telegram_wait_minutes": int(qa_store.get_setting(conn, "telegram_wait_minutes")),
+                    "gmail_confirmation_check": qa_store.get_setting(conn, "gmail_confirmation_check") == "1"}
         finally:
             conn.close()
 

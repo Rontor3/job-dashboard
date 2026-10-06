@@ -69,7 +69,7 @@ class FormDriver:
         except Exception:
             # Shadow-DOM buttons (LinkedIn Easy Apply): Playwright CSS locators
             # pierce open shadow roots where get_by_role may not.
-            page.locator(f'button:has-text("{label}")').last.click(timeout=5000)
+            page.locator(f'button:has-text("{label}")').last.click(timeout=5000, no_wait_after=True)
             page.wait_for_timeout(2500)
 
 

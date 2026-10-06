@@ -58,6 +58,7 @@ export default function App() {
   }, [filters]);
 
   useEffect(() => { reload(); }, [reload]);
+  const reloadStats = useCallback(() => fetchStats().then(setStats).catch(() => {}), []);   // the donut and header counts only
 
   const reloadAll = useCallback(() => { reload(); setTrackerTick((t) => t + 1); }, [reload]);
 
@@ -130,10 +131,10 @@ export default function App() {
         ) : (
           <div>
             <StatusPie stats={stats} />
-            <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} onStatsChange={reload} />
+            <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} onStatsChange={reload} onStatsPoll={reloadStats} onRequeue={onQueue} />
           </div>
         )}
-        {selectedId && <JobDetail id={selectedId} onStatusChange={() => reloadAll()} onClose={() => setSelectedId(null)} />}
+        {selectedId && <JobDetail id={selectedId} onApply={onApply} onStatusChange={() => reloadAll()} onClose={() => setSelectedId(null)} />}
       </main>
     </div>
   );

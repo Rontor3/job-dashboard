@@ -19,6 +19,8 @@ DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail 
                     "browser_naukri_enabled": "0", "browser_wellfound_enabled": "0",
                     "browser_instahyre_enabled": "0", "browser_iimjobs_enabled": "0",
                     "browser_indeed_enabled": "0", "browser_ycstartups_enabled": "0",
+                    "gmail_confirmation_check": "0",    # look for the "application sent" EMAIL as proof (subjects only; off by default)
+                    "autosubmit_daily_cap": "5",       # most automatic submits in any 24h (autonomy.autosubmit_policy)
                     # Apply queue: standing per-board authorization to auto-submit (0/1).
                     **{f"autosubmit_{b}": "0" for b in ("naukri", "linkedin", "indeed", "iimjobs", "instahyre",
                                                         "wellfound", "workatastartup", "career_site")}}
@@ -107,6 +109,15 @@ def open_questions(conn, job_id: int) -> list[dict]:
                      WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
            ORDER BY id""", (job_id,))
     return [_row(cur, r) for r in cur.fetchall()]
+
+
+def prior_answers(conn, job_id: int, exclude_run_key: str | None = None) -> dict:
+    """{normalized label: answer} the human already gave for THIS job (Telegram, the tracker, the dashboard) in
+    earlier runs, latest wins. A re-run of the same application must not ask the same questions again."""
+    rows = conn.execute(
+        "SELECT label, answer FROM application_qa WHERE job_id = ? AND status = 'answered' AND source = 'human' "
+        "AND answer IS NOT NULL AND TRIM(answer) != '' AND (? IS NULL OR run_key != ?) ORDER BY id", (job_id, exclude_run_key, exclude_run_key)).fetchall()
+    return {norm_key(label): answer for label, answer in rows if norm_key(label)}
 
 
 def open_counts(conn) -> dict[int, int]:

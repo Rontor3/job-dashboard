@@ -9,6 +9,8 @@ confirms a wording or re-points it to the right entry. Spec 2026-09-26 §3–4.
 from __future__ import annotations
 
 import json
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -30,10 +32,27 @@ class AnswerBody(BaseModel):
     question: Optional[str] = None     # or create a new one
 
 
+class IngredientBody(BaseModel):
+    title: Optional[str] = None
+    org: Optional[str] = None
+    problem: Optional[str] = None
+    approach: Optional[str] = None
+    tech: Optional[list[str]] = None
+    impact: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
+    source: Optional[str] = None
+    confirm_source: bool = False
+
+
 class ReplyBody(BaseModel):
     answer: str
     save_as: str = "once"              # "once" | "new" | "wording"
     entry_id: Optional[str] = None     # required for "wording"
+
+
+class EditBody(BaseModel):
+    answer: str
+    save_as: str = "once"              # "once" | "entry" (the saved answer it came from) | "new"
 
 
 class ReviewBody(BaseModel):
@@ -93,7 +112,7 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
                 "answer": e["answer"], "profile_ref": e["profile_ref"], "rule": e["rule"],
                 "rule_help": RULE_HELP.get(e["rule"]), "value": value,
                 "needs_input": not e["profile_ref"] and e["rule"] not in NO_INPUT_RULES,
-                "wordings": words, "updated_at": e["updated_at"],
+                "wordings": words, "updated_at": e["updated_at"], "approvals": e.get("approvals") or 0,
                 "asked_in": sum(asked.get(qa_store.norm_key(w), 0) for w in words)}
 
     def link(conn, label, entry_id, source, replace):
@@ -223,6 +242,37 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         finally:
             conn.close()
 
+    @router.put("/api/application-qa/{row_id}/answer")
+    def edit_filled_answer(row_id: int, body: EditBody):
+        """Correct an answer the agent already filled. `once` fixes this application's record only; `entry`
+        also updates the saved answer it was recalled from; `new` saves it as a new saved answer. The job is not
+        re-queued — that stays your call from the tracker."""
+        ans = body.answer.strip()
+        if not ans:
+            raise HTTPException(status_code=422, detail="answer is required")
+        if body.save_as not in ("once", "entry", "new"):
+            raise HTTPException(status_code=422, detail="save_as must be once, entry or new")
+        conn = db()
+        try:
+            row = conn.execute("SELECT label, kind, retrieved_qkey FROM application_qa WHERE id=?",
+                               (row_id,)).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="not found")
+            label, kind, retrieved = row
+            if body.save_as == "new":
+                qbank.add_entry(conn, question=split_escape(label)[0] or label, kind=kind or "text",
+                                answer=ans, embed=get_embed())
+            elif body.save_as == "entry":
+                if not retrieved or not qbank.set_answer(conn, retrieved, ans):
+                    raise HTTPException(status_code=422, detail="no saved answer behind this one")
+            conn.execute("UPDATE application_qa SET answer=?, source='human', status='answered', updated_at=? "
+                         "WHERE id=?", (ans, qa_store._now(), row_id))
+            conn.commit()
+            qa_store.set_outcome(conn, row_id, "edited")
+        finally:
+            conn.close()
+        return {"ok": True}
+
     @router.post("/api/application-qa/{row_id}/review")
     def review(row_id: int, body: ReviewBody):
         """Correct: a similar-wording match becomes an exact wording of its entry.
@@ -296,16 +346,39 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         finally:
             conn.close()
 
+    ing_path = Path(db_path).parent / "answer_style" / "ingredients.json"
+
     @router.get("/api/ingredients")
     def ingredients():
-        """Read-only: the verbatim-source bank is edited in the file, never here."""
-        p = Path(db_path).parent / "answer_style" / "ingredients.json"
         try:
-            d = json.loads(p.read_text())
+            d = json.loads(ing_path.read_text())
         except (OSError, ValueError):
             return {"units": [], "skills_pool": []}
-        return {"units": [{k: u.get(k) for k in ("id", "type", "title", "org", "tags")}
-                           for u in d.get("units", [])],
-                "skills_pool": d.get("skills_pool", [])}
+        return {"units": d.get("units", []), "skills_pool": d.get("skills_pool", [])}
+
+    @router.put("/api/ingredients/{unit_id}")
+    def save_ingredient(unit_id: str, body: IngredientBody):
+        """Edit one unit. The verbatim `source` is ground truth: it changes only when confirm_source is set.
+        The previous file is kept as ingredients.json.bak-<time>; the write is atomic."""
+        try:
+            d = json.loads(ing_path.read_text())
+        except (OSError, ValueError):
+            raise HTTPException(status_code=404, detail="no ingredients file")
+        unit = next((u for u in d.get("units", []) if u.get("id") == unit_id), None)
+        if unit is None:
+            raise HTTPException(status_code=404, detail="no such ingredient")
+        edits = body.model_dump(exclude_unset=True, exclude={"confirm_source"})
+        if "source" in edits and not body.confirm_source:
+            raise HTTPException(status_code=422, detail="source is verbatim ground truth; set confirm_source to change it")
+        if edits.get("title") is not None and not str(edits["title"]).strip():
+            raise HTTPException(status_code=422, detail="title is required")
+        unit.update(edits)
+        d["updated"] = datetime.now(timezone.utc).date().isoformat()
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(ing_path, ing_path.with_name(f"{ing_path.name}.bak-{stamp}"))
+        tmp = ing_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+        tmp.replace(ing_path)
+        return unit
 
     return router

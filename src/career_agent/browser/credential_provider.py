@@ -103,7 +103,8 @@ def _email_on_page(page) -> str:
 def _type_into(page, el, value: str) -> None:
     """Click an input and type value using native keyboard events (isTrusted=True)."""
     _safe_click(el)
-    page.keyboard.press("Control+a")
+    page.keyboard.press("ControlOrMeta+a")   # plain Control+a is line-start on macOS: a second pass would type before the old text
+    page.keyboard.press("Backspace")
     page.keyboard.type(value, delay=30)   # slight delay = more human-like
     page.keyboard.press("Tab")            # blur so the field commits
     page.wait_for_timeout(300)
@@ -215,13 +216,20 @@ def _safe_click(el, timeout_ms: int = 5000) -> bool:
     actionability check. force=True still dispatches a genuine, trusted click —
     unlike a JS .click(), which some React apps ignore as untrusted (isTrusted
     is false), silently no-op'ing form submission."""
+    # no_wait_after: a click that starts a slow navigation must not "fail" while Playwright waits for the page to load,
+    # or the retries below click AGAIN on the page that is loading (and hit whatever is under that spot, e.g. a footer link).
     try:
-        el.click(timeout=timeout_ms)
+        from .clicks import pace
+        pace(el.owner_frame().page)
+    except Exception:
+        pass
+    try:
+        el.click(timeout=timeout_ms, no_wait_after=True)
         return True
     except Exception:
         pass
     try:
-        el.click(timeout=timeout_ms, force=True)
+        el.click(timeout=timeout_ms, force=True, no_wait_after=True)
         return True
     except Exception:
         pass
@@ -279,6 +287,31 @@ def _check_consent_checkboxes(page) -> None:
             pass
 
 
+_CONSENT_LINK = _re.compile(r"(read|review|open)?.{0,12}accept.{0,30}(privacy|terms|agreement|statement|policy)", _re.I)
+_ACCEPT_BTN = _re.compile(r"^(i )?(accept|agree|i agree|accept and continue|ok)$", _re.I)
+
+
+def _accept_consent_link(page) -> bool:
+    """Consent shown as a LINK ('Read and accept the data privacy statement') that opens a dialog with an
+    Accept button instead of a checkbox. Open it, press Accept (scrolling the notice first if it is gated)."""
+    try:
+        link = page.locator("a, button, [role=link], [role=button]").filter(has_text=_CONSENT_LINK).first
+        if link.count() == 0 or not link.is_visible():
+            return False
+        _safe_click(link)
+        page.wait_for_timeout(1500)
+        page.evaluate("() => document.querySelectorAll('[class*=dialog] *, [class*=modal] *').forEach(e => { if (e.scrollHeight > e.clientHeight + 20) e.scrollTop = e.scrollHeight; })")
+        btn = page.get_by_role("button", name=_ACCEPT_BTN).first
+        if btn.count() == 0:
+            return False
+        _safe_click(btn)
+        page.wait_for_timeout(800)
+        print("[cred] accepted consent via link dialog", flush=True)
+        return True
+    except Exception:
+        return False
+
+
 def _form_already_visible(page) -> bool:
     """True if email + password fields are already visible — the target form
     rendered directly (Workday-style), no separate nav click needed to reach it."""
@@ -287,6 +320,87 @@ def _form_already_visible(page) -> bool:
         return _has_visible_email_field(page) and has_pw
     except Exception:
         return False
+
+
+_LOGIN_FORM_JS = r"""() => {
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  const pws = Array.from(document.querySelectorAll('input[type=password]')).filter(vis);
+  const names = Array.from(document.querySelectorAll('input')).filter(vis).filter(e =>
+    /first.?name|last.?name|given.?name|sur.?name|fname|lname/i.test((e.name||'')+' '+(e.id||'')+' '+(e.placeholder||'')+' '+(e.getAttribute('aria-label')||'')));
+  const text = e => (e.innerText||e.value||'').trim().replace(/\s+/g,' ');
+  const all = Array.from(document.querySelectorAll('a,button,[role=button],input[type=submit]')).filter(vis);
+  const form = pws[0] ? (pws[0].closest('form') || document) : document;
+  const submits = Array.from(form.querySelectorAll('button,input[type=submit],[role=button]')).filter(vis);
+  return { passwordInputs: pws.length, nameInputs: names.length,
+           forgotCtl: all.some(e => /forgot/i.test(text(e))),
+           signInSubmit: submits.some(e => /^(sign ?in|log ?in|login)$/i.test(text(e))) };
+}"""
+
+
+def login_form_from_signals(d: dict) -> bool:
+    """A LOGIN form (not a registration form) even though it shows an email box and a password box: exactly one
+    password box, no first/last-name boxes, and a login-only cue - a 'Forgot password?' control or a Sign In submit."""
+    return d.get("passwordInputs") == 1 and d.get("nameInputs", 0) == 0 and bool(d.get("forgotCtl") or d.get("signInSubmit"))
+
+
+def _is_login_form(page) -> bool:
+    try:
+        return login_form_from_signals(page.evaluate(_LOGIN_FORM_JS))
+    except Exception:
+        return False
+
+
+_PHONE_HINT = _re.compile(r"phone|mobile|contact", _re.I)
+_NOT_PHONE_NUMBER = _re.compile(r"country|region|code|ext|dial", _re.I)
+
+_SELECT_FILL_JS = r"""([dial, country]) => {
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  const hint = e => ((e.name||'')+' '+(e.id||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.labels && e.labels[0] ? e.labels[0].innerText : ''));
+  let n = 0;
+  for (const s of document.querySelectorAll('select')) {
+    if (!vis(s) || s.value) continue;                       // only fill an empty select
+    const h = hint(s);
+    let want = null;
+    if (/country\/region code|dial|calling|phone code|isd|country code/i.test(h)) want = o => o.text.includes('(' + dial + ')') && new RegExp(country, 'i').test(o.text);
+    else if (/country|region of residence|nationality/i.test(h)) want = o => o.text.trim().toLowerCase() === country.toLowerCase();
+    const opt = want ? Array.from(s.options).find(want) : null;
+    if (opt) { s.value = opt.value; s.dispatchEvent(new Event('input', {bubbles: true})); s.dispatchEvent(new Event('change', {bubbles: true})); n++; }
+  }
+  return n;
+}"""
+
+
+def _phone_parts(raw: str) -> tuple[str, str]:
+    """(dial code like '+91', national digits) from a profile phone; defaults to India."""
+    digits = _re.sub(r"\D", "", raw or "")
+    if raw and raw.strip().startswith("+") and len(digits) > 10:
+        return "+" + digits[:len(digits) - 10], digits[-10:]
+    return "+91", digits[-10:] if len(digits) >= 10 else digits
+
+
+def _fill_phone_and_country(page, cred: dict) -> None:
+    """The account form's other REQUIRED fields (SuccessFactors: country/region code, phone number, residence).
+    Values come from the profile, in memory only (never written to the credentials file)."""
+    dial, number = _phone_parts(cred.get("phone", ""))
+    country = cred.get("country") or "India"
+    if number:
+        for el in page.query_selector_all('input[type="text"], input[type="tel"], input:not([type])'):
+            try:
+                hint = " ".join(filter(None, [el.get_attribute("name"), el.get_attribute("id"),
+                                              el.get_attribute("placeholder"), el.get_attribute("aria-label")]))
+                try:
+                    lab = el.evaluate("e => (e.labels && e.labels[0]) ? e.labels[0].innerText : ''")
+                except Exception:
+                    lab = ""
+                hint = f"{hint} {lab}"
+                if el.is_visible() and not el.input_value() and _PHONE_HINT.search(hint) and not _NOT_PHONE_NUMBER.search(hint):
+                    _type_into(page, el, number)
+            except Exception:
+                continue
+    try:
+        page.evaluate(_SELECT_FILL_JS, [dial, country])
+    except Exception:
+        pass
 
 
 def _fill_visible_fields(page, cred: dict) -> None:
@@ -318,6 +432,8 @@ def _fill_visible_fields(page, cred: dict) -> None:
         if el and el.is_visible():
             _type_into(page, el, val)
     _check_consent_checkboxes(page)
+    _fill_phone_and_country(page, cred)
+    _accept_consent_link(page)
 
 
 def _handle_otp_state(page, site: str, cred: dict) -> None:
@@ -388,11 +504,28 @@ def _handle_state(page, state: str, cred: dict, site: str) -> None:
             pass
 
 
+def _is_combined_form(page) -> bool:
+    """A password box inside a long application form (address, work history, ...): registration and application in one.
+    Submitting from here only trips validation on everything the credential step did not fill."""
+    try:
+        return bool(page.evaluate("""() => {
+          const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+          const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
+          const fillable = ins.filter(e => !['hidden','submit','button','checkbox','radio','search','password'].includes(e.type)).length;
+          return ins.some(e => e.type === 'password') && fillable > 6;
+        }"""))
+    except Exception:
+        return False
+
+
 def _fill_wall(page, gate: str, cred: dict, site: str = "") -> None:
     """Fill all visible auth fields, submit, then observe and handle the resulting state."""
     try:
         _fill_visible_fields(page, cred)
         page.wait_for_timeout(800)
+        if _is_combined_form(page):
+            print(f"[cred] {site}: credentials filled inside the application form — the filler completes it, no submit here", flush=True)
+            return
         clicked = _click_non_social_submit(page)
         if clicked:
             state = _observe_until_change(page, "wall_submit")
@@ -414,7 +547,8 @@ def _dbx_type(page, formcontrolname: str, value: str) -> bool:
         return False
     try:
         inp.click()
-        page.keyboard.press("Control+a")
+        page.keyboard.press("ControlOrMeta+a")
+        page.keyboard.press("Backspace")
         page.keyboard.type(value, delay=40)
         page.wait_for_timeout(200)
         return True
@@ -802,6 +936,12 @@ _SIGNUP_TEXTS = [
     "new user", "don't have an account", "no account", "new here",
     "join now", "get started", "new to",
 ]
+# Some sites offer registration as a block of alternative ways in ("Create an account using any of the following
+# options: Upload file / Self-complete / Upload CV later") with no link that says "sign up". The manual options start
+# the same form without handing over a file or a social profile.
+_REGISTRATION_OPTIONS = ["self-complete", "self complete", "fill in manually", "fill manually", "enter manually",
+                         "manual registration", "upload cv later", "upload resume later", "continue without"]
+_REGISTRATION_CUE = _re.compile(r"create (an )?account (using|with|by)|register (using|with|by)|sign up (using|with|by)", _re.I)
 # Keywords that, if present in ANY visible link/button text, aria-label, or title
 # on a login/signup wall, indicate an account-free path. Checked as substrings.
 _GUEST_KEYWORDS = ["guest", "without account", "without sign", "without log",
@@ -851,6 +991,13 @@ def _navigate_to_form(page, link_texts: list[str], label: str) -> bool:
     return False
 
 
+def _registration_options_offered(page) -> bool:
+    try:
+        return bool(_REGISTRATION_CUE.search(page.inner_text("body") or ""))
+    except Exception:
+        return False
+
+
 def _try_guest_apply(page) -> bool:
     """Click any visible link/button that offers an account-free path.
 
@@ -888,7 +1035,7 @@ def _ensure_signup_form(page) -> None:
 
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
-            email: str = "") -> tuple[bool, str | None]:
+            email: str = "", phone: str = "") -> tuple[bool, str | None]:
     """Fill an account/login wall using stored or freshly-generated credentials.
 
     Flow:
@@ -919,6 +1066,7 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
         }
         # For SPECIALS, save now (they manage their own flow); generic path saves after confirm
         cred = {"username": username, "password": password, "label": gate, **extra}
+    cred = {**cred, "phone": phone}          # profile phone for the account form's required fields; never saved
 
     # Step 2 / 3 — ATS-specific handlers (they know register vs login distinction)
     _is_special = (any(h in site for h in _IBM_HOSTS) or _is_ibm_page(page)
@@ -965,11 +1113,20 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             _handle_state(page, state, cred, site)
         elif is_new:
             # Traditional form (email+password together) — need to register first
-            if _form_already_visible(page):
+            if _form_already_visible(page) and not _is_login_form(page):
                 print(f"[cred] registration form already visible on {site}", flush=True)
             else:
-                print(f"[cred] no stored cred for {site} — navigating to signup", flush=True)
+                # email+password boxes are ALSO what a login page shows: with no account yet, go to its sign-up link
+                why = "this is a login page" if _form_already_visible(page) else "no stored cred"
+                print(f"[cred] {why} for {site} — navigating to signup", flush=True)
                 found = _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
+                if not found and _registration_options_offered(page):
+                    found = _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual registration option")
+                    if found and not any(el.is_visible() for el in page.query_selector_all('input[type="password"]')):
+                        # The option opened the application's own profile form (no password box): the normal filler
+                        # takes it from here. Nothing to save: no account credential was created.
+                        print(f"[cred] {site}: registration is part of the application form — handing over to the filler", flush=True)
+                        return True, "register_inline"
                 if not found:
                     print(f"[cred] no signup form found on {site} — escalating", flush=True)
                     return False, "register"

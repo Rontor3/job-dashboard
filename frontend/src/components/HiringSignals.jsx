@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { hiringPosts, refreshHiring, hiringRefreshStatus, dismissHiring, promoteHiring, draftHiringEmail, setHiringStatus } from "../api.js";
+import { hiringPosts, refreshHiring, hiringRefreshStatus, dismissHiring, promoteHiring, draftHiringEmail, setHiringStatus, agentLink } from "../api.js";
 
 const CHIP = { fontSize: 11, padding: "3px 10px", borderRadius: "var(--radius-pill)",
   border: "0.5px solid var(--hairline)", color: "var(--ink-soft)", textDecoration: "none" };
@@ -12,12 +12,12 @@ function Contacts({ c, onEmail }) {
   const host = (u) => { try { return new URL(u).host; } catch { return u; } };
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-      {c.forms.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" style={CHIP}>📝 Form · {host(u)}</a>)}
+      {c.forms.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" onClick={agentLink(u)} style={CHIP}>📝 Form · {host(u)}</a>)}
       {c.emails.map((e) => (
         <a key={e} href={`mailto:${e}`} style={CHIP} title="Open a drafted email in Gmail"
           onClick={(ev) => { ev.preventDefault(); onEmail(e); }}>✉️ {e}</a>
       ))}
-      {c.links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" style={CHIP}>🔗 {host(u)}</a>)}
+      {c.links.map((u) => <a key={u} href={u} target="_blank" rel="noreferrer" onClick={agentLink(u)} style={CHIP}>🔗 {host(u)}</a>)}
       {c.phones.map((p) => <a key={p} href={`tel:${p}`} style={CHIP}>📞 {p}</a>)}
       {c.dm && <span style={CHIP}>💬 DM on LinkedIn</span>}
     </div>
@@ -154,7 +154,7 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
               ) : p.contacts?.emails?.length > 0 ? (
                 <button style={p.status ? LINK_BTN : BTN} onClick={() => onDraft(p.id)}>{p.status ? "Draft again" : "Draft email"}</button>
               ) : p.apply_url ? (
-                <a href={p.apply_url} target="_blank" rel="noreferrer" style={{ ...BTN, textDecoration: "none" }}>Apply ↗</a>
+                <a href={p.apply_url} target="_blank" rel="noreferrer" onClick={agentLink(p.apply_url)} style={{ ...BTN, textDecoration: "none" }}>Apply ↗</a>
               ) : null
             )}
             {!p.status && (
@@ -172,7 +172,7 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--ink-faint)" }}>
             <span>{p.keyword} · {p.posted_at || "recent"}</span>
-            <a href={p.url} target="_blank" rel="noreferrer" style={{ color: "var(--green)" }}>View job ↗</a>
+            <a href={p.url} target="_blank" rel="noreferrer" onClick={agentLink(p.url)} style={{ color: "var(--green)" }}>View job ↗</a>
           </div>
         </div>
       ))}

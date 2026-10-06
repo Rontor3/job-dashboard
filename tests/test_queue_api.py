@@ -1,5 +1,7 @@
 import json
 
+from job_dashboard.apply import queue as q
+
 from fastapi.testclient import TestClient
 
 from job_dashboard.api.app import create_app
@@ -16,6 +18,15 @@ def _client(tmp_path, launch=None, n=3):
     ids = [r[0] for r in c.execute("SELECT id FROM jobs ORDER BY id")]
     c.close()
     return TestClient(create_app(db_path=db, queue_launch=launch)), ids, db
+
+
+def _rows(db):
+    """Every queue row incl. finished ones — the dashboard list drops those (they are on the tracker)."""
+    conn = init_db(db)
+    try:
+        return {r["job_id"]: (r["state"], r["reason"]) for r in q.list_queue(conn, finished=True)}
+    finally:
+        conn.close()
 
 
 def _ids(client):
@@ -54,24 +65,25 @@ def test_apply_now_jumps_the_queue_and_starts(tmp_path):
             json.dump({"submitted": False, "stopped_reason": "ready_for_review"}, fh)
         return 0
 
-    c, (a, b, _), _ = _client(tmp_path, launch=launch, n=3)
+    c, (a, b, _), db = _client(tmp_path, launch=launch, n=3)
     c.post("/api/queue", json={"job_id": a})
     r = c.post("/api/queue", json={"job_id": b, "front": True, "start": True})
     assert r.status_code == 200
     app = c.app
     app.state.queue_runner._thread.join(timeout=5)
     assert ran == [b, a]
-    states = {i["job_id"]: (i["state"], i["reason"]) for i in c.get("/api/queue").json()["items"]}
-    assert states[b] == ("parked", "review")
+    assert _rows(db)[b] == ("parked", "review")
+    assert _ids(c) == []                                         # both ran -> off the queue, on the tracker
 
 
 def test_start_and_pause(tmp_path):
-    c, (a, *_), _ = _client(tmp_path, launch=lambda j, argv, p: 0)
+    c, (a, *_), db = _client(tmp_path, launch=lambda j, argv, p: 0)
     c.post("/api/queue", json={"job_id": a})
     assert c.post("/api/queue/pause").json()["paused"] is True
     assert c.post("/api/queue/start").status_code == 200
     c.app.state.queue_runner._thread.join(timeout=5)
-    assert c.get("/api/queue").json()["items"][0]["state"] == "failed"      # no result file
+    assert _rows(db)[a][0] == "failed"                                       # no result file
+    assert _ids(c) == []
 
 
 def test_autosubmit_toggles(tmp_path):
@@ -98,6 +110,12 @@ def test_agent_launch_waits_for_a_busy_agent_then_returns_its_exit_code(monkeypa
             self.cmd = cmd
             return State.tries >= 2               # busy once, then free
 
+        def poll(self):
+            return {"running": False}             # exits at once -> the stall watchdog has nothing to watch
+
+        def stop(self):
+            pass
+
         def wait(self):
             return 3
 
@@ -108,8 +126,23 @@ def test_agent_launch_waits_for_a_busy_agent_then_returns_its_exit_code(monkeypa
 
 def test_telegram_wait_setting_roundtrip_and_bounds(tmp_path):
     c, *_ = _client(tmp_path)
-    assert c.get("/api/queue/settings").json() == {"telegram_wait_minutes": 10}
+    assert c.get("/api/queue/settings").json() == {"telegram_wait_minutes": 10, "gmail_confirmation_check": False}
     assert c.put("/api/queue/settings", json={"telegram_wait_minutes": 25}).status_code == 200
     assert c.get("/api/queue/settings").json()["telegram_wait_minutes"] == 25
     assert c.put("/api/queue/settings", json={"telegram_wait_minutes": 500}).status_code == 422
     assert c.put("/api/queue/settings", json={"telegram_wait_minutes": -1}).status_code == 422
+    # the Gmail confirmation lookup is off until switched on, is switched independently, and can be switched off again
+    assert c.put("/api/queue/settings", json={"gmail_confirmation_check": True}).json() == {"telegram_wait_minutes": 25, "gmail_confirmation_check": True}
+    assert c.put("/api/queue/settings", json={"gmail_confirmation_check": False}).json()["gmail_confirmation_check"] is False
+
+
+def test_reconcile_endpoint_needs_the_gmail_switch_and_validates_days(tmp_path, monkeypatch):
+    c, (a, b, d), db = _client(tmp_path)
+    assert c.post("/api/applied/reconcile", json={}).status_code == 409                     # switch off: no Gmail access at all
+    assert c.put("/api/queue/settings", json={"gmail_confirmation_check": True}).status_code == 200
+    assert c.post("/api/applied/reconcile", json={"days": 0}).status_code == 422
+    mails = [{"id": "m1", "subject": "Your application was sent to Acme", "from": "jobs-noreply@linkedin.com", "snippet": "",
+              "date": "2026-10-05T10:00:00+00:00"}]
+    monkeypatch.setattr("career_agent.integrations.gmail_confirm.list_confirmations", lambda after, n=100: mails)
+    out = c.post("/api/applied/reconcile", json={"days": 14}).json()
+    assert out["emails"] == 1 and out["matched"] == [] and len(out["ambiguous"]) == 1       # Acme has 3 tracked jobs: not guessed

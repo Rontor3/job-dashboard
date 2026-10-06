@@ -24,6 +24,7 @@ def test_pages_and_stop_are_logged_with_screenshots(tmp_path):
     assert not (tmp_path / "perceive7.png").exists()
     page = Page()
     log.page(page)
+    log.filled(page)                                       # each page is filled before the driver moves on
     page.url = "https://www.naukri.com/apply/2"
     log.page(page)
     log.finish(page, "needs_human", [{"ref": "a", "label": "Expected CTC"}])
@@ -53,3 +54,22 @@ def test_a_failing_screenshot_never_breaks_the_run(tmp_path):
     log.finish(Broken(), "stuck", [])
     steps = json.loads((tmp_path / "board_run.json").read_text())
     assert [s["screenshot"] for s in steps] == [None, None]
+
+
+def test_screenshot_is_taken_after_the_page_is_filled(tmp_path):
+    order = []
+
+    class P(Page):
+        def screenshot(self, path, full_page=False, **_):
+            order.append(("shot", Path(path).name))
+            super().screenshot(path, full_page)
+
+    P.evaluate = lambda self, js: None if js.startswith("window.scrollTo") else 1000   # page height / viewport
+    log, page = BoardRunLog(str(tmp_path)), P()
+    log.page(page)
+    assert order == []                                   # reading the page takes no picture
+    order.append(("typed", None))                        # driver.put(...) types the answers
+    log.filled(page)
+    assert order == [("typed", None), ("shot", "perceive0.png")]
+    step = log.steps[0]
+    assert step["screenshot"].endswith("perceive0.png") and step["screenshots"] == [step["screenshot"]]

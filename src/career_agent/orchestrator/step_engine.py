@@ -7,7 +7,7 @@ from ..browser.gate_probe import HANDLERS
 from ..orchestrator.screen_review import map_screen, apply_answers
 from ..orchestrator.advance import (
     screen_signature, changed, pick_advance_label, has_control,
-    ADVANCE_NAMES, SUBMIT_NAMES,
+    ADVANCE_NAMES, SUBMIT_NAMES, advance_names,
 )
 
 INTERACTIVE_GATES = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
@@ -53,7 +53,7 @@ def _blocking(gate: str) -> bool:
 
 def walk(page, profile, human, deps, max_steps=15, do_submit=False,
          autonomous=False, on_link=None, resume_pdf=None, judge_fn=None,
-         prep_fn=None, learn=None, vision_fn=None, cred_provider=None) -> dict:
+         prep_fn=None, learn=None, vision_fn=None, cred_provider=None, assist=None) -> dict:
     submitted, reason, steps = False, "max_steps", 0
     for _ in range(max_steps):
         steps += 1
@@ -147,7 +147,7 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                 decisions.extend(_d2)
 
         before = screen_signature(deps.url(page), form)
-        has_advance = has_control(form, ADVANCE_NAMES)
+        has_advance = has_control(form, advance_names(form))
         has_submit = has_control(form, SUBMIT_NAMES)
 
         if not has_advance and has_submit:          # final screen: submit
@@ -179,11 +179,15 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                 reason = "submit_declined"
             break
         if not has_advance:
+            if assist and assist.recover(page, "no_advance_control"):
+                continue
             reason = "no_advance_control"; break
 
         try:
             deps.click(page, pick_advance_label(form, is_last=False))
         except Exception:
+            if assist and assist.recover(page, "advance_failed"):
+                continue
             reason = "advance_failed"; break   # advance label matched but wasn't clickable
         # The advance click may trigger a captcha asynchronously (e.g. invisible
         # hCaptcha on iCIMS shows the image challenge after the click, not before).
@@ -198,6 +202,8 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                     reason = f"gate:{_post_gate}"; break
         after = screen_signature(deps.url(page), deps.snapshot(page))
         if not changed(before, after):
+            if assist and assist.recover(page, "stuck"):
+                continue
             reason = "stuck"; break
 
     return {"screens": steps, "submitted": submitted, "stopped_reason": reason, "cards": []}

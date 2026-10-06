@@ -128,3 +128,36 @@ def test_bool_profile_ref_converts_1_0_to_yes_no(qbank_conn, fake_embed, make_fi
     # Test with profile value 0 (should become "No")
     m, v = answer_field(qbank_conn, f, embed=fake_embed, contact={"willing_to_relocate": 0})
     assert (m.entry_id, v) == ("willing_to_relocate", "No")
+
+
+def test_llm_pick_tells_the_model_a_slot_entry_covers_any_named_instance(qbank_conn):
+    from career_agent.memory import qbank
+    qbank.upsert_entry(qbank_conn, {"id": "skill_years", "question": "How many years of experience do you have with this skill?",
+                                    "topic": "experience", "atype": "number", "slots": ["skill"]})
+    qbank.upsert_entry(qbank_conn, {"id": "total_experience_years", "question": "How many years of total work experience do you have?",
+                                    "topic": "experience", "atype": "number"})
+    seen = []
+    llm_pick("How many years of experience do you have with Docker?", ["skill_years", "total_experience_years"],
+             qbank_conn, lambda p: seen.append(p) or "a")
+    assert "[the skill can be any specific skill the form names]" in seen[0]
+    assert seen[0].count("can be any specific") == 1            # only the slot entry gets the note
+
+
+def test_current_vs_expected_is_a_clash_never_auto_confident():
+    from career_agent.memory.qbank_match import qualifier_clash
+    assert qualifier_clash("Desired annual compensation", "Current annual compensation")
+    assert not qualifier_clash("Current annual salary", "What is your current salary?")
+    assert not qualifier_clash("Annual compensation", "Current annual compensation")
+
+
+def test_format_hint_is_not_part_of_the_question():
+    from career_agent.memory.qbank_match import without_format_hint as w
+    assert w("Joining date (dd/mm/yyyy)") == "Joining date"
+    assert w("Last working day - dd-mm-yyyy") == "Last working day"
+    assert w("Notice period (in days)") == "Notice period (in days)"
+
+
+def test_a_format_sentence_left_over_from_helper_text_is_dropped_too():
+    from career_agent.memory.qbank_match import without_format_hint as w
+    assert w("Available from Format: yyyy.mm.dd") == "Available from"
+    assert w("Joining date, use the format dd/mm/yyyy") == "Joining date"

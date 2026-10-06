@@ -168,3 +168,61 @@ def test_aria_role_radio_buttons_group_with_clean_labels():
     assert g.label == "What's your total experience?"
     assert g.options == ["0-1 year", "2-3 year", "4-5 year"]
     assert g.required is True
+
+
+def test_react_readonly_radios_and_aria_required_are_perceived():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    html = ("<div role=radiogroup><b>Gender</b>"
+            + "".join(f"<input type=radio name=g value='{v}' readonly aria-required=true aria-label='{v}, Gender question'>" for v in ("Female", "Male"))
+            + "</div><input role=combobox aria-required=true aria-label='Country'>")
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        fm = snapshot_form(page); b.close()
+    radio = next(f for f in fm if f.kind == "radio_group")
+    assert radio.required and radio.options == ["Female", "Male"]
+    assert next(f for f in fm if f.label == "Country").required
+
+
+def test_filler_refinds_a_field_whose_positional_id_shifted():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.filler import _resync_sel
+
+    # "State" appeared above, so the id the perceiver recorded for Sponsorship (#input-3) now belongs to State
+    html = ("<input id=input-1 aria-label='Country'><input id=input-2 aria-label='State'>"
+            "<input id=input-3 aria-label='Will you now require sponsorship?'>")
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        assert _resync_sel(page, "#input-3", "Will you now require sponsorship?") == "#input-3"
+        assert page.locator(_resync_sel(page, "#input-2", "Will you now require sponsorship?")).get_attribute("id") == "input-3"
+        b.close()
+
+
+def test_flagged_invalid_field_is_retyped_and_chooser_button_uploads(tmp_path):
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.filler import apply_decisions, revalidate_invalid
+    from career_agent.orchestrator.mapper import FillDecision
+
+    pdf = tmp_path / "cv.pdf"; pdf.write_bytes(b"%PDF-1.4")
+    html = ("<input id=a value='Rakshit' aria-invalid=true onblur=\"this.setAttribute('aria-invalid', this.value ? 'false' : 'true')\">"
+            "<button id=b onclick=\"const i=document.createElement('input');i.type='file';"
+            "i.onchange=()=>document.title=i.files[0].name;i.click()\">Select file</button>")
+    with sync_playwright() as pw:
+        br = pw.chromium.launch(); page = br.new_page(); page.set_content(html)
+        assert revalidate_invalid(page) == 1 and page.get_attribute("#a", "aria-invalid") == "false"
+        apply_decisions(page, [FillDecision("button:Select file", "button", "Select file", str(pdf), "upload_chooser", "resume")])
+        assert page.title() == "cv.pdf"
+        br.close()
+
+
+def test_a_label_wrapping_a_select_is_the_question_not_the_option_list():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page()
+        page.set_content("<label>Source* <select id=s><option>Select</option><option>LinkedIn</option><option>Referral</option></select></label>")
+        (f,) = [x for x in snapshot_form(page) if x.kind == "select"]
+        assert f.label == "Source*" and f.options == ["LinkedIn", "Referral"]
+        b.close()

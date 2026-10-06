@@ -45,6 +45,13 @@ def board_for(url, boards=None):
     return None
 
 
+def on_board(url, board) -> bool:
+    """Is this URL on one of the board's own domains? A board that lists no domains is assumed to be on-board."""
+    domains = board.get("domains") or []
+    host = (urlparse(url or "").hostname or "").lower()
+    return not domains or any(host == d or host.endswith("." + d) for d in domains)
+
+
 _STEP = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
 

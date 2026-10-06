@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { fetchAgentRunHistory, fetchAgentLog, reviewAnswer } from "../api.js";
+import ImageLightbox from "./ImageLightbox.jsx";
+import { fetchAgentRunHistory, fetchAgentLog, reviewAnswer, editFilledAnswer } from "../api.js";
 import EntryPicker from "./EntryPicker.jsx";
 
 const KIND_LABEL = {
@@ -96,6 +97,15 @@ function Question({ q, onReviewed }) {
   const o = ORIGIN[q.origin] || ORIGIN.profile;
   const tone = TONE[o.tone];
   const [fixing, setFixing] = useState(null);
+  const [edit, setEdit] = useState(null);            // {text, saveAs, err} while correcting the answer
+  const canUpdateSaved = !!q.matched && o.reviewable;   // recalled from a saved answer -> can update that one
+  const saveEdit = () => {
+    const text = edit.text.trim();
+    if (!text) return;
+    editFilledAnswer(q.id, text, edit.saveAs)
+      .then(() => { setEdit(null); onReviewed(); })
+      .catch((e) => setEdit({ ...edit, err: String(e) }));
+  };
   const send = (verdict, entry) => reviewAnswer(q.id, verdict, entry).then(() => { setFixing(null); onReviewed(); });
   return (
     <li data-testid={`q-${q.id}`} style={{ background: "var(--canvas)", borderRadius: 8, padding: "7px 10px", fontSize: 12 }}>
@@ -105,8 +115,30 @@ function Question({ q, onReviewed }) {
           {o.label}
         </span>
       </div>
-      {q.answer ? (
-        <div style={{ color: "var(--ink)", margin: "3px 0", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{q.answer}</div>
+      {edit ? (
+        <div style={{ margin: "4px 0", display: "flex", flexDirection: "column", gap: 6 }}>
+          <textarea aria-label={`Edit answer: ${q.label}`} value={edit.text} rows={Math.min(8, Math.max(2, edit.text.split("\n").length))}
+                    onChange={(e) => setEdit({ ...edit, text: e.target.value, err: null })}
+                    style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "0.5px solid var(--hairline)", fontFamily: "inherit", resize: "vertical" }} />
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <select aria-label="Where to save the corrected answer" value={edit.saveAs}
+                    onChange={(e) => setEdit({ ...edit, saveAs: e.target.value })}
+                    style={{ fontSize: 11, border: "0.5px solid var(--hairline)", borderRadius: 6, padding: "3px 6px", background: "var(--canvas)", color: "var(--ink-soft)" }}>
+              <option value="once">Only this application</option>
+              {canUpdateSaved && <option value="entry">Also update my saved answer</option>}
+              <option value="new">Also save as a new saved answer</option>
+            </select>
+            <button type="button" style={{ ...BTN, background: "var(--green)", color: "#fff" }} disabled={!edit.text.trim()} onClick={saveEdit}>Save</button>
+            <button type="button" style={{ ...BTN, background: "var(--canvas)", color: "var(--ink-soft)" }} onClick={() => setEdit(null)}>Cancel</button>
+          </div>
+          {edit.err && <div role="alert" style={{ color: "var(--dupe-ink)", fontSize: 11 }}>{edit.err}</div>}
+        </div>
+      ) : q.answer ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "3px 0" }}>
+          <div style={{ color: "var(--ink)", whiteSpace: "pre-wrap", wordBreak: "break-word", flex: 1 }}>{q.answer}</div>
+          <button type="button" aria-label={`Edit: ${q.label}`} onClick={() => setEdit({ text: q.answer, saveAs: "once", err: null })}
+                  style={{ ...BTN, background: "var(--canvas)", color: "var(--ink-soft)", border: "0.5px solid var(--hairline)" }}>Edit</button>
+        </div>
       ) : null}
       <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>
         {[matchNote(q),
@@ -170,6 +202,16 @@ export default function AgentRunHistory({ jobId }) {
       <div style={{ fontSize: 12, fontWeight: 500, color: "var(--ink)", marginBottom: 8 }}>
         Last agent run
       </div>
+      {run.eligibility && (
+        <div data-testid="eligibility" style={{ fontSize: 12, marginBottom: 8, padding: "6px 10px", borderRadius: 10,
+          background: run.eligibility.allow ? "var(--card)" : "var(--warm-tint)", color: run.eligibility.allow ? "var(--green-mid)" : "var(--warm-ink)",
+          border: "0.5px solid var(--hairline)" }}>
+          {run.eligibility.allow
+            ? "Auto-submit: every condition held — this form could go out without you."
+            : `Auto-submit: waited for you — ${(run.eligibility.reasons || []).join("; ")}.`}
+          {run.eligibility.report && ` (${run.eligibility.report.confident} of ${run.eligibility.report.total} answers autonomous)`}
+        </div>
+      )}
       <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
         {steps.map((s) => {
           const stuck = !!s.stopped_reason && !["reached_submit_dry_run", "submitted"].includes(s.stopped_reason);
@@ -199,10 +241,10 @@ export default function AgentRunHistory({ jobId }) {
                 </div>
               )}
               {s.screenshot && (
-                <a href={s.screenshot} target="_blank" rel="noreferrer">
-                  <img src={s.screenshot} alt={`Screenshot of page ${s.step + 1}`}
-                       style={{ marginTop: 6, maxWidth: "100%", maxHeight: 160, borderRadius: 6, display: "block" }} />
-                </a>
+                <div style={{ marginTop: 6 }}>
+                  <ImageLightbox src={s.screenshot} alt={`Screenshot of page ${s.step + 1}`}
+                                 thumbStyle={{ maxWidth: "100%", maxHeight: 160, borderRadius: 6, display: "block" }} />
+                </div>
               )}
               <Questions qs={s.questions} onReviewed={load} />
             </li>

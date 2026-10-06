@@ -42,6 +42,13 @@ _GATHER_JS = r"""
   const token = q('textarea#g-recaptcha-response');
   return {
     recaptcha_iframe: !!q('iframe[src*="recaptcha/api2/anchor"]'),
+    // a real v2 checkbox is a ~300x75 widget in the page; invisible/v3 loads the same anchor iframe
+    // but hidden or inside the corner .grecaptcha-badge — that one is no challenge for a human
+    recaptcha_anchor_visible: Array.from(document.querySelectorAll('iframe[src*="recaptcha/api2/anchor"]')).some(f => {
+      if (f.closest('.grecaptcha-badge')) return false;
+      const r = f.getBoundingClientRect(), s = getComputedStyle(f);
+      return r.width >= 200 && r.height >= 50 && s.display !== 'none' && s.visibility !== 'hidden';
+    }),
     grecaptcha_response_present: !!(token && token.value && token.value.length > 0),
     recaptcha_bframe_visible: vis(q('iframe[src*="recaptcha/api2/bframe"]')),
     hcaptcha_iframe: !!q('iframe[src*="hcaptcha.com"]'),
@@ -84,7 +91,9 @@ def classify_from_signals(sig: dict) -> str:
     if sig.get("hcaptcha_iframe"):
         return "hcaptcha_image" if sig.get("hcaptcha_challenge_visible") else "hcaptcha_checkbox"
     if sig.get("recaptcha_iframe"):
-        return "recaptcha_v2_image" if sig.get("recaptcha_bframe_visible") else "recaptcha_v2_checkbox"
+        if sig.get("recaptcha_bframe_visible"):
+            return "recaptcha_v2_image"
+        return "recaptcha_v2_checkbox" if sig.get("recaptcha_anchor_visible", True) else "recaptcha_v3"
     if sig.get("turnstile_iframe"):
         return "turnstile"
     if sig.get("otp_email_field"):

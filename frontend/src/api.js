@@ -161,6 +161,14 @@ export const draftHiringEmail = (id, to) =>
 
 export const launchApplyAgent = (id) =>
   fetch(`/api/jobs/${id}/apply-agent`, { method: "POST" }).then(json);
+// Open a job/ATS link in the career-agent Chrome (CDP) rather than the dashboard's
+// own browser; falls back to a normal tab if that Chrome can't be reached.
+export const openInAgentChrome = (url) =>
+  fetch("/api/open-in-agent-chrome", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }) })
+    .then((r) => { if (!r.ok) throw new Error(r.status); })
+    .catch(() => window.open(url, "_blank", "noreferrer"));
+export const agentLink = (url) => (e) => { e.preventDefault(); openInAgentChrome(url); };
 export const fetchApplyAgentStatus = () => fetch("/api/apply-agent/status").then(json);
 export const fetchAgentLog = (id, lines = 80) =>
   fetch(`/api/jobs/${id}/agent-runs/log?lines=${lines}`).then((r) => (r.status === 404 ? null : json(r)));
@@ -199,10 +207,16 @@ export const fetchAgentSettings = () => fetch("/api/agent-settings").then(json);
 export const saveAgentSettings = (body) =>
   fetch("/api/agent-settings", jsonBody("PUT", typeof body === "number" ? { answer_confidence_min: body } : body)).then(json);
 export const fetchIngredients = () => fetch("/api/ingredients").then(json);
+export const saveIngredient = (id, fields) =>
+  fetch(`/api/ingredients/${encodeURIComponent(id)}`, jsonBody("PUT", fields)).then(json);
 
 export const fetchRetrievalStats = () => fetch("/api/retrieval/stats").then(json);
 export const fetchRetrievalRecent = (limit = 30) =>
   fetch(`/api/retrieval/recent?limit=${limit}`).then(json).then((d) => d.recent || []);
+// Correct an answer the agent already filled. save_as: "once" (this application) | "entry" (the saved answer it came
+// from) | "new" (save as a new saved answer).
+export const editFilledAnswer = (rowId, answer, save_as = "once") =>
+  fetch(`/api/application-qa/${rowId}/answer`, jsonBody("PUT", { answer, save_as })).then(json);
 export const reviewAnswer = (rowId, verdict, entry_id = null) =>
   fetch(`/api/application-qa/${rowId}/review`, jsonBody("POST", { verdict, entry_id })).then(json);
 
@@ -221,6 +235,9 @@ export const setAutosubmit = (board, on) =>
 export const fetchQueueSettings = () => fetch("/api/queue/settings").then(json);   // {telegram_wait_minutes}
 export const saveQueueSettings = (telegram_wait_minutes) =>
   fetch("/api/queue/settings", jsonBody("PUT", { telegram_wait_minutes })).then(json);
+export const reconcileApplied = () => fetch("/api/applied/reconcile", jsonBody("POST", { days: 14, apply: true })).then(json);
+export const saveGmailConfirmation = (on) =>
+  fetch("/api/queue/settings", jsonBody("PUT", { gmail_confirmation_check: on })).then(json);
 
 // Daily Gmail scan of the companies we applied to (spec: tracker / mail).
 export const fetchJobMail = (id) => fetch(`/api/jobs/${id}/mail`).then(json).then((d) => d.mail || []);

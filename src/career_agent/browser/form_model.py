@@ -13,7 +13,7 @@ KNOWN_PURPOSES = frozenset({
     "portfolio_url", "work_authorization", "visa_sponsorship", "prior_contact",
     "conflict_of_interest",
     "years_experience",
-    "notice_period", "salary_expectation", "willing_to_relocate",
+    "notice_period", "salary_expectation", "current_ctc", "willing_to_relocate",
     "attestation", "resume_upload", "phone_type", "phone_extension",
     "postal_code", "referral_source",
     "employer", "job_title", "start_date", "end_date", "degree", "school",
@@ -36,6 +36,7 @@ class Field:
     description: str = ""      # accessible description (aria-describedby helper text)
     input_type: str = ""       # HTML type attribute (email/tel/url/number/date…) — shape clue
     autocomplete: str = ""     # HTML autocomplete token (address-line1, postal-code…) — shape clue
+    placeholder: str = ""      # what the box shows when empty ("DD/MM/YYYY") — the page's own format hint
 
 
 # Ordered most-specific-first; first hit wins.
@@ -114,6 +115,9 @@ _RULES: list[tuple[str, str]] = [
     # not be forced into this single short numeric-years purpose.
     (r"\byears? of experience\b|\byears? experience\b", "years_experience"),
     (r"\bnotice period\b|\bavailab|\bearliest start\b|\bstart date\b", "notice_period"),
+    # What you earn NOW is a different answer from what you expect: the qualifier decides, before the generic rule.
+    (r"\b(current|present|existing|last[ -]?drawn|last|drawn)\b.{0,25}\b(salary|ctc|compensation|pay|package)\b"
+     r"|\b(salary|ctc|compensation|pay|package)\b.{0,25}\b(current|present|existing|last[ -]?drawn)\b", "current_ctc"),
     (r"\bsalary\b|\bcompensation\b|\bexpected ctc\b|\bpay expectation\b", "salary_expectation"),
     # An address field can *mention* relocation ("...type 'relocating'") but is a
     # free-text address, not a yes/no — must precede the relocate rule. Escalates
@@ -157,7 +161,7 @@ _WEAK_BARE_WORD_RULES: list[tuple[str, str]] = [
 _RESUME_RE = re.compile(r"\bresume\b|\bcv\b", re.I)
 
 _ATTEST = re.compile(
-    r"\bi (certify|agree|consent|acknowledge|authorize)\b|\bbackground check\b"
+    r"\bi (certify|agree|consent|acknowledge|authorize|have read|accept)\b|\bbackground check\b"
     r"|\bterms\b|\bprivacy policy\b|\btrue and (complete|correct)\b",
     re.I,
 )
@@ -171,7 +175,7 @@ _TEXT_VALUE_PURPOSES = {
     "linkedin_url", "github_url", "portfolio_url", "employer", "job_title",
     "start_date", "end_date", "field_of_study", "degree", "school", "gpa",
     "skills", "summary", "address", "city", "location", "country",
-    "years_experience", "notice_period", "salary_expectation", "graduation_year",
+    "years_experience", "notice_period", "salary_expectation", "current_ctc", "graduation_year",
 }
 
 
@@ -179,6 +183,8 @@ def guess_purpose(label: str, kind: str) -> str | None:
     text = (label or "").strip().lower()
     if not text:
         return None
+    if re.match(r"(if|in case)\s+(yes|so|no|not|applicable|you answered|you selected)\b", text):
+        return None            # a follow-up to an earlier answer ("If yes, give the name, job title…") is not a profile field
     if kind == "file":
         return "resume_upload" if _RESUME_RE.search(text) else None
     if kind == "checkbox":

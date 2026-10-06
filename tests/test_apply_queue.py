@@ -60,7 +60,7 @@ def test_next_queued_skips_other_states_and_mark_stamps_times(tmp_path):
     q.mark(conn, 2, "parked", "logged_out")
     assert q.next_queued(conn) == 3
     q.mark(conn, 1, "done", "submitted")
-    row = next(r for r in q.list_queue(conn) if r["job_id"] == 1)
+    row = next(r for r in q.list_queue(conn, finished=True) if r["job_id"] == 1)
     assert row["started_at"] and row["finished_at"] and row["reason"] == "submitted"
     q.mark(conn, 3, "running")
     assert q.next_queued(conn) is None
@@ -83,3 +83,16 @@ def test_list_queue_joins_job_title_and_company(tmp_path):
     q.enqueue(conn, 7)
     row = q.list_queue(conn)[0]
     assert (row["title"], row["company"]) == ("ML Eng", "Acme")
+
+
+def test_finished_runs_leave_the_queue_list_but_stay_in_the_table(tmp_path):
+    conn = _conn(tmp_path)
+    for j in (1, 2, 3, 4):
+        q.enqueue(conn, j)
+    q.mark(conn, 1, "running")
+    q.mark(conn, 2, "done", "submitted")
+    q.mark(conn, 3, "parked", "needs_answers")
+    assert _ids(conn) == [1, 4]                                         # the queue shrinks as jobs are exercised
+    assert {r["job_id"]: r["reason"] for r in q.list_queue(conn, finished=True)}[3] == "needs_answers"
+    q.enqueue(conn, 3)                                                  # corrected -> queued again from the tracker
+    assert _ids(conn) == [1, 3, 4] or sorted(_ids(conn)) == [1, 3, 4]

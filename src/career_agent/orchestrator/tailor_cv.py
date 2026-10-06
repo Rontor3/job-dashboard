@@ -25,7 +25,7 @@ def _keyword_deep_rank(segs, jd_text: str) -> dict[str, float]:
 def tailor_cv_node(state, config) -> dict:
     """Generate a JD-tailored resume PDF and stash it in config for fill_node.
 
-    Runs once per application (tailor_cv_done guard prevents re-run on the
+    Opt-in only (--tailor-cv): the default upload is the candidate's own résumé. Runs once per application (tailor_cv_done guard prevents re-run on the
     perceive→fill→advance→perceive loop). No-ops silently when:
     - jd_text is absent or too short
     - rendering already ran this application
@@ -33,6 +33,9 @@ def tailor_cv_node(state, config) -> dict:
     """
     jd_text = (state.get("jd_text") or "").strip()
     c = config["configurable"]
+
+    if not c.get("tailor_cv"):
+        return {}                              # the résumé the candidate supplied stays; nothing generated replaces it
 
     if len(jd_text) < 50:
         return {}

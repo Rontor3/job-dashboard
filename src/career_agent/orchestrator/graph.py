@@ -144,11 +144,12 @@ def classify_node(state: AgentState, config) -> dict:
 def cred_provide_node(state: AgentState, config) -> dict:
     c = config["configurable"]
     from ..browser.credential_provider import provide as _provide
-    from ..browser.page_prep import classify_entry, clear_auth_wall, is_application_form, enter_application, prepare
+    from ..browser.page_prep import classify_entry, clear_auth_wall, is_application_form, enter_application, prepare, reach_application_form
     original_url = state["url"]
 
     _prof = c.get("profile")
     _email = _prof.contact.get("email", "") if _prof and hasattr(_prof, "contact") else ""
+    _phone = _prof.contact.get("phone", "") if _prof and hasattr(_prof, "contact") else ""
 
     # reach_node may have opened a new tab (e.g. Taleo login); resolve the
     # actual current page from state["url"] so provide() runs on the right tab.
@@ -161,7 +162,7 @@ def cred_provide_node(state: AgentState, config) -> dict:
                 page = _p
                 break
         else:
-            page = _base.context.pages[-1]
+            page = _base                       # no tab at that url: stay on this job's own tab, not 'the last tab'
 
     # Run perceive_node on the login/signup page first so its captcha check
     # and remote-solve logic fires before we attempt to fill credentials.
@@ -172,7 +173,7 @@ def cred_provide_node(state: AgentState, config) -> dict:
     _cred_result: dict = {}
 
     def _prov(pg, gate, site):
-        handled, action = _provide(pg, gate, site, original_url=original_url, email=_email)
+        handled, action = _provide(pg, gate, site, original_url=original_url, email=_email, phone=_phone)
         _cred_result["action"] = action
         return handled
 
@@ -187,13 +188,19 @@ def cred_provide_node(state: AgentState, config) -> dict:
 
     cleared = clear_auth_wall(page, credential_provider=_prov)
     cred_action = _cred_result.get("action")
+    if not cleared and cred_action in ("register", "register_inline", "login"):
+        # A password box inside a long application form is registration+application in one page, not a wall left
+        # standing: the credentials are in, the filler completes the rest (same rule the plain walk() path applies).
+        from ..browser.credential_provider import _is_combined_form
+        if is_application_form(page) and _is_combined_form(page):
+            print("[auth-wall] registration is part of the application form — continuing to fill", flush=True)
+            cleared = True
     if not cleared:
         return {"stopped_reason": "auth_wall", "cred_provided": True, "cred_action": cred_action}
     kind = classify_entry(page)
     # After registration Darwinbox lands back on the JD page — re-enter apply
     if kind in ("none", "form") and not is_application_form(page):
-        enter_application(page)
-        page = page.context.pages[-1]
+        page, _ = reach_application_form(page)
         if c.get("prep_fn"):
             c["prep_fn"](page)
         kind = classify_entry(page)
@@ -210,9 +217,8 @@ def tailor_cv_node(state: AgentState, config) -> dict:
 def reach_node(state: AgentState, config) -> dict:
     c = config["configurable"]
     page = c["page"]
-    from ..browser.page_prep import enter_application, classify_entry
-    enter_application(page)
-    page = page.context.pages[-1]
+    from ..browser.page_prep import reach_application_form, classify_entry
+    page, _ = reach_application_form(page)
     if c.get("prep_fn"):
         c["prep_fn"](page)
     return {"kind": classify_entry(page), "url": page.url}
@@ -227,6 +233,11 @@ def perceive_node(state: AgentState, config) -> dict:
     deps = c["deps"]
     if c.get("prep_fn"):
         c["prep_fn"](page)
+    try:
+        from ..browser.clicks import wait_until_stable
+        wait_until_stable(page)              # read the step that is on screen, not the one that is going away
+    except Exception:
+        pass
 
     from ..browser.page_prep import dismiss_consent
     from ..browser.gate_probe import HANDLERS
@@ -315,7 +326,27 @@ def fill_node(state: AgentState, config) -> dict:
     from .answering import answer_fields
     decisions, needs = answer_fields(fillable, {**c, "page_index": state.get("steps", 0)})
 
-    deps.fill(page, decisions)
+    # a résumé "Select file" button with no file input in the DOM: upload through the native chooser
+    pdf = c.get("resume_pdf")
+    if pdf and not any(d.action in ("upload", "upload_chooser") for d in decisions) \
+            and not any(f.kind == "file" for f in fillable):
+        btn = next((f for f in fillable if f.kind == "button" and re.match(r"(select|choose|upload|attach|browse)\b.*\b(file|resume|cv)\b", f.label or "", re.I)), None)
+        if btn is None:
+            btn = next((f for f in form if f.kind == "button" and re.match(r"(select|choose|upload|attach|browse)\b.*\b(file|resume|cv)\b", f.label or "", re.I)), None)
+        if btn:
+            from .mapper import FillDecision
+            d = FillDecision(btn.ref, "button", btn.label, pdf, "upload_chooser", "resume")
+            deps.fill(page, [d])
+            page.wait_for_timeout(2500)          # the site may parse the résumé and prefill fields: fill AFTER it
+            decisions = decisions + [d]
+            print(f"[fill] uploaded résumé through the file chooser ({btn.label!r})", flush=True)
+
+    # Uploads first (a site may parse the résumé and prefill fields), then every other answer top-down.
+    uploads = [d for d in decisions if d.action in ("upload", "upload_chooser")]
+    rest = [d for d in decisions if d not in uploads]
+    done_uploads = [d for d in uploads if d.action == "upload"]
+    if done_uploads:
+        deps.fill(page, done_uploads)
 
     # Taleo/ATS two-step attachment widgets: after set_input_files, click "Attach"
     # to commit the file to the table, then mark it as Resume/CV.
@@ -362,8 +393,21 @@ def fill_node(state: AgentState, config) -> dict:
         except Exception:
             pass
 
+    # Everything else: from the top, one blank after the other; the form is re-read whenever an answer reveals more.
+    from .top_down import fill_top_down
+    try:
+        live = deps.snapshot(page)
+    except Exception:
+        live = fillable
+    applied, needs = fill_top_down(page, deps, live, rest, needs, {**c, "page_index": state.get("steps", 0)},
+                                   skip_prefilled=bool(uploads))
+    decisions = uploads + applied
+
     print(f"[fill] step {state['steps']+1}: {len(decisions)} filled, "
           f"{len(needs)} escalated", flush=True)
+    if c.get("run_dir"):                              # the filled page replaces the pre-fill survey shot
+        from ..browser.page_shot import capture_page
+        capture_page(page, str(__import__("pathlib").Path(c["run_dir"]) / f"perceive{state['steps']}"))
 
     return {
         "steps": state["steps"] + 1,
@@ -378,6 +422,7 @@ def human_gate_node(state: AgentState, config) -> dict:
     # interrupt() suspends the graph; outer loop collects answers and resumes
     # via graph.invoke(Command(resume=answers), config=same_config)
     answers: dict = interrupt({"fields": [_f2d(f) for f in fields]})
+    print(f"[human] got {len(answers or {})} answer(s) — applying", flush=True)   # progress for the stall watchdog and the log
 
     c = config["configurable"]
     page = c["page"]
@@ -404,17 +449,35 @@ def advance_node(state: AgentState, config) -> dict:
     deps = c["deps"]
     human = c["human"]
     learn = c.get("learn")
+    assist = c.get("assist")
+
+    def _recovered(reason: str):
+        """Claude-assist took an action at a dead end -> re-snapshot and keep going (else None = give up)."""
+        if not (assist and assist.recover(page, reason)):
+            return None
+        nf = deps.snapshot(page)
+        return {"form": [_f2d(f) for f in nf], "form_sig": screen_signature(deps.url(page), nf),
+                "url": page.url}
 
     form = [_d2f(d) for d in state["form"]]
     from ..orchestrator.advance import (
         has_control, pick_advance_label, screen_signature, changed,
-        ADVANCE_NAMES, SUBMIT_NAMES,
+        ADVANCE_NAMES, SUBMIT_NAMES, advance_names,
     )
-    has_advance = has_control(form, ADVANCE_NAMES)
+    has_advance = has_control(form, advance_names(form))
     has_submit = has_control(form, SUBMIT_NAMES)
 
+    if state.get("steps", 0) >= 4 and not state.get("decisions") and not has_submit:
+        # Four screens in, not one field filled or asked, and no Submit in sight: this is not an application form (a dead
+        # link that landed on a listing page, a search page...). Stop here; do not click on through the site.
+        print("[stop] four steps and no form field found — not an application form", flush=True)
+        return {"stopped_reason": "no_form_found"}
+
     if not has_advance and has_submit:
-        if not state["do_submit"]:
+        policy = c.get("autosubmit_policy")
+        verdict = policy(page.url, state.get("decisions") or []) if policy else None
+        policy_allows = bool(verdict and verdict["allow"])
+        if not state["do_submit"] and not policy_allows:
             return {"stopped_reason": "reached_submit_dry_run"}
         # Pre-submit gate re-check
         from ..browser.gate_probe import HANDLERS
@@ -429,7 +492,8 @@ def advance_node(state: AgentState, config) -> dict:
             else:
                 return {"stopped_reason": f"gate:{pre_gate}"}
         has_likely = any(d.get("source") == "qbank_likely" for d in (state.get("decisions") or []))
-        autonomous_ok = state["autonomous"] and not has_likely
+        autonomous_ok = (state["autonomous"] and not has_likely) or policy_allows
+        how = "auto" if autonomous_ok else "tap"
         msg = "Ready to submit (contains best-guess answers — check them)" if has_likely else "Ready to submit"
         if not (autonomous_ok or human.approve(msg)):
             return {"stopped_reason": "submit_declined"}
@@ -445,7 +509,18 @@ def advance_node(state: AgentState, config) -> dict:
                             c["qa"].outcome(d.ref, "kept" if str(fin).strip() == str(d.value).strip() else "edited")
             except Exception:
                 pass
+        try:
+            from ..browser.form_values import read_form_values
+            before_submit = read_form_values(page)                    # what the form holds as it goes out
+        except Exception:
+            before_submit = {}
         deps.click(page, pick_advance_label(form, is_last=True))
+        ok, why = deps.confirmed(page) if hasattr(deps, "confirmed") else (True, "unchecked")
+        print(f"[submit] {'CONFIRMED' if ok else 'NOT confirmed'}: {why}", flush=True)
+        if not ok:
+            return {"submitted": False, "stopped_reason": "submit_unconfirmed"}     # clicked, no proof: a human checks
+        if c.get("on_submit"):
+            c["on_submit"](before_submit, how, page.url)
         return {"submitted": True, "stopped_reason": "submitted"}
 
     if not has_advance:
@@ -453,10 +528,10 @@ def advance_node(state: AgentState, config) -> dict:
         # Re-snapshot once before giving up.
         page.wait_for_timeout(1500)
         form = deps.snapshot(page)
-        has_advance = has_control(form, ADVANCE_NAMES)
+        has_advance = has_control(form, advance_names(form))
         has_submit = has_control(form, SUBMIT_NAMES)
         if not has_advance and not has_submit:
-            return {"stopped_reason": "no_advance_control"}
+            return _recovered("no_advance_control") or {"stopped_reason": "no_advance_control"}
         if has_submit and not has_advance:
             if not state["do_submit"]:
                 return {"stopped_reason": "reached_submit_dry_run"}
@@ -471,7 +546,8 @@ def advance_node(state: AgentState, config) -> dict:
         _adv_prof = c.get("profile")
         _adv_email = _adv_prof.contact.get("email", "") if _adv_prof and hasattr(_adv_prof, "contact") else ""
         from ..browser.credential_provider import provide as _provide
-        _prov = lambda pg, gate, site: _provide(pg, gate, site, original_url=_job_url, email=_adv_email)
+        _adv_phone = _adv_prof.contact.get("phone", "") if _adv_prof and hasattr(_adv_prof, "contact") else ""
+        _prov = lambda pg, gate, site: _provide(pg, gate, site, original_url=_job_url, email=_adv_email, phone=_adv_phone)
         print(f"[cred] {_kind} wall mid-walk — credential provider...", flush=True)
         clear_auth_wall(page, credential_provider=_prov)
         if classify_entry(page) in ("password", "email_auth"):
@@ -480,7 +556,7 @@ def advance_node(state: AgentState, config) -> dict:
     new_form = deps.snapshot(page)
     after = screen_signature(deps.url(page), new_form)
     if state.get("form_sig") and not changed(state["form_sig"], after):
-        return {"stopped_reason": "stuck"}
+        return _recovered("stuck") or {"stopped_reason": "stuck"}
     return {"form": [_f2d(f) for f in new_form], "form_sig": after, "url": page.url}
 
 

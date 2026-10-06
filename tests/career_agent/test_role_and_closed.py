@@ -89,3 +89,11 @@ def test_apply_url_variants():
     assert _apply_url_variants("https://jobs.ashbyhq.com/co/abc?src=x") == ["https://jobs.ashbyhq.com/co/abc/application"]
     assert _apply_url_variants("https://jobs.lever.co/co/abc/apply") == []          # already there
     assert _apply_url_variants("https://acme.com/careers/42") == ["https://acme.com/careers/42/apply"]  # generic
+
+
+def test_long_form_mentioning_signing_is_a_form_not_email_auth():
+    from career_agent.browser.page_prep import classify_entry
+    # Lever: email field + "...upon signing an offer letter" + 26 inputs -> a form, not a login gate
+    assert classify_entry(_FakePage(_d(hasEmail=True, verify=True, fillable=26))) == "form"
+    # a genuine email-first gate (1 input) is still email_auth
+    assert classify_entry(_FakePage(_d(hasEmail=True, verify=True, fillable=1))) == "email_auth"

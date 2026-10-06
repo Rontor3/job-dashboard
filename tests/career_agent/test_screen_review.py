@@ -91,3 +91,66 @@ def test_unresolvable_prose_purpose_goes_to_judgment_not_dropped():
     f = Field("#m", "textarea", label, False, [], None, "motivation")
     decisions, needs = map_screen([f], NS(contact={}, experiences=[], education=[], summary=None))
     assert decisions == [] and [x.ref for x in needs] == ["#m"]
+
+
+def test_optional_single_line_field_without_answer_is_left_blank():
+    opt = _f("#alt", "Alternate Number", None)
+    req = _f("#req", "Something odd *", None, required=True)
+    essay = _f("#es", "Anything else?", None, kind="textarea")
+    _, needs = map_screen([opt, req, essay], P)
+    assert [f.ref for f in needs] == ["#req", "#es"]
+
+
+def test_dial_code_is_not_read_as_a_numeric_range():
+    from career_agent.orchestrator.screen_review import _coerce_option
+    opts = ["🇦🇬 (+1 268) Antigua and Barbuda", "🇮🇳 (+91) India", "🇮🇴 (+246) British Indian Ocean Territory"]
+    assert _coerce_option("+91", opts) == "🇮🇳 (+91) India"
+
+
+def test_if_yes_followup_has_no_profile_purpose():
+    from career_agent.browser.form_model import guess_purpose
+    assert guess_purpose("If yes, please indicate your family member's name, job title and work location", "text") is None
+
+
+def test_i_have_read_the_privacy_notice_is_an_attestation():
+    from career_agent.browser.form_model import guess_purpose
+    assert guess_purpose("I have read the KHC Privacy Notice.", "checkbox") == "attestation"
+
+
+def test_ctc_is_written_in_the_unit_the_box_wants():
+    from career_agent.orchestrator.answering import normalize_amount as n
+    assert n("30 LPA", "Annual Base Salary Expectations (local currency)") == "3000000"
+    assert n("25", "Current CTC in INR (annual, digits only)") == "2500000"
+    assert n("25", "Current CTC (LPA)") == "25" and n("35 LPA", "Expected salary in lakhs per annum") == "35"
+    assert n("35 LPA", "Salary expectation per month") == "291667"
+    assert n("25", "Current CTC") == "25 LPA" and n("25", "Current CTC", "number") == "2500000"
+    assert n("35 LPA", "Expected CTC") == "35 LPA"
+    assert n("2500000", "Current CTC (INR)") == "2500000"
+    assert n("30 LPA", "Preferred location") == "30 LPA"
+
+
+def test_what_you_earn_now_is_not_what_you_expect():
+    from career_agent.browser.form_model import guess_purpose as g
+    assert g("What’s your current salary? (in lakhs per annum)", "text") == "current_ctc"
+    assert g("Last drawn salary", "text") == "current_ctc" and g("Current / Last compensation - Amount", "text") == "current_ctc"
+    assert g("Expected salary", "text") == "salary_expectation" and g("Annual Base Salary Expectations (local currency)", "text") == "salary_expectation"
+
+
+def test_a_rerun_reuses_what_the_human_already_answered_for_that_job(tmp_path):
+    import sqlite3
+    from job_dashboard import qa_store
+    from career_agent.orchestrator.answering import answer_fields
+    from career_agent.orchestrator.qa_recorder import QARecorder
+
+    conn = sqlite3.connect(tmp_path / "x.db"); qa_store.ensure(conn)
+    qa_store.record(conn, job_id=7, run_key="old", ref="#a", label="Source*", answer="LinkedIn", source="human", status="answered")
+    qa_store.record(conn, job_id=7, run_key="old", ref="#b", label="I want to be considered for other job opportunities", answer="yes", source="human", status="answered")
+    qa_store.record(conn, job_id=8, run_key="other", ref="#a", label="Source*", answer="Naukri", source="human", status="answered")   # another job
+    fields = [_f("#s", "Source*", None, kind="select"), _f("#c", "I want to be considered for other job opportunities", None, kind="checkbox"),
+              _f("#n", "Anything else", None)]
+    ctx = {"profile": P, "qa": QARecorder(conn, 7, run_key="new")}
+    decisions, needs = answer_fields(fields, ctx)
+    by = {d.label: d for d in decisions if d.source == "human_prior"}
+    assert by["Source*"].value == "LinkedIn" and by["Source*"].action == "select"
+    assert by["I want to be considered for other job opportunities"].action == "check"
+    assert "#n" not in {d.ref for d in decisions}                       # nothing known about it: not invented

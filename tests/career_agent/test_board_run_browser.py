@@ -169,3 +169,102 @@ def test_a_required_bank_field_stops_the_run_and_is_never_asked_or_submitted(mon
     out, hits = _run(BANK, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
     assert out["stopped_reason"] == "sensitive_field" and not out["submitted"] and hits == []
     assert [f["label"] for f in out["pending_human"]] == ["Bank account number"]
+
+
+class FakeAssist:
+    """Stands in for ClaudeAssist: on its first call it clicks `selector` and says it acted; afterwards it gives up."""
+    def __init__(self, selector):
+        self.selector, self.reasons = selector, []
+
+    def recover(self, page, reason):
+        self.reasons.append(reason)
+        if len(self.reasons) > 1:
+            return False
+        page.locator(self.selector).click()
+        return True
+
+
+# the entry control is not the one the board profile expects (#apply is missing; this one is #start)
+WRONG_ENTRY = WIZARD.replace('id="apply"', 'id="start"')
+
+# after the answers the form shows a "Proceed" control the board's advance list does not know; it reveals the final button
+HIDDEN_FINAL = WIZARD.replace(
+    '<button onclick="fetch(\'/api/submit\'',
+    '<button id="go" onclick="document.getElementById(\'f\').style.display=\'block\'">Proceed</button>'
+    '<button id="f" style="display:none" onclick="fetch(\'/api/submit\'')
+
+
+def test_no_entry_is_recovered_by_assist_and_the_run_continues(monkeypatch):
+    h = Human(answers={"What is your expected CTC?": "30"})
+    assist = FakeAssist("#start")
+    out, hits = _run(WRONG_ENTRY, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True,
+                     assist=assist)
+    assert assist.reasons == ["no_entry"] and out["submitted"], out
+
+
+def test_without_assist_a_missing_entry_still_stops_as_no_entry(monkeypatch):
+    out, hits = _run(WRONG_ENTRY, _board("no", "/api/submit"), Human(), monkeypatch, do_submit=True, autonomous=True)
+    assert out["stopped_reason"] == "no_entry" and hits == []
+
+
+def test_no_advance_control_is_recovered_by_assist(monkeypatch):
+    h = Human(answers={"What is your expected CTC?": "30"})
+    assist = FakeAssist("#go")
+    out, hits = _run(HIDDEN_FINAL, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True,
+                     assist=assist)
+    assert assist.reasons == ["no_advance_control"] and out["submitted"], out
+    assert json.loads(hits[0]) == {"ctc": "30"}
+
+
+def test_when_assist_gives_up_the_run_stops_as_before(monkeypatch):
+    h = Human(answers={"What is your expected CTC?": "30"})
+    assist = FakeAssist("#go")
+    assist.reasons = ["already used"]                       # a second call returns False
+    out, hits = _run(HIDDEN_FINAL, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True,
+                     assist=assist)
+    assert not out["submitted"] and hits == []
+
+
+# the SuccessFactors-style login page seen live (inputs are NOT html-required; labels carry the asterisk)
+LOGIN_PAGE = """<html><body><h1>Sign in</h1>
+<label for="u">Email Address:*</label><input id="u" name="username" type="text">
+<label for="p">Password:*</label><input id="p" name="password" type="password">
+<button type="submit">Sign In</button> <a href="#">Forgot your password?</a> <a href="#">Create an account</a>
+</body></html>"""
+OFF_BOARD_ENTRY = """<html><body><h1>Data Scientist</h1>
+<a id="apply" href="http://company.test/careers/apply">Apply on company site</a></body></html>"""
+
+
+def _run_two_hosts(html_board, html_other, board, human, monkeypatch, **ctx):
+    from playwright.sync_api import sync_playwright
+    from career_agent.boards import run as run_mod
+    from career_agent.orchestrator.browser_deps import BrowserDeps
+    monkeypatch.setattr(run_mod, "answer_fields", lambda fields, c: ([], list(fields)))
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        page.route("http://board.test/**", lambda r: r.fulfill(status=200, content_type="text/html", body=html_board))
+        page.route("http://company.test/**", lambda r: r.fulfill(status=200, content_type="text/html", body=html_other))
+        page.goto("http://board.test/job")
+        out = run_mod.run_board(page, board, {"deps": BrowserDeps(), "human": human, "profile": None, **ctx})
+        b.close()
+    return out
+
+
+def test_a_flow_that_leaves_the_board_stops_as_left_board_for_the_other_engine(monkeypatch):
+    board = {**_board("no", "/api/submit"), "domains": ["board.test"]}
+    h = Human()
+    out = _run_two_hosts(OFF_BOARD_ENTRY, LOGIN_PAGE, board, h, monkeypatch, do_submit=True, autonomous=True)
+    assert out["stopped_reason"] == "left_board" and out["url"].startswith("http://company.test/"), out
+    assert h.cards == [] and out["pending_human"] == []                    # nothing was asked of the human
+
+
+LOGIN_AFTER_APPLY = ('<html><body><h1>Data Scientist</h1><button id="apply" onclick="document.getElementById(\'m\').style.display=\'block\'">'
+                     'Apply</button><div id="m" style="display:none">' + LOGIN_PAGE.split("<body>")[1].replace("</body></html>", "") + "</div></body></html>")
+
+
+def test_a_login_page_is_never_turned_into_questions(monkeypatch):
+    h = Human()
+    out, hits = _run(LOGIN_AFTER_APPLY, _board("no", "/api/submit"), h, monkeypatch, do_submit=True, autonomous=True)
+    assert h.cards == []
+    assert out["stopped_reason"] == "auth_wall" and out["pending_human"] == [] and hits == []

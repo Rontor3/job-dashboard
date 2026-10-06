@@ -909,6 +909,76 @@
       "type": "code",
       "label": "Chroma behavioral_qa vault with 3-approval autonomy",
       "status": "superseded"
+    },
+    {
+      "id": "site:himalayas",
+      "type": "site",
+      "label": "Himalayas.app",
+      "domains": [
+        "himalayas.app"
+      ],
+      "notes": "Job board with two modes: (1) redirect jobs — JD page only, no form, stops with no_advance_control; (2) embedded apply form — himalayas own form, requires account login first (auth_wall), submit button may use non-standard label.",
+      "vendor": null,
+      "reach_path": [
+        "click button 'Apply now' (frame 0) -> himalayas.app/companies/jumpcloud/jobs/staff-data-scientist-machine-learning-india",
+        "modal kept open (offers an apply control)",
+        "click link 'I'm ready to apply' (frame 0) -> jobs.lever.co/jumpcloud/60f9796e-9f63-416e-8c7b-8e16cd2ee3dc/apply"
+      ],
+      "lands_on": "jobs.lever.co",
+      "reach_end": "form",
+      "errors_seen": [
+        "advance_failed",
+        "no_advance_control",
+        "reached_submit_dry_run"
+      ],
+      "reach_clicks": [
+        "Apply now",
+        "I'm ready to apply"
+      ]
+    },
+    {
+      "id": "site:jobs.lever.co",
+      "type": "site",
+      "label": "jobs.lever.co"
+    },
+    {
+      "id": "site:in.indeed.com",
+      "type": "site",
+      "label": "in.indeed.com",
+      "domains": [
+        "in.indeed.com"
+      ],
+      "errors_seen": [
+        "auth_wall",
+        "gate:recaptcha_v2_checkbox",
+        "no_advance_control",
+        "reached_submit_dry_run",
+        "sensitive_field"
+      ]
+    },
+    {
+      "id": "site:profferit.in",
+      "type": "site",
+      "label": "profferit.in",
+      "domains": [
+        "profferit.in"
+      ],
+      "errors_seen": [
+        "no_advance_control",
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:careers.thalesgroup.com",
+      "type": "site",
+      "label": "careers.thalesgroup.com",
+      "domains": [
+        "careers.thalesgroup.com"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run",
+        "stuck"
+      ]
     }
   ],
   "edges": [
@@ -1191,6 +1261,21 @@
       "from": "code:qbank",
       "to": "code:semantic_behavior",
       "rel": "SUPERSEDES"
+    },
+    {
+      "from": "site:himalayas",
+      "to": "archetype:jd_with_apply",
+      "rel": "EXHIBITS"
+    },
+    {
+      "from": "site:himalayas",
+      "to": "error:account_wall_signup",
+      "rel": "EXHIBITS"
+    },
+    {
+      "from": "site:himalayas",
+      "to": "site:jobs.lever.co",
+      "rel": "ROUTES_TO"
     }
   ]
 }

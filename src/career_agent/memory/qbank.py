@@ -33,6 +33,8 @@ def ensure(conn) -> None:
     conn.execute("""CREATE TABLE IF NOT EXISTS qbank_wording (
         norm TEXT PRIMARY KEY, entry_id TEXT NOT NULL, vec BLOB NOT NULL,
         source TEXT NOT NULL, text TEXT)""")
+    if "approvals" not in [r[1] for r in conn.execute("PRAGMA table_info(qbank_entry)")]:
+        conn.execute("ALTER TABLE qbank_entry ADD COLUMN approvals INTEGER NOT NULL DEFAULT 0")   # graduated autonomy
     conn.commit()
 
 

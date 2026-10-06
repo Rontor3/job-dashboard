@@ -54,8 +54,17 @@ class QBankMemory:
             if m.band == NONE or value is None:
                 still.append(f)
                 continue
-            decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action_for_kind(f.kind),
-                                          "qbank" if m.band == CONFIDENT else "qbank_likely"))
+            source = "qbank" if m.band == CONFIDENT else "qbank_likely"
+            if f.kind == "checkbox":
+                # A tick box takes Yes -> tick, No -> make sure it is NOT ticked (sites pre-tick marketing opt-ins).
+                # A REQUIRED box cannot be declined: leave it to the rule mapper (attestation), never untick it.
+                yes = str(value).strip().lower() in ("yes", "true", "1", "y", "checked")
+                if not yes and f.required:
+                    still.append(f)
+                    continue
+                decisions.append(FillDecision(f.ref, f.kind, f.label, yes, "check" if yes else "uncheck", source))
+                continue
+            decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action_for_kind(f.kind), source))
         return decisions, still
 
     def record(self, field, answer):

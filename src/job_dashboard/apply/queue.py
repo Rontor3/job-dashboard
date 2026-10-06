@@ -89,10 +89,14 @@ def next_queued(conn) -> int | None:
     return row[0] if row else None
 
 
-def list_queue(conn) -> list[dict]:
-    cur = conn.execute("""SELECT q.job_id, q.position, q.state, q.reason, q.added_at, q.started_at,
+def list_queue(conn, finished: bool = False) -> list[dict]:
+    """The queue as the dashboard shows it: waiting + running jobs. A run that has finished (done / parked /
+    failed) leaves the list — the job is on the tracker, which still reads its reason from the row — unless
+    `finished` asks for everything."""
+    where = "" if finished else "WHERE q.state IN ('queued', 'running')"
+    cur = conn.execute(f"""SELECT q.job_id, q.position, q.state, q.reason, q.added_at, q.started_at,
                                  q.finished_at, j.title, j.company, j.job_url, j.source
-                          FROM apply_queue q LEFT JOIN jobs j ON j.id = q.job_id
+                          FROM apply_queue q LEFT JOIN jobs j ON j.id = q.job_id {where}
                           ORDER BY q.position""")
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, r)) for r in cur.fetchall()]

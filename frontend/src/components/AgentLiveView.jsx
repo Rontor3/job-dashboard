@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import ImageLightbox from "./ImageLightbox.jsx";
 import { fetchAgentLog } from "../api.js";
 
 const PRE = {
@@ -35,10 +36,10 @@ export default function AgentLiveView({ jobId, status }) {
   return (
     <div data-testid={`live-view-${jobId}`} style={{ margin: "6px 0 2px 14px", display: "flex", gap: 10, flexWrap: "wrap" }}>
       {status && status.screenshot && (
-        <a href={status.screenshot} target="_blank" rel="noreferrer" style={{ flex: "0 0 auto" }}>
-          <img src={`${status.screenshot}?t=${tick}`} alt="Live view of the page being filled"
-               style={{ width: 200, maxWidth: "100%", borderRadius: 8, border: "0.5px solid var(--hairline)", display: "block" }} />
-        </a>
+        <div style={{ flex: "0 0 auto" }}>
+          <ImageLightbox src={`${status.screenshot}?t=${tick}`} alt="Live view of the page being filled"
+                         thumbStyle={{ width: 200, maxWidth: "100%", borderRadius: 8, border: "0.5px solid var(--hairline)", display: "block" }} />
+        </div>
       )}
       <pre ref={logRef} aria-label="Agent live log" style={{ ...PRE, flex: "1 1 240px", minWidth: 0 }}>
         {lines.length ? lines.join("\n") : "Waiting for log output…"}

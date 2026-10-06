@@ -1,3 +1,4 @@
+from career_agent.browser.form_model import Field
 from job_dashboard import qa_store
 from job_dashboard.db import init_db
 
@@ -47,3 +48,22 @@ def test_recall_survives_answer_field_blowup(qbank_conn, fake_embed, make_field,
     decisions, still = mem.recall([f])
     assert decisions == [] and [x.ref for x in still] == ["#n"]
     assert mem.explain(f)["retrieval_kind"] == "none"
+
+
+def test_checkbox_answers_tick_untick_and_never_decline_a_required_box(fake_embed):
+    import sqlite3
+    from career_agent.browser.form_model import Field
+    from career_agent.memory import qbank
+
+    c = sqlite3.connect(":memory:"); qbank.ensure(c)
+    for eid, q, ans in (("other_opportunities", "I want to be considered for other job opportunities", "Yes"),
+                        ("marketing_emails", "I agree to receive marketing communications", "No")):
+        qbank.upsert_entry(c, {"id": eid, "question": q, "topic": "preferences", "atype": "bool", "wordings": []})
+        qbank.set_answer(c, eid, ans)
+        qbank.add_wording(c, q, eid, fake_embed([q])[0], "seed")
+    mem = QBankMemory(c, embed=fake_embed)
+    box = lambda label, required=False: Field("#" + label[:3], "checkbox", label, required, [], None, None)
+    d, still = mem.recall([box("I want to be considered for other job opportunities"), box("I agree to receive marketing communications")])
+    assert [(x.action, x.value) for x in d] == [("check", True), ("uncheck", False)]           # Yes ticks, No unticks
+    d, still = mem.recall([box("I agree to receive marketing communications", required=True)])
+    assert d == [] and len(still) == 1                                                          # a required box is never declined

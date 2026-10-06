@@ -81,3 +81,16 @@ test("Run log loads lazily when expanded", async () => {
   fireEvent(details, new Event("toggle"));
   await waitFor(() => expect(screen.getByText(/\[gate\] hcaptcha_image/)).toBeDefined());
 });
+
+test("shows why a form did or did not go out without the human", async () => {
+  global.fetch = mockFetch(200, {
+    job_id: 1, steps: [{ step: 0, kind: "form", stopped_reason: "reached_submit_dry_run", pending_human: [], screenshot: null }],
+    eligibility: { allow: false, reasons: ["auto-submit is off for career_site", "first submit on x.com must go through you"],
+                   report: { confident: 9, total: 11 } },
+  });
+  render(<AgentRunHistory jobId={1} />);
+  const box = await screen.findByTestId("eligibility");
+  expect(box).toHaveTextContent("waited for you");
+  expect(box).toHaveTextContent("first submit on x.com must go through you");
+  expect(box).toHaveTextContent("9 of 11 answers autonomous");
+});

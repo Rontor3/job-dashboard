@@ -47,3 +47,13 @@ def test_dial_code_plus_is_not_an_open_range():
     assert _coerce_option("9876543210", opts) is None
     assert _coerce_option("+91", opts) == "India (+91)"
     assert _coerce_option(7, ["1-3 years", "5+ years"]) == "5+ years"
+
+
+def test_a_value_on_the_edge_of_two_bands_takes_the_band_it_starts():
+    bands = ["0-1 years", "1-3 years", "3-5 years", "5+ years"]
+    pick = lambda v: _coerce_option(v, bands)
+    assert pick("3") == "3-5 years" and pick("1") == "1-3 years" and pick("5") == "5+ years" and pick("0") == "0-1 years"
+    assert pick("2") == "1-3 years" and pick("4") == "3-5 years" and pick("12") == "5+ years"
+    assert pick("2.5") == "1-3 years" and pick("3.2 years") == "3-5 years"
+    assert _coerce_option("3", ["Less than 3", "3-5", "More than 5"]) == "3-5"      # exclusive wording unchanged
+    assert _coerce_option("3", ["0-3", "4-6"]) == "0-3"                              # no neighbour starts at 3: keep the only fit

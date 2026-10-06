@@ -40,7 +40,7 @@ test("groups by topic, shows unanswered count, profile values and rule help", as
   expect(await screen.findByText("2 unanswered")).toBeInTheDocument();
   expect(screen.getByText("Work authorization")).toBeInTheDocument();
   expect(screen.getByText(/from your profile \(gender\)/)).toBeInTheDocument();
-  expect(screen.getByText("Male")).toBeInTheDocument();
+  expect(screen.getByDisplayValue("Male")).toBeInTheDocument();
   expect(screen.getByText(/comma-separated/)).toBeInTheDocument();
   expect(screen.getByText(/asked in 2 applications/)).toBeInTheDocument();
 });
@@ -89,4 +89,32 @@ test("story section comes first and uses a multi-line box", async () => {
   expect(box.tagName).toBe("TEXTAREA");
   const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
   expect(headings[0]).toBe("Your story (used to write essays)");
+});
+
+test("a profile-backed answer is editable and saves to the application profile", async () => {
+  const calls = mock();
+  render(<AnswersTab />);
+  fireEvent.change(await screen.findByLabelText("Answer for What is your gender?"), { target: { value: "Female" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save What is your gender?" }));
+  await waitFor(() => {
+    const put = calls.find(([u, o]) => u.includes("/api/application-profile") && o && o.method === "PUT");
+    expect(JSON.parse(put[1].body)).toEqual({ gender: "Female" });
+  });
+});
+
+test("an answer shows how many approvals it has earned toward autonomy", async () => {
+  global.fetch = vi.fn((url, opts) => {
+    const u = String(url);
+    const ok = (b) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(b) });
+    if (u.includes("/api/agent-settings")) return ok({ answer_confidence_min: 60, qbank_confident_min: 80 });
+    if (u.includes("/api/ingredients")) return ok({ units: [], skills_pool: [] });
+    if (u.includes("/api/retrieval")) return ok({ total_fields: 0 });
+    if (u.includes("/api/answers")) return ok({ unanswered: 0, answers: [
+      { id: "notice_period_text", question: "Notice period?", topic: "availability", atype: "text", answer: "30 days", profile_ref: null, rule: null, rule_help: null, value: "30 days", needs_input: true, wordings: [], asked_in: 4, approvals: 2 },
+      { id: "age", question: "Are you 18+?", topic: "background", atype: "bool", answer: "Yes", profile_ref: null, rule: null, rule_help: null, value: "Yes", needs_input: true, wordings: [], asked_in: 9, approvals: 3 }] });
+    return ok({});
+  });
+  render(<AnswersTab />);
+  expect(await screen.findByTestId("approvals-notice_period_text")).toHaveTextContent("approved 2 of 3 times");
+  expect(screen.getByTestId("approvals-age")).toHaveTextContent("autonomous");
 });

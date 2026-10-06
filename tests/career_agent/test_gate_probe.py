@@ -46,3 +46,9 @@ def test_every_gate_has_a_handler():
     assert HANDLERS["recaptcha_v2_checkbox"] == "escalate"
     assert HANDLERS["turnstile"] == "proceed"
     assert HANDLERS["otp_email"] == "otp_email"
+
+
+def test_invisible_recaptcha_anchor_is_not_a_checkbox_gate():
+    # the anchor iframe exists but is hidden / in the corner badge: nothing for a human to solve
+    assert classify_from_signals(_sig(recaptcha_iframe=True, recaptcha_anchor_visible=False)) == "recaptcha_v3"
+    assert classify_from_signals(_sig(recaptcha_iframe=True, recaptcha_anchor_visible=True)) == "recaptcha_v2_checkbox"
