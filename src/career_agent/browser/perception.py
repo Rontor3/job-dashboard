@@ -117,6 +117,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             input_type=r.get("input_type", ""),
             autocomplete=r.get("autocomplete", ""),
             placeholder=r.get("placeholder", ""),
+            max_length=int(r.get("max_length") or 0),
         ))
 
     for name, g in radio_groups.items():
@@ -335,6 +336,7 @@ _INPUT_JS = r"""
       input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
       placeholder: (el.getAttribute('placeholder') || '').trim().slice(0, 60),
       part_hint: [tag === 'select' && el.options.length ? el.options[0].text : '', el.name || '', el.id || ''].join(' ').trim().slice(0, 80),
+      max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : 0,
     });
   }
   // A combobox that is not an <input>/<select>/<button>: a styled <div role="combobox"> that opens a listbox popup

@@ -20,6 +20,7 @@ class JudgmentContext:
     resume_text: str = ""
     ats_notes: str = ""            # vendor notes from ats-graph (e.g. "Direct, no-login")
     story_text: str = ""           # candidate's own long-form answers (qbank topic=story)
+    longform: object = None        # callable(question, field, job) -> dict | None: the need-based long-answer pipeline
 
 
 _SENSITIVE_RE = re.compile(
@@ -200,9 +201,16 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                     or draft_screening_answer is None):
                 still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
-            res = draft_screening_answer(ctx.job, f.label, profile_text,
-                                         ctx.research, ctx.resume_text, llm=llm,
-                                         story_text=ctx.story_text)
+            res = None
+            if ctx.longform is not None:
+                try:
+                    res = ctx.longform(f.label, f, ctx.job)
+                except Exception:
+                    res = None                       # never let the new pipeline stop an application
+            if res is None:
+                res = draft_screening_answer(ctx.job, f.label, profile_text,
+                                             ctx.research, ctx.resume_text, llm=llm,
+                                             story_text=ctx.story_text)
             conf = res.get("confidence")
             low = min_conf is not None and (conf is None or conf < min_conf)
             if on_draft:

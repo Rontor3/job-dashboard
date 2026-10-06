@@ -58,7 +58,10 @@ class QARecorder:
         self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, answer=res.get("answer"),
                   source="judgment", status="filled" if filled else "needs_answer",
                   confidence=res.get("confidence"), basis=res.get("basis"),
-                  context_json={"prompt": res.get("prompt")},
+                  context_json={"prompt": res.get("prompt"),
+                                **{k: res[k] for k in ("needs", "project_id", "used") if res.get(k) is not None},
+                                **({"flags": res["flags"]} if res.get("flags") else {}),
+                                **{k: res[k] for k in ("plan_source", "plan_reason") if res.get(k)}},
                   unsupported_claims=res.get("unsupported_company_claims") or [])
 
     def answered(self, f, answer):

@@ -37,6 +37,7 @@ class Field:
     input_type: str = ""       # HTML type attribute (email/tel/url/number/date…) — shape clue
     autocomplete: str = ""     # HTML autocomplete token (address-line1, postal-code…) — shape clue
     placeholder: str = ""      # what the box shows when empty ("DD/MM/YYYY") — the page's own format hint
+    max_length: int = 0        # HTML maxlength (0 = none)
 
 
 # Ordered most-specific-first; first hit wins.
