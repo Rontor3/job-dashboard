@@ -13,6 +13,11 @@ class FakeResponse:
 
 
 # ── question bank fixtures (tests/career_agent/test_qbank*.py, tests/test_qa_api.py) ──
+import os as _os
+from pathlib import Path as _Path
+_pw = _Path(__file__).resolve().parents[1] / ".playwright-browsers"
+if _pw.is_dir():
+    _os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_pw))
 import re as _re
 import sqlite3 as _sqlite3
 import zlib as _zlib

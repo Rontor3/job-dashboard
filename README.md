@@ -20,6 +20,7 @@ A **local-first job-search dashboard**. It scrapes jobs from multiple boards, ra
 
 | Tool | Why | Notes |
 |------|-----|-------|
+| **[uv](https://docs.astral.sh/uv/)** | manages ./.venv and Python 3.12 (`.python-version`) | `scripts/setup.sh` needs it |
 | **Python 3.11** | backend (FastAPI) + pipeline | 3.10+ should work; 3.11 tested |
 | **Node 18+ / npm** | frontend (React + Vite) | only to build the UI once |
 | **[Ollama](https://ollama.com)** + a model | all LLM features (bullets, rewrite, ranking, screening) | default model `qwen2.5:14b` |
@@ -37,12 +38,9 @@ Everything is CPU-friendly; a 14B model wants ~16 GB RAM (or swap in a smaller O
 git clone https://github.com/Rontor3/job-dashboard.git
 cd job-dashboard
 
-# 2. python deps (uv creates ./.venv from pyproject.toml / uv.lock)
-uv sync
-
-# 3. build the frontend (served by the backend)
-npm --prefix frontend install
-npm --prefix frontend run build
+# 2. one-shot setup: python deps (./.venv via uv), Playwright Chromium
+#    (project-local ./.playwright-browsers), frontend install + build
+./scripts/setup.sh
 
 # 4. local LLM
 #    install Ollama from https://ollama.com, then:

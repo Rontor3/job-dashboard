@@ -21,7 +21,9 @@ The dashboard produces jobs + profile; the agent consumes them to apply. This fi
 ## Run & test (Python via uv, not npm)
 
 ```bash
-# setup: uv sync   (creates ./.venv from pyproject.toml + uv.lock)
+# setup: ./scripts/setup.sh   (uv sync -> ./.venv, Playwright Chromium -> ./.playwright-browsers, frontend build)
+# Playwright browsers are project-local; career_agent and tests/conftest.py point PLAYWRIGHT_BROWSERS_PATH at them automatically.
+# Never run bare `playwright install` / `npx playwright install` — that writes to ~/Library/Caches (user scope) and the wrong build.
 # career_agent — reach → fill an application (dry-run; nothing submitted by default)
 PYTHONPATH=src uv run python -m career_agent.apply --url "<job-url>"     # or --job-id <N>
 # tests
