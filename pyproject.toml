@@ -6,6 +6,34 @@ build-backend = "setuptools.build_meta"
 name = "job-dashboard"
 version = "0.1.0"
 requires-python = ">=3.11"
+dependencies = [
+    "python-jobspy>=1.1.80",
+    "requests>=2.31",
+    "feedparser>=6.0",
+    "sentence-transformers>=2.2",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
+    "pyyaml>=6.0",
+    "curl_cffi>=0.7",
+    "pycryptodome>=3.20",
+    "selenium",
+    "beautifulsoup4",
+    "undetected-chromedriver",
+    "certifi",
+    "playwright>=1.44",
+    "aiohttp>=3.9",
+    "langgraph>=1.2",
+    "langgraph-checkpoint-sqlite>=3.0",
+    "mcp>=1.0,<2",
+    "google-api-python-client>=2.100",
+    "google-auth-httplib2>=0.2",
+    "google-auth-oauthlib>=1.1",
+    "chromadb>=0.5",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -15,3 +43,4 @@ where = ["src"]
 # also sweeps in vendor/ai-job-search/tests/ (a second `tests` package),
 # which collides with ours and errors during collection.
 testpaths = ["tests"]
+pythonpath = [".", "src"]

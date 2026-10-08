@@ -37,9 +37,8 @@ Everything is CPU-friendly; a 14B model wants ~16 GB RAM (or swap in a smaller O
 git clone https://github.com/Rontor3/job-dashboard.git
 cd job-dashboard
 
-# 2. python deps (a venv is recommended)
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# 2. python deps (uv creates ./.venv from pyproject.toml / uv.lock)
+uv sync
 
 # 3. build the frontend (served by the backend)
 npm --prefix frontend install
@@ -54,7 +53,7 @@ ollama pull qwen2.5:14b        # or any model; see "Swap the model" below
 #    Linux:  sudo apt-get install texlive-luatex texlive-latex-extra
 
 # 6. run it
-PYTHONPATH=src python3 -m uvicorn job_dashboard.api.serve:app --port 8000
+PYTHONPATH=src uv run python -m uvicorn job_dashboard.api.serve:app --port 8000
 #    open http://localhost:8000  →  click "Refresh" to pull jobs
 ```
 
@@ -104,7 +103,7 @@ Smaller models are faster but less reliable at the résumé-writing rules; the c
 ## Tests
 
 ```bash
-PYTHONPATH=src python3 -m pytest -q      # backend
+PYTHONPATH=src uv run python -m pytest -q      # backend
 npm --prefix frontend run test           # frontend
 ```
 

@@ -18,13 +18,14 @@ The dashboard produces jobs + profile; the agent consumes them to apply. This fi
 - Keep files under 500 lines
 - Validate input at system boundaries
 
-## Run & test (Python, not npm)
+## Run & test (Python via uv, not npm)
 
 ```bash
+# setup: uv sync   (creates ./.venv from pyproject.toml + uv.lock)
 # career_agent — reach → fill an application (dry-run; nothing submitted by default)
-PYTHONPATH=src python3 -m career_agent.apply --url "<job-url>"     # or --job-id <N>
+PYTHONPATH=src uv run python -m career_agent.apply --url "<job-url>"     # or --job-id <N>
 # tests
-PYTHONPATH=src python3 -m pytest tests/career_agent               # add RUN_BROWSER_TESTS=1 for Playwright fixtures
+PYTHONPATH=src uv run python -m pytest tests/career_agent               # add RUN_BROWSER_TESTS=1 for Playwright fixtures
 # dashboard — API/service lives in src/job_dashboard/ (api/app.py)
 ```
 
