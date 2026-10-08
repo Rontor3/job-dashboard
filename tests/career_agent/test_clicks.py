@@ -1,12 +1,10 @@
-import time
-
 from career_agent.browser.clicks import click_and_settle, pace, page_signature
 
 
 class FakePage:
     def __init__(self):
         self.url, self.waits, self.body = "http://x/1", [], "one"
-    def wait_for_timeout(self, ms): self.waits.append(ms); time.sleep(ms / 1000)
+    def wait_for_timeout(self, ms): self.waits.append(ms)
     def inner_text(self, sel): return self.body
     def wait_for_load_state(self, *a, **k): pass
 
@@ -15,8 +13,8 @@ def test_pace_keeps_a_minimum_gap_between_clicks():
     pg = FakePage()
     pace(pg, 300)                       # first click on this page: no wait
     assert pg.waits == []
-    t = time.monotonic(); pace(pg, 300)
-    assert time.monotonic() - t >= 0.25 and pg.waits           # the second one waited out the gap
+    pace(pg, 300)
+    assert pg.waits and 250 <= pg.waits[0] <= 300              # the second one waited out the gap
 
 
 def test_a_click_is_made_once_and_the_page_is_waited_on():

@@ -12,12 +12,14 @@ class FakeResponse:
         return self._json_data
 
 
-# ── question bank fixtures (tests/career_agent/test_qbank*.py, tests/test_qa_api.py) ──
 import os as _os
 from pathlib import Path as _Path
+
 _pw = _Path(__file__).resolve().parents[1] / ".playwright-browsers"
 if _pw.is_dir():
     _os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(_pw))
+
+# ── question bank fixtures (tests/career_agent/test_qbank*.py, tests/test_qa_api.py) ──
 import re as _re
 import sqlite3 as _sqlite3
 import zlib as _zlib
@@ -26,17 +28,29 @@ import numpy as _np
 import pytest
 
 
+def _bow_embed(texts):
+    """Deterministic bag-of-words embedding (no ONNX): shared words -> similar vectors."""
+    out = _np.zeros((len(texts), 256), dtype="float32")
+    for i, t in enumerate(texts):
+        for tok in _re.findall(r"[a-z0-9]+", (t or "").lower()):
+            out[i, _zlib.crc32(tok.encode()) % 256] += 1.0
+    n = _np.linalg.norm(out, axis=1, keepdims=True)
+    return out / _np.where(n == 0, 1, n)
+
+
 @pytest.fixture
 def fake_embed():
-    """Deterministic bag-of-words embedding (no ONNX): shared words -> similar vectors."""
-    def embed(texts):
-        out = _np.zeros((len(texts), 256), dtype="float32")
-        for i, t in enumerate(texts):
-            for tok in _re.findall(r"[a-z0-9]+", (t or "").lower()):
-                out[i, _zlib.crc32(tok.encode()) % 256] += 1.0
-        n = _np.linalg.norm(out, axis=1, keepdims=True)
-        return out / _np.where(n == 0, 1, n)
-    return embed
+    return _bow_embed
+
+
+@pytest.fixture(autouse=True)
+def _fast_isolated_defaults(monkeypatch):
+    """Tests never load the real MiniLM model (~1s per call) and never start/kill the developer's Ollama."""
+    from career_agent.memory import qbank
+    from job_dashboard.apply import local_model
+    monkeypatch.setattr(qbank, "default_embed", _bow_embed)
+    monkeypatch.setattr(local_model, "ensure_running", lambda *a, **k: False)
+    monkeypatch.setattr(local_model, "stop", lambda *a, **k: None)
 
 
 QBANK_ENTRIES = [

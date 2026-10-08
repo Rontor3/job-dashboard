@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-timeout>=2.3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -44,3 +44,4 @@ where = ["src"]
 # which collides with ours and errors during collection.
 testpaths = ["tests"]
 pythonpath = [".", "src"]
+timeout = 30

@@ -23,13 +23,14 @@ def ensure_running(wait_s: int = 25) -> bool:
     if sys.platform != "darwin" or is_up():
         return False
     try:
-        subprocess.run(["open", "-a", "Ollama"], timeout=10)
+        if subprocess.run(["open", "-a", "Ollama"], timeout=10, capture_output=True).returncode != 0:
+            return False
     except Exception:
         return False
     end = time.monotonic() + wait_s
     while time.monotonic() < end and not is_up():
         time.sleep(1)
-    return True
+    return is_up()
 
 
 def stop() -> None:

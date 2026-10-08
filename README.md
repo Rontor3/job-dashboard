@@ -23,7 +23,7 @@ A **local-first job-search dashboard**. It scrapes jobs from multiple boards, ra
 | **[uv](https://docs.astral.sh/uv/)** | manages ./.venv and Python 3.12 (`.python-version`) | `scripts/setup.sh` needs it |
 | **Python 3.11** | backend (FastAPI) + pipeline | 3.10+ should work; 3.11 tested |
 | **Node 18+ / npm** | frontend (React + Vite) | only to build the UI once |
-| **[Ollama](https://ollama.com)** + a model | all LLM features (bullets, rewrite, ranking, screening) | default model `qwen2.5:14b` |
+| **[Ollama](https://ollama.com)** + a model | all LLM features (bullets, rewrite, ranking, screening) | default model `qwen3:14b` (set via `OLLAMA_MODEL` in `.envrc`) |
 | **MacTeX / TeX Live** (`lualatex`) | render résumé PDFs | optional — everything else works without it |
 | **Google Chrome** | LinkedIn/Naukri scraping (Selenium) + the autofill extension | optional per source |
 
@@ -39,12 +39,13 @@ git clone https://github.com/Rontor3/job-dashboard.git
 cd job-dashboard
 
 # 2. one-shot setup: python deps (./.venv via uv), Playwright Chromium
-#    (project-local ./.playwright-browsers), frontend install + build
+#    (project-local ./.playwright-browsers), frontend install + build,
+#    Ollama (brew cask on macOS) + the qwen3:14b model (~9 GB download)
 ./scripts/setup.sh
 
-# 4. local LLM
-#    install Ollama from https://ollama.com, then:
-ollama pull qwen2.5:14b        # or any model; see "Swap the model" below
+# 4. local LLM — already done by setup.sh; to use another model see "Swap the model" below.
+#    Load the model choice from .envrc (OLLAMA_MODEL=qwen3:14b), or export it yourself:
+direnv allow
 
 # 5. (optional) résumé PDFs — install MacTeX (macOS) or TeX Live (Linux)
 #    macOS:  brew install --cask mactex-no-gui
@@ -90,7 +91,7 @@ This repo ships **placeholder** profile/résumé files. Your real details live i
 Any Ollama model works. Point the app at it with env vars:
 
 ```bash
-export OLLAMA_MODEL=llama3.1:8b      # default: qwen2.5:14b
+export OLLAMA_MODEL=llama3.1:8b      # repo default: qwen2.5:14b; this repo's .envrc sets qwen3:14b
 export OLLAMA_HOST=http://localhost:11434
 ```
 
