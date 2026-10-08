@@ -43,3 +43,17 @@ PYTHONPATH=src uv run python -m pytest tests/career_agent               # add RU
 - **Question bank** (canonical questions, answered once on the dashboard Answers tab) → `data/jobs.db` tables `qbank_entry`/`qbank_wording`; maintenance `PYTHONPATH=src python3 scripts/qbank.py seed|migrate|calibrate`; spec `docs/superpowers/specs/2026-09-26-question-bank-design.md`
 - **Essay ingredient bank + writing style** (one unit per project, for drafting free-text) → `data/answer_style/ingredients.json`
 - **Architecture / design** → `docs/career-agent/`
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`Rontor3/job-dashboard`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
