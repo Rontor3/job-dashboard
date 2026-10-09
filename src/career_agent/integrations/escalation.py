@@ -73,8 +73,9 @@ class EscalationCollector:
             print(f"[escalation] context not sent ({type(e).__name__})", flush=True)
 
     def __call__(self, fields) -> dict:
+        from ..orchestrator.sensitive import is_sensitive
         self._last_events = {}
-        fresh = [f for f in fields if f.ref not in self._asked]
+        fresh = [f for f in fields if f.ref not in self._asked and not is_sensitive(f)]
         if not fresh:
             return {}
         self._asked.update(f.ref for f in fresh)

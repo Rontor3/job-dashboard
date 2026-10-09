@@ -107,9 +107,11 @@ def test_telegram_never_asks_for_bank_or_id_details():
 def test_live_escalation_never_asks_either():
     client = Client()
     inner = TelegramCollector(client, sleep=lambda s: None, poll_interval_s=1)
-    col = EscalationCollector(inner, client, context_fn=None, wait_s=120, notify=None)
+    notes = []
+    col = EscalationCollector(inner, client, context_fn=None, wait_s=120, notify=notes.append)
     assert col([_f("Aadhaar number", "#a")]) == {}
     assert client.sent == []
+    assert not any("Aadhaar" in n for n in notes)
 
 
 def test_a_human_reply_about_such_a_field_is_never_saved_to_the_answers(tmp_path, fake_embed):
