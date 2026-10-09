@@ -3,7 +3,8 @@ holds the logic)."""
 from __future__ import annotations
 
 
-from ..browser.clicks import pace, page_signature as _page_signature, settle_after_click as _settle_after_click
+from ..browser.clicks import (pace, page_signature as _page_signature, settle_after_click as _settle_after_click,
+                              timeout_ms, wait)
 
 
 class BrowserDeps:
@@ -28,12 +29,12 @@ class BrowserDeps:
                      and d not in radio_sel]
         if radio_sel:
             apply_decisions(page, radio_sel, matcher=self.option_matcher)
-            page.wait_for_timeout(1000)   # let DOM show the file input after radio click
+            wait(page, 1000)              # let DOM show the file input after radio click
         if uploads:
             # Upload resume first; many ATS platforms parse it and auto-fill
             # name/email/phone/LinkedIn — wait for that before we overwrite.
             apply_decisions(page, uploads, matcher=self.option_matcher)
-            page.wait_for_timeout(2500)
+            wait(page, 2500)
             prefilled = read_back(page, rest)
             rest = [d for d in rest if not prefilled.get(d.ref)]
         apply_decisions(page, rest, matcher=self.option_matcher)
@@ -63,7 +64,7 @@ class BrowserDeps:
                     pace(page)
                     before = _page_signature(page)
                     try:
-                        fr.get_by_role(role, name=label, exact=False).first.click(timeout=3000, no_wait_after=True)
+                        fr.get_by_role(role, name=label, exact=False).first.click(timeout=timeout_ms(3000), no_wait_after=True)
                     except Exception:
                         continue
                     try:
@@ -74,7 +75,7 @@ class BrowserDeps:
                     return
             if attempt == 0:
                 # Button may be temporarily absent during an AJAX refresh — wait and retry once
-                page.wait_for_timeout(2500)
+                wait(page, 2500)
                 frames = [fr for fr in page.frames
                           if not any(s in (fr.url or "") for s in _SKIP)]
         raise RuntimeError(f"advance click failed: no {label!r} button/link in any frame")

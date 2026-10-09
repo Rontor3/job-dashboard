@@ -8,15 +8,30 @@ from __future__ import annotations
 import time
 
 MIN_GAP_MS = 600
+TIMING_SCALE = 1.0      # every wait and timeout below is multiplied by this; tests shrink it, production keeps 1.0
+
+
+def ms(n: int) -> int:
+    """A wait of `n` ms under TIMING_SCALE."""
+    return max(0, int(n * TIMING_SCALE))
+
+
+def timeout_ms(n: int) -> int:
+    """A Playwright timeout of `n` ms under TIMING_SCALE, never below 1s (0 would mean no timeout at all)."""
+    return max(min(n, 1000), ms(n))
+
+
+def wait(page, n: int) -> None:
+    page.wait_for_timeout(ms(n))
 
 
 def pace(page, min_gap_ms: int = MIN_GAP_MS) -> None:
     """Wait out the rest of the minimum gap since this page's last click, then stamp the new one."""
     try:
         last = getattr(page, "_agent_last_click", 0.0)
-        wait = min_gap_ms / 1000 - (time.monotonic() - last)
-        if wait > 0:
-            page.wait_for_timeout(int(wait * 1000))
+        gap = ms(min_gap_ms) / 1000 - (time.monotonic() - last)
+        if gap > 0:
+            page.wait_for_timeout(int(gap * 1000))
         page._agent_last_click = time.monotonic()
     except Exception:
         pass
@@ -46,7 +61,7 @@ def wait_until_stable(page, quiet_polls: int = 5, poll_ms: int = 300, max_ms: in
         if same >= quiet_polls:
             return
         last = cur
-        page.wait_for_timeout(poll_ms)
+        wait(page, poll_ms)
         waited += poll_ms
 
 
@@ -57,17 +72,17 @@ def settle_after_click(page, before, max_wait_ms: int = 25000, quiet_ms: int = 2
     before_url, before_text = before[0], before[1]
     waited, changed = 0, False
     while waited < max_wait_ms and not changed:
-        page.wait_for_timeout(300)
+        wait(page, 300)
         waited += 300
         url, text = page_signature(page)
         changed = text != before_text or (url != before_url and waited >= 6000)
     if changed:
         wait_until_stable(page)
     try:
-        page.wait_for_load_state("networkidle", timeout=8000)
+        page.wait_for_load_state("networkidle", timeout=timeout_ms(8000))
     except Exception:
         pass
-    page.wait_for_timeout(quiet_ms)
+    wait(page, quiet_ms)
 
 
 def click_and_settle(page, do_click, *, max_wait_ms: int = 25000) -> None:
@@ -85,7 +100,7 @@ def wait_for_change(page, before, max_wait_ms: int = 12000) -> bool:
     """After a click that showed no change yet: give the page more time to answer. True if it changed."""
     waited = 0
     while waited < max_wait_ms:
-        page.wait_for_timeout(500)
+        wait(page, 500)
         waited += 500
         if page_signature(page) != before:
             wait_until_stable(page)

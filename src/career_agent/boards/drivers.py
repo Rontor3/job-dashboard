@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 
+from ..browser.clicks import timeout_ms, wait
 from ..browser.perception import frame_target
 from . import questions as _q
 from .profiles import json_path
@@ -69,8 +70,8 @@ class FormDriver:
         except Exception:
             # Shadow-DOM buttons (LinkedIn Easy Apply): Playwright CSS locators
             # pierce open shadow roots where get_by_role may not.
-            page.locator(f'button:has-text("{label}")').last.click(timeout=5000, no_wait_after=True)
-            page.wait_for_timeout(2500)
+            page.locator(f'button:has-text("{label}")').last.click(timeout=timeout_ms(5000), no_wait_after=True)
+            wait(page, 2500)
 
 
 class ChatDriver(FormDriver):
@@ -110,7 +111,7 @@ class ChatDriver(FormDriver):
         box = page.locator(chat["container"]).first
         for _ in range(len(pending) + 2):
             try:
-                box.wait_for(timeout=8000)
+                box.wait_for(timeout=timeout_ms(8000))
                 text = _norm(box.inner_text())
             except Exception:
                 return
@@ -122,7 +123,7 @@ class ChatDriver(FormDriver):
             f = max(asked, key=lambda f: text.rfind(_norm(f.label)))   # the latest bubble
             pending.remove(f)
             self._answer(page, chat, str(values[f.ref]))
-            page.wait_for_timeout(2500)
+            wait(page, 2500)
 
     def _answer(self, page, chat, value):
         opts, hit = page.locator(chat["option"]), False

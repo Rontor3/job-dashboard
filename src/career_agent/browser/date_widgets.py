@@ -12,7 +12,7 @@ import re
 from datetime import date, datetime
 from types import SimpleNamespace
 
-from .clicks import pace
+from .clicks import pace, wait
 from .perception import frame_target
 
 _MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
@@ -132,7 +132,7 @@ def pick_calendar(page, target, sel: str, d: date, max_steps: int = 40) -> bool:
         target.click(sel, timeout=4000)
     except Exception:
         return False
-    page.wait_for_timeout(500)
+    wait(page, 500)
     steps = 0
     while steps < max_steps:
         try:
@@ -148,7 +148,7 @@ def pick_calendar(page, target, sel: str, d: date, max_steps: int = 40) -> bool:
             break
         view = r.get("view")
         if r.get("used"):
-            page.wait_for_timeout(250)
+            wait(page, 250)
             steps += 1
             continue
         if view and tuple(view) == (d.month, d.year):
@@ -159,16 +159,16 @@ def pick_calendar(page, target, sel: str, d: date, max_steps: int = 40) -> bool:
         direction = -1 if view and (view[1], view[0]) > (d.year, d.month) else 1
         if not target.evaluate(_NAV_JS, direction):
             return False
-        page.wait_for_timeout(200)
+        wait(page, 200)
         steps += 1
     else:
         return False
-    page.wait_for_timeout(300)
+    wait(page, 300)
     try:
         target.evaluate(_CONFIRM_JS)                    # some pickers need OK / Apply after the day
     except Exception:
         pass
-    page.wait_for_timeout(300)
+    wait(page, 300)
     try:
         return bool((target.locator(sel).first.input_value() or "").strip())
     except Exception:

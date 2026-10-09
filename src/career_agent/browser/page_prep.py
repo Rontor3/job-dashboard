@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 
+from .clicks import ms, timeout_ms
+
 # Fields that are never real application inputs.
 _NOISE_RE = re.compile(
     r"oda-|ask me something|add summary|work-summary|honey.?pot|"
@@ -74,8 +76,8 @@ def _click_first(page, names, within=None):
             if btn.count() == 0:
                 btn = root.get_by_role("link", name=name, exact=False).first
             if btn.count() > 0:
-                btn.click(timeout=3000)
-                page.wait_for_timeout(400)
+                btn.click(timeout=timeout_ms(3000))
+                page.wait_for_timeout(ms(400))
                 return name
         except Exception:
             pass
@@ -103,7 +105,7 @@ def dismiss_consent(page) -> bool:
             if _click_first(page, _ACCEPT):
                 return True
         if attempt == 0:
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(ms(1500))
     return False
 
 
@@ -538,7 +540,7 @@ def _hop(page, aff):
     from .clicks import pace
     pace(page)
     try:
-        loc.click(timeout=5000, no_wait_after=True)
+        loc.click(timeout=timeout_ms(5000), no_wait_after=True)
     except Exception:
         # Covered by a consent/chatbot overlay, or a JS-handler <a> with no href:
         # dispatch the click straight to the element (bypasses the overlay).
@@ -546,14 +548,14 @@ def _hop(page, aff):
             loc.dispatch_event("click")
         except Exception:
             try:
-                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000, no_wait_after=True)
+                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=timeout_ms(5000), no_wait_after=True)
             except Exception:
                 return page
-    page.wait_for_timeout(3000)   # settle: page/SPA may navigate after apply click
+    page.wait_for_timeout(ms(3000))   # settle: page/SPA may navigate after apply click
     active = ctx.pages[-1] if len(ctx.pages) > before else page
     for _ in range(6):
         try:
-            active.wait_for_load_state("domcontentloaded", timeout=2000)
+            active.wait_for_load_state("domcontentloaded", timeout=timeout_ms(2000))
         except Exception:
             # page closed (e.g. OAuth popup dismissed) — switch to newest live page
             active = ctx.pages[-1] if ctx.pages else page
@@ -561,7 +563,7 @@ def _hop(page, aff):
         if _real_field_count(active) >= 2:
             break
         try:
-            active.wait_for_timeout(1000)
+            active.wait_for_timeout(ms(1000))
         except Exception:
             active = ctx.pages[-1] if ctx.pages else page
             break
@@ -621,7 +623,7 @@ def _reach(page, max_hops=4):
         if aff is None:
             for _ in range(6):
                 try:
-                    active.wait_for_timeout(1000)
+                    active.wait_for_timeout(ms(1000))
                 except Exception:
                     # page navigated/closed mid-poll; switch to newest page
                     ctx = active.context
@@ -659,7 +661,7 @@ def _try_url_variants(page):
     for variant in _apply_url_variants(page.url):
         try:
             page.goto(variant, wait_until="domcontentloaded")
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(ms(2000))
             if is_application_form(page):
                 return page
         except Exception:
@@ -727,7 +729,7 @@ def _advance(page, names=("NEXT", "Next", "Continue", "Verify", "Submit")):
         try:
             el = page.get_by_role("button", name=n, exact=False).first
             if el.count() > 0:
-                el.click(timeout=5000, no_wait_after=True); page.wait_for_timeout(1200); return True
+                el.click(timeout=timeout_ms(5000), no_wait_after=True); page.wait_for_timeout(ms(1200)); return True
         except Exception:
             pass
     return False
@@ -749,18 +751,18 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
             return "captcha"
     _advance(page, ("NEXT", "Next", "Continue", "Verify", "Submit",
                     "Apply now", "Apply", "Start", "Get started"))
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(ms(2000))
     if page.query_selector('input[name="pin-code-1"], input[aria-label*="verification code digit" i]'):
         code = otp_reader() if otp_reader else None
         if not code:
             return "otp_timeout"
         if str(code).startswith("http"):    # magic link — navigate instead of OTP
             page.goto(code, wait_until="domcontentloaded")
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(ms(2000))
         else:
             _fill_otp(page, code)
             _advance(page)
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(ms(1500))
     else:
         # No OTP boxes visible — ZF/Phenom-style: may show "check your email" or
         # navigate directly to the form via a magic link the user clicks.
@@ -769,7 +771,7 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
             code = otp_reader() if otp_reader else None
             if code and str(code).startswith("http"):
                 page.goto(code, wait_until="domcontentloaded")
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(ms(2000))
     return classify_entry(page)
 
 
@@ -791,7 +793,7 @@ def prepare(page) -> None:
             return false;
         }""")
         if clicked:
-            page.wait_for_timeout(800)
+            page.wait_for_timeout(ms(800))
             print("[prep] dismissed stale Taleo overwrite modal", flush=True)
     except Exception:
         pass

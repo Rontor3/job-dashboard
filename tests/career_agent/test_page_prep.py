@@ -108,8 +108,10 @@ def test_footer_social_links_are_never_an_apply_control():
     assert _best_apply(cands[:1]) is None
 
 
-def test_advance_click_that_starts_a_slow_navigation_is_not_repeated():
+def test_advance_click_that_starts_a_slow_navigation_is_not_repeated(monkeypatch):
     import os, threading, time, http.server, socketserver
+    from career_agent.browser import clicks
+    monkeypatch.setattr(clicks, "TIMING_SCALE", 0.01)
     if os.getenv("RUN_BROWSER_TESTS") != "1":
         import pytest; pytest.skip("browser")
     from playwright.sync_api import sync_playwright
@@ -118,7 +120,7 @@ def test_advance_click_that_starts_a_slow_navigation_is_not_repeated():
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/step2":
-                time.sleep(4)                                    # slower than the click's own timeout
+                time.sleep(2)                                    # slower than the click's own timeout
             body = {"/": b"<a href=/step2>Continue</a>", "/step2": b"<a href=/step3>Continue</a>"}.get(self.path, b"done")
             self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers(); self.wfile.write(body)
         def log_message(self, *a): pass

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from .clicks import wait
+
 _TEXT_OK = re.compile(
     r"thank you for (applying|your (application|interest))"
     r"|(your )?application (has been |was |is )?(successfully )?(submitted|received|sent|complete(d)?)"
@@ -60,7 +62,7 @@ def wait_for_confirmation(page, timeout_s: int = 25, poll_s: float = 1.0) -> tup
         if last[0]:
             return last
         try:
-            page.wait_for_timeout(int(poll_s * 1000))
+            wait(page, int(poll_s * 1000))
         except Exception:
             break
         waited += poll_s

@@ -604,17 +604,18 @@ def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:
     """Scroll top→bottom→top in small steps so lazy/virtualized fields
     render into the DOM before we snapshot. Abrupt full-page jumps skip
     intersection-observer triggers and miss fields that only exist on scroll."""
+    from .clicks import wait
     try:
         total = page.evaluate("document.body.scrollHeight")
         page.evaluate("window.scrollTo(0, 0)")
-        page.wait_for_timeout(200)
+        wait(page, 200)
         pos = 0
         while pos < total:
             pos = min(pos + step_px, total)
             page.evaluate("(p) => window.scrollTo(0, p)", pos)
-            page.wait_for_timeout(delay_ms)
+            wait(page, delay_ms)
         page.evaluate("window.scrollTo(0, 0)")   # back to top before fill
-        page.wait_for_timeout(200)
+        wait(page, 200)
     except Exception:
         pass   # non-scrollable page / framed page — proceed anyway
 

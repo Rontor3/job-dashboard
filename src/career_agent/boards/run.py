@@ -12,6 +12,7 @@ from job_dashboard.sources.cdp.session import Capture
 from ..orchestrator.answering import answer_fields, record_answers
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 from ..orchestrator.screen_review import apply_answers
+from ..browser.clicks import timeout_ms, wait
 from ..browser.form_model import Field
 from ..orchestrator.sensitive import split_sensitive
 from .drivers import DRIVERS
@@ -85,8 +86,8 @@ def _interstitials(page, board):
         try:
             loc = page.locator(sel).first
             if loc.is_visible():
-                loc.click(timeout=3000)
-                page.wait_for_timeout(1500)
+                loc.click(timeout=timeout_ms(3000))
+                wait(page, 1500)
         except Exception:
             pass
 
@@ -260,14 +261,14 @@ def run_board(page, board, ctx):
         pace(page)
         _before = list(page.context.pages)
         try:
-            page.locator(board["entry"]["selector"]).filter(visible=True).first.click(timeout=15000, no_wait_after=True)
+            page.locator(board["entry"]["selector"]).filter(visible=True).first.click(timeout=timeout_ms(15000), no_wait_after=True)
         except Exception as e:
             if _form_already_open(page):
                 ctx["baseline"] = set()           # an earlier run left the form open: every field on it is the form's
             elif not (assist and assist.recover(page, "no_entry")):     # a recovery click replaces the entry click
                 res["error"] = f"{type(e).__name__}: {str(e)[:300]}"
                 return stop("no_entry", page)
-        page.wait_for_timeout(3000)
+        wait(page, 3000)
         from ..browser.page_prep import new_tab_since
         page = new_tab_since(page, _before)      # the entry click may open a new tab
         _interstitials(page, board)
@@ -325,7 +326,7 @@ def run_board(page, board, ctx):
                     driver.put(page, board, ctx, fields, got)
                     done_decisions += got
                     log.filled(page)
-                    page.wait_for_timeout(1500)
+                    wait(page, 1500)
                     continue
             if nxt is None:
                 if assist and assist.recover(page, "no_advance_control"):
@@ -344,7 +345,7 @@ def run_board(page, board, ctx):
             from ..browser.clicks import page_signature, wait_for_change
             before_click = page_signature(page)
             driver.click(page, label, ctx)
-            page.wait_for_timeout(2500)
+            wait(page, 2500)
             if page_signature(page) == before_click and not wait_for_change(page, before_click):
                 # The page has not answered the click. Clicking again is how a step gets skipped (the second click
                 # lands on the page that was merely slow): allow one more wait-and-retry, then stop as stuck.
@@ -353,7 +354,7 @@ def run_board(page, board, ctx):
                     return stop("stuck", page)
             else:
                 unanswered = 0
-        page.wait_for_timeout(1500)
+        wait(page, 1500)
         ok = confirmed(board, cap.responses, page.url)
     if ok and irreversible and ctx.get("on_submit"):
         try:

@@ -14,19 +14,28 @@ def test_a_confirmation_needs_the_words_and_the_form_gone():
     assert not c({"text": "Fill in your details to submit your application", "fields": 8})[0]
 
 
-@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="browser")
+class _PolledPage:
+    """Answers each poll with the next page state; has no click method, so any click attempt fails the test."""
+    frames = []
+
+    def __init__(self, states):
+        self.states, self.waits = iter(states), 0
+
+    def evaluate(self, js):
+        return next(self.states)
+
+    def wait_for_timeout(self, ms):
+        self.waits += 1
+
+
 def test_wait_for_confirmation_sees_a_page_that_confirms_after_a_delay_and_never_clicks():
-    from playwright.sync_api import sync_playwright
     from career_agent.browser.confirmation import wait_for_confirmation
-    html = ("<form id=f><input name=a><input name=b><input name=c><input name=d><button id=go>Submit</button></form>"
-            "<script>setTimeout(()=>{document.body.innerHTML='<h1>Thank you for applying</h1><p>Your application has been submitted.</p>'},1500)</script>")
-    with sync_playwright() as p:
-        b = p.chromium.launch(); pg = b.new_page(); pg.set_content(html)
-        ok, why = wait_for_confirmation(pg, timeout_s=8)
-        assert ok and "applying" in why.lower()
-        pg.set_content("<form><input name=a><input name=b><input name=c><input name=d><button>Submit</button></form>")
-        assert wait_for_confirmation(pg, timeout_s=2)[0] is False
-        b.close()
+    form = {"text": "Apply\nSubmit", "fields": 4}
+    pg = _PolledPage([form, form, {"text": "Thank you for applying! Your application has been submitted.", "fields": 0}])
+    ok, why = wait_for_confirmation(pg, timeout_s=8)
+    assert ok and "applying" in why.lower() and pg.waits == 2
+    pg = _PolledPage([form] * 10)
+    assert wait_for_confirmation(pg, timeout_s=2) == (False, "no confirmation text") and pg.waits == 3
 
 
 @pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="browser")

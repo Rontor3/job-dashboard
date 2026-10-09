@@ -34,9 +34,12 @@ class SemanticBehaviorVault:
 
     persist_dir=None  → in-memory client (use in tests / one-off runs).
     persist_dir=<path> → durable PersistentClient at that directory.
+    embed=None → Chroma's built-in ONNX model; otherwise a callable mapping a
+    list of texts to a list of vectors.
     """
 
-    def __init__(self, persist_dir: str | None = None):
+    def __init__(self, persist_dir: str | None = None, embed=None):
+        self._embed = embed
         if persist_dir:
             self._client = chromadb.PersistentClient(path=persist_dir)
         else:
@@ -46,13 +49,19 @@ class SemanticBehaviorVault:
             metadata={"hnsw:space": "cosine"},
         )
 
+    def _vectors(self, texts: list[str]) -> list[list[float]]:
+        return [list(map(float, v)) for v in self._embed(texts)]
+
+    def _query(self, texts: list[str]) -> dict:
+        return {"query_embeddings": self._vectors(texts)} if self._embed else {"query_texts": texts}
+
     # ── read ──────────────────────────────────────────────────────────────────
 
     def semantic_match(self, question: str) -> dict | None:
         """Cosine-nearest behavioral answer, or None if nothing is close enough."""
         if self._col.count() == 0:
             return None
-        results = self._col.query(query_texts=[question], n_results=1)
+        results = self._col.query(**self._query([question]), n_results=1)
         if not results["ids"][0]:
             return None
         distance = results["distances"][0][0]
@@ -114,7 +123,8 @@ class SemanticBehaviorVault:
                 "approved_count": approved_count,
             }
 
-        self._col.upsert(ids=[qid], documents=[question], metadatas=[new_meta])
+        vectors = {"embeddings": self._vectors([question])} if self._embed else {}
+        self._col.upsert(ids=[qid], documents=[question], metadatas=[new_meta], **vectors)
         return new_meta
 
     # ── introspection (dashboard Answers tab) ────────────────────────────────
@@ -132,7 +142,7 @@ class SemanticBehaviorVault:
         total = self._col.count()
         if total == 0:
             return []
-        r = self._col.query(query_texts=[question], n_results=min(n, total))
+        r = self._col.query(**self._query([question]), n_results=min(n, total))
         return [{"question": d, "distance": dist, "confidence": m.get("confidence", 0.0),
                  "accepted": dist <= _MATCH_DISTANCE}
                 for d, dist, m in zip(r["documents"][0], r["distances"][0], r["metadatas"][0])]

@@ -8,7 +8,9 @@ pytestmark = pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1",
 def _url(name):
     return (Path(__file__).parent / "fixtures" / name).resolve().as_uri()
 
-def test_walks_fixture_flow_and_submits():
+def test_walks_fixture_flow_and_submits(monkeypatch):
+    from career_agent.browser import clicks
+    monkeypatch.setattr(clicks, "TIMING_SCALE", 0.01)
     from playwright.sync_api import sync_playwright
     from career_agent.orchestrator.browser_deps import BrowserDeps
     from career_agent.orchestrator.step_engine import walk

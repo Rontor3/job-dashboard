@@ -8,6 +8,24 @@ from career_agent.browser.date_widgets import _option_for, parse_date_value
 browser = pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="set RUN_BROWSER_TESTS=1")
 
 
+@pytest.fixture(scope="module")
+def chromium():
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        yield b
+        b.close()
+
+
+@pytest.fixture
+def page(chromium, monkeypatch):
+    from career_agent.browser import clicks
+    monkeypatch.setattr(clicks, "TIMING_SCALE", 0.01)
+    pg = chromium.new_page()
+    yield pg
+    pg.close()
+
+
 def test_parse_date_value_iso_dayfirst_and_words():
     assert parse_date_value("2026-11-04") == date(2026, 11, 4)
     assert parse_date_value("04/11/2026") == date(2026, 11, 4)          # day first: an Indian profile
@@ -47,14 +65,11 @@ document.getElementById('prev').onclick=()=>{m--;if(m<0){m=11;y--}render()};
 @pytest.mark.parametrize("labelled", [True, False])
 @pytest.mark.parametrize("target,expect", [(date(2026, 11, 4), "04/11/2026"), (date(2026, 8, 15), "15/08/2026"),
                                            (date(2026, 10, 20), "20/10/2026"), (date(2027, 2, 9), "09/02/2027")])
-def test_calendar_popup_is_navigated_to_the_day(labelled, target, expect):
-    from playwright.sync_api import sync_playwright
+def test_calendar_popup_is_navigated_to_the_day(page, labelled, target, expect):
     from career_agent.browser.date_widgets import pick_calendar
-    with sync_playwright() as pw:
-        b = pw.chromium.launch(); page = b.new_page(); page.set_content(_calendar(labelled))
-        assert pick_calendar(page, page, "#dp", target)
-        assert page.input_value("#dp") == expect
-        b.close()
+    page.set_content(_calendar(labelled))
+    assert pick_calendar(page, page, "#dp", target)
+    assert page.input_value("#dp") == expect
 
 
 PARTS = """
@@ -65,31 +80,25 @@ PARTS = """
 
 
 @browser
-def test_day_month_year_boxes_become_one_date_field_and_are_filled():
-    from playwright.sync_api import sync_playwright
+def test_day_month_year_boxes_become_one_date_field_and_are_filled(page):
     from career_agent.browser.filler import apply_decisions
     from career_agent.browser.perception import snapshot_form
     from career_agent.orchestrator.mapper import FillDecision, _action_for_kind
-    with sync_playwright() as pw:
-        b = pw.chromium.launch(); page = b.new_page(); page.set_content(PARTS)
-        fields = snapshot_form(page)
-        (f,) = [x for x in fields if x.kind == "date_parts"]
-        assert f.label.startswith("Date of joining") and f.required and len(fields) == 1
-        apply_decisions(page, [FillDecision(f.ref, f.kind, f.label, "2026-11-04", _action_for_kind(f.kind), "t")])
-        assert page.eval_on_selector("#d", "e => e.value") == "04" and page.eval_on_selector("#m", "e => e.value") == "November"
-        assert page.input_value("#y") == "2026"
-        b.close()
+    page.set_content(PARTS)
+    fields = snapshot_form(page)
+    (f,) = [x for x in fields if x.kind == "date_parts"]
+    assert f.label.startswith("Date of joining") and f.required and len(fields) == 1
+    apply_decisions(page, [FillDecision(f.ref, f.kind, f.label, "2026-11-04", _action_for_kind(f.kind), "t")])
+    assert page.eval_on_selector("#d", "e => e.value") == "04" and page.eval_on_selector("#m", "e => e.value") == "November"
+    assert page.input_value("#y") == "2026"
 
 
 @browser
-def test_readonly_calendar_box_is_perceived_and_filled_through_the_normal_path():
-    from playwright.sync_api import sync_playwright
+def test_readonly_calendar_box_is_perceived_and_filled_through_the_normal_path(page):
     from career_agent.browser.filler import apply_decisions
     from career_agent.browser.perception import snapshot_form
     from career_agent.orchestrator.mapper import FillDecision, _action_for_kind
-    with sync_playwright() as pw:
-        b = pw.chromium.launch(); page = b.new_page(); page.set_content(_calendar())
-        (f,) = [x for x in snapshot_form(page) if x.kind == "datepicker"]
-        apply_decisions(page, [FillDecision(f.ref, f.kind, f.label, "2026-12-25", _action_for_kind(f.kind), "t")])
-        assert page.input_value("#dp") == "25/12/2026"
-        b.close()
+    page.set_content(_calendar())
+    (f,) = [x for x in snapshot_form(page) if x.kind == "datepicker"]
+    apply_decisions(page, [FillDecision(f.ref, f.kind, f.label, "2026-12-25", _action_for_kind(f.kind), "t")])
+    assert page.input_value("#dp") == "25/12/2026"
