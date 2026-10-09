@@ -33,6 +33,6 @@ def test_classify_routes_to_tailor_cv_not_reach():
     assert _route_classify(s) == "tailor_cv"
 
 
-def test_initial_state_cred_provided_is_false():
-    s = initial_state("https://example.com")
-    assert s["cred_provided"] is False
+def test_a_fresh_run_hands_its_first_auth_wall_to_cred_provide():
+    for kind in ("password", "email_auth"):
+        assert _route_reach({**initial_state("https://example.com"), "kind": kind}) == "cred_provide", kind

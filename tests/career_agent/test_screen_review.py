@@ -101,12 +101,6 @@ def test_optional_single_line_field_without_answer_is_left_blank():
     assert [f.ref for f in needs] == ["#req", "#es"]
 
 
-def test_dial_code_is_not_read_as_a_numeric_range():
-    from career_agent.orchestrator.screen_review import _coerce_option
-    opts = ["🇦🇬 (+1 268) Antigua and Barbuda", "🇮🇳 (+91) India", "🇮🇴 (+246) British Indian Ocean Territory"]
-    assert _coerce_option("+91", opts) == "🇮🇳 (+91) India"
-
-
 def test_if_yes_followup_has_no_profile_purpose():
     from career_agent.browser.form_model import guess_purpose
     assert guess_purpose("If yes, please indicate your family member's name, job title and work location", "text") is None

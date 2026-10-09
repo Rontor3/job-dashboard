@@ -1,4 +1,4 @@
-from career_agent.browser.clicks import click_and_settle, pace, page_signature
+from career_agent.browser.clicks import click_and_settle, pace
 
 
 class FakePage:
@@ -25,13 +25,19 @@ def test_a_click_is_made_once_and_the_page_is_waited_on():
         pg.url = "http://x/2"          # the page responded
 
     click_and_settle(pg, do_click)
-    assert clicks == [1] and page_signature(pg)[0] == "http://x/2"
+    assert clicks == [1]
+    assert sum(pg.waits) >= 6000                        # only the URL moved: held until it had stayed put
 
 
 def test_a_failed_wait_never_causes_a_second_click():
     pg, clicks = FakePage(), []
-    pg.wait_for_load_state = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("page closed"))
-    click_and_settle(pg, lambda: clicks.append(1))
+    def closed(*a, **k): raise RuntimeError("page closed")
+    pg.wait_for_load_state = closed
+    pg.wait_for_timeout = closed
+    try:
+        click_and_settle(pg, lambda: clicks.append(1))
+    except RuntimeError:
+        pass
     assert clicks == [1]
 
 
@@ -49,9 +55,9 @@ def test_tab_ledger_closes_what_the_run_opened_and_never_the_users_tabs():
 
     ctx = Ctx()
     work, users, popup, facebook, final = Pg("https://jd"), Pg("https://users-own"), Pg("https://popup"), Pg("https://facebook.com/x"), Pg("https://form")
-    led = TabLedger(ctx, work)
-    led.mark_user_owned(users); led.opened.append(users)
-    for p in (popup, facebook, final):
+    led = TabLedger(ctx, users)                                      # the user's own tab, reused for the job
+    led.mark_user_owned(users)
+    for p in (work, popup, facebook, final):
         ctx.cb(p)
     led.close_all_but(keep=[final])
     assert [p.closed for p in (work, users, popup, facebook, final)] == [True, False, True, True, False]
@@ -66,17 +72,17 @@ def test_a_single_page_app_that_changes_url_first_is_waited_on_until_its_content
     from career_agent.browser.clicks import settle_after_click
 
     class SpaPage(FakePage):
-        """URL changes at once; the old text stays for 1.5s (loading), then the new step's text appears and settles."""
+        """URL changes at once; the old text stays for 3s (loading, longer than the quiet window), then the new step's text appears."""
         def __init__(self):
             super().__init__(); self.t = 0.0; self.url = "http://x/questions"
         def wait_for_timeout(self, ms): self.t += ms / 1000
-        def inner_text(self, sel): return "Add a resume" if self.t < 1.5 else "Answer these questions"
+        def inner_text(self, sel): return "Add a resume" if self.t < 3.0 else "Answer these questions"
 
     pg = SpaPage()
     before = ("http://x/resume", hash("Add a resume"))
     settle_after_click(pg, before, quiet_ms=0)
     assert pg.inner_text("body") == "Answer these questions"
-    assert pg.t >= 1.5 + 1.2 - 0.3                                   # waited for the new text AND for it to stop changing
+    assert pg.t >= 3.0 + 1.5                                         # waited for the new text AND for it to stop changing
 
 
 def test_wait_for_change_gives_a_slow_page_more_time_and_reports_whether_it_changed():

@@ -21,8 +21,8 @@ def test_city_resolves_to_city_part_not_whole_location():
 def test_armed_forces_is_not_classified_as_country():
     label = "Have you ever served as a member of the armed forces of any country?"
     assert guess_purpose(label, "text") == "veteran"
-    # veteran is not auto-answered -> resolves to None
-    assert resolve("veteran", CandidateProfile(contact={"location": "Mumbai, India"})) is None
+    p = CandidateProfile(contact={"location": "Mumbai, India", "veteran_status": "I am not a protected veteran"})
+    assert resolve("veteran", p) == "I am not a protected veteran"
 
 
 def test_address_line_no_longer_grabs_location():

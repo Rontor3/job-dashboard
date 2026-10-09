@@ -25,7 +25,10 @@ def test_exact_wording_is_confident(qbank_conn, fake_embed):
 
 def test_unrelated_question_is_none_but_logs_candidates(qbank_conn, fake_embed):
     m = match_question(qbank_conn, "Describe your favourite hobby outside work", embed=fake_embed)
-    assert m.band == NONE and m.entry_id is None and m.candidates
+    assert m.band == NONE and m.entry_id is None
+    ids, scores = zip(*m.candidates)
+    assert len(ids) == 3 and all(qbank.get_entry(qbank_conn, i) for i in ids)
+    assert list(scores) == sorted(scores, reverse=True) and scores[0] == round(m.score, 3)
 
 
 def test_ambiguous_goes_to_llm_which_may_say_none(qbank_conn, fake_embed):
@@ -139,8 +142,10 @@ def test_llm_pick_tells_the_model_a_slot_entry_covers_any_named_instance(qbank_c
     seen = []
     llm_pick("How many years of experience do you have with Docker?", ["skill_years", "total_experience_years"],
              qbank_conn, lambda p: seen.append(p) or "a")
-    assert "[the skill can be any specific skill the form names]" in seen[0]
-    assert seen[0].count("can be any specific") == 1            # only the slot entry gets the note
+    lines = {l[:3]: l[4:] for l in seen[0].splitlines() if l[:3] in ("(a)", "(b)")}
+    slot_q = "How many years of experience do you have with this skill?"
+    assert lines["(a)"].startswith(slot_q) and "skill" in lines["(a)"][len(slot_q):]
+    assert lines["(b)"] == "How many years of total work experience do you have?"
 
 
 def test_current_vs_expected_is_a_clash_never_auto_confident():

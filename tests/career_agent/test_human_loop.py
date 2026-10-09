@@ -5,8 +5,15 @@ class YesApprover:
     def request(self, card): return True
 
 
+class NoApprover:
+    def __init__(self): self.cards = []
+    def request(self, card): self.cards.append(card); return False
+
+
 def test_approve_delegates():
-    assert HumanLoop(YesApprover()).approve("card") is True
+    no = NoApprover()
+    assert HumanLoop(no).approve("card") is False
+    assert no.cards == ["card"]
 
 
 def test_remote_solve_without_factory_returns_false():

@@ -98,8 +98,11 @@ def test_consent_link_dialog_is_accepted():
 
 
 @pytest.mark.skipif(not os.environ.get("RUN_BROWSER_TESTS"), reason="browser")
-def test_registration_offered_as_alternative_options_takes_the_manual_one():
+def test_registration_offered_as_alternative_options_takes_the_manual_one(monkeypatch):
+    from types import SimpleNamespace
     from playwright.sync_api import sync_playwright
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_time", SimpleNamespace(sleep=lambda s: None))
     from career_agent.browser.credential_provider import _SIGNUP_TEXTS, _REGISTRATION_OPTIONS, _navigate_to_form, _registration_options_offered
     html = ("<main><h2>Log in</h2><input type=email><input type=password><button>Log in</button><a href=#>Forgot your password?</a>"
             "<p>Create an account using any of the following options:</p>"
@@ -118,6 +121,8 @@ def test_manual_option_that_opens_a_profile_form_without_password_is_handed_to_t
     from playwright.sync_api import sync_playwright
     from career_agent.browser import credential_provider as cp
     monkeypatch.setattr(cp, "CRED_PATH", tmp_path / "creds.json", raising=False)
+    from types import SimpleNamespace
+    monkeypatch.setattr(cp, "_time", SimpleNamespace(sleep=lambda s: None))
     html = ("<main><h2>Log in</h2><input type=email><input type=password><button>Log in</button><a href=#>Forgot your password?</a>"
             "<p>Create an account using any of the following options:</p><a role=button href=# id=m "
             "onclick=\"document.body.innerHTML='<h1>Profile information</h1><input type=email><input name=first_name><input name=last_name><button>Continue</button>';return false\">Self-complete</a></main>")
@@ -150,23 +155,20 @@ def test_credentials_inside_a_long_application_form_are_not_submitted_early():
 def test_a_click_that_starts_a_slow_navigation_is_clicked_once():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.credential_provider import _safe_click
-    import threading, http.server, socketserver, time
+    home = "<a id=go href='/slow'>go</a><a id=other href='/other' style='position:absolute;left:0;top:0'>x</a>"
+    hits = []
 
-    class H(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path.startswith("/slow"):
-                time.sleep(7)                                   # longer than the click timeout
-            self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers()
-            self.wfile.write(b"<a id=go href='/slow'>go</a><a id=other href='/other' style='position:absolute;left:0;top:0'>x</a>")
-        def log_message(self, *a): pass
+    def serve(route):
+        if not route.request.url.endswith("/slow"):                 # /slow never answers: the navigation stays pending
+            route.fulfill(content_type="text/html", body=home)
 
-    srv = socketserver.TCPServer(("127.0.0.1", 0), H); port = srv.server_address[1]
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
     with sync_playwright() as p:
-        b = p.chromium.launch(); pg = b.new_page(); pg.goto(f"http://127.0.0.1:{port}/")
-        hits = []; pg.on("request", lambda r: hits.append(r.url) if r.resource_type == "document" else None)
-        assert _safe_click(pg.query_selector("#go"), timeout_ms=1500)
-        pg.wait_for_timeout(2500)
-        assert [u for u in hits if u.endswith("/slow")] == [f"http://127.0.0.1:{port}/slow"] and not any(u.endswith("/other") for u in hits)
+        b = p.chromium.launch(); pg = b.new_page()
+        pg.route("http://agent.test/**", serve)
+        pg.goto("http://agent.test/")
+        pg.on("request", lambda r: hits.append(r.url) if r.resource_type == "document" else None)
+        with pg.expect_request("**/slow"):
+            assert _safe_click(pg.query_selector("#go"), timeout_ms=1500)
+        assert [u for u in hits if u.endswith("/slow")] == ["http://agent.test/slow"]
+        assert not any(u.endswith("/other") for u in hits)
         b.close()
-    srv.shutdown()

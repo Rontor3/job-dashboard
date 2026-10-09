@@ -20,6 +20,7 @@ def test_dismiss_consent_prefers_decline():
     with sync_playwright() as pw:
         b, p = _page(pw, "consent_decline.html")
         assert dismiss_consent(p) is True
+        assert p.title() == "declined"
         assert dismiss_consent(p) is False       # banner gone -> no-op
         b.close()
 
@@ -30,6 +31,7 @@ def test_dismiss_consent_accept_only_clicks_ok():
     with sync_playwright() as pw:
         b, p = _page(pw, "consent_accept_only.html")
         assert dismiss_consent(p) is True
+        assert p.title() == "ok" and p.locator("#cc").count() == 0
         b.close()
 
 
@@ -39,6 +41,7 @@ def test_dismiss_dialogs_continue_working():
     with sync_playwright() as pw:
         b, p = _page(pw, "dialog_session.html")
         assert dismiss_dialogs(p) is True
+        assert p.title() == "continued"
         b.close()
 
 

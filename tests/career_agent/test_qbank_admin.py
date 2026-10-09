@@ -22,10 +22,17 @@ def test_migrate_keeps_good_rows_drops_junk(qbank_conn, fake_embed):
     assert qbank.get_entry(qbank_conn, "english_proficiency")["answer"] == "Fluent"  # filled when empty
 
 
-def test_calibrate_reports_accuracy_and_suggestions(qbank_conn, fake_embed):
-    r = calibrate(qbank_conn, fake_embed, negatives=["Describe your favourite hobby outside work"])
-    assert r["evaluated"] >= 6 and 0 <= r["top1_accuracy"] <= 1
-    assert set(r["suggested"]) == {"FLOOR", "HIGH", "MARGIN"}
+def test_calibrate_reports_accuracy_and_suggestions(fake_embed):
+    c = sqlite3.connect(":memory:")
+    qbank.ensure(c)
+    for eid, wordings in {"notice": ["notice period days", "notice period length"],
+                          "salary": ["expected salary amount", "expected salary range"]}.items():
+        qbank.upsert_entry(c, {"id": eid, "question": wordings[0], "atype": "text"})
+        for w in wordings:
+            qbank.add_wording(c, w, eid, fake_embed([w])[0], "seed")
+    r = calibrate(c, fake_embed, negatives=["Describe your favourite hobby outside work"])
+    assert r["evaluated"] == 4 and r["top1_accuracy"] == 1.0
+    assert r["suggested"]["FLOOR"] == 0.0 < r["right"]["p10"]
 
 
 def _two(c, fake_embed):

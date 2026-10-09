@@ -48,10 +48,13 @@ def test_fill_visible_fields_checks_consent_and_both_passwords():
     assert consent_checked is True
 
 
-def test_navigate_to_form_skips_header_chrome_prefers_in_form_link():
+def test_navigate_to_form_skips_header_chrome_prefers_in_form_link(monkeypatch):
+    from types import SimpleNamespace
     from playwright.sync_api import sync_playwright
+    import career_agent.browser.credential_provider as cp
     from career_agent.browser.credential_provider import _navigate_to_form
 
+    monkeypatch.setattr(cp, "_time", SimpleNamespace(sleep=lambda s: None))
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         page = browser.new_page()

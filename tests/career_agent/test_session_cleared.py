@@ -38,10 +38,11 @@ def test_evaluate_error_is_not_a_solve():
     assert _sess(FakePage(evaluate_raises=True), lambda p: False)._cleared() is False
 
 
-def test_done_sentinel_sets_human_done():
-    # the "__done__" queue sentinel (from the phone's Done button) flags the
-    # human-done close without calling forward_pointer.
-    s = _sess(FakePage(), lambda p: False)
+def test_the_phones_done_button_ends_the_session_as_solved():
+    # the live-view server queues "__done__" when the human taps Done
+    page = FakePage()
+    page.viewport_size = {"width": 100, "height": 100}
+    s = _sess(page, lambda p: False)
+    assert s.wait_until_cleared(timeout_s=0) is False
     s._pointer_q.put((0.0, 0.0, "__done__"))
-    s._drain_pointers(lambda *a: None, {"width": 100, "height": 100})
-    assert s._human_done is True
+    assert s.wait_until_cleared(timeout_s=0) is True

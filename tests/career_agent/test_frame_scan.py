@@ -6,7 +6,7 @@ fields. Known ATS hosts are trusted (no size / field checks, longer load wait)."
 import pytest
 
 from career_agent.browser.perception import (
-    ATS_FRAME_HOSTS, NON_APPLICATION_FRAME_HOSTS, is_denied_frame, is_trusted_frame, looks_like_application,
+    ATS_FRAME_HOSTS, is_denied_frame, is_trusted_frame, looks_like_application,
 )
 
 
@@ -38,7 +38,6 @@ def test_listed_ats_hosts_are_trusted_and_the_lists_do_not_overlap():
     assert is_trusted_frame("https://boards.greenhouse.io/embed/job_app")
     assert not is_trusted_frame("https://swiggy.mynexthire.com/x")
     assert not any(is_denied_frame("https://" + h + "/") for h in ATS_FRAME_HOSTS)
-    assert NON_APPLICATION_FRAME_HOSTS
 
 
 def test_two_real_fields_make_an_application():

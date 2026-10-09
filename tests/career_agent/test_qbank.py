@@ -91,11 +91,13 @@ def test_story_entries_never_match_and_render(fake_embed, tmp_path):
                                    "A: I like owning outcomes.")
 
 
-def test_real_seed_has_five_story_prompts():
-    raw = json.loads(qbank.SEED_PATH.read_text())["entries"]
-    assert sorted(e["id"] for e in raw if e["topic"] == "story") == [
-        "story_how_you_work", "story_looking_for", "story_problems",
-        "story_proudest_work", "story_why_startups"]
+def test_every_story_the_essay_recipes_read_is_a_seeded_story_prompt():
+    import re
+    from career_agent.longform import recipes
+    wanted = set(re.findall(r'"(story_[a-z_]+)"', open(recipes.__file__).read()))
+    by = {e["id"]: e for e in json.loads(qbank.SEED_PATH.read_text())["entries"]}
+    assert wanted and all(by.get(i, {}).get("topic") == "story" and by[i]["atype"] == "text" for i in wanted), \
+        sorted(i for i in wanted if by.get(i, {}).get("topic") != "story")
 
 
 def test_preference_entries_in_seed():

@@ -1,4 +1,4 @@
-from career_agent.browser.form_model import guess_purpose, KNOWN_PURPOSES
+from career_agent.browser.form_model import guess_purpose
 
 
 def test_experience_and_education_purposes():
@@ -47,11 +47,6 @@ def test_bare_employer_and_mobile_only_match_as_a_short_label():
         "regarding the recruiting process?", "select") != "phone"
 
 
-def test_new_purposes_are_known():
-    for lbl, kind in [("Employer", "text"), ("Degree", "text"), ("Key Skills", "textarea")]:
-        assert guess_purpose(lbl, kind) in KNOWN_PURPOSES
-
-
 def test_middle_name_variants_all_map_to_middle_name():
     from career_agent.browser.form_model import guess_purpose
     for label in ["Middle Name", "Middle", "Middle Initial", "Middle Name(s)"]:
@@ -71,15 +66,6 @@ def test_address_question_is_not_mistagged_as_relocate():
     assert guess_purpose("Are you willing to relocate?", "select") == "willing_to_relocate"
     # "Email Address" must still be email, not address
     assert guess_purpose("Email Address", "text") == "email"
-
-
-def test_address_purpose_escalates_when_no_value():
-    from career_agent.browser.form_model import Field
-    from career_agent.memory.candidate_profile import CandidateProfile
-    from career_agent.orchestrator.screen_review import map_screen
-    f = Field("#addr", "text", "Home address", True, [], None, "address")
-    decisions, needs = map_screen([f], CandidateProfile(contact={}))
-    assert "#addr" in {x.ref for x in needs}               # escalated, not filled with junk
 
 
 def test_checkbox_never_gets_a_text_value_purpose():

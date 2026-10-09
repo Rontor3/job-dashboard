@@ -1,4 +1,4 @@
 <!doctype html><html><body>
-  <div role="alertdialog">Your session is about to expire.
-    <button>End Session</button><button>Continue Working</button></div>
+  <div id="d" role="alertdialog">Your session is about to expire.
+    <button onclick="document.title='ended'">End Session</button><button onclick="document.getElementById('d').remove();document.title='continued'">Continue Working</button></div>
 </body></html>

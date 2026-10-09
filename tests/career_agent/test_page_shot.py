@@ -27,7 +27,16 @@ def test_long_page_is_scrolled_segments_capped(tmp_path):
     paths = capture_page(p, str(tmp_path / "perceive0"), max_full=6000, max_parts=6)
     assert [x.rsplit("/", 1)[-1] for x in paths] == ["perceive0.png"] + [f"perceive0_{i}.png" for i in range(2, 7)]
     assert all(not full for _, full, _ in p.shots)                      # viewport shots, not a 20000px image
-    assert [y for _, _, y in p.shots] == [0, 720, 1440, 2160, 2880, 3600]   # scrolls down by 0.9 viewport
+    ys = [y for _, _, y in p.shots]
+    assert ys[0] == 0 and all(0 < b - a < p.v for a, b in zip(ys, ys[1:]))   # each shot overlaps the last
+
+
+def test_a_long_page_stops_once_the_bottom_is_captured(tmp_path):
+    p = _Page(7000)
+    paths = capture_page(p, str(tmp_path / "perceive0"), max_full=6000, max_parts=20)
+    ys = [y for _, _, y in p.shots]
+    assert ys[-1] + p.v >= p.h and len(paths) == len(ys) < 20
+    assert ys[-2] + p.v < p.h                                           # no extra shot past the bottom
 
 
 def test_a_failing_screenshot_never_raises(tmp_path):

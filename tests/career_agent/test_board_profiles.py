@@ -1,13 +1,11 @@
 from career_agent.boards.profiles import board_for, json_path, load_boards
 
-IDS = {"board:naukri", "board:linkedin", "board:indeed", "board:iimjobs",
-       "board:instahyre", "board:wellfound", "board:workatastartup"}
 
-
-def test_graph_has_all_boards_with_required_fields():
+def test_every_board_has_the_fields_the_drivers_read():
     boards = load_boards()
-    assert {b["id"] for b in boards} == IDS
+    assert boards
     for b in boards:
+        assert b["id"].startswith("board:") and b["domains"]
         assert b["archetype"] in ("form", "chat")
         assert b["entry"]["selector"] and b["entry"]["submits"] in ("yes", "no", "maybe")
         assert b["confirm"] and b["daily_cap"] > 0

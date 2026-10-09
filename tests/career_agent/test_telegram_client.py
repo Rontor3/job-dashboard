@@ -51,29 +51,22 @@ def test_poll_text_ignores_other_chats_and_times_out():
     assert c.poll_text(timeout_s=0) is None
 
 
-def test_poll_text_advances_offset():
+def test_the_next_poll_asks_only_for_updates_after_the_one_consumed():
     upd = {"ok": True, "result": [
         {"update_id": 8, "message": {"chat": {"id": 42}, "text": "hi"}}]}
-    t = FakeTransport([upd])
+    t = FakeTransport([upd, {"ok": True, "result": []}])
     c = TelegramClient("tok", "42", transport=t)
     c.poll_text(timeout_s=0)
-    assert c._offset == 9
+    c.poll_text(timeout_s=0)
+    assert t.calls[1][1]["offset"] == 9
 
 
-def test_drain_advances_offset_past_all_pending():
+def test_drain_skips_every_pending_update_so_stale_replies_are_never_answers():
     upd = {"ok": True, "result": [
         {"update_id": 10, "message": {"chat": {"id": 42}, "text": "old1"}},
         {"update_id": 12, "message": {"chat": {"id": 42}, "text": "old2"}}]}
-    t = FakeTransport([upd])
+    t = FakeTransport([upd, {"ok": True, "result": []}])
     c = TelegramClient("tok", "42", transport=t)
     c.drain()
-    assert c._offset == 13                       # past the highest pending update
-    method, payload = t.calls[0]
-    assert method == "getUpdates"
-
-
-def test_drain_noop_when_nothing_pending():
-    t = FakeTransport([{"ok": True, "result": []}])
-    c = TelegramClient("tok", "42", transport=t)
-    c.drain()
-    assert c._offset == 0
+    assert c.poll_text(timeout_s=0) is None
+    assert t.calls[1][1]["offset"] == 13                 # past the highest pending update

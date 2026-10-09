@@ -66,8 +66,10 @@ def test_the_run_recorder_promotes_telegram_replies_and_records_the_application_
 def test_without_an_embedder_the_recorder_only_keeps_the_application_row(tmp_path, fake_embed):
     conn = _conn(tmp_path, fake_embed)
     before = len(qbank.entries(conn))
-    QARecorder(conn, job_id=5).answered(_f("Are you comfortable with on-call rotations?"), "Yes")
+    QARecorder(conn, job_id=5).answered(_f("Are you comfortable with on-call rotations?", ref="#q"), "Yes")
     assert len(qbank.entries(conn)) == before
+    row = conn.execute("SELECT answer, source, status FROM application_qa WHERE ref = '#q'").fetchone()
+    assert row == ("Yes", "human", "answered")
 
 
 def test_a_failing_bank_never_breaks_recording(tmp_path, fake_embed):

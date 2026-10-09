@@ -19,11 +19,13 @@ def test_screencast_emits_frames_and_pointer_reaches_page():
             "<button id='b' style='position:absolute;left:0;top:0;width:100vw;height:100vh'"
             " onclick=\"window.__hit=1\">tap</button>")
         cdp = start_screencast(page, lambda data: frames.append(data))
-        page.wait_for_timeout(500)
         forward_pointer(page, 0.5, 0.5, "click",
                         page.viewport_size["width"], page.viewport_size["height"])
-        page.wait_for_timeout(200)
         hit = page.evaluate("window.__hit")
+        for _ in range(200):
+            if frames:
+                break
+            page.wait_for_timeout(10)
         stop_screencast(cdp); b.close()
     assert frames, "expected at least one screencast frame"
     assert hit == 1, "forwarded pointer should have clicked the page button"
@@ -48,6 +50,7 @@ def test_remote_solve_session_streams_frame_and_applies_tap():
 
     with sync_playwright() as pw:
         b = pw.chromium.launch(); page = b.new_page()
+        page.route("https://hcaptcha.com/**", lambda route: route.fulfill(body=""))
         # An hcaptcha iframe keeps classify_gate seeing a live gate, so the
         # resolve-timer never fires here and the session clears ONLY via
         # is_cleared (the tap setting __hit) — a real test of the pointer path.
@@ -68,7 +71,6 @@ def test_remote_solve_session_streams_frame_and_applies_tap():
                         msg = await asyncio.wait_for(ws.receive(), timeout=8)
                         frames.append(msg)
                         await ws.send_json({"x": 0.5, "y": 0.5, "kind": "click"})
-                        await asyncio.sleep(2)
             asyncio.run(run())
 
         t = threading.Thread(target=client); t.start()

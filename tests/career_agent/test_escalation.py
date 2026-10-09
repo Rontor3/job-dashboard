@@ -71,22 +71,26 @@ def test_context_is_sent_first_and_once_then_questions_are_answered_live():
 
 
 def test_unanswered_questions_time_out_and_are_parked_with_one_note():
-    col, client, notes = _collector([], wait_s=20)
+    col, client, notes = _collector([], wait_s=60)
     assert col([_f("a", "Expected CTC?"), _f("b", "Notice period?")]) == {}
+    assert any("Expected CTC?" in m for m in client.sent)
     assert len(notes) == 1 and "2 question(s)" in notes[0] and "tracker" in notes[0]
 
 
 def test_one_shared_deadline_not_one_per_question():
-    col, client, notes = _collector([], wait_s=20)
+    col, client, notes = _collector([], wait_s=100)
     col([_f(str(i), f"Question {i}?") for i in range(6)])
     asked = [m for m in client.sent if "Question" in m]
-    assert len(asked) < 6                       # later ones were not asked once the time was up
+    assert 1 <= len(asked) < 6                  # later ones were not asked once the shared time was up
     assert len(notes) == 1 and "6 question(s)" in notes[0]
 
 
 def test_already_asked_fields_are_not_asked_again():
-    col, client, notes = _collector([], wait_s=10)
+    client = Client([])
+    inner = TelegramCollector(client, sleep=lambda s: None, poll_interval_s=2)
+    col = EscalationCollector(inner, client, wait_s=600, notify=lambda m: None, clock=lambda: 0.0)
     col([_f("a", "Expected CTC?")])
+    assert sum("Expected CTC?" in m for m in client.sent) == 1
     n = len(client.sent)
     assert col([_f("a", "Expected CTC?")]) == {}
     assert len(client.sent) == n
@@ -104,12 +108,14 @@ def test_context_failure_never_blocks_the_questions():
     assert col([_f("a", "Expected CTC?")]) == {"a": "20 LPA"}
 
 
-def test_context_label_reaches_the_inner_collector_and_events_are_exposed():
-    col, client, _ = _collector(["20 LPA"])
-    col.context = "Naukri — ML Engineer"
-    col([_f("a", "Expected CTC?")])
+def test_context_label_reaches_the_inner_collector_and_answer_events_reach_the_human_loop():
+    client = Client(["20 LPA"])
+    inner = TelegramCollector(client, sleep=lambda s: None, poll_interval_s=1)
+    human = park_human(notify=None, telegram=inner, client=client, wait_s=120)
+    human.collector.context = "Naukri — ML Engineer"
+    human.collect([_f("a", "Expected CTC?")])
     assert "Naukri — ML Engineer" in client.sent[-1]
-    assert col._last_events == {"a": "approve"}
+    assert human.get_events() == {"a": "approve"}
 
 
 def test_park_human_uses_live_telegram_when_given_a_collector_and_a_wait():
@@ -119,4 +125,13 @@ def test_park_human_uses_live_telegram_when_given_a_collector_and_a_wait():
                        context_fn=lambda: build_context(JOB, RES))
     assert human.collect([_f("a", "Expected CTC?")]) == {"a": "20 LPA"}
     assert human.approve("submit?") is False                 # submitting stays behind auto-submit
-    assert park_human(notify=None, telegram=inner, client=client, wait_s=0).collector.parks is True
+
+
+def test_park_human_without_a_wait_asks_nothing_and_parks():
+    client = Client(["20 LPA"])
+    inner = TelegramCollector(client, sleep=lambda s: None, poll_interval_s=1)
+    notes = []
+    human = park_human(notify=notes.append, telegram=inner, client=client, wait_s=0,
+                       context_fn=lambda: build_context(JOB, RES))
+    assert human.collect([_f("a", "Expected CTC?")]) == {}
+    assert client.sent == [] and len(notes) == 1 and "1 question(s)" in notes[0]

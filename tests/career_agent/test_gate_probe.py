@@ -39,11 +39,11 @@ def test_turnstile_and_otp():
     assert classify_from_signals(_sig(otp_email_field=True)) == "otp_email"
 
 
-def test_every_gate_has_a_handler():
-    for g in GATES:
-        assert g in HANDLERS
-    assert HANDLERS["cloudflare_interstitial"] == "escalate"
-    assert HANDLERS["recaptcha_v2_checkbox"] == "escalate"
+def test_every_challenge_a_human_must_solve_escalates():
+    human_solved = {"recaptcha_v2_checkbox", "recaptcha_v2_image", "hcaptcha_checkbox", "hcaptcha_image",
+                    "cloudflare_interstitial", "text_challenge", "otp_sms"}
+    assert human_solved <= GATES
+    assert {g: HANDLERS[g] for g in human_solved} == {g: "escalate" for g in human_solved}
     assert HANDLERS["turnstile"] == "proceed"
     assert HANDLERS["otp_email"] == "otp_email"
 

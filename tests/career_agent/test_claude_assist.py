@@ -46,14 +46,9 @@ def test_recover_survives_claude_failure(tmp_path):
 
 def test_the_screenshot_dir_is_absolute_so_claude_p_can_read_it(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    a = ClaudeAssist(cap=1, run=lambda p: '{"action":"give_up"}', shot_dir="rel/agent_runs/9")
-    assert a._dir.is_absolute() and a._dir.exists() and a._dir == (tmp_path / "rel/agent_runs/9").resolve()
     seen = []
-    a._run = lambda prompt: seen.append(prompt) or '{"action":"give_up"}'
-
-    class P:
-        url, frames = "https://x.example/job", []
-        def screenshot(self, path): open(path, "wb").write(b"x")
-        def wait_for_timeout(self, ms): pass
-    a.recover(P(), "stuck")
-    assert str(a._dir / "assist1.png") in seen[0]            # the path handed to Claude is the absolute one
+    a = ClaudeAssist(cap=1, run=lambda prompt: seen.append(prompt) or '{"action":"give_up"}',
+                     shot_dir="rel/agent_runs/9")
+    a.recover(_Page(), "stuck")
+    shot = (tmp_path / "rel/agent_runs/9/assist1.png").resolve()
+    assert shot.is_file() and f"read the file {shot})" in seen[0]

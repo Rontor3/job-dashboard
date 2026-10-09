@@ -32,9 +32,12 @@ def test_is_sensitive_flags_demographics_and_attestation():
     assert _is_sensitive(_f("#dob", "Date of Birth"))
 
 
-def test_judge_combobox_value_returns_short_llm_reply():
-    llm = lambda prompt: "Yes"
+def test_judge_combobox_value_is_the_trimmed_reply_or_none_when_blank():
+    prompts = []
+    llm = lambda prompt: prompts.append(prompt) or "  Yes\n"
     assert judge_combobox_value("Are you legally authorized to work in India?", "x", llm) == "Yes"
+    assert "Are you legally authorized to work in India?" in prompts[0]
+    assert judge_combobox_value("Some question", "x", lambda p: "   ") is None
 
 
 def test_judge_combobox_value_none_on_llm_failure():
@@ -127,7 +130,7 @@ def test_judge_never_raises_on_llm_failure():
     q = _f("#q", "Short answer?", kind="text", required=True)
     def boom(prompt): raise RuntimeError("ollama down")
     answered, still_need, flagged = judge([q], ctx, boom, cap=6)
-    assert "#q" in ({x.ref for x in answered} | {f.ref for f in still_need})
+    assert answered == [] and [f.ref for f in still_need] == ["#q"]
 
 
 def test_looks_like_question():
@@ -211,20 +214,13 @@ def test_judge_drafts_prose_purposes_the_profile_cannot_fill():
     assert [x.ref for x in answered] == ["#m"] and answered[0].source == "judgment"
 
 
-def test_judge_forwards_story_text(monkeypatch):
-    from career_agent.orchestrator import judgment
-    seen = {}
-
-    def fake_draft(job, q, profile_text, research, resume_text, llm=None, story_text=""):
-        seen["story"] = story_text
-        return {"answer": "x", "confidence": 90, "basis": "", "prompt": "", "flags": [],
-                "unsupported_company_claims": []}
-    monkeypatch.setattr(judgment, "draft_screening_answer", fake_draft)
+def test_judge_drafts_with_the_candidates_own_story():
+    prompts = []
     ctx = JudgmentContext(job={"title": "t", "company": "c", "description": ""},
-                          story_text="Q: a\nA: b")
+                          story_text="Q: Why ML?\nA: I rebuilt a fraud model after a 2am pager.")
     f = Field("#m", "textarea", "Why do you want to join us?", True, [], None, None)
-    judge([f], ctx, llm=lambda p: "")
-    assert seen["story"] == "Q: a\nA: b"
+    judge([f], ctx, llm=lambda p: prompts.append(p) or "Because fraud ML.")
+    assert any("I rebuilt a fraud model after a 2am pager." in p for p in prompts)
 
 
 def test_judge_never_fills_canned_fallback_answer():

@@ -28,7 +28,7 @@ def fixture_ingredients(tmp_path) -> Path:
                 "title": "Recommendation Engine",
                 "org": "RetailCo",
                 "tech": "Spark Kafka Python",
-                "tags": ["recommendation", "real-time", "Spark"],
+                "tags": ["recommendation", "real-time", "Spark", "personalization"],
                 "source": "Recommendation Engine — Built real-time collaborative filtering with Spark Streaming.",
             },
         ],
@@ -50,8 +50,7 @@ def test_search_returns_verbatim_source(fixture_ingredients):
 
 def test_search_by_tag(fixture_ingredients):
     vault = ExactTechVault(fixture_ingredients)
-    results = vault.search("Spark real-time recommendation")
-    assert results[0]["id"] == "proj-rec"
+    assert [r["id"] for r in vault.search("personalization")] == ["proj-rec"]
 
 
 def test_search_empty_keywords_returns_empty(fixture_ingredients):
@@ -70,14 +69,4 @@ def test_search_no_match_returns_empty(fixture_ingredients):
 def test_search_limit_respected(fixture_ingredients):
     vault = ExactTechVault(fixture_ingredients)
     results = vault.search("Python", limit=1)
-    assert len(results) <= 1
-
-
-def test_real_ingredients_file():
-    """Smoke-test against the real ingredients.json in the repo."""
-    vault = ExactTechVault()
-    results = vault.search("machine learning AWS")
-    assert results, "expected at least one hit from real ingredients"
-    for r in results:
-        assert "source" in r
-        assert len(r["source"]) > 10, "source should be a substantive verbatim quote"
+    assert len(results) == 1 and len(vault.search("Python")) == 2

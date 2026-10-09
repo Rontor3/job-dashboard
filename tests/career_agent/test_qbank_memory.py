@@ -2,6 +2,7 @@ from career_agent.browser.form_model import Field
 from job_dashboard import qa_store
 from job_dashboard.db import init_db
 
+from career_agent.memory import qbank
 from career_agent.memory.qbank_memory import QBankMemory
 from career_agent.orchestrator.mapper import FillDecision
 from career_agent.orchestrator.qa_recorder import QARecorder
@@ -19,7 +20,12 @@ def test_recall_splits_confident_likely_none(qbank_conn, fake_embed, make_field)
         ("#n", "30", "qbank", "fill"), ("#l", "linkedin.com/in/x", "qbank_likely", "fill")]
     assert [f.ref for f in still] == ["#h"]
     assert mem.explain(fields[2])["retrieved_qkey"] is None
-    assert mem.record(fields[0], "x") is None and mem.record_corrections([], [], {}) is None
+    bank = lambda: (qbank.entries(qbank_conn), [(w, e) for w, e, _ in qbank.wordings(qbank_conn)],
+                    qbank.get_entry(qbank_conn, "notice_period"))
+    before = bank()
+    mem.record(fields[0], "x")
+    mem.record_corrections(fields, decisions, {"#n": "45"})
+    assert bank() == before                                     # an unreviewed fill never rewrites the bank
 
 
 def test_likely_fill_is_recorded_for_review(tmp_path):
@@ -35,9 +41,12 @@ def test_likely_fill_is_recorded_for_review(tmp_path):
 def test_qbank_setting_default_and_clamp(tmp_path):
     conn = init_db(str(tmp_path / "t.db"))
     default = qa_store.qbank_confident_min(conn)
-    assert 0 < default <= 100
     qa_store.set_setting(conn, "qbank_confident_min", 150)
     assert qa_store.qbank_confident_min(conn) == 100
+    qa_store.set_setting(conn, "qbank_confident_min", -5)
+    assert qa_store.qbank_confident_min(conn) == 0
+    qa_store.set_setting(conn, "qbank_confident_min", "abc")
+    assert qa_store.qbank_confident_min(conn) == default
 
 
 def test_recall_survives_answer_field_blowup(qbank_conn, fake_embed, make_field, monkeypatch):

@@ -73,14 +73,12 @@ def test_combobox_no_match_closes_without_click():
     assert ("press", "Escape") in page.events                 # left blank for human
 
 
-def test_browserdeps_threads_matcher_to_filler(monkeypatch):
+def test_browserdeps_fill_uses_its_option_matcher_for_synonyms():
     from career_agent.orchestrator.browser_deps import BrowserDeps
-    seen = {}
-    def fake_apply(page, decisions, matcher=None): seen["matcher"] = matcher
-    monkeypatch.setattr("career_agent.browser.filler.apply_decisions", fake_apply)
-    m = lambda label, value, options: None
-    BrowserDeps(option_matcher=m).fill(object(), [])
-    assert seen["matcher"] is m
+    page = FakeComboPage(["Man", "Woman", "Non-binary"])
+    matcher = lambda label, value, options: "Man" if value == "Male" else None
+    BrowserDeps(option_matcher=matcher).fill(page, [_combo("#g", "Gender", "Male")], revalidate=False)
+    assert ("click_option", "Man") in page.events
 
 
 
@@ -96,4 +94,6 @@ def test_no_match_inside_a_modal_does_not_press_escape():
     # Escape would close the whole application modal (Wellfound).
     page = FakeComboPage(["Man", "Woman"], in_dialog=True)
     apply_decisions(page, [_combo("#g", "Gender", "Male")])
+    assert ("open", "#g") in page.events
+    assert not any(e[0] == "click_option" for e in page.events)
     assert ("press", "Escape") not in page.events

@@ -38,9 +38,10 @@ def test_passes_submit_flags_and_records_outcome(monkeypatch):
         return {"stopped_reason": "dry_run", "submitted": False}
 
     monkeypatch.setattr(run_mod, "run_board", fake)
-    lim = Limiter()
-    apply_mod._run_board(BOARD, "page", _args(), limiter=lim, profile="P")
+    lim, assist = Limiter(), object()
+    apply_mod._run_board(BOARD, "page", _args(), limiter=lim, profile="P", assist=assist)
     assert seen["do_submit"] is True and seen["probe"] is False and seen["job_id"] == 7 and seen["profile"] == "P"
+    assert seen["assist"] is assist
     assert lim.recorded == [("board:x", "dry_run")]
 
 
@@ -83,15 +84,6 @@ def test_existing_tab_is_reused_only_for_the_same_job():
     ctx = NS(pages=[new, other, same])
     assert apply_mod._existing_tab(ctx, new, "https://in.indeed.com/viewjob?jk=7114886b04ef144a") is same
     assert apply_mod._existing_tab(NS(pages=[new, other]), new, same.url) is None
-
-
-def test_the_assist_reaches_the_board_engine(monkeypatch):
-    import career_agent.boards.run as run_mod
-    seen = {}
-    monkeypatch.setattr(run_mod, "run_board", lambda p, b, ctx: seen.update(ctx) or {"stopped_reason": "probe"})
-    marker = object()
-    apply_mod._run_board(BOARD, "page", _args(probe=True), limiter=Limiter(), assist=marker)
-    assert seen["assist"] is marker
 
 
 def test_make_assist_is_opt_in_by_flag_or_env(monkeypatch, tmp_path):

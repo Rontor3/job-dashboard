@@ -14,11 +14,15 @@ def test_card_groups_by_section():
         _d("#c", "attestation", "I certify this is true"),
     ]
     card = render_card("Acme", "Engineer", "acme.com", decisions, "none")
-    assert "Acme" in card and "Engineer" in card
-    assert "FILLED" in card and "Full name" in card and "Test User" in card
-    assert "REVIEW" in card and "Expected salary" in card
-    assert "ATTESTATIONS" in card and "not ticked" in card.lower()
-    assert "GATE" in card and "none" in card
+    head, rest = card.split("FILLED", 1)
+    filled, rest = rest.split("REVIEW", 1)
+    review, rest = rest.split("ATTESTATIONS", 1)
+    attest, gate = rest.split("GATE", 1)
+    assert "Acme" in head and "Engineer" in head
+    assert "Full name: Test User" in filled and "Expected salary" not in filled and "certify" not in filled
+    assert "Expected salary" in review and "certify" not in review
+    assert "I certify this is true" in attest and "not ticked" in attest.lower()
+    assert gate.strip(" :") == "none"
 
 
 def test_gate_surfaced_when_challenge_detected():
