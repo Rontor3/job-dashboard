@@ -1,9 +1,7 @@
 """Explain what memory retrieval did for a field: which tier matched, which
 entry, at what score, and what else was considered (including candidates the
-gates rejected). Read-only: it replays AnswerMemory._lookup's ordering and the
-semantic vault's gate rather than changing either, so retrieval behavior can't
-be affected by tracing. tests/career_agent/test_retrieval_trace.py checks it
-agrees with AnswerMemory.recall, so a change to the lookup order fails loudly.
+gates rejected), over the superseded learned_answers table and the semantic
+vault. Read-only, so retrieval behavior can't be affected by tracing.
 """
 from __future__ import annotations
 

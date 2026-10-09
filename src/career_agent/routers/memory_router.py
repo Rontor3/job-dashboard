@@ -33,8 +33,8 @@ class MemoryRouter:
     profile       dict loaded by factual_core.load_profile()
     exact_tech    ExactTechVault instance
     semantic      SemanticBehaviorVault instance
-    answer_memory AnswerMemory (FTS5) instance — optional; enables dual-write
-                  on RECORD_FEEDBACK so the FTS5 fast-path stays in sync
+    answer_memory fill-loop memory (QBankMemory) — optional; RECORD_FEEDBACK
+                  also calls its record()
     """
 
     def __init__(self, *, profile: dict, exact_tech, semantic, answer_memory=None):

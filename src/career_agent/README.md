@@ -170,7 +170,7 @@ browser/
   page_prep.py            classify_entry, reach_application_form, consent dismissal
   gate_probe.py           Captcha/gate detection (never solving)
   filler.py               Fill loop; shadow-DOM fill JS
-  form_model.py           Field dataclass + purpose rules (_RULES, KNOWN_PURPOSES)
+  form_model.py           Field dataclass + purpose rules (_RULES)
   credential_provider.py  Login/register automation for account walls
                           (Darwinbox, Infosys, SmartRecruiters non-OC)
   ats_lookup.py           Query ats-graph.json for ATS-specific handling notes
@@ -189,7 +189,7 @@ memory/
   factual_core.py         Static profile JSON loader; get_profile_chunk()
   exact_tech.py           ExactTechVault — FTS5 over ingredients.json (verbatim source)
   semantic_behavior.py    SemanticBehaviorVault — ChromaDB ONNX; graduated autonomy
-  learned_answers.py      AnswerMemory — FTS5 fast-path over jobs.db learned_answers
+  learned_answers.py      superseded learned_answers table schema (read by qbank migrate)
   candidate_profile.py    CandidateProfile from résumé segments
 
 routers/

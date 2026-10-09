@@ -5,25 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field as _field
 
-KNOWN_PURPOSES = frozenset({
-    "full_name", "first_name", "last_name", "middle_name", "email", "phone",
-    "location", "city", "state", "country", "veteran", "gender", "ethnicity", "disability",
-    "prior_employment",
-    "linkedin_url", "github_url", "twitter_url", "facebook_url",
-    "portfolio_url", "work_authorization", "visa_sponsorship", "prior_contact",
-    "conflict_of_interest",
-    "years_experience",
-    "notice_period", "salary_expectation", "current_ctc", "willing_to_relocate",
-    "attestation", "resume_upload", "phone_type", "phone_extension",
-    "postal_code", "referral_source",
-    "employer", "job_title", "start_date", "end_date", "degree", "school",
-    "field_of_study", "gpa", "skills", "summary", "graduation_year",
-    "motivation",   # cover-letter / interest blurb (SR hiring manager message)
-    "phone_country_code",  # dial-code select next to the number ("India (+91)")
-    "file_comment", # short description field next to file upload (e.g. Taleo "Comments about the file")
-})
-
-
 @dataclass(frozen=True)
 class Field:
     ref: str

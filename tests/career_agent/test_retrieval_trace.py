@@ -1,9 +1,11 @@
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
 from career_agent.browser.form_model import Field
-from career_agent.memory.learned_answers import AnswerMemory
+from career_agent.memory.learned_answers import _norm, ensure
+from career_agent.memory.qbank_memory import QBankMemory
 from career_agent.memory.retrieval_trace import explain
 
 
@@ -21,34 +23,38 @@ class FakeVault:
 
 @pytest.fixture
 def mem():
-    m = AnswerMemory(sqlite3.connect(":memory:"))
-    m.record(_f("How many years of Python experience do you have?", "years_experience"), "4")
-    m.record(_f("Are you legally authorized to work in India?"), "Yes")
-    return m
+    conn = sqlite3.connect(":memory:")
+    ensure(conn)
+    for label, answer, purpose in [("How many years of Python experience do you have?", "4", "years_experience"),
+                                   ("Are you legally authorized to work in India?", "Yes", None)]:
+        conn.execute("INSERT INTO learned_answers (qkey, label, answer, purpose, updated_at) VALUES (?,?,?,?,'2026-01-01')",
+                     (_norm(label), label, answer, purpose))
+        conn.execute("INSERT INTO learned_answers_fts (label, qkey) VALUES (?,?)", (_norm(label), _norm(label)))
+    return SimpleNamespace(conn=conn)
 
 
-CASES = [
-    ("purpose", _f("Total experience", "years_experience")),
-    ("label_exact", _f("Are you legally authorized to work in India?")),
-    ("fts_fuzzy", _f("Are you legally authorized to work in India or Nepal?")),
-    ("none", _f("Favourite colour")),
-    ("none", _f("Why us?", kind="textarea")),            # essays are never recalled
-    ("none", _f("I agree", "attestation")),
-]
+@pytest.mark.parametrize("kind,field", [("purpose", _f("Total experience", "years_experience")),
+                                        ("label_exact", _f("Are you legally authorized to work in India?")),
+                                        ("fts_fuzzy", _f("Are you legally authorized to work in India or Nepal?")),
+                                        ("none", _f("Favourite colour")),
+                                        ("none", _f("Why us?", kind="textarea")),
+                                        ("none", _f("I agree", "attestation"))])
+def test_explain_reports_the_learned_tier_that_matched(mem, kind, field):
+    assert explain(mem.conn, None, field)["retrieval_kind"] == kind
 
 
-@pytest.mark.parametrize("kind,field", CASES)
-def test_explain_agrees_with_recall(mem, kind, field):
-    """Drift guard: the trace must say 'hit' exactly when AnswerMemory.recall
-    fills the field, and name the entry that holds the answer it filled."""
-    got = explain(mem.conn, None, field)
-    decisions, _ = mem.recall([field])
-    assert got["retrieval_kind"] == kind
-    assert bool(decisions) == (kind != "none")
+@pytest.mark.parametrize("label", ["Notice period", "LinkedIn profile URL", "Favourite colour", "Why us?"])
+def test_qbank_explain_agrees_with_recall(qbank_conn, fake_embed, label):
+    """Drift guard: the trace names an entry exactly when QBankMemory.recall
+    fills the field, and that entry holds the answer it filled."""
+    from career_agent.memory import qbank
+    bank = QBankMemory(qbank_conn, embed=fake_embed)
+    field = _f(label)
+    got = bank.explain(field)
+    decisions, _ = bank.recall([field])
+    assert bool(decisions) == (got["candidates_json"] != [] and any(c["accepted"] for c in got["candidates_json"]))
     if decisions:
-        row = mem.conn.execute("SELECT answer FROM learned_answers WHERE qkey=?",
-                               (got["retrieved_qkey"],)).fetchone()
-        assert row[0] == decisions[0].value
+        assert qbank.get_entry(qbank_conn, got["retrieved_qkey"])["answer"] == decisions[0].value
 
 
 def test_rejected_fuzzy_candidate_is_reported_but_not_a_hit(mem):

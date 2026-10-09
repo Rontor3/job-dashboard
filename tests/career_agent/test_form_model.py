@@ -1,10 +1,14 @@
-from career_agent.browser.form_model import Field, guess_purpose, KNOWN_PURPOSES
+from dataclasses import FrozenInstanceError
+
+import pytest
+
+from career_agent.browser.form_model import Field, guess_purpose
 
 
 def test_field_is_frozen_dataclass():
-    f = Field(ref="#a", kind="text", label="Full name", required=True,
-              options=[], group=None, purpose=None)
-    assert f.ref == "#a" and f.options == []
+    f = Field(ref="#a", kind="text", label="Full name", required=True)
+    with pytest.raises(FrozenInstanceError):
+        f.label = "Email"
 
 
 def test_guess_common_purposes():
@@ -53,10 +57,3 @@ def test_graduation_year_precedes_bare_degree():
     the bare `degree` rule."""
     assert guess_purpose("Year of graduation from your undergrad degree.", "text") == "graduation_year"
     assert guess_purpose("Degree", "text") == "degree"
-
-
-def test_all_returned_purposes_are_known():
-    for label, kind in [("Full name", "text"), ("Email", "email"),
-                        ("I agree to terms", "checkbox"), ("Resume", "file")]:
-        p = guess_purpose(label, kind)
-        assert p is None or p in KNOWN_PURPOSES

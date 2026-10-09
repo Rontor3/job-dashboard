@@ -24,13 +24,20 @@ def _f(ref, label, purpose=None, required=False, kind="text"):
 
 
 def test_walk_runs_prep_fn_each_step():
-    s1 = [_f("#n", "Full name", "full_name"), _f("#c", "Submit application", None, kind="button")]
-    deps = Deps([s1])
-    calls = {"n": 0}
-    def prep_fn(page): calls["n"] += 1
-    walk(object(), CandidateProfile(contact={"full_name": "R"}), Human(), deps,
-         do_submit=True, autonomous=True, prep_fn=prep_fn)
-    assert calls["n"] >= 1
+    s1 = [_f("#n", "Full name", "full_name"), _f("#c", "Continue", None, kind="button")]
+    s2 = [_f("#s", "Submit application", None, kind="button")]
+    order = []
+
+    class D(Deps):
+        def snapshot(self, page):
+            order.append("snapshot")
+            return super().snapshot(page)
+
+    walk(object(), CandidateProfile(contact={"full_name": "R"}), Human(), D([s1, s2]),
+         do_submit=True, autonomous=True, prep_fn=lambda page: order.append("prep"))
+    starts = [i for i, o in enumerate(order) if o == "prep"]
+    assert len(starts) == 2
+    assert all(order[i + 1] == "snapshot" for i in starts)
 
 
 def test_walk_uses_judge_fn_before_human_collect():
@@ -66,8 +73,8 @@ def test_walks_two_screens_then_submits():
     deps = Deps([s1, s2])
     prof = CandidateProfile(contact={"full_name": "R"})
     out = walk(object(), prof, Human(), deps, do_submit=True, autonomous=True)
-    assert out["screens"] >= 2
-    assert "Continue" in deps.clicks
+    assert out["screens"] == 2
+    assert deps.clicks == ["Continue", "Submit application"]
     assert out["submitted"] is True
 
 
@@ -91,66 +98,38 @@ def test_stops_on_otp_email_gate():
 
 def test_dry_run_stops_at_submit_without_submitting():
     s1 = [_f("#s", "Submit application", None, kind="button")]
-    out = walk(object(), CandidateProfile(), Human(), Deps([s1]), do_submit=False)
+    deps = Deps([s1])
+    out = walk(object(), CandidateProfile(), Human(), deps, do_submit=False)
     assert out["submitted"] is False
     assert out["stopped_reason"] == "reached_submit_dry_run"
+    assert deps.clicks == []
 
 
-def test_learn_records_then_recalls_across_walks():
-    # First walk: human answers a novel question. Second walk (same question,
-    # varied wording): the learned answer is reused, human.collect never fires.
-    import sqlite3
-    from career_agent.memory.learned_answers import AnswerMemory
-    mem = AnswerMemory(sqlite3.connect(":memory:"))
-    prof = CandidateProfile(contact={})
-
-    q1 = [_f("#np", "Notice period (in days)", None, required=True),
-          _f("#c", "Submit application", None, kind="button")]
-    walk(object(), prof, Human(), Deps([q1]), do_submit=True, autonomous=True, learn=mem)
-
+def test_learn_records_then_recalls_across_walks(qbank_conn, fake_embed):
+    # A question answered once on the Answers tab is filled from the bank on a
+    # later walk (varied wording): human.collect never fires.
+    from career_agent.memory.qbank_memory import QBankMemory
+    mem = QBankMemory(qbank_conn, embed=fake_embed)
     seen = {}
     class H(Human):
         def collect(self, fields): seen["called"] = True; return {f.ref: "X" for f in fields}
-    q2 = [_f("#np2", "Notice Period (In Days)", None, required=True),
-          _f("#c", "Submit application", None, kind="button")]
-    deps2 = Deps([q2])
-    walk(object(), prof, H(), deps2, do_submit=True, autonomous=True, learn=mem)
-    filled = [d for batch in deps2.filled for d in batch]
-    assert any(d.ref == "#np2" and d.value == "X" and d.source == "learned" for d in filled)
-    assert "called" not in seen            # reused -> human never asked again
+    q = [_f("#np", "Notice Period", None, required=True),
+         _f("#c", "Submit application", None, kind="button")]
+    deps = Deps([q])
+    walk(object(), CandidateProfile(contact={}), H(), deps, do_submit=True, autonomous=True, learn=mem)
+    filled = [d for batch in deps.filled for d in batch]
+    assert any(d.ref == "#np" and d.value == "30" and d.source == "qbank" for d in filled)
+    assert "called" not in seen
 
 
-def test_recall_overrides_a_wrong_rule_fill():
-    # a learned CORRECTION for a field must win over what the rules would fill.
-    import sqlite3
-    from career_agent.memory.learned_answers import AnswerMemory
-    mem = AnswerMemory(sqlite3.connect(":memory:"))
-    # human once corrected "Phone" to a specific value -> recorded
-    mem.record(_f("#p", "Phone", "phone"), "+91 99999 88888")
-    prof = CandidateProfile(contact={"phone": "+91 00000 00000"})   # rule would fill this
-    s1 = [_f("#p", "Phone", "phone"), _f("#c", "Submit application", None, kind="button")]
+def test_recall_overrides_a_wrong_rule_fill(qbank_conn, fake_embed):
+    # the bank's answer for a field must win over what the rules would fill.
+    from career_agent.memory.qbank_memory import QBankMemory
+    mem = QBankMemory(qbank_conn, embed=fake_embed)
+    prof = CandidateProfile(contact={"linkedin_url": "linkedin.com/in/stale"})   # rule would fill this
+    s1 = [_f("#l", "LinkedIn profile URL", "linkedin_url"), _f("#c", "Submit application", None, kind="button")]
     deps = Deps([s1])
     walk(object(), prof, Human(), deps, do_submit=True, autonomous=True, learn=mem)
     filled = [d for batch in deps.filled for d in batch]
-    phone = next(d for d in filled if d.ref == "#p")
-    assert phone.value == "+91 99999 88888"       # recall (correction) beat the rule
-    assert phone.source == "learned"
-
-
-def test_walk_learns_corrections_at_submit():
-    # agent fills; human edits the live form; at submit the walk diffs read-back
-    # vs what it filled and learns the change.
-    import sqlite3
-    from career_agent.memory.learned_answers import AnswerMemory
-    mem = AnswerMemory(sqlite3.connect(":memory:"))
-    prof = CandidateProfile(contact={"phone": "+91 000"})
-
-    class DepsRB(Deps):
-        def read_back(self, page, decisions):
-            return {"#p": "+91 99999"}      # human corrected the phone on the live form
-
-    s1 = [_f("#p", "Phone", "phone"), _f("#s", "Submit application", None, kind="button")]
-    walk(object(), prof, Human(), DepsRB([s1]), do_submit=True, autonomous=True, learn=mem)
-    # next form: recall now serves the human's correction
-    dec, _ = mem.recall([_f("#p2", "Phone", "phone")])
-    assert dec and dec[0].value == "+91 99999"
+    link = next(d for d in filled if d.ref == "#l")
+    assert link.value == "linkedin.com/in/x" and link.source.startswith("qbank")

@@ -104,7 +104,7 @@ cat data/pending_memory_updates.md
 
 | New value type | Where to wire it |
 |---------------|-----------------|
-| New standard Yes/No answer (e.g. COI) | `form_model.py` → KNOWN_PURPOSES + _RULES rule; `standard_answers.py` → answer(); `screen_review.py` → _STD_PURPOSES |
+| New standard Yes/No answer (e.g. COI) | `form_model.py` → _RULES rule; `standard_answers.py` → answer(); `screen_review.py` → _STD_PURPOSES |
 | New demographic value | `profile.contact` in DB already has the key; `profile_resolver.py` → _DEMO mapping; verify `_coerce_option` can match the EEO option text |
 | New profile text field (salary, location) | `form_model.py` → _RULES rule; `profile_resolver.py` falls through to `profile.contact.get(purpose)` — just add the rule |
 | New attestation policy change | `screen_review.py` → map_screen() attestation branch |
@@ -144,7 +144,7 @@ memory/
   factual_core.py         — load_profile, get_profile_chunk
   exact_tech.py           — ExactTechVault (FTS5, verbatim source)
   semantic_behavior.py    — SemanticBehaviorVault (ChromaDB ONNX)
-  learned_answers.py      — AnswerMemory (FTS5 fast-path, jobs.db)
+  learned_answers.py      — superseded learned_answers schema (read by qbank migrate)
 routers/
   memory_router.py        — MemoryRouter, memory_access() dispatcher
 integrations/
