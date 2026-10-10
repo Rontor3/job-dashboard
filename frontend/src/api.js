@@ -255,5 +255,3 @@ export const sendJobFeedback = (id, verdict, reasons = []) =>
 export const fetchPreferences = () => fetch("/api/preferences").then(json);
 export const forgetPreference = (feature) =>
   fetch(`/api/preferences/${encodeURIComponent(feature)}`, { method: "DELETE" }).then(json);
-export const explainQuestion = (question, options = [], company = null) =>
-  fetch("/api/explain", jsonBody("POST", { question, options, company })).then(json);   // {explanation}

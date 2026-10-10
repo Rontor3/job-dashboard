@@ -85,7 +85,7 @@ function AgentLiveTag({ jobId, agentStatus }) {
 function Row({ job, agentStatus, onSelect, onMove, onRequeue, expanded, onToggle, openCount, onChanged }) {
   const running = agentStatus && agentStatus.running && agentStatus.job_id === job.id;
   return (
-    <div>
+    <div data-agent={`job:${job.id}`}>
     <div
       onClick={() => onToggle(job.id)}
       aria-expanded={!!expanded}

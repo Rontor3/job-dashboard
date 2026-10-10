@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import Inbox from "../components/Inbox.jsx";
+import { AgentProvider } from "../agent/AgentProvider.tsx";
+import Popover from "../agent/Popover.tsx";
 
 let calls;
 const BOX = {
@@ -65,10 +67,13 @@ const RULE_BOX = { questions: [], guesses: [], bank: [
     asked_in: 2, asked_by: ["Anthropic", "Acme"], rule: null, rule_help: null },
 ] };
 
-function serve(box, explanation = "They want you to confirm you read their AI-use rules.") {
+function serve(box) {
   global.fetch = vi.fn((url, opts = {}) => {
     calls.push([String(url), opts.method || "GET", opts.body && JSON.parse(opts.body)]);
-    const body = String(url).includes("/api/inbox") ? box : String(url).includes("/api/explain") ? { explanation } : { ok: true };
+    const u = String(url);
+    const body = u.includes("/api/inbox") ? box
+      : u === "/agent/sessions" && (opts.method || "GET") === "GET" ? { active: "s1", items: [{ id: "s1", title: "x", createdAt: 0 }] }
+      : { ok: true, submission: 1 };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
   });
 }
@@ -82,16 +87,28 @@ test("a per-company rule question asks for the list, not a bare Yes/No", async (
   expect(screen.getByText(/None of your applications has asked it yet/)).toBeInTheDocument();
 });
 
-test("says which applications asked, explains on request, and allows a typed answer", async () => {
+test("says which applications asked, asks the agent in place, and allows a typed answer", async () => {
   serve(RULE_BOX);
-  render(<Inbox />);
+  render(<AgentProvider tab="inbox"><Inbox /><Popover /></AgentProvider>);
   fireEvent.click(await screen.findByRole("button", { name: "Later" }));
   expect(await screen.findByText("Asked by Anthropic, Acme")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "What does this mean?" }));
-  expect(await screen.findByRole("note")).toHaveTextContent("confirm you read their AI-use rules");
-  expect(calls.find(([u]) => u.includes("/api/explain"))[2].options).toEqual(["Yes", "No"]);
+  expect(await screen.findByRole("dialog", { name: "Ask the agent" })).toBeInTheDocument();
+  await waitFor(() => expect(calls.some(([u]) => u === "/agent/sessions/s1/messages")).toBe(true));
+  const [, , sent] = calls.find(([u]) => u === "/agent/sessions/s1/messages");
+  expect(sent.content).toBe("What does this mean?");
+  expect(sent.context).toMatchObject({ anchor: "qbank:ai_policy_ack", tab: "inbox" });
+  expect(sent.context.text).toContain("acknowledge our policy on using AI");
   fireEvent.click(screen.getByRole("button", { name: "Type my own answer" }));
   fireEvent.change(screen.getByLabelText("Your answer"), { target: { value: "Yes, I've read it" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(calls.some(([u, m, b]) => u.endsWith("/api/answers") && b.answer === "Yes, I've read it")).toBe(true));
+});
+
+test("without the agent there is no explain link", async () => {
+  serve(RULE_BOX);
+  render(<Inbox />);
+  fireEvent.click(await screen.findByRole("button", { name: "Later" }));
+  await screen.findByText("Asked by Anthropic, Acme");
+  expect(screen.queryByRole("button", { name: "What does this mean?" })).toBeNull();
 });

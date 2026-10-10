@@ -122,8 +122,70 @@ body { margin: 0; font-family: var(--font-sans); background: var(--canvas); colo
 .sources summary { cursor: pointer; }
 .hint { font-size: 12px; color: var(--ink-faint); margin: 8px 0 0; }
 .ask-hint { margin: -12px 0 18px; font-size: 14px; color: var(--ink-soft); line-height: 1.5; }
-.ask-explain { margin: -8px 0 18px; padding: 12px 14px; border-radius: 12px; background: var(--green-tint); color: var(--ink);
-  font-size: 14px; line-height: 1.55; }
 .ask-help { display: flex; gap: 16px; margin-top: 12px; font-size: 13px; }
 .fail-why { margin: 6px 0 4px 14px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
 .fail-why b { color: var(--ink); font-weight: 600; }
+
+/* ── In-app agent: Agent tab, thread, widgets, cursor, popover, banner, history ── */
+.agent-tab { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+.agent-sessions { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.agent-sessions ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
+  max-height: 70vh; overflow-y: auto; }
+.agent-session { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; font: inherit;
+  font-size: 13px; border: none; background: transparent; color: var(--ink-soft); border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.agent-session small { color: var(--ink-faint); font-size: 11px; }
+.agent-session:hover, .agent-session[aria-current="true"] { background: var(--card); color: var(--ink); box-shadow: var(--hover-shadow); }
+.agent-main { display: flex; flex-direction: column; min-width: 0; }
+.agent-empty { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.agent-thread { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; max-height: 62vh; padding: 4px 2px; }
+.agent-popover .agent-thread { max-height: 260px; }
+.agent-msg { border-radius: 14px; padding: 10px 14px; font-size: 14px; line-height: 1.55; max-width: 92%; }
+.agent-user { align-self: flex-end; background: var(--green-tint); color: var(--ink); }
+.agent-assistant { align-self: flex-start; background: var(--card); border: 0.5px solid var(--hairline); color: var(--ink); }
+.agent-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-about { font-size: 11px; color: var(--ink-faint); margin-bottom: 4px; }
+.agent-thinking { font-size: 12px; color: var(--ink-faint); margin-bottom: 6px; }
+.agent-thinking summary { cursor: pointer; }
+.agent-thinking p { white-space: pre-wrap; margin: 6px 0 0; }
+.agent-tool { font-size: 12px; color: var(--ink-faint); }
+.agent-tool-error { color: var(--dupe-ink); }
+.agent-chip { align-self: flex-start; display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 12px;
+  background: var(--warm-tint); color: var(--warm-ink); border-radius: var(--radius-pill); padding: 4px 12px; max-width: 100%; }
+.agent-chip-done { color: var(--ink-faint); font-size: 12px; }
+.agent-widget { align-self: flex-start; display: flex; flex-direction: column; gap: 8px; background: var(--card);
+  border: 1px solid var(--green-soft); border-radius: var(--radius-card); padding: 12px 14px; min-width: 260px; max-width: 100%; }
+.agent-widget input[type="password"] { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--hairline);
+  background: var(--canvas); color: var(--ink); }
+.agent-widget-title { font-weight: 600; font-size: 14px; }
+.agent-widget-why { margin: 0; font-size: 12px; color: var(--ink-soft); }
+.agent-widget-done { margin: 0; font-size: 13px; color: var(--green-mid); }
+.agent-widget-actions { display: flex; gap: 8px; }
+.agent-confirm { border-color: var(--gold); }
+.agent-bar { display: flex; gap: 10px; align-items: center; min-height: 8px; margin: 8px 0; }
+.agent-busy { font-size: 12px; color: var(--ink-soft); }
+.agent-composer { display: flex; gap: 8px; align-items: flex-end; }
+.agent-composer textarea { flex: 1; font: inherit; font-size: 14px; resize: vertical; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid var(--hairline); background: var(--card); color: var(--ink); }
+.agent-cursor-btn[aria-pressed="true"] { background: var(--green); color: var(--canvas); border-color: var(--green); }
+body.agent-cursor-on, body.agent-cursor-on * { cursor: crosshair !important; }
+.agent-outline { position: fixed; pointer-events: none; border: 2px solid var(--green); border-radius: 8px;
+  background: color-mix(in srgb, var(--green) 8%, transparent); z-index: 60; transition: all 80ms ease-out; }
+.agent-popover { position: fixed; z-index: 70; display: flex; flex-direction: column; gap: 8px; background: var(--canvas);
+  border: 0.5px solid var(--hairline); border-radius: var(--radius-card); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  padding: 12px; overflow: hidden; }
+.agent-popover, .agent-popover * { cursor: auto !important; }
+.agent-popover-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.agent-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px auto 0; max-width: 1100px;
+  background: var(--green-tint); color: var(--ink); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+.agent-history ul { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.agent-history li { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline;
+  font-size: 13px; padding: 6px 10px; border-radius: 10px; background: var(--card); }
+.agent-history li.undone .agent-history-what { text-decoration: line-through; color: var(--ink-faint); }
+.agent-history-who { color: var(--ink-faint); font-size: 12px; }
+.agent-history-what { overflow-wrap: anywhere; }
+.agent-history time { color: var(--ink-faint); font-size: 11px; }
+@media (max-width: 760px) {
+  .agent-tab { grid-template-columns: 1fr; }
+  .agent-sessions { position: static; }
+  .agent-history li { grid-template-columns: 1fr auto; }
+}

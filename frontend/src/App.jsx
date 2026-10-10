@@ -10,13 +10,20 @@ import ResumeLibrary from "./components/ResumeLibrary.jsx";
 import ThemeToggle from "./components/ThemeToggle.jsx";
 import TrackerBoard from "./components/TrackerBoard.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
+import { AgentProvider } from "./agent/AgentProvider.tsx";
+import AgentTab from "./agent/AgentTab.tsx";
+import ChangeHistory from "./agent/ChangeHistory.tsx";
+import { CursorButton, CursorOverlay } from "./agent/Cursor.tsx";
+import Popover from "./agent/Popover.tsx";
+import SetupBanner from "./agent/SetupBanner.tsx";
 
 // Four places, each one a way to give the agent feedback:
 //   Needs you — questions/guesses the agent is waiting on (answers go into its memory)
 //   Jobs      — apply or skip (re-ranks the feed and the fit judge)
 //   Applied   — outcomes (interview / rejected) for what was sent
-//   Memory    — the answers and résumé the agent reuses
-const TABS = [["inbox", "Needs you"], ["jobs", "Jobs"], ["applied", "Applied"], ["memory", "Memory"]];
+//   Memory    — the answers and résumé the agent reuses, and the history of every change
+//   Agent     — talk to the app: it changes your data and settings for you (the cursor asks about any element)
+const TABS = [["inbox", "Needs you"], ["jobs", "Jobs"], ["applied", "Applied"], ["memory", "Memory"], ["agent", "Agent"]];
 
 function Memory() {
   const [part, setPart] = useState("answers");
@@ -25,11 +32,11 @@ function Memory() {
       <h1 className="view-title">Memory</h1>
       <p className="view-sub">What the agent reuses on every application. Edit anything that's wrong.</p>
       <div className="segmented" role="group" aria-label="Memory section">
-        {[["answers", "Answers"], ["resume", "Résumé"]].map(([k, l]) => (
+        {[["answers", "Answers"], ["resume", "Résumé"], ["history", "History"]].map(([k, l]) => (
           <button key={k} aria-pressed={part === k} onClick={() => setPart(k)}>{l}</button>
         ))}
       </div>
-      {part === "answers" ? <AnswersTab /> : <ResumeLibrary />}
+      {part === "answers" ? <AnswersTab /> : part === "resume" ? <ResumeLibrary /> : <ChangeHistory />}
     </section>
   );
 }
@@ -75,6 +82,7 @@ export default function App() {
   const onApply = (id) => onQueueChange(addToQueue(id, { front: true, start: true }));
 
   return (
+    <AgentProvider tab={tab} onOpenTab={() => setTab("agent")}>
     <div className="app">
       <header className="topbar">
         <p className="brand">Job agent</p>
@@ -87,10 +95,15 @@ export default function App() {
           ))}
         </nav>
         <div className="topbar-actions">
+          <CursorButton />
           <ThemeToggle />
           <RefreshButton onDone={bump} />
         </div>
       </header>
+      <SetupBanner />
+      {queue.worker === false && (
+        <div className="alert" role="status">The background worker isn't running, so the apply queue won't move. Restart the app.</div>
+      )}
       <QueueStrip queue={queue} onChange={onQueueChange} onOpenJob={setSelectedId} />
       {error && <div role="alert" className="alert">{error}</div>}
       <main className="view">
@@ -105,8 +118,12 @@ export default function App() {
           </section>
         )}
         {tab === "memory" && <Memory />}
+        {tab === "agent" && <AgentTab />}
       </main>
       {selectedId && <JobDetail id={selectedId} onApply={onApply} onStatusChange={bump} onClose={() => setSelectedId(null)} />}
+      <CursorOverlay />
+      <Popover />
     </div>
+    </AgentProvider>
   );
 }

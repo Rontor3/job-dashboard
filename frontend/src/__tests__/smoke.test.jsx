@@ -12,6 +12,8 @@ beforeEach(() => {
   global.fetch = vi.fn((url) => {
     const u = String(url);
     const body = u.includes("/api/inbox") ? INBOX
+      : u.includes("/api/setup-state") ? { exists: true, status: "complete" }
+      : u.includes("/agent/sessions") ? { active: null, items: [] }
       : u.includes("/api/queue") ? { items: [], running: false }
       : u.includes("/api/preferences") ? { likes: [], dislikes: [], blocked_companies: [], skip_reasons: [] }
       : u.includes("/api/tracker") ? { saved: [], applied: [], failed: [], interviewing: [], offer: [], archived: [] }
@@ -26,10 +28,10 @@ test("opens on what the agent needs, with a waiting count on the tab", async () 
   expect(screen.getByLabelText("1 waiting")).toBeInTheDocument();
 });
 
-test("four destinations, no stats or filter wall", async () => {
+test("five destinations, no stats or filter wall", async () => {
   render(<App />);
   const nav = screen.getByRole("navigation", { name: "Sections" });
-  expect(nav.querySelectorAll("button")).toHaveLength(4);
+  expect(nav.querySelectorAll("button")).toHaveLength(5);
   fireEvent.click(screen.getByRole("button", { name: /^jobs$/i }));
   expect(await screen.findByText("Stripe")).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Filters" })).toBeNull();

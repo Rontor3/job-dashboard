@@ -34,7 +34,7 @@ function Thresholds() {
     </div>
   );
   return (
-    <div style={{ ...CARD, display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+    <div data-agent="setting:thresholds" style={{ ...CARD, display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
       {row("qbank_confident_min", "qbank-min", "Minimum match score to fill from the questionnaire without flagging",
            "Below this, the best match is still filled but listed for you to check before submit.")}
       {row("answer_confidence_min", "conf-min", "Minimum confidence to fill a generated answer",
@@ -58,7 +58,7 @@ function Entry({ a, onSave, onSaveProfile, onRemove }) {
       </select>
     : <input aria-label={`Answer for ${a.question}`} value={draft} onChange={(e) => setDraft(e.target.value)} style={INPUT} />;
   return (
-    <div data-testid={`entry-${a.id}`} style={{ ...CARD, borderColor: unanswered(a) ? "var(--warm-ink)" : "var(--hairline)" }}>
+    <div data-testid={`entry-${a.id}`} data-agent={a.profile_ref ? `profile:${a.profile_ref}` : `qbank:${a.id}`} style={{ ...CARD, borderColor: unanswered(a) ? "var(--warm-ink)" : "var(--hairline)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{a.question}</div>
         <button aria-label={`Remove ${a.question}`} onClick={() => onRemove(a)}

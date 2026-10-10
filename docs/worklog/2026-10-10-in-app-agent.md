@@ -66,3 +66,42 @@ Steps 3–5 of `docs/superpowers/specs/2026-10-10-in-app-agent-design.md`:
   block early.
 - Live run of `./jobdash start`: every process healthy. On the real Qwen endpoint the agent called
   `list_needs_you` and answered.
+
+## Step 4: UI
+- **`frontend/src/agent/` (TypeScript, typechecked with `tsc --noEmit`; the rest of the frontend stays JS).**
+  - `AgentProvider`: one SSE connection to the active session, shared by the Agent tab and every popover. It also
+    holds the cursor mode and the open popover.
+  - `state.ts`: a pure reducer from the service's events (snapshot, streamed message updates, entries, tools, inbox)
+    to a thread. `exchangesFor` picks the exchanges started from one anchor; `busyWith` names the running question.
+  - `Thread`: messages, thinking folded away, "Using …" for tool calls, a "Changed X: a → b · Undo" chip per logged
+    change, and the widgets.
+  - `Widgets`: secret input, résumé upload and Confirm/Cancel each talk straight to FastAPI and tell the agent only
+    the outcome (`[I set KEY]`, `Confirmed: … It's done.`). The secret value never reaches the agent.
+  - `AgentTab`: sessions, New session, starter chips, Stop, composer. `ChangeHistory` is Memory → History, with Undo.
+  - `Cursor`: the "Ask about…" header button turns it on; hover outlines what a click captures; click opens the
+    popover; Esc cancels. `capture.ts` takes the nearest `data-agent` anchor plus visible text, label, heading, tab.
+  - `Popover`: in place, clamped to the viewport, showing only this element's exchanges. It says when the agent
+    can only explain (no actionable anchor) and when the question is queued behind another.
+  - `SetupBanner`: while `setup-state.md` is missing or not complete, offers "Finish setup with the agent".
+- `data-agent` anchors: job rows, the tracker and the job drawer (`job:<id>`); Answers entries (`profile:<ref>` /
+  `qbank:<id>`); thresholds and browser sources (`setting:…`); Needs-you cards (`question:`, `answer:`, `qbank:`).
+- Needs-you "What does this mean?" now opens the popover and asks there. `explainQuestion` is gone from `api.js`.
+- The topbar shows an alert when the worker is down.
+- `mise run test` now typechecks the frontend too.
+
+### Verification
+- New tests:
+  - `agent_state.test.ts`: the reducer, popover filtering, the busy question, capture.
+  - `agent_ui.test.jsx`, covering:
+    - the Undo chip;
+    - the secret value never sent to `/agent`;
+    - Confirm runs the exact request with the token, and Cancel never runs it;
+    - the setup banner;
+    - History with Undo.
+- `inbox.test.jsx` checks that "What does this mean?" opens the popover and sends the anchor and text, and that
+  the link is absent without the agent.
+- Frontend: 25 files / 139 tests pass; `tsc --noEmit` is clean.
+- In the browser, on `./jobdash start` with the real model:
+  - "What does this mean?" on a Needs-you card opened the popover, and the answer streamed in.
+  - The Agent tab shows that exchange with its "About:" line next to the earlier session messages.
+  - The setup banner shows on a setup that isn't complete.

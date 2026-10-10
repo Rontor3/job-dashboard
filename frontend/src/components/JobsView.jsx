@@ -46,7 +46,7 @@ function Sources() {
     saveAgentSettings({ [key]: !s[key] }).then(() => setS({ ...s, [key]: !s[key] })).catch(() => {});
   };
   return (
-    <details className="sources">
+    <details className="sources" data-agent="setting:browser_sources">
       <summary>Sources · {on ? `${on} logged-in board${on > 1 ? "s" : ""} on` : "public boards only"}</summary>
       <div className="chips" style={{ marginTop: 10 }}>
         {SITES.map(([k, label]) => (
@@ -80,7 +80,7 @@ function JobRow({ job, reasons, onApply, onSkip, onOpen, queued }) {
   const pref = job.pref || 0;
   const done = DONE.includes(job.status);
   return (
-    <li className="job">
+    <li className="job" data-agent={`job:${job.id}`}>
       <div className="job-main">
         <button className="job-text" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
           <div className="job-title">{job.title}</div>

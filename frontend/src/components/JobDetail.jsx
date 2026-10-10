@@ -34,7 +34,7 @@ export default function JobDetail({ id, onApply, onStatusChange, onClose }) {
   return (
     <>
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,16,10,0.28)", zIndex: 49 }} />
-    <div style={{ position: "fixed", top: 0, right: 0, height: "100vh", width: "min(560px, 94vw)", overflowY: "auto", background: "var(--card)", borderLeft: "0.5px solid var(--hairline)", boxShadow: "-8px 0 32px rgba(0,0,0,0.14)", padding: "18px 20px", zIndex: 50, animation: "rowIn var(--dur-enter) var(--ease-out) both" }}>
+    <div data-agent={`job:${id}`} style={{ position: "fixed", top: 0, right: 0, height: "100vh", width: "min(560px, 94vw)", overflowY: "auto", background: "var(--card)", borderLeft: "0.5px solid var(--hairline)", boxShadow: "-8px 0 32px rgba(0,0,0,0.14)", padding: "18px 20px", zIndex: 50, animation: "rowIn var(--dur-enter) var(--ease-out) both" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 500 }}>{job.title}</div>

@@ -1,9 +1,17 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { editFilledAnswer, explainQuestion, fetchInbox, replyQuestion, reviewAnswer, saveAnswer } from "../api.js";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { editFilledAnswer, fetchInbox, replyQuestion, reviewAnswer, saveAnswer } from "../api.js";
+import { useOptionalAgent } from "../agent/AgentProvider.tsx";
 
 // Everything the agent needs from you, one card at a time. Each answer goes straight back into its memory:
 // a blocking question unblocks that application, a confirmed guess becomes a trusted match, a bank answer is
 // reused on every future form.
+// What each card is, for the agent (docs/agent/system.md lists these anchor kinds).
+const ANCHOR = {
+  question: (i) => `question:${i.job_id}:${i.row_id}`,
+  guess: (i) => `answer:${i.row_id}`,
+  bank: (i) => `qbank:${i.id}`,
+};
+
 const KIND = {
   question: "Holding up an application",
   guess: "Check the agent's answer",
@@ -51,17 +59,14 @@ function Card({ item, onDone, onSkip }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [freeform, setFreeform] = useState(false);
-  const [explanation, setExplanation] = useState(null);
-
-  const explain = () => {
-    setExplanation("…");
-    explainQuestion(item.label, item.options || [], item.company || null)
-      .then((r) => setExplanation(r.explanation))
-      .catch(() => setExplanation("Couldn't reach the model to explain this. Is it running?"));
-  };
+  const card = useRef(null);
+  const agent = useOptionalAgent();
+  // Opens the agent's popover on this card with the question already sent; follow-ups ("then answer No") go there too.
+  const explain = () => agent?.openPopover(card.current, "What does this mean?");
+  const explainLink = agent && <button className="linkish" onClick={explain}>What does this mean?</button>;
   const helpers = (
     <div className="ask-help">
-      {!explanation && <button className="linkish" onClick={explain}>What does this mean?</button>}
+      {explainLink}
       {item.options?.length > 0 && (
         <button className="linkish" onClick={() => { setFreeform((f) => !f); setValue(""); }}>
           {freeform ? "Pick from the choices" : "Type my own answer"}
@@ -87,17 +92,16 @@ function Card({ item, onDone, onSkip }) {
   };
 
   return (
-    <article className="ask" aria-label="Question from the agent">
+    <article className="ask" aria-label="Question from the agent" ref={card} data-agent={ANCHOR[item.type](item)}>
       <span className="ask-kind">{KIND[item.type]}</span>
       {item.company ? <p className="ask-context">{item.company} · {item.title}</p>
         : item.context && <p className="ask-context">{item.context}</p>}
       <h2 className="ask-q">{item.label}</h2>
       {item.hint && <p className="ask-hint">{item.hint}</p>}
-      {explanation && <p className="ask-explain" role="note">{explanation}</p>}
       {item.type === "guess" && !fixing ? (
         <>
           <p className="ask-answer">{item.answer}</p>
-          {!explanation && <div className="ask-help"><button className="linkish" onClick={explain}>What does this mean?</button></div>}
+          {explainLink && <div className="ask-help">{explainLink}</div>}
           <div className="ask-foot">
             <button className="btn btn-primary" disabled={busy}
               onClick={() => run(reviewAnswer(item.row_id, "correct"), "Confirmed — trusted next time.")}>Looks right</button>
