@@ -125,6 +125,20 @@ describe.skipIf(!hasPython)("agent over FastAPI", () => {
     await a.harness.close(ctx);
   });
 
+  it("builds the essay ingredient bank, each write undoable", async () => {
+    const a = await agent("ingredients");
+    const unit = { type: "project", title: "Churn model", org: "Acme", source: "Built a churn model (AUC 0.91).", tech: ["XGBoost"] };
+    a.faux.setResponses([toolUse("add_ingredient", unit), toolUse("update_ingredient", { id: "churn-model", impact: ["AUC 0.91"] }),
+      toolUse("get_ingredients", {}), say("Added.")]);
+    await a.ask("Build my ingredient bank");
+    const results = (await a.entries()).filter((e) => e.kind === "pi.tool-result").map((e) => e.model[0]);
+    expect(results.map((r: any) => r.isError)).toEqual([false, false, false]);
+    expect(JSON.parse(results[2].content[0].text).units).toEqual([expect.objectContaining({ id: "churn-model", impact: ["AUC 0.91"], tech: ["XGBoost"] })]);
+    const changes = (await api.ui("GET", `/api/changes?session_id=${a.session}`)).body.changes;
+    expect(changes.map((c: any) => [c.entity, c.entity_id, c.undoable])).toEqual([["file", "ingredients", true], ["file", "ingredients", true]]);
+    await a.harness.close(ctx);
+  });
+
   it("streams a snapshot first to every client of a session", async () => {
     const a = await agent("stream");
     const read = async () => {

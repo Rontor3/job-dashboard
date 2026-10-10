@@ -24,6 +24,7 @@ def candidate_profile_path() -> Path:
 FILES = {
     "candidate_profile": candidate_profile_path,
     "setup_state": lambda: paths.DATA_DIR / "setup-state.md",
+    "ingredients": lambda: paths.INGREDIENTS,
 }
 
 

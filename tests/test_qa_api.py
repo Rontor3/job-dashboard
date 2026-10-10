@@ -184,7 +184,7 @@ def test_reply_404_and_blank_422(env):
     assert c.post("/api/jobs/1/questions/99/reply", json={"answer": " "}).status_code == 422
 
 
-def test_ingredients_missing_file_is_empty(env):
+def test_ingredients_missing_file_is_empty(env, ing_file):
     c, _ = env
     assert c.get("/api/ingredients").json() == {"units": [], "skills_pool": []}
 
@@ -254,10 +254,17 @@ def test_edit_can_save_as_a_new_saved_answer_and_rejects_bad_input(env):
     assert c.put(f"/api/application-qa/{open_row}/answer", json={"answer": "x", "save_as": "entry"}).status_code == 422
 
 
-def _write_ingredients(db):
+@pytest.fixture
+def ing_file(tmp_path, monkeypatch):
+    from job_dashboard import paths
+    path = tmp_path / "answer_style" / "ingredients.json"
+    monkeypatch.setattr(paths, "INGREDIENTS", path)
+    return path
+
+
+def _write_ingredients(path):
     import json
-    from pathlib import Path
-    p = Path(db).parent / "answer_style"
+    p = path.parent
     p.mkdir(exist_ok=True)
     (p / "ingredients.json").write_text(json.dumps({"version": 1, "units": [
         {"id": "u1", "type": "project", "title": "Fraud", "org": "Tata", "problem": "slow", "tech": ["ML"],
@@ -265,10 +272,10 @@ def _write_ingredients(db):
     return p / "ingredients.json"
 
 
-def test_ingredient_edit_keeps_source_locked_and_backs_up(env):
+def test_ingredient_edit_keeps_source_locked_and_backs_up(env, ing_file):
     import json
     c, db = env
-    path = _write_ingredients(db)
+    path = _write_ingredients(ing_file)
     assert c.get("/api/ingredients").json()["units"][0]["problem"] == "slow"
     r = c.put("/api/ingredients/u1", json={"problem": "manual review was slow", "tags": ["fraud", "ML"]})
     assert r.status_code == 200 and r.json()["problem"] == "manual review was slow"
@@ -280,3 +287,25 @@ def test_ingredient_edit_keeps_source_locked_and_backs_up(env):
     assert json.loads(path.read_text())["units"][0]["source"] == "changed"
     assert c.put("/api/ingredients/nope", json={"title": "x"}).status_code == 404
     assert c.put("/api/ingredients/u1", json={"title": " "}).status_code == 422
+
+
+def test_ingredient_create_starts_the_file_and_needs_a_source(env, ing_file):
+    import json
+    c, db = env
+    path = ing_file
+    body = {"type": "project", "title": "Churn model", "org": "Acme", "source": "Built a churn model (AUC 0.91)."}
+    r = c.post("/api/ingredients", json=body)
+    assert r.status_code == 200
+    unit = r.json()
+    assert unit["id"] == "churn-model" and unit["source"] == body["source"] and unit["tech"] == []
+    d = json.loads(path.read_text())
+    assert d["units"][0]["title"] == "Churn model" and d["skills_pool"] == []
+    assert c.post("/api/ingredients", json=body).json()["id"] == "churn-model-2"
+    assert c.post("/api/ingredients", json={**body, "source": " "}).status_code == 422
+    assert c.post("/api/ingredients", json={**body, "type": "hobby"}).status_code == 422
+    assert c.post("/api/ingredients", json={**body, "title": ""}).status_code == 422
+    assert len(c.get("/api/ingredients").json()["units"]) == 2
+    log = c.get("/api/changes").json()["changes"]
+    assert log[0]["entity"] == "file" and log[0]["entity_id"] == "ingredients" and log[0]["undoable"]
+    assert c.post(f"/api/changes/{log[0]['id']}/undo").status_code == 200
+    assert len(json.loads(path.read_text())["units"]) == 1

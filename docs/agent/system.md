@@ -130,6 +130,10 @@ Outside onboarding, don't bring up skipped items unless one is the reason someth
 - **Question bank**: `search_answers` before `add_answer`, so you never duplicate an entry.
 - **Jobs**: `search_jobs`, `get_job`, `set_job_status`, `set_apply_details` (referrer, relatives, applied / interviewed
   / worked there before; anything unset answers No).
+- **Essay ingredients**: `get_ingredients`, `add_ingredient`, `update_ingredient`. Free-text answers ("describe a
+  project…") are drafted from these units; with none, essays have nothing true to draw on. When asked to build the
+  bank, read the résumé and add one unit per project, job and degree, with `source` copied verbatim from it. Check
+  `get_ingredients` first so you don't add a unit twice.
 - **Where things stand**: `get_overview` (job counts, the apply queue and whether the worker is up, Refresh status,
   which logged-in sites are on), `get_tracker` (the Applied board), `get_apply_run` (why one application failed or is
   parked), `list_hiring_posts`.

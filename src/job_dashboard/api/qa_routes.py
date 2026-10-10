@@ -9,6 +9,7 @@ confirms a wording or re-points it to the right entry. Spec 2026-09-26 §3–4.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +43,21 @@ class IngredientBody(BaseModel):
     tags: Optional[list[str]] = None
     source: Optional[str] = None
     confirm_source: bool = False
+
+
+class NewIngredientBody(BaseModel):
+    type: str
+    title: str
+    source: str
+    org: str = ""
+    problem: str = ""
+    approach: str = ""
+    tech: list[str] = []
+    impact: list[str] = []
+    tags: list[str] = []
+
+
+INGREDIENT_TYPES = ("project", "work_experience", "education")
 
 
 class ReplyBody(BaseModel):
@@ -356,12 +372,13 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         finally:
             conn.close()
 
-    ing_path = Path(db_path).parent / "answer_style" / "ingredients.json"
+    def ing_path() -> Path:
+        return change_entities.FILES["ingredients"]()
 
     @router.get("/api/ingredients")
     def ingredients():
         try:
-            d = json.loads(ing_path.read_text())
+            d = json.loads(ing_path().read_text())
         except (OSError, ValueError):
             return {"units": [], "skills_pool": []}
         return {"units": d.get("units", []), "skills_pool": d.get("skills_pool", [])}
@@ -371,7 +388,7 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         """Edit one unit. The verbatim `source` is ground truth: it changes only when confirm_source is set.
         The previous file is kept as ingredients.json.bak-<time>; the write is atomic."""
         try:
-            d = json.loads(ing_path.read_text())
+            d = json.loads(ing_path().read_text())
         except (OSError, ValueError):
             raise HTTPException(status_code=404, detail="no ingredients file")
         unit = next((u for u in d.get("units", []) if u.get("id") == unit_id), None)
@@ -383,12 +400,46 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         if edits.get("title") is not None and not str(edits["title"]).strip():
             raise HTTPException(status_code=422, detail="title is required")
         unit.update(edits)
-        d["updated"] = datetime.now(timezone.utc).date().isoformat()
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        shutil.copy2(ing_path, ing_path.with_name(f"{ing_path.name}.bak-{stamp}"))
-        tmp = ing_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n")
-        tmp.replace(ing_path)
+        write_ingredients(d)
         return unit
+
+    @router.post("/api/ingredients")
+    def add_ingredient(body: NewIngredientBody):
+        """Add one unit, starting the file if there is none. `source` is the verbatim text it was drawn from."""
+        if body.type not in INGREDIENT_TYPES:
+            raise HTTPException(status_code=422, detail=f"type must be one of {', '.join(INGREDIENT_TYPES)}")
+        if not body.title.strip() or not body.source.strip():
+            raise HTTPException(status_code=422, detail="title and source are required")
+        try:
+            d = json.loads(ing_path().read_text())
+        except OSError:
+            d = {"version": 1, "units": [], "skills_pool": []}
+        except ValueError:
+            raise HTTPException(status_code=409, detail="ingredients.json is not valid JSON; fix it by hand first")
+        units = d.setdefault("units", [])
+        base = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")[:40] or "unit"
+        taken = {u.get("id") for u in units}
+        uid, n = base, 1
+        while uid in taken:
+            n += 1
+            uid = f"{base}-{n}"
+        unit = {"id": uid, **body.model_dump(), "title": body.title.strip()}
+        units.append(unit)
+        write_ingredients(d)
+        return unit
+
+    def write_ingredients(d: dict) -> None:
+        """Through the change log (Undo restores the whole file); the previous file is also kept as
+        ingredients.json.bak-<time>."""
+        d["updated"] = datetime.now(timezone.utc).date().isoformat()
+        path = ing_path()
+        if path.is_file():
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            shutil.copy2(path, path.with_name(f"{path.name}.bak-{stamp}"))
+        conn = db()
+        try:
+            changes.apply(conn, "file", "ingredients", "text", json.dumps(d, indent=2, ensure_ascii=False) + "\n")
+        finally:
+            conn.close()
 
     return router

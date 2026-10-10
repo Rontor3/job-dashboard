@@ -229,6 +229,43 @@ export function makeTools(client: ApiClient) {
       execute: async ({ job_id, ...details }, api, ctx) => asResult(await caller(client, api, ctx)("PUT", `/api/jobs/${job_id}/apply-details`, details)),
     }),
 
+    // ── Essay ingredients (data/answer_style/ingredients.json) ──────────────────────────────────────────────
+    defineTool({
+      name: "get_ingredients",
+      description: "The essay ingredient bank: one unit per project, job or degree (problem, approach, tech, impact, and the "
+        + "verbatim `source` text it was drawn from). Free-text answers are drafted from these; an empty bank means essays are ungrounded.",
+      parameters: Type.Object({}),
+      replay: "safe",
+      execute: async (_a, api, ctx) => asResult(await caller(client, api, ctx)("GET", "/api/ingredients")),
+    }),
+    defineTool({
+      name: "add_ingredient",
+      description: "Add one unit to the ingredient bank. `source` must be text copied verbatim from the résumé or from what "
+        + "the user wrote; problem/approach/tech/impact restate only what the source says. Never invent a number.",
+      parameters: Type.Object({
+        type: Type.Union([Type.Literal("project"), Type.Literal("work_experience"), Type.Literal("education")]),
+        title: Type.String(), source: Type.String(), org: Type.Optional(Type.String()),
+        problem: Type.Optional(Type.String()), approach: Type.Optional(Type.String()),
+        tech: Type.Optional(Type.Array(Type.String())), impact: Type.Optional(Type.Array(Type.String())),
+        tags: Type.Optional(Type.Array(Type.String())),
+      }),
+      execute: async (a, api, ctx) => asResult(await caller(client, api, ctx)("POST", "/api/ingredients", a)),
+    }),
+    defineTool({
+      name: "update_ingredient",
+      description: "Edit fields of one ingredient unit (by id from get_ingredients). Changing `source` needs confirm_source: "
+        + "only when the user gave the new text.",
+      parameters: Type.Object({
+        id: Type.String(), title: Type.Optional(Type.String()), org: Type.Optional(Type.String()),
+        problem: Type.Optional(Type.String()), approach: Type.Optional(Type.String()),
+        tech: Type.Optional(Type.Array(Type.String())), impact: Type.Optional(Type.Array(Type.String())),
+        tags: Type.Optional(Type.Array(Type.String())), source: Type.Optional(Type.String()),
+        confirm_source: Type.Optional(Type.Boolean()),
+      }),
+      replay: "safe",
+      execute: async ({ id, ...fields }, api, ctx) => asResult(await caller(client, api, ctx)("PUT", `/api/ingredients/${encodeURIComponent(id)}`, fields)),
+    }),
+
     // ── What the app is doing ────────────────────────────────────────────────────────────────────────────
     defineTool({
       name: "get_overview",

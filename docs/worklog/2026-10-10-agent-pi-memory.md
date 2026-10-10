@@ -114,3 +114,15 @@ User feedback after trying the in-app agent:
   - Full pytest: 1528 passed, 96 skipped.
   - The same missing file means essays aren't grounded in project units ("memory router unavailable" in the apply
     log). Filling Your story → Ingredients, or asking the agent to draft them from the résumé, fixes that.
+- **The agent can build the essay ingredient bank.** `data/answer_style/ingredients.json` didn't exist, and nothing
+  could create it: the API only edited existing units.
+  - New `POST /api/ingredients` adds a unit (project, work_experience or education; title and verbatim `source`
+    required) and starts the file if it's missing. The id is slugged from the title.
+  - Every ingredient write now goes through the change log as the `file` entity `ingredients`, so a write by you or
+    the agent has Undo. The `.bak-<time>` copy is still kept.
+  - The route resolves the file through `paths.INGREDIENTS`, as screening and exact_tech read it, instead of a path
+    next to the db.
+  - New agent tools `get_ingredients`, `add_ingredient`, `update_ingredient`. The system prompt says to copy `source`
+    verbatim from the résumé and check for an existing unit first.
+  - Tests: a pytest for create/validation/undo and an agent e2e test. Full pytest 1529 passed, 96 skipped; agent 15.
+  - Not run against your data. Ask the agent "build my ingredient bank from my résumé" to fill it.
