@@ -19,6 +19,8 @@ export interface LlmSettings {
   contextWindow: number;
   /** The thinking level a session starts with: LLM_REASONING_EFFORT (none = off), else medium. */
   thinkingLevel: string;
+  /** Pasted pictures reach the model unless the endpoint can't take them (LLM_IMAGES=0). */
+  images?: boolean;
 }
 
 const EFFORT_TO_LEVEL: Record<string, string> = { none: "off", low: "low", medium: "medium", high: "high", xhigh: "xhigh" };
@@ -31,6 +33,7 @@ export async function readLlmSettings(client: ApiClient): Promise<LlmSettings> {
     modelId: value("LLM_MODEL") ?? setting("OLLAMA_MODEL") ?? DEFAULT_MODEL,
     contextWindow: Number(value("LLM_CONTEXT_WINDOW") ?? DEFAULT_CONTEXT),
     thinkingLevel: EFFORT_TO_LEVEL[(value("LLM_REASONING_EFFORT") ?? "").toLowerCase()] ?? "medium",
+    images: value("LLM_IMAGES") !== "0",
   };
 }
 
@@ -43,7 +46,7 @@ function modelFor(s: LlmSettings): Model<"openai-responses"> {
     baseUrl: s.baseUrl,
     reasoning: true,                       // /thinking sends reasoning.effort; "off" sends effort "none"
     thinkingLevelMap: { minimal: null },   // not an OpenAI effort; the endpoint answers for the rest
-    input: ["text"],
+    input: s.images === false ? ["text"] : ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: s.contextWindow,
     maxTokens: 8192,

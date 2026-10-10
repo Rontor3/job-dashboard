@@ -1,6 +1,5 @@
-// The popover: quick questions about one element, in place. It is a view into the active session showing only the
-// exchanges started from this element; its header opens the Agent tab at that point. If the agent is busy, the
-// question waits its turn and the popover says so.
+// The popover: quick questions about one element, in place. They go to a side branch of the active session (one per
+// element), so the conversation in the Agent tab isn't interrupted; the header opens that branch in the Agent tab.
 import { useEffect } from "react";
 import { ACTIONABLE_KINDS, anchorKind, type ElementContext } from "@jobdash/agent-protocol";
 import { useAgent } from "./AgentProvider.tsx";
@@ -12,7 +11,8 @@ const HEIGHT = 420;
 
 export default function Popover() {
   const agent = useAgent();
-  const { popover, thread } = agent;
+  const { popover } = agent;
+  const thread = agent.aside.thread;
   useEffect(() => {
     if (!popover) return undefined;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape") agent.closePopover(); };
@@ -33,15 +33,19 @@ export default function Popover() {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const left = Math.max(8, Math.min(rect.left, vw - WIDTH - 8));
-  // Below the element when there's room, else above it, always on screen.
-  const top = Math.max(8, rect.bottom + 8 + HEIGHT <= vh ? rect.bottom + 8 : Math.min(rect.top - 8 - HEIGHT, vh - HEIGHT - 8));
+  // On whichever side of the element has more room (below when it fits), sized to that room, never over it.
+  const below = vh - rect.bottom - 16;
+  const above = rect.top - 16;
+  const under = below >= Math.min(HEIGHT, 300) || below >= above;
+  const height = Math.max(200, Math.min(HEIGHT, under ? below : above));
+  const top = under ? Math.min(rect.bottom + 8, vh - height - 8) : Math.max(8, rect.top - 8 - height);
 
   return (
-    <div className="agent-popover" data-agent-ui role="dialog" aria-label="Ask the agent" style={{ left, top, width: WIDTH, maxHeight: HEIGHT }}>
+    <div className="agent-popover" data-agent-ui role="dialog" aria-label="Ask the agent" style={{ left, top, width: WIDTH, maxHeight: height }}>
       <div className="agent-popover-head">
         <button className="linkish" title="Open in the Agent tab"
-          onClick={() => agent.openTab(shown[0]?.id)}>
-          {context.heading || context.label || context.anchor || "This part of the page"}
+          onClick={() => { if (agent.aside.id) void agent.openSession(agent.aside.id).then(() => agent.openTab(shown[0]?.id)); else agent.openTab(); }}>
+          {context.label || context.heading || context.anchor || "This part of the page"}
         </button>
         <button className="btn btn-quiet btn-sm" aria-label="Close" onClick={agent.closePopover}>×</button>
       </div>
@@ -49,7 +53,7 @@ export default function Popover() {
       <Thread entries={shown} partial={mine ? thread.partial : null} running={mine && thread.running}
         toolsRunning={thread.toolsRunning} />
       {waiting && <p className="agent-busy">Agent is busy with “{busy?.question}”; your question is next.</p>}
-      <Composer placeholder="Ask about this…" autoFocus onSend={(t) => void agent.ask(t, context)} />
+      <Composer placeholder="Ask about this…" autoFocus onSend={(t) => void agent.askAside(t, context)} />
     </div>
   );
 }

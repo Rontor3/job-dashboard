@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from job_dashboard import paths
 
-import base64
 import json
 import os
 import pathlib
@@ -122,21 +121,6 @@ def _extract_code(text: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _body_text(service, msg_id: str) -> str:
-    """Decode the plaintext body of a Gmail message."""
-    msg = service.users().messages().get(
-        userId="me", id=msg_id, format="full"
-    ).execute()
-    parts = msg.get("payload", {}).get("parts") or [msg.get("payload", {})]
-    for part in parts:
-        if part.get("mimeType") == "text/plain":
-            data = part.get("body", {}).get("data", "")
-            if data:
-                return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
-    # fallback: snippet
-    return msg.get("snippet", "")
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -159,61 +143,35 @@ def poll_otp(
         print("[gmail-otp] No token — falling back to file reader")
         return None
 
+    from job_dashboard.mail_gate import Gate, allowed_senders
     service = _build_service()
     # Look back 1800s (OTP validity window) so we pick up emails from prior
     # Continue clicks when Phenom rate-limits new OTP sends.
     since = after_epoch or (int(time.time()) - 1800)
-
-    # Build query list: sender filter first (fast), then all-unread fallback
+    # Only senders that send sign-in codes: boards, tracking systems, the known OTP mailers and the site being applied
+    # to. There is no "any unread mail" fallback: a code from anyone else is not ours to read.
     # NOTE: no category:primary — ATS verification emails often land in Promotions
-    senders = [sender_hint] if sender_hint else _OTP_SENDERS
-    narrow_query = (
-        "is:unread "
-        f"after:{since} "
-        "(" + " OR ".join(f"from:{s}" for s in senders) + ")"
-    )
-    # Broad fallback: all unread emails — catches completely unknown ATS mailers
-    broad_query = f"is:unread after:{since}"
+    gate = Gate(service, allowed_senders(None) + _OTP_SENDERS, "sign-in-code")
+    hint = [sender_hint] if sender_hint else []
 
     seen: set[str] = set()
     deadline = time.time() + timeout_s
-    print(f"[gmail-otp] Polling for OTP (timeout {timeout_s}s) …", flush=True)
+    print(f"[gmail-otp] Polling for a sign-in code (timeout {timeout_s}s) …", flush=True)
 
-    def _scan(query: str) -> str | None:
-        results = service.users().messages().list(
-            userId="me", q=query, maxResults=10
-        ).execute()
-        for m in results.get("messages", []):
-            mid = m["id"]
-            if mid in seen:
+    def _scan() -> str | None:
+        for m in gate.search("is:unread", since, 10, ("From", "Subject"), extra_senders=hint):
+            if m["id"] in seen:
                 continue
-            seen.add(mid)
-            hdr = service.users().messages().get(
-                userId="me", id=mid, format="metadata",
-                metadataHeaders=["From", "Subject"]
-            ).execute()
-            snippet = hdr.get("snippet", "")
-            code = _snippet_code(snippet)
-            if not code:
-                body = _body_text(service, mid)
-                code = _extract_code(body)
+            seen.add(m["id"])
+            code = _snippet_code(m["snippet"]) or _extract_code(gate.body(m["id"]))
             if code:
-                sender = next(
-                    (h["value"] for h in hdr.get("payload", {}).get("headers", [])
-                     if h["name"] == "From"), "?")
-                print(f"[gmail-otp] Got code {code!r} from {sender}", flush=True)
-                try:
-                    service.users().messages().modify(
-                        userId="me", id=mid, body={"removeLabelIds": ["UNREAD"]}
-                    ).execute()
-                except Exception:
-                    pass  # read-only token: can't mark read, but code is usable
+                sender = m["sender"].rsplit("@", 1)[-1].rstrip(">") if "@" in m["sender"] else "?"
+                print(f"[gmail-otp] Got a sign-in code from {sender}", flush=True)       # never the code itself
                 return code
         return None
 
     while time.time() < deadline:
-        # Try narrow first (faster), then broad fallback
-        code = _scan(narrow_query) or _scan(broad_query)
+        code = _scan()
         if code:
             return code
         time.sleep(poll_interval_s)

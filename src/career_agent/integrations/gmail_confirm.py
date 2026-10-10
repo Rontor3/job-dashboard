@@ -67,31 +67,42 @@ def match_confirmation(msg: dict, company: str, title: str = "") -> bool:
     return len(role) >= 2 and sum(t in hay for t in role) >= max(2, len(role) - 1)
 
 
-def _header(headers: list, name: str) -> str:
-    return next((h["value"] for h in headers if h.get("name", "").lower() == name.lower()), "")
-
-
 _QUERY = ("subject:(application OR applying OR applied) (sent OR received OR submitted OR \"thank you\" OR \"you applied\")")
 
 
-def iter_confirmations(service, after_epoch: int, max_results: int = 100):
-    """Recent confirmation-worded mail as {id, subject, from, snippet, date}. METADATA only: no message body is fetched."""
-    res = service.users().messages().list(userId="me", q=f"after:{int(after_epoch)} ({_QUERY})", maxResults=max_results).execute()
-    for m in res.get("messages", []):
-        meta = service.users().messages().get(userId="me", id=m["id"], format="metadata",
-                                              metadataHeaders=["Subject", "From", "Date"]).execute()
-        hdr = meta.get("payload", {}).get("headers", [])
+def iter_confirmations(service, after_epoch: int, max_results: int = 100, companies: list[str] | None = None):
+    """Recent confirmation-worded mail as {id, subject, from, snippet, date}, from allowed senders (boards, tracking
+    systems, the companies you applied to) only. METADATA only: no message body is fetched."""
+    from job_dashboard.mail_gate import Gate, allowed_senders
+    gate = Gate(service, allowed_senders(None, companies if companies is not None else _applied_companies()),
+                "application-confirmation")
+    for m in gate.search(_QUERY, after_epoch, max_results):
         try:
-            when = parsedate_to_datetime(_header(hdr, "Date")).isoformat()
+            when = parsedate_to_datetime(m["date"]).isoformat()
         except Exception:
             when = ""
-        yield {"id": m["id"], "subject": _header(hdr, "Subject"), "from": _header(hdr, "From"),
-               "snippet": meta.get("snippet", ""), "date": when}
+        yield {"id": m["id"], "subject": m["subject"], "from": m["sender"], "snippet": m["snippet"], "date": when}
+
+
+def _applied_companies() -> list[str]:
+    """Companies with an application open or in the queue, so their own mail is on the allowlist."""
+    try:
+        from job_dashboard.db import init_db
+        from job_dashboard.paths import DB
+        conn = init_db(str(DB))
+        try:
+            return [r[0] for r in conn.execute(
+                """SELECT DISTINCT company FROM jobs WHERE status IN ('applied','interviewing','saved')
+                   OR id IN (SELECT job_id FROM apply_queue)""")]
+        finally:
+            conn.close()
+    except Exception:                                      # noqa: BLE001 — no database: boards and ATS only
+        return []
 
 
 def search_confirmation(service, company: str, title: str, after_epoch: int) -> dict | None:
     """The confirmation mail for this job, if one has arrived."""
-    for msg in iter_confirmations(service, after_epoch, 30):
+    for msg in iter_confirmations(service, after_epoch, 30, [company]):
         if match_confirmation(msg, company, title):
             return {k: msg[k] for k in ("id", "subject", "from", "date")}
     return None

@@ -36,7 +36,7 @@ function Update({ n, onOpenJob, onShowJobs, onDismiss, onChange }) {
 
   return (
     <li className={`update update-${n.level}${n.read_at ? "" : " update-unread"}`} ref={card}
-      data-agent={`notification:${n.id}`}>
+      data-agent={`notification:${n.id}`} aria-label={n.title}>
       <span className={`update-mark update-mark-${n.kind}`} aria-hidden="true">{MARK[n.kind] || "•"}</span>
       <div className="update-main">
         <div className="update-head">

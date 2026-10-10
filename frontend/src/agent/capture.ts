@@ -38,7 +38,7 @@ export function captureContext(clicked: Element, tab?: string): ElementContext {
   const ctx: ElementContext = { text };
   const anchor = target.getAttribute("data-agent");
   if (anchor) ctx.anchor = anchor;
-  const label = labelOf(clicked);
+  const label = labelOf(clicked) ?? (target !== clicked ? target.getAttribute("aria-label") ?? undefined : undefined);
   if (label && label !== text) ctx.label = label;
   const heading = headingOf(target);
   if (heading && heading !== text) ctx.heading = heading;

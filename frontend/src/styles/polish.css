@@ -152,3 +152,38 @@
 .ing-tech { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .ing-tech span { font-size: 11.5px; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--green-tint); color: var(--green-mid); }
 @media (max-width: 720px) { .tune-presets { grid-template-columns: 1fr; } }
+.ask-reading { color: var(--ink-soft); font-weight: 400; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.45; } }
+.deck-item[data-state="again"] .deck-mark { background: var(--warm-tint); color: var(--warm-ink); }
+
+/* ── Agent editor: one line until you type more; pictures above it ── */
+.pi-input { display: flex; align-items: flex-end; gap: 8px; }
+.pi-editor textarea { min-height: 0; line-height: 1.5; padding: 6px 2px; font-family: var(--font-sans); font-size: 14.5px; }
+.pi-attach { flex: none; width: 30px; height: 30px; margin-bottom: 3px; border-radius: 8px; border: 1px solid var(--hairline); cursor: pointer;
+  background: transparent; color: var(--ink-soft); font: inherit; font-size: 16px; line-height: 1; }
+.pi-attach:hover { color: var(--ink); border-color: var(--green-soft); }
+.pi-pics { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.pi-pics li { position: relative; }
+.pi-pics img { display: block; width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--hairline); }
+.pi-pics button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--hairline);
+  background: var(--card); color: var(--ink-soft); cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
+.pi-pics-note { margin: 0 0 6px; font-size: 12.5px; color: var(--warm-ink); }
+.pi-user-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.pi-user-images img { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--hairline); object-fit: contain; background: var(--card); }
+.pi-latest { position: sticky; bottom: 8px; left: 50%; transform: translateX(-50%); display: block; margin: 0 auto; z-index: 4;
+  font: inherit; font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; padding: 5px 14px; border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline-strong); background: var(--card); color: var(--ink); box-shadow: var(--shadow-md); cursor: pointer; }
+/* In the Agent tab only the transcript box scrolls; the thread inside it never gets a scrollbar of its own. */
+.pi-scroll .agent-thread { max-height: none; overflow: visible; }
+.pi-editor textarea { min-height: calc(1.5em + 12px); max-height: 40vh; }
+/* The popover fits the room it has: its thread takes what's left between the header and the composer. */
+.agent-popover .agent-thread { flex: 1 1 auto; min-height: 60px; max-height: none; overflow-y: auto; }
+.pi-forked { text-align: center; margin: 6px 0; color: var(--ink-soft); font-size: 12.5px; }
+/* A long title gives way before the company and place do; on narrow screens they take their own line. */
+.job-text .job-title { max-width: 68%; }
+.job-text .job-meta { min-width: 120px; }
+@media (max-width: 1000px) {
+  .job-text { flex-direction: column; gap: 1px; }
+  .job-text .job-title { max-width: 100%; }
+  .job-text .job-meta { min-width: 0; width: 100%; }
+}

@@ -137,7 +137,10 @@ export default function AgentTab({ onGo }: { onGo?: (tab: string) => void } = {}
       case "resume":
         setOverlay({ kind: "sessions", items: sessions.items.map((s) => ({ id: s.id, label: s.title, hint: new Date(s.createdAt).toLocaleString(), current: s.id === active })) });
         return;
-      case "tree": setOverlay({ kind: "tree", items: treeItems(sessions.items, active) }); return;
+      case "tree":
+        setOverlay({ kind: "tree", items: treeItems(sessions.items, active,
+          userEntries.map((e) => ({ id: e.id, label: userTurn(e)?.question.split("\n")[0]!.slice(0, 100) ?? "" }))) });
+        return;
       case "fork":
         if (!userEntries.length) { note("Nothing to fork from yet", true); return; }
         setOverlay({ kind: "fork", items: [...userEntries].reverse().map((e) => ({ id: String(e.id), label: userTurn(e)?.question.split("\n")[0]!.slice(0, 120) ?? "" })) });
@@ -170,7 +173,11 @@ export default function AgentTab({ onGo }: { onGo?: (tab: string) => void } = {}
   const picked = async (o: Overlay, item: PickItem) => {
     close();
     if (o.kind === "models") await server("model", item.id);
-    else if (o.kind === "sessions" || o.kind === "tree") await agent.openSession(item.id);
+    else if (o.kind === "sessions") await agent.openSession(item.id);
+    else if (o.kind === "tree") {
+      if (item.id.startsWith("e:")) agent.openTab(Number(item.id.slice(2)));        // a message here: scroll to it
+      else if (item.id.slice(2) !== active) await agent.openSession(item.id.slice(2));
+    }
     else if (o.kind === "fork") {
       // pi's /fork: a new session with everything before that message, and the message back in the editor.
       const i = thread.entries.findIndex((e) => String(e.id) === item.id);
@@ -249,7 +256,7 @@ export default function AgentTab({ onGo }: { onGo?: (tab: string) => void } = {}
         </header>
         {empty && <StartScreen onGo={onGo} />}
         <Thread entries={thread.entries} partial={thread.partial} running={thread.running} toolsRunning={thread.toolsRunning}
-          live={thread.live} focus={agent.focusEntry} view={view}
+          live={thread.live} focus={agent.focusEntry} view={view} forkAt={current?.forkAt}
           notes={<>
             {thread.retry && <div className="pi-note pi-error">Retrying: {thread.retry}</div>}
             {thread.compacting && <div className="pi-note">Compacting the context…</div>}
@@ -260,7 +267,7 @@ export default function AgentTab({ onGo }: { onGo?: (tab: string) => void } = {}
       </div>
       {panel}
       <Editor ref={editor} commands={commands} running={thread.running} thinkingLevel={level}
-        onSubmit={(t, mode) => void agent.ask(t, undefined, mode)}
+        onSubmit={(t, mode, images) => void agent.ask(t, undefined, mode, images)}
         onCommand={(n, a) => void run(n, a)}
         onStop={() => void agent.takeBack().then((back) => {           // queued messages return to the editor
           if (back.length) editor.current?.setText(back.join("\n"));

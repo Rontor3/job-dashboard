@@ -179,8 +179,8 @@ export default function App() {
         {tab === "jobs" && <Jobs queue={queue} onApply={onApply} onOpen={setSelectedId} refreshTick={tick}
           focusIds={focusJobs} onClearFocus={() => setFocusJobs(null)} onQueued={(snap) => setQueue(snap)} />}
         {tab === "applied" && (
-          <section aria-label="Applied">
-            <h1 className="view-title">Applied</h1>
+          <section aria-label="Applications">
+            <h1 className="view-title">Applications</h1>
             <p className="view-sub">Mark what happened. Outcomes tell the agent which applications work.</p>
             <TrackerBoard onSelect={setSelectedId} refreshTick={tick} onStatsChange={bump} onStatsPoll={() => {}}
               onRequeue={(id) => onQueueChange(addToQueue(id))} />

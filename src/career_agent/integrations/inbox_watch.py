@@ -69,32 +69,13 @@ def check_security_email(domain: str, lookback_minutes: int = 120) -> bool:
         from ..reliability.rate_limiter import domain_key
         d = domain_key(f"https://{domain}/")
 
-        service = _build_service()
+        from job_dashboard.mail_gate import Gate
         since = int(time.time()) - lookback_minutes * 60
         phrase_q = " OR ".join(f'"{p}"' for p in _SEARCH_PHRASES)
-        query = f"from:{d} after:{since} ({phrase_q})"
-
-        result = service.users().messages().list(
-            userId="me", q=query, maxResults=5
-        ).execute()
-
-        for msg in result.get("messages", []):
-            meta = service.users().messages().get(
-                userId="me", id=msg["id"], format="metadata",
-                metadataHeaders=["Subject"],
-            ).execute()
-            snippet = meta.get("snippet", "")
-            subject = next(
-                (h["value"] for h in meta.get("payload", {}).get("headers", [])
-                 if h["name"] == "Subject"),
-                "",
-            )
-            combined = f"{subject} {snippet}"
-            if _is_lockout(combined):
-                print(
-                    f"[inbox-watch] lockout email from {d!r}: {subject!r} — stopping run",
-                    flush=True,
-                )
+        gate = Gate(_build_service(), [d], "lockout-check")                # only this site's own mail
+        for msg in gate.search(f"({phrase_q})", since, 5, ("From", "Subject")):
+            if _is_lockout(f"{msg['subject']} {msg['snippet']}"):
+                print(f"[inbox-watch] lockout email from {d!r} — stopping run", flush=True)
                 return True
 
         return False

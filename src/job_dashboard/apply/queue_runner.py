@@ -33,6 +33,11 @@ _STOPPED = {
     "closed": "is closed", "sensitive_field": "needs bank or ID details only you can enter",
     "email_code": "needs the code the site emailed you", "stalled_no_progress": "stalled on a page",
     "one_click_needs_autosubmit": "is a one-click apply that needs auto-submit on for that board",
+    "no_advance_control": "stopped: the agent couldn't find the Next or Submit button",
+    "no_form_found": "stopped: the agent couldn't find the application form", "stuck": "stalled on a page",
+    "max_steps": "stopped after too many pages without finishing", "submit_declined": "is filled; you chose not to submit",
+    "submit_unconfirmed": "may have been sent, but the site didn't confirm it", "security_email": "stopped: the site sent a security warning",
+    "reached_submit_dry_run": "is filled and waiting for your review", "error": "stopped on an error",
 }
 
 
@@ -44,7 +49,7 @@ def announce(conn, job_id: int, state: str, reason: str | None) -> None:
         notifications.safe_notify(conn, "submitted", f"Applied: {what}", level="success", job_id=job_id,
                                   source="queue", dedupe=f"run:{job_id}")
     elif state == "parked":
-        why = _STOPPED.get(reason or "", (reason or "stopped").replace("_", " "))
+        why = _STOPPED.get(reason or "", "stopped before the end; open it to see where")       # never a raw code
         notifications.safe_notify(conn, "parked", f"{what} {why}", level="action", job_id=job_id, source="queue",
                                   data={"reason": reason}, dedupe=f"run:{job_id}")
     else:

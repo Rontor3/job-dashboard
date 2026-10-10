@@ -93,21 +93,40 @@ export function HotkeysPanel({ onClose }: { onClose(): void }) {
   );
 }
 
-/** The session tree: forks and clones under the session they came from. */
-export function treeItems(items: SessionInfo[], active: string | null): PickItem[] {
-  const kids = new Map<string | undefined, SessionInfo[]>();
-  const ids = new Set(items.map((i) => i.id));
-  for (const s of items) {
-    const p = s.parent && ids.has(s.parent) ? s.parent : undefined;
-    kids.set(p, [...(kids.get(p) ?? []), s]);
-  }
+/**
+ * pi's /tree: the conversation you're in, message by message, with every branch (a fork, a clone, a side question
+ * from another page) hanging under the message it split off after, and the sessions it came from above. Picking a
+ * message scrolls to it; picking a branch opens it. Ids: `e:<entry id>` for a message, `s:<session id>` for a branch.
+ */
+export function treeItems(items: SessionInfo[], active: string | null, turns: { id: number; label: string }[] = []): PickItem[] {
+  const byId = new Map(items.map((s) => [s.id, s]));
+  const kids = (id: string) => items.filter((s) => s.parent === id).sort((a, b) => a.createdAt - b.createdAt);
   const out: PickItem[] = [];
-  const walk = (parent: string | undefined, depth: number) => {
-    for (const s of [...(kids.get(parent) ?? [])].sort((a, b) => a.createdAt - b.createdAt)) {
-      out.push({ id: s.id, label: `${"  ".repeat(depth)}${depth ? "└ " : ""}${s.title}`, hint: new Date(s.createdAt).toLocaleString(), current: s.id === active });
-      walk(s.id, depth + 1);
-    }
+  const date = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+  const branch = (s: SessionInfo, depth: number) => {
+    out.push({ id: `s:${s.id}`, label: `${"  ".repeat(depth)}⑂ ${s.aside ? "aside: " : ""}${s.title}`, hint: date(s.createdAt) });
+    for (const k of kids(s.id)) branch(k, depth + 1);
   };
-  walk(undefined, 0);
+  const lineage: SessionInfo[] = [];
+  for (let s = active ? byId.get(active) : undefined; s; s = s.parent ? byId.get(s.parent) : undefined) lineage.unshift(s);
+  lineage.slice(0, -1).forEach((s, d) => out.push({ id: `s:${s.id}`, label: `${"  ".repeat(d)}${s.title}`, hint: "came from" }));
+  const me = lineage.at(-1);
+  if (!me) return out;
+  const depth = lineage.length - 1;
+  const pad = "  ".repeat(depth);
+  out.push({ id: `s:${me.id}`, label: `${pad}${me.title}`, hint: date(me.createdAt), current: true });
+  const children = kids(me.id);
+  const placed = new Set<string>();
+  turns.forEach((t, i) => {
+    out.push({ id: `e:${t.id}`, label: `${pad}  › ${t.label}` });
+    const until = turns[i + 1]?.id ?? Infinity;          // branches cut after this message, before the next one
+    for (const c of children) {
+      if (c.forkAt !== undefined && c.forkAt >= t.id && c.forkAt < until && !placed.has(c.id)) {
+        placed.add(c.id);
+        branch(c, depth + 2);
+      }
+    }
+  });
+  for (const c of children) if (!placed.has(c.id)) branch(c, depth + 1);
   return out;
 }

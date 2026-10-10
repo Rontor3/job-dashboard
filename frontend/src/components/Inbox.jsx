@@ -54,14 +54,12 @@ function Choices({ options, value, onPick }) {
   );
 }
 
-function Card({ item, staged, onStage, onBack, onNext, canBack, position }) {
+function Card({ item, staged, onStage, onTyped, onBack, onNext, canBack, position }) {
   const [value, setValue] = useState(staged?.raw ?? staged?.value ?? item.guess ?? "");
   const [fixing, setFixing] = useState(item.type !== "guess" || (!!staged && !staged.confirm));
   // A question naming this company ("Why Razorpay?") is answered for this application only by default.
   const companySpecific = !!item.company && (item.label || "").toLowerCase().includes(item.company.toLowerCase());
   const [remember, setRemember] = useState(staged?.remember ?? !companySpecific);
-  const [reading, setReading] = useState(false);
-  const [error, setError] = useState(null);
   const options = item.options || [];
   const [freeform, setFreeform] = useState(!!staged?.value && options.length > 0 && !options.includes(staged.value));
   const card = useRef(null);
@@ -70,21 +68,10 @@ function Card({ item, staged, onStage, onBack, onNext, canBack, position }) {
 
   const pick = (o) => onStage({ value: o, remember });                        // one tap: staged, on to the next
   const confirmGuess = () => onStage({ value: item.answer, confirm: true });
-  const submitText = async () => {
+  // The model reads what you typed in the background while you go on; if it needs more, the question comes back next.
+  const submitText = () => {
     const text = value.trim();
-    if (!text || reading) return;
-    setReading(true);
-    setError(null);
-    try {                                                                   // the model reads it like a person would
-      const r = await interpretAnswer(item.label, text, item.type === "bank" ? item.id : undefined, options.length ? options : undefined);
-      if (r.answer == null && r.request) { setError("That reads like a question for the agent, so it'll go to the agent when you submit. What's the answer itself?"); }
-      onStage({ value: r.answer ?? (r.request ? null : text), raw: text, also: r.also || {}, request: r.request || null, remember },
-        r.answer == null && r.request);
-    } catch {
-      onStage({ value: text, raw: text, remember });
-    } finally {
-      setReading(false);
-    }
+    if (text) onTyped(text, remember);
   };
   const choosing = options.length > 0 && !freeform && (item.type !== "guess" || fixing);
 
@@ -106,7 +93,7 @@ function Card({ item, staged, onStage, onBack, onNext, canBack, position }) {
 
   const Tag = isLong(item) ? "textarea" : "input";
   return (
-    <article className="ask" aria-label="Question from the agent" ref={card} data-agent={ANCHOR[item.type](item)}>
+    <article className="ask" aria-label={item.label} ref={card} data-agent={ANCHOR[item.type](item)}>
       <div className="ask-top">
         <span className="ask-kind">{item.kindLabel || KIND[item.type]}</span>
         <span className="ask-pos">{position}</span>
@@ -114,9 +101,10 @@ function Card({ item, staged, onStage, onBack, onNext, canBack, position }) {
       {item.company ? <p className="ask-context">{item.company} · {item.title}</p> : item.context && <p className="ask-context">{item.context}</p>}
       <h2 className="ask-q">{item.label}</h2>
       {item.hint && <p className="ask-hint">{item.hint}</p>}
-      {staged?.value && (
+      {(staged?.value || staged?.reading) && (
         <p className="ask-saved" role="status">
-          Answer: <b>{staged.confirm ? "the agent's guess" : staged.value}</b>
+          Answer: <b>{staged.confirm ? "the agent's guess" : staged.value || staged.raw}</b>
+          {staged.reading && <span className="ask-reading"> · the agent is reading it…</span>}
           {Object.keys(staged.also || {}).length > 0 && <> · also fills {Object.keys(staged.also).length} more</>}
           {staged.request && <> · a request goes to the agent</>}
         </p>
@@ -140,7 +128,7 @@ function Card({ item, staged, onStage, onBack, onNext, canBack, position }) {
               if (e.key === "Enter" && (Tag === "input" || e.metaKey || e.ctrlKey)) { e.preventDefault(); submitText(); }
               if (e.key === "Escape") e.currentTarget.blur();
             }} />
-          <button className="btn btn-primary" disabled={reading || !value.trim()} onClick={submitText}>{reading ? "Reading…" : "OK"}</button>
+          <button className="btn btn-primary" disabled={!value.trim()} onClick={submitText}>OK</button>
         </div>
       )}
 
@@ -157,7 +145,7 @@ function Card({ item, staged, onStage, onBack, onNext, canBack, position }) {
           </label>
         )}
       </div>
-      {error && <div role="status" className="ask-note">{error}</div>}
+      {staged?.followUp && <div role="status" className="ask-note">{staged.followUp}</div>}
 
       <nav className="ask-nav" aria-label="Questions">
         <button className="btn btn-quiet btn-sm" aria-label="Previous question" disabled={!canBack} onClick={onBack}>← Back</button>
@@ -174,8 +162,8 @@ function Deck({ items, staged, at, onJump }) {
       {items.map((x, k) => (
         <li key={x.key}>
           <button className="deck-item" aria-current={k === at ? "step" : undefined} onClick={() => onJump(k)}
-            data-state={staged[x.key]?.value ? "done" : k === at ? "now" : "todo"}>
-            <span className="deck-mark" aria-hidden="true">{staged[x.key]?.value ? "✓" : k + 1}</span>
+            data-state={staged[x.key]?.followUp ? "again" : staged[x.key]?.value ? "done" : k === at ? "now" : "todo"}>
+            <span className="deck-mark" aria-hidden="true">{staged[x.key]?.followUp ? "!" : staged[x.key]?.reading ? "…" : staged[x.key]?.value ? "✓" : k + 1}</span>
             <span className="deck-label">{x.label}</span>
           </button>
         </li>
@@ -188,7 +176,11 @@ export default function Inbox({ onCount, onGoJobs, onSubmitted, embedded = false
   const agent = useOptionalAgent();
   const [items, setItems] = useState(null);
   const [at, setAt] = useState(0);
-  const [staged, setStaged] = useState({});          // key -> {value, raw?, also?, request?, remember?, confirm?}
+  const [staged, setStaged] = useState({});          // key -> {value, raw?, also?, request?, remember?, confirm?, reading?, followUp?}
+  const stagedRef = useRef(staged);
+  stagedRef.current = staged;
+  const pending = useRef(new Map());                // key -> the model's reading of a typed answer, still running
+  const again = useRef([]);                         // keys the model needs more on: shown next, after the current one
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
   const [error, setError] = useState(null);
@@ -216,7 +208,17 @@ export default function Inbox({ onCount, onGoJobs, onSubmitted, embedded = false
   const reviewing = at >= items.length;
   const i = Math.min(at, items.length - 1);
   const item = items[i];
+  const followUp = (from, s) => {                                         // a follow-up first, once you've moved on
+    while (again.current.length) {
+      const k = items.findIndex((x) => x.key === again.current[0]);
+      again.current.shift();
+      if (k >= 0 && k !== from && s[items[k].key]?.followUp) return k;
+    }
+    return null;
+  };
   const nextOpen = (from, s) => {
+    const back = followUp(from, s);
+    if (back !== null) return back;
     for (let d = 1; d <= items.length; d++) {
       const k = from + d;
       if (k >= items.length) return items.length;                          // the end: review and submit
@@ -225,13 +227,37 @@ export default function Inbox({ onCount, onGoJobs, onSubmitted, embedded = false
     return items.length;
   };
   const stage = (v, stay = false) => {
-    const s = { ...staged, [item.key]: { ...staged[item.key], ...v } };
+    const s = { ...staged, [item.key]: { ...staged[item.key], ...v, followUp: null } };
     setStaged(s);
     if (!stay) setAt(nextOpen(i, s));
+  };
+  const patch = (key, v) => setStaged((cur) => ({ ...cur, [key]: { ...cur[key], ...v } }));
+  const typed = (text, remember) => {
+    const x = item;
+    stage({ value: text, raw: text, remember, reading: true, also: {}, request: null });
+    const opts = x.options?.length ? x.options : undefined;
+    const job = interpretAnswer(x.label, text, x.type === "bank" ? x.id : undefined, opts)
+      .then((r) => {
+        if (stagedRef.current[x.key]?.raw !== text) return;                 // changed since: that reading is stale
+        if (r.answer == null && r.request) {
+          patch(x.key, { value: null, reading: false, request: r.request, also: r.also || {},
+            followUp: "That reads like a question for the agent, so it'll go to the agent when you submit. What's the answer itself?" });
+          again.current.push(x.key);
+        } else {
+          patch(x.key, { value: r.answer ?? text, reading: false, also: r.also || {}, request: r.request || null });
+        }
+      })
+      .catch(() => patch(x.key, { reading: false }))                        // the model is down: keep it as typed
+      .finally(() => pending.current.delete(x.key));
+    pending.current.set(x.key, job);
   };
 
   const submit = async () => {
     setBusy(true);
+    await Promise.allSettled([...pending.current.values()]);               // let every reading finish first
+    await new Promise((res) => setTimeout(res, 0));
+    const staged = stagedRef.current;
+    const answered = items.filter((x) => staged[x.key]?.value);
     const failed = [];
     const requests = [];
     const also = {};
@@ -245,8 +271,9 @@ export default function Inbox({ onCount, onGoJobs, onSubmitted, embedded = false
     if (Object.keys(also).length) await saveFacts(also).catch(() => failed.push("the extra answers"));
     const skipped = items.filter((x) => !staged[x.key]?.value && x.type !== "question").map((x) => x.key);
     if (skipped.length) await snoozeInbox(skipped).catch(() => {});
-    if (requests.length && agent) {
-      void agent.ask(`While answering my Inbox questions I also asked:\n${requests.map((r) => `- ${r}`).join("\n")}\nPlease handle these.`);
+    if (requests.length && agent) {                                       // a side branch: the main conversation is left alone
+      void agent.askAside(`While answering my Inbox questions I also asked:\n${requests.map((r) => `- ${r}`).join("\n")}\nPlease handle these.`,
+        undefined, "Requests from the Inbox");
     }
     const saved = answered.length + Object.keys(also).length;
     setNote(failed.length ? `Saved ${saved - failed.length}; couldn't save ${failed.join(", ")}.`
@@ -261,7 +288,7 @@ export default function Inbox({ onCount, onGoJobs, onSubmitted, embedded = false
   const Title = embedded ? "h2" : "h1";
   const submitBtn = (
     <button className="btn btn-primary" disabled={busy || (!answered.length && !items.length)} onClick={submit}>
-      {busy ? "Saving…" : answered.length ? `Submit ${answered.length} answer${answered.length === 1 ? "" : "s"}` : "Skip these for now"}
+      {busy ? (pending.current.size ? "Reading your answers…" : "Saving…") : answered.length ? `Submit ${answered.length} answer${answered.length === 1 ? "" : "s"}` : "Skip these for now"}
     </button>
   );
 
@@ -288,7 +315,8 @@ export default function Inbox({ onCount, onGoJobs, onSubmitted, embedded = false
               {items.map((x, k) => (
                 <li key={x.key}>
                   <button className="linkish" onClick={() => setAt(k)}>{x.label}</button>
-                  <span>{staged[x.key]?.confirm ? "agent's guess ✓" : staged[x.key]?.value || (x.type === "question" ? "unanswered" : "skipped")}</span>
+                  <span>{staged[x.key]?.followUp ? "needs the answer itself" : staged[x.key]?.confirm ? "agent's guess ✓"
+                    : staged[x.key]?.value || (x.type === "question" ? "unanswered" : "skipped")}</span>
                 </li>
               ))}
             </ul>
@@ -299,7 +327,7 @@ export default function Inbox({ onCount, onGoJobs, onSubmitted, embedded = false
           </div>
         ) : (
           <Card key={item.key} item={item} staged={staged[item.key]} position={`${i + 1} of ${items.length}`} onStage={stage}
-            canBack={i > 0} onBack={() => setAt(i - 1)} onNext={() => setAt(i + 1)} />
+            onTyped={typed} canBack={i > 0} onBack={() => setAt(i - 1)} onNext={() => setAt(followUp(i, staged) ?? i + 1)} />
         )}
         <Deck items={items} staged={staged} at={reviewing ? -1 : i} onJump={setAt} />
       </div>

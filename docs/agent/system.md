@@ -105,7 +105,9 @@ moves tracker cards, and can check for "application received" emails. Compose ac
 sends). Setup opens Google consent pages, so the user does it themselves outside the dashboard: they save an OAuth
 Desktop client as `data/secrets/gmail_credentials.json`, then run
 `PYTHONPATH=src uv run python -m career_agent.integrations.gmail_otp authorize` (and `job_dashboard.apply.gmail_draft
-authorize` for drafts). Tell them; you can't do it.
+authorize` for drafts). Tell them; you can't do it. Read-only access is limited further by the app: only mail from
+job boards, applicant-tracking systems and companies they applied to (plus domains they add to the setting
+`mail_allowed_senders`), 45 days back at most, nothing ever marked read, each read logged without contents.
 
 **Job sources.** No-login sources run on every Refresh. Logged-in sites are off by default:
 `update_agent_settings` with `browser_<site>_enabled` (linkedin, naukri, wellfound, instahyre, iimjobs, indeed,

@@ -9,9 +9,12 @@ export const QUEUE_REASON = {
   auth_wall: "login wall", error: "agent error",
   sensitive_field: "needs bank/ID details — fill them yourself",
   email_code: "enter the code the site emailed you",
+  no_advance_control: "couldn't find Next or Submit", no_form_found: "no application form found",
+  max_steps: "too many pages", submit_declined: "you chose not to submit", submit_unconfirmed: "sent, not confirmed",
+  security_email: "site security warning", stalled_no_progress: "stuck on a page",
 };
 
-export const reasonText = (reason) => (reason ? QUEUE_REASON[reason] || reason.replace(/_/g, " ") : "");
+export const reasonText = (reason) => (reason ? QUEUE_REASON[reason] || "stopped before the end" : "");
 
 // What to do about each stop, in one plain sentence (shown under a failed tracker row).
 const RETRY = "Re-queue to try again. If it stops the same way, expand the row to see the run.";
@@ -30,5 +33,8 @@ export const QUEUE_FIX = {
   email_code: "The site emailed you a code (the agent can't read your email). Enter it in the agent's Chrome window, then Re-queue.",
   unconfirmed: "Check your email for a confirmation. If it arrived, mark this Applied.",
   one_click_needs_autosubmit: "Turn on auto-submit for this board (queue → Manage), then Re-queue.",
+  no_advance_control: "The agent filled what it could but couldn't find the Next or Submit button. Finish it in the agent's Chrome window, or Re-queue.",
+  no_form_found: "The agent couldn't find the form on this page. Open the posting and apply by hand.",
+  security_email: "The site emailed a security warning, so the agent stopped. Check that email before trying again.",
 };
 export const fixText = (reason) => QUEUE_FIX[reason] || RETRY;

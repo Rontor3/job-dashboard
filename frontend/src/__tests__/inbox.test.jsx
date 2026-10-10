@@ -24,6 +24,7 @@ function serve(box) {
     const body = u.includes("/api/inbox?") || u.endsWith("/api/inbox") ? box
       : u.includes("/api/answers/interpret") ? interpretReply
       : u === "/agent/sessions" && (opts.method || "GET") === "GET" ? { active: "s1", items: [{ id: "s1", title: "x", createdAt: 0 }] }
+      : u === "/agent/sessions/s1/command" ? { ok: true, session: "b1" }
       : { ok: true, submission: 1 };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
   });
@@ -75,7 +76,8 @@ test("a typed answer is read by the model: cleaned, extra facts filled, the requ
   fireEvent.click(screen.getAllByRole("button", { name: "Submit 1 answer" })[0]);
   await saved(([u, , b]) => u.endsWith("/api/answers") && b.entry_id === "current_title" && b.answer === "Machine Learning Engineer");
   await saved(([u, , b]) => u.endsWith("/api/profile/facts") && b.answers["qbank:current_employer"] === "Rephrase.ai");
-  await saved(([u, , b]) => u === "/agent/sessions/s1/messages" && /Read my title from LinkedIn/.test(b.content));
+  await saved(([u, , b]) => u === "/agent/sessions/s1/command" && b.name === "branch");          // a side branch,
+  await saved(([u, , b]) => u === "/agent/sessions/b1/messages" && /Read my title from LinkedIn/.test(b.content));  // not the main thread
 });
 
 test("nothing waiting says so and points to jobs", async () => {
@@ -108,8 +110,9 @@ test("says which applications asked, and asks the agent in place", async () => {
   expect(await screen.findByText("Asked by Anthropic, Acme")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "What does this mean?" }));
   expect(await screen.findByRole("dialog", { name: "Ask the agent" })).toBeInTheDocument();
-  await saved(([u]) => u === "/agent/sessions/s1/messages");
-  const [, , sent] = calls.find(([u]) => u === "/agent/sessions/s1/messages");
+  await saved(([u]) => u === "/agent/sessions/b1/messages");
+  expect(calls.some(([u]) => u === "/agent/sessions/s1/messages")).toBe(false);          // the main conversation is left alone
+  const [, , sent] = calls.find(([u]) => u === "/agent/sessions/b1/messages");
   expect(sent.context).toMatchObject({ anchor: "qbank:ai_policy_ack", tab: "inbox" });
 });
 
@@ -184,4 +187,31 @@ test("a question only some jobs ask says which ones", async () => {
   expect(await screen.findByText("Some of your jobs ask this")).toBeInTheDocument();
   expect(screen.getByText("2 of your jobs are in Japan (Mercari).")).toBeInTheDocument();
   expect(screen.getByRole("radio", { name: "N2" })).toBeInTheDocument();
+});
+
+test("a typed answer is read in the background: you move on at once, and a follow-up comes back after the current one", async () => {
+  let release;
+  global.fetch = vi.fn((url, opts = {}) => {
+    const u = String(url);
+    calls.push([u, opts.method || "GET", opts.body && JSON.parse(opts.body)]);
+    if (u.includes("/api/answers/interpret")) {
+      return new Promise((res) => { release = () => res({ ok: true, status: 200, json: () => Promise.resolve(
+        { answer: null, also: {}, request: "Read it from my LinkedIn." }) }); });
+    }
+    const body = u.includes("/api/inbox") ? BANK_BOX : { ok: true };
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+  });
+  render(<Inbox />);
+  fireEvent.click(within(await screen.findByRole("list", { name: "All questions" })).getByRole("button", { name: /pronouns/ }));
+  const box = await screen.findByLabelText("Your answer");
+  fireEvent.change(box, { target: { value: "ask my LinkedIn" } });
+  fireEvent.keyDown(box, { key: "Enter" });
+  expect(await screen.findByText(/Ready to save/)).toBeInTheDocument();              // not blocked on the model
+  fireEvent.click(within(document.querySelector(".review-list")).getByRole("button", { name: "Do you identify as transgender?" }));
+  release();
+  await waitFor(() => expect(document.querySelector('.deck-item[data-state="again"]')).toHaveTextContent("pronouns"));
+  expect(await heading("Do you identify as transgender?")).toBeInTheDocument();      // the current one stays put
+  fireEvent.click(screen.getByRole("radio", { name: "No" }));
+  expect(await heading("What are your pronouns?")).toBeInTheDocument();             // then the follow-up
+  expect(screen.getByText(/What's the answer itself/)).toBeInTheDocument();
 });

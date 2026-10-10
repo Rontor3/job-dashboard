@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timezone
 
 DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
+                    "mail_allowed_senders": "",       # extra sender domains mail may be read from (mail_gate.py)
                     "profile_autofill_at": "",         # when the résumé/LinkedIn were last read into the profile
                     "inbox_snoozed": "{}",             # Inbox items skipped: {key: ISO until}
                     "mail_last_result": "",            # JSON summary of that scan, from whichever process ran it

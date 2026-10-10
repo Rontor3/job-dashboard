@@ -23,8 +23,9 @@ export async function sessionsState(harness: Reader, ctx: Context): Promise<Sess
   const s = await harness.snapshot(SessionsDoc, ctx);
   return {
     active: s?.active ?? null,
-    items: [...(s?.items ?? [])].reverse().map(({ id, title, createdAt, parent, model, profile }) =>
-      ({ id, title, createdAt, ...(parent ? { parent } : {}), ...(model ? { model } : {}), ...(profile ? { profile } : {}) })),
+    items: [...(s?.items ?? [])].reverse().map(({ id, title, createdAt, parent, model, profile, forkAt, aside }) =>
+      ({ id, title, createdAt, ...(parent ? { parent } : {}), ...(model ? { model } : {}), ...(profile ? { profile } : {}),
+         ...(forkAt !== undefined ? { forkAt } : {}), ...(aside ? { aside } : {}) })),
   };
 }
 
@@ -123,8 +124,10 @@ export async function pinnedModels(harness: Reader, ctx: Context): Promise<strin
   return [...new Set(((await harness.snapshot(SessionsDoc, ctx))?.items ?? []).flatMap((i) => (i.model ? [i.model] : [])))];
 }
 
-/** `/fork` and `/clone`: a new session that sees this one's entries up to `at`, made active. */
-export async function forkSession(harness: Harness, key: string, at: number, title: string, ctx: Context): Promise<string | undefined> {
+/** `/fork` and `/clone`: a new session that sees this one's entries up to `at`, made active. A side branch
+ * (`aside`) is left inactive, so the conversation the user is in carries on undisturbed. */
+export async function forkSession(harness: Harness, key: string, at: number, title: string, ctx: Context,
+  opts: { aside?: boolean } = {}): Promise<string | undefined> {
   const parent = await conversationOf(harness, key, ctx);
   const item = await sessionItem(harness, key, ctx);
   if (!parent || !item) return undefined;
@@ -132,9 +135,10 @@ export async function forkSession(harness: Harness, key: string, at: number, tit
   const id = randomUUID();
   await harness.commit(async (tx) => {
     const doc = await tx.doc(SessionsDoc);
-    doc.items.push({ id, conversation: Number(conv.id), title, createdAt: Date.now(), parent: key,
-      ...(item.model ? { model: item.model } : {}), ...(item.profile ? { profile: item.profile } : {}) });
-    doc.active = id;
+    doc.items.push({ id, conversation: Number(conv.id), title, createdAt: Date.now(), parent: key, forkAt: at,
+      ...(item.model ? { model: item.model } : {}), ...(item.profile ? { profile: item.profile } : {}),
+      ...(opts.aside ? { aside: true } : {}) });
+    if (!opts.aside) doc.active = id;
   }, ctx);
   return id;
 }

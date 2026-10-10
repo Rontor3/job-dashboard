@@ -5,7 +5,7 @@
 //   POST /agent/sessions                     {profile?} start a new session (it becomes active)
 //   POST /agent/sessions/:id/activate        reopen a past session
 //   GET  /agent/sessions/:id/events          SSE: a snapshot, then agent events (any number of clients)
-//   POST /agent/sessions/:id/messages        {content, requestId, context?} — exactly once per requestId
+//   POST /agent/sessions/:id/messages        {content, requestId, context?, images?} — exactly once per requestId
 //   POST /agent/sessions/:id/stop            abort the running work
 //   …and the slash commands (commands.ts)
 import { existsSync, readFileSync } from "node:fs";
@@ -35,6 +35,24 @@ export interface AgentDeps {
 }
 
 const MAX_MESSAGE = 20_000;
+// Pasted or attached pictures: a few, of the kinds every vision model reads, each under ~5 MB.
+const MAX_IMAGES = 4;
+const MAX_IMAGE_B64 = 7_000_000;
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+type ImageIn = { type: "image"; data: string; mimeType: string };
+
+/** The valid images in a request body, or a reason to refuse it. */
+function images(raw: unknown): ImageIn[] | string {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_IMAGES) return `at most ${MAX_IMAGES} images`;
+  const out: ImageIn[] = [];
+  for (const i of raw as { data?: unknown; mimeType?: unknown }[]) {
+    if (typeof i?.data !== "string" || typeof i.mimeType !== "string" || !IMAGE_TYPES.has(i.mimeType)) return "images must be PNG, JPEG, WebP or GIF";
+    if (i.data.length > MAX_IMAGE_B64 || !/^[A-Za-z0-9+/=]+$/.test(i.data.slice(0, 200))) return "an image is too large or not base64";
+    out.push({ type: "image", data: i.data, mimeType: i.mimeType });
+  }
+  return out;
+}
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
   ".woff": "font/woff", ".woff2": "font/woff2", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json",
@@ -71,8 +89,10 @@ export function createAgentApp(deps: AgentDeps): Hono {
     return level !== undefined;
   }
 
-  async function submit(key: string, conv: Conversation, content: string, requestId: string, whenBusy?: "steer" | "followUp") {
-    const sub = await conv.submit({ type: "input", content, requestId, ...(whenBusy ? { whenBusy } : {}) }, ctx);
+  async function submit(key: string, conv: Conversation, content: string, requestId: string, whenBusy?: "steer" | "followUp",
+    pics: ImageIn[] = []) {
+    const input = pics.length ? [{ type: "text" as const, text: content }, ...pics] : content;
+    const sub = await conv.submit({ type: "input", content: input, requestId, ...(whenBusy ? { whenBusy } : {}) }, ctx);
     await nameIfNew(harness, key, content, ctx);
     return Number(sub.id);
   }
@@ -120,18 +140,20 @@ export function createAgentApp(deps: AgentDeps): Hono {
   });
 
   app.post("/agent/sessions/:id/messages", async (c) => {
-    const body = await c.req.json().catch(() => null) as { content?: unknown; requestId?: unknown; context?: ElementContext; whenBusy?: unknown } | null;
+    const body = await c.req.json().catch(() => null) as { content?: unknown; requestId?: unknown; context?: ElementContext; whenBusy?: unknown; images?: unknown } | null;
     const content = typeof body?.content === "string" ? body.content.trim() : "";
     const requestId = typeof body?.requestId === "string" ? body.requestId : "";
     if (!content || content.length > MAX_MESSAGE) return c.json({ detail: "content must be 1-20000 characters" }, 422);
     if (!requestId || requestId.length > 200) return c.json({ detail: "requestId is required" }, 422);
+    const pics = images(body?.images);
+    if (typeof pics === "string") return c.json({ detail: pics }, 422);
     const key = c.req.param("id");
     const conv = await session(key);
     if (!conv) return c.json({ detail: "no such session" }, 404);
     const text = encodeElementMessage(body?.context?.text !== undefined ? body.context : undefined, content);
     // pi's Enter while busy steers the current task; Alt+Enter queues a follow-up for after it.
     const whenBusy = body?.whenBusy === "steer" || body?.whenBusy === "followUp" ? body.whenBusy : undefined;
-    return c.json({ submission: await submit(key, conv, text, requestId, whenBusy) });
+    return c.json({ submission: await submit(key, conv, text, requestId, whenBusy, pics) });
   });
 
   app.post("/agent/sessions/:id/stop", async (c) => {

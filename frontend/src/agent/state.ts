@@ -5,7 +5,8 @@ import { parseElementMessage, type ChangeSummary, type ElementContext } from "@j
 export type TextBlock = { type: "text"; text: string };
 export type ThinkingBlock = { type: "thinking"; thinking: string };
 export type ToolCallBlock = { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> };
-export type Block = TextBlock | ThinkingBlock | ToolCallBlock;
+export type ImageBlock = { type: "image"; data: string; mimeType: string };
+export type Block = TextBlock | ThinkingBlock | ToolCallBlock | ImageBlock;
 
 export interface Message {
   role: "user" | "assistant" | "toolResult";

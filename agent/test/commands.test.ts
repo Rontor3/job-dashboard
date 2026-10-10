@@ -94,4 +94,32 @@ describe("slash commands", () => {
     expect((await a.call("GET", `/agent/sessions/${fork.session}/stats`)).body.messages.user).toBe(1);
     await a.harness.close(ctx);
   });
+
+  it("a side branch shares the conversation so far but leaves the active session alone", async () => {
+    const a = await agent("branch");
+    a.faux.setResponses([say("one")]);
+    await a.ask("first");
+    const tip = (await (await conversationOf(a.harness, a.session, ctx))!.context(ctx)).entries.at(-1)!.id;
+    const side = (await a.command("branch", "", { title: "Inbox: what is a clearance?" })).body;
+    const sessions = (await a.call("GET", "/agent/sessions")).body;
+    expect(sessions.active).toBe(a.session);
+    expect(sessions.items.find((s: any) => s.id === side.session))
+      .toMatchObject({ parent: a.session, forkAt: tip, aside: true, title: "Inbox: what is a clearance?" });
+    expect((await a.call("GET", `/agent/sessions/${side.session}/stats`)).body.messages.user).toBe(1);
+    await a.harness.close(ctx);
+  });
+
+  it("takes pasted images with a message, and refuses anything but small pictures", async () => {
+    const a = await agent("images");
+    a.faux.setResponses([say("a cat")]);
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const post = (images: unknown) => a.call("POST", `/agent/sessions/${a.session}/messages`, { content: "what is this?", requestId: `r-${Math.random()}`, images });
+    expect((await post([{ data: png, mimeType: "application/pdf" }])).status).toBe(422);
+    expect((await post(Array(5).fill({ data: png, mimeType: "image/png" }))).status).toBe(422);
+    expect((await post([{ data: png, mimeType: "image/png" }])).status).toBe(200);
+    const entries = (await (await conversationOf(a.harness, a.session, ctx))!.context(ctx)).entries;
+    const user = entries.find((e) => e.kind === "pi.user") as any;
+    expect(JSON.stringify(user)).toContain('"type":"image"');
+    await a.harness.close(ctx);
+  });
 });

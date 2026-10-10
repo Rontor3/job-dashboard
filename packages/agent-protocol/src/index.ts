@@ -19,6 +19,10 @@ export interface SessionInfo {
   createdAt: number;
   /** The session this one was forked or cloned from. */
   parent?: string;
+  /** The parent's last entry this one still shares: where it branches off in /tree. */
+  forkAt?: number;
+  /** A side branch opened from another page (a popover, the Inbox): it never becomes the active session by itself. */
+  aside?: boolean;
   /** A model chosen with /model for this session only; otherwise it follows the app's LLM_MODEL. */
   model?: string;
   /** The agent profile it runs as (scout, critic, advocate, or the user's own); none = the plain playbook. */

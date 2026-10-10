@@ -1,9 +1,25 @@
 // The Agent tab's editor, with pi's keys: Enter sends (while the agent works it steers the current task),
 // Alt+Enter queues a follow-up, Shift+Enter adds a line, Up/Down walk prompt history, Alt+Up takes queued messages
 // back, Esc stops the agent, Shift+Tab cycles the thinking level, Ctrl+L picks a model, Ctrl+C clears.
-// Typing `/` opens the command menu: Up/Down choose, Tab completes, Enter runs.
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent } from "react";
+// Typing `/` opens the command menu: Up/Down choose, Tab completes, Enter runs. Pictures can be pasted, dropped or
+// attached (up to four); the box grows with what you type.
+import { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { CommandInfo } from "@jobdash/agent-protocol";
+import type { Picture } from "./client.ts";
+
+const MAX_PICTURES = 4;
+const MAX_BYTES = 5 * 1024 * 1024;
+const TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const MAX_HEIGHT = 0.4;                                    // of the window
+
+function readPicture(file: File): Promise<Picture & { name: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve({ name: file.name, mimeType: file.type, data: String(reader.result).split(",")[1] ?? "" });
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 
 const HISTORY_KEY = "agent-prompt-history";
 const HISTORY_MAX = 100;
@@ -33,7 +49,7 @@ export interface EditorProps {
   commands: CommandInfo[];
   running: boolean;
   thinkingLevel?: string;
-  onSubmit(text: string, mode: "steer" | "followUp"): void;
+  onSubmit(text: string, mode: "steer" | "followUp", images?: Picture[]): void;
   onCommand(name: string, args: string): void;
   onStop(): void;
   onTakeBack(): void;
@@ -49,6 +65,48 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
   const history = useRef<string[]>(loadHistory());
   const at = useRef<number | null>(null);          // position while walking history
   const area = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const [pics, setPics] = useState<(Picture & { name: string })[]>([]);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const fit = () => {                                      // one line when empty, growing with the text
+    const el = area.current;
+    if (!el || !el.offsetParent) return;                   // hidden (another tab): measure when shown
+    el.style.height = "auto";
+    const max = Math.round(window.innerHeight * MAX_HEIGHT);
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  };
+  useLayoutEffect(fit, [text]);
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(() => { if (!el.style.height || el.style.height === "auto") fit(); });
+    ro.observe(el);
+    window.addEventListener("resize", fit);
+    return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, []);
+
+  const addFiles = async (files: File[]) => {
+    setProblem(null);
+    const ok = files.filter((f) => TYPES.includes(f.type));
+    if (ok.length < files.length) setProblem("Only PNG, JPEG, WebP or GIF pictures can be attached.");
+    const small = ok.filter((f) => f.size <= MAX_BYTES);
+    if (small.length < ok.length) setProblem("Pictures must be under 5 MB.");
+    const room = MAX_PICTURES - pics.length;
+    if (small.length > room) setProblem(`Up to ${MAX_PICTURES} pictures per message.`);
+    const read = await Promise.all(small.slice(0, Math.max(0, room)).map(readPicture));
+    setPics((p) => [...p, ...read].slice(0, MAX_PICTURES));
+  };
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...e.clipboardData.items].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter((f): f is File => !!f);
+    if (files.length) { e.preventDefault(); void addFiles(files); }
+  };
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    void addFiles([...e.dataTransfer.files]);
+  };
 
   useImperativeHandle(ref, () => ({
     focus: () => area.current?.focus(),
@@ -69,7 +127,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
   };
 
   const submit = (mode: "steer" | "followUp") => {
-    const t = text.trim();
+    const t = text.trim() || (pics.length ? "What's in this picture?" : "");
     if (!t) return;
     remember(t);
     at.current = null;
@@ -77,7 +135,11 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
     setMenuClosed(false);
     const cmd = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(t);
     if (cmd) props.onCommand(cmd[1]!, (cmd[2] ?? "").trim());
-    else props.onSubmit(t, mode);
+    else {
+      props.onSubmit(t, mode, pics.map(({ data, mimeType }) => ({ data, mimeType })));
+      setPics([]);
+      setProblem(null);
+    }
   };
 
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -123,7 +185,7 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
   };
 
   return (
-    <div className={`pi-editor pi-think-${thinkingLevel ?? "off"}`}>
+    <div className={`pi-editor pi-think-${thinkingLevel ?? "off"}`} onDrop={onDrop} onDragOver={(e) => e.preventDefault()}>
       {menu && (
         <ul className="pi-menu" role="listbox" aria-label="Commands">
           {matches.slice(0, 12).map((c, i) => (
@@ -134,9 +196,25 @@ export const Editor = forwardRef<EditorHandle, EditorProps>(function Editor(prop
           ))}
         </ul>
       )}
-      <textarea ref={area} aria-label="Message the agent" value={text} rows={Math.min(10, Math.max(2, text.split("\n").length))}
-        placeholder={running ? "Enter steers the agent · Alt+Enter queues a follow-up · Esc stops" : "Message, or / for commands"}
-        onChange={(e) => { setText(e.target.value); setSel(0); setMenuClosed(false); at.current = null; }} onKeyDown={onKey} autoFocus />
+      {pics.length > 0 && (
+        <ul className="pi-pics" aria-label="Attached pictures">
+          {pics.map((p, i) => (
+            <li key={i}>
+              <img src={`data:${p.mimeType};base64,${p.data}`} alt={p.name || `Picture ${i + 1}`} />
+              <button aria-label={`Remove ${p.name || `picture ${i + 1}`}`} onClick={() => setPics(pics.filter((_, k) => k !== i))}>×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {problem && <p className="pi-pics-note" role="status">{problem}</p>}
+      <div className="pi-input">
+        <textarea ref={area} aria-label="Message the agent" value={text} rows={1}
+          placeholder={running ? "Enter steers the agent · Alt+Enter queues a follow-up · Esc stops" : "Message, or / for commands · paste a picture"}
+          onChange={(e) => { setText(e.target.value); setSel(0); setMenuClosed(false); at.current = null; }} onKeyDown={onKey} onPaste={onPaste} autoFocus />
+        <button type="button" className="pi-attach" aria-label="Attach a picture" title="Attach a picture" onClick={() => picker.current?.click()}>＋</button>
+        <input ref={picker} type="file" accept={TYPES.join(",")} multiple hidden aria-hidden="true"
+          onChange={(e) => { void addFiles([...(e.target.files ?? [])]); e.target.value = ""; }} />
+      </div>
     </div>
   );
 });

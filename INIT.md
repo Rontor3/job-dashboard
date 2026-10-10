@@ -109,7 +109,7 @@ If they pick 3 or 4, **say plainly what leaves the machine**: their profile and 
 application questions and drafted answers go to that provider. Ask them to confirm.
 
 Optional knobs to mention only if relevant: `LLM_REASONING_EFFORT` (none, low, medium or high; defaults to `none` on
-local Ollama) and `LLM_TIMEOUT` (180 seconds). For local Ollama, recommend raising the context length
+local Ollama) and `LLM_TIMEOUT` (180 seconds), and `LLM_IMAGES=0` if the endpoint can't take pictures (pasted pictures go to the model by default). For local Ollama, recommend raising the context length
 (`OLLAMA_CONTEXT_LENGTH=16384` or the Ollama app's settings), because hiring-post judging sends a résumé-sized prompt.
 
 **Verify** with a real call, without printing the key:
@@ -145,6 +145,12 @@ Explain the three uses separately, because they need different permissions:
     off by default, subject lines only).
 - **Compose** (`gmail.compose`, token `data/secrets/gmail_compose_token.json`): creates outreach drafts in the
   hiring view. Drafts only; nothing is ever sent.
+
+What the read-only token can see is narrower than Google's scope (`job_dashboard/mail_gate.py`): only mail from job
+boards, applicant-tracking systems and the companies the user applied to, plus any domains they add to the setting
+`mail_allowed_senders`; never more than 45 days back; headers first, a body only when a code or a decision needs it.
+Nothing is ever marked read or changed, and every message touched is logged (no contents) in
+`data/logs/mail-access.log`. For the tightest limit, connect a mailbox used only for job applications.
 
 Setup: the user makes an OAuth *Desktop* client in Google Cloud Console and saves it as
 `data/secrets/gmail_credentials.json`. Then they run these themselves, because each opens a browser consent page:

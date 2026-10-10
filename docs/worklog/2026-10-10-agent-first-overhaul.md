@@ -85,3 +85,27 @@ integrated with the agent; try several system prompts / agent profiles, includin
 - Data fix: the `certifications` answer held a request ("scrape them from my LinkedIn") rather than an answer;
   cleared through the change log (Undo id 42) and the profile re-read. LinkedIn gave no certificates, so it stays open.
 - Verified: frontend 164 tests + typecheck, screenshots of both parts.
+
+## Follow-up (2026-10-11): side branches, Inbox reading in the background, pictures, a gated mailbox
+- Questions asked from another page (the popover, Inbox requests) go to a side branch forked at the tip of the
+  active session (`branch` command, `forkAt`/`aside` on SessionInfo), so the main conversation isn't interrupted.
+  One branch per topic, remembered across reloads; the thread marks where a branch starts.
+- `/tree` is a real tree: where the session came from, its turns, and each branch nested under the turn it forked at.
+- Inbox: a typed answer is read by the agent in the background while you move on. If it turns out to be a question
+  rather than an answer, that card comes back after the one you're on, marked "!", not abruptly.
+- Agent transcript: one scroller (the nested `.agent-thread` max-height caused the white gap above the editor and the
+  jank while streaming). Scrolling up lets go of the bottom while text streams; "↓ Latest" returns.
+- Editor: one line when empty, grows with the text up to 40% of the window. Pictures by paste, drop or ＋ (png, jpeg,
+  webp, gif; up to 4, 5 MB each), validated in the agent route, sent as image blocks (`LLM_IMAGES=0` for a text-only
+  model). The configured endpoint was checked with a test picture.
+- Mail access (`mail_gate.py`): every reader goes through a Gate: an allowlist of job boards, ATS and applied-to
+  companies (plus the setting `mail_allowed_senders`), ANDed into the query and re-checked on each From; 45 days back
+  at most; headers and snippet unless a body is needed (capped); no mark-read or any write; each message touched is
+  logged to `data/logs/mail-access.log` without contents. The OTP reader lost its "any unread mail" fallback and no
+  longer prints the code.
+- Stopped runs say why in plain words (no raw codes) on the Inbox and Updates.
+- Found by driving the app in the browser: the editor measured while hidden collapsed to 8 px; the popover was titled
+  after the page and placed off-screen; a branch was duplicated after reload; the jump to a turn fired before it
+  loaded; company names were cut on narrow job rows. All fixed.
+- Verified: full pytest (1554 passed), frontend 169 tests + typecheck + build, agent typecheck + 21 tests, live
+  browser checks of each flow.

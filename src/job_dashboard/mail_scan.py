@@ -10,7 +10,6 @@ handled once and the tracker can show what each company wrote.
 """
 from __future__ import annotations
 
-import base64
 import re
 import time
 from email.utils import parseaddr
@@ -187,52 +186,35 @@ def run_scan(conn, box, llm, now: float | None = None) -> dict:
 
 
 # ---- Gmail adapter -----------------------------------------------------------
-def _header(msg: dict, name: str) -> str:
-    return next((h["value"] for h in msg.get("payload", {}).get("headers", []) if h["name"].lower() == name), "")
-
-
-def _text_of(payload: dict) -> str:
-    if payload.get("mimeType") == "text/plain" and payload.get("body", {}).get("data"):
-        return base64.urlsafe_b64decode(payload["body"]["data"] + "==").decode("utf-8", errors="replace")
-    for part in payload.get("parts") or []:
-        text = _text_of(part)
-        if text:
-            return text
-    return ""
-
-
 class GmailMailbox:
-    """Read-only Gmail (the same token career_agent uses for OTPs)."""
+    """Read-only Gmail through the mail gate: only boards, tracking systems and the companies you applied to."""
 
-    def __init__(self, service):
-        self.service = service
+    def __init__(self, service, senders: list[str] | None = None):
+        from job_dashboard.mail_gate import Gate, allowed_senders
+        self.gate = Gate(service, senders or allowed_senders(), "tracker-scan")
 
     def search(self, since_epoch: int, max_messages: int = 300) -> list[dict]:
-        users = self.service.users().messages()
-        ids, token = [], None
-        while len(ids) < max_messages:
-            resp = users.list(userId="me", q=f"after:{since_epoch} -from:me -category:promotions -category:social",
-                              maxResults=100, pageToken=token).execute()
-            ids += [m["id"] for m in resp.get("messages", [])]
-            token = resp.get("nextPageToken")
-            if not token:
-                break
-        out = []
-        for mid in ids[:max_messages]:
-            m = users.get(userId="me", id=mid, format="metadata", metadataHeaders=["From", "Subject"]).execute()
-            out.append({"id": mid, "sender": _header(m, "from"), "subject": _header(m, "subject"),
-                        "snippet": m.get("snippet", ""), "received": int(m.get("internalDate", 0)) // 1000})
-        return out
+        return self.gate.search("-category:promotions -category:social", since_epoch, max_messages, ("From", "Subject"))
 
     def body(self, msg_id: str) -> str:
-        m = self.service.users().messages().get(userId="me", id=msg_id, format="full").execute()
-        return _text_of(m.get("payload", {})) or m.get("snippet", "")
+        return self.gate.body(msg_id)
 
 
 def default_mailbox():
-    """A GmailMailbox if the token exists, else None."""
-    try:
-        from career_agent.integrations.gmail_otp import _build_service, available
-        return GmailMailbox(_build_service()) if available() else None
-    except Exception:
+    """A GmailMailbox if the token exists, else None. Its allowlist names the companies you're waiting to hear from."""
+    from job_dashboard import mail_gate
+    service = mail_gate.service_for()
+    if service is None:
         return None
+    try:
+        from job_dashboard.db import init_db
+        from job_dashboard.paths import DB
+        conn = init_db(str(DB))
+        try:
+            companies = [c["company"] for c in _candidates(conn)]
+            senders = mail_gate.allowed_senders(conn, companies)
+        finally:
+            conn.close()
+    except Exception:                                      # noqa: BLE001 — no database: boards and ATS only
+        senders = mail_gate.allowed_senders()
+    return GmailMailbox(service, senders)

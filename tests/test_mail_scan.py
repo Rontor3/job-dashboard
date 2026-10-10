@@ -189,19 +189,21 @@ class FakeGmail:
         payload = {"headers": [{"name": "From", "value": m["from"]}, {"name": "Subject", "value": m["subject"]}]}
         if format == "full":
             data = base64.urlsafe_b64encode(m["text"].encode()).decode()
-            payload = {"mimeType": "multipart/alternative", "parts": [
+            payload = {"mimeType": "multipart/alternative", "headers": payload["headers"], "parts": [
                 {"mimeType": "text/html", "body": {"data": ""}},
                 {"mimeType": "multipart/mixed", "parts": [{"mimeType": "text/plain", "body": {"data": data}}]}]}
         resp = {"id": id, "snippet": m["text"][:40], "internalDate": "1700000000000", "payload": payload}
         return type("R", (), {"execute": lambda s: resp})()
 
 
-def test_gmail_adapter_pages_reads_headers_and_nested_plaintext():
+def test_gmail_adapter_reads_only_allowed_senders_through_the_gate(tmp_path, monkeypatch):
+    monkeypatch.setattr("job_dashboard.mail_gate.AUDIT", tmp_path / "mail-access.log")
     svc = FakeGmail([["a"], ["b"]], {"a": {"from": "Acme <hr@acme.io>", "subject": "Hi", "text": "round 2 on friday"},
                                      "b": {"from": "x@y.com", "subject": "Yo", "text": "hello"}})
-    box = mail_scan.GmailMailbox(svc)
+    box = mail_scan.GmailMailbox(svc, ["acme", "greenhouse.io"])
     msgs = box.search(1234)
-    assert [m["id"] for m in msgs] == ["a", "b"]
+    assert [m["id"] for m in msgs] == ["a"]                                  # x@y.com is not on the allowlist
     assert msgs[0]["sender"] == "Acme <hr@acme.io>" and msgs[0]["subject"] == "Hi" and msgs[0]["received"] == 1_700_000_000
-    assert "after:1234" in svc.queries[0] and "-from:me" in svc.queries[0]
+    assert "{from:acme from:greenhouse.io}" in svc.queries[0] and "-from:me" in svc.queries[0]
     assert box.body("a") == "round 2 on friday"
+    assert box.body("b") == ""                                               # never listed, never opened

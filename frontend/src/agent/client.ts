@@ -31,8 +31,10 @@ export const stopSession = (id: string) => post(`/agent/sessions/${id}/stop`).th
 const newRequestId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
 /** `whenBusy`: pi's Enter steers the running task, Alt+Enter queues a follow-up for after it. */
-export function sendMessage(session: string, content: string, context?: ElementContext, whenBusy?: "steer" | "followUp") {
-  return post(`/agent/sessions/${session}/messages`, { content, requestId: newRequestId(), context, whenBusy })
+export interface Picture { data: string; mimeType: string }
+
+export function sendMessage(session: string, content: string, context?: ElementContext, whenBusy?: "steer" | "followUp", images?: Picture[]) {
+  return post(`/agent/sessions/${session}/messages`, { content, requestId: newRequestId(), context, whenBusy, ...(images?.length ? { images } : {}) })
     .then((r) => json<{ submission: number }>(r));
 }
 

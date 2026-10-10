@@ -17,7 +17,7 @@ import type { ApiClient } from "./api.ts";
 import { agentDir } from "./env.ts";
 import { PROVIDER, type ModelSource } from "./model.ts";
 import { BASE_PROMPT, USER_PROMPT } from "./prompt.ts";
-import { conversationOf, forkSession, pinModel, rename, sessionItem, setProfile } from "./sessions.ts";
+import { conversationOf, createSession, forkSession, pinModel, rename, sessionItem, setProfile } from "./sessions.ts";
 import { applyProfile, findProfile, power, profiles } from "./team.ts";
 
 export const THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh"] as const;
@@ -125,7 +125,7 @@ export function installCommands(app: Hono, deps: CommandDeps): void {
 
   app.post("/agent/sessions/:id/command", async (c) => {
     const key = c.req.param("id");
-    const body = await c.req.json().catch(() => ({})) as { name?: unknown; args?: unknown; at?: unknown; requestId?: unknown };
+    const body = await c.req.json().catch(() => ({})) as { name?: unknown; args?: unknown; at?: unknown; requestId?: unknown; title?: unknown };
     const name = typeof body.name === "string" ? body.name : "";
     const args = typeof body.args === "string" ? body.args.trim().slice(0, 20_000) : "";
     const conv = await deps.session(key);
@@ -182,6 +182,16 @@ export function installCommands(app: Hono, deps: CommandDeps): void {
         if (at === undefined) return fail("Nothing to copy yet: the session is empty");
         const id = await forkSession(harness, key, Number(at), `${name === "fork" ? "Fork" : "Clone"} of ${item.title}`, ctx);
         return id ? say(`${name === "fork" ? "Forked" : "Cloned"} into a new session`, { session: id }) : fail("Couldn't fork", 404);
+      }
+      case "branch": {                                   // a side branch at the tip, for a question from another page
+        const at = (await conv.context(ctx)).entries.at(-1)?.id;
+        const title = typeof body.title === "string" && body.title.trim() ? body.title.trim().slice(0, 80) : `Aside from ${item.title}`;
+        if (at === undefined) {
+          const id = await createSession(harness, await live.sync(client), ctx, { activate: false, title, parent: key });
+          return say("Started a side session", { session: id });
+        }
+        const id = await forkSession(harness, key, Number(at), title, ctx, { aside: true });
+        return id ? say("Opened a side branch", { session: id }) : fail("Couldn't branch", 404);
       }
       default: {
         const t = templates().find((x) => x.name === name);
