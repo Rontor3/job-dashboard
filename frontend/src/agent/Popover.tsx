@@ -2,7 +2,7 @@
 // exchanges started from this element; its header opens the Agent tab at that point. If the agent is busy, the
 // question waits its turn and the popover says so.
 import { useEffect } from "react";
-import { ACTIONABLE_KINDS, anchorKind } from "@jobdash/agent-protocol";
+import { ACTIONABLE_KINDS, anchorKind, type ElementContext } from "@jobdash/agent-protocol";
 import { useAgent } from "./AgentProvider.tsx";
 import { busyWith, exchangesFor, userTurn } from "./state.ts";
 import { Composer, Thread } from "./Thread.tsx";
@@ -24,11 +24,10 @@ export default function Popover() {
   const { context, rect } = popover;
   // Without an anchor the exchange is matched by the element's text.
   const key = context.anchor ?? "";
-  const shown = key ? exchangesFor(thread.entries, key)
-    : thread.entries.filter((e) => userTurn(e)?.context?.text === context.text);
-  const lastMine = shown.map(userTurn).filter(Boolean).at(-1)?.question;
+  const fromHere = (c?: ElementContext) => (key ? c?.anchor === key : c?.text === context.text);
+  const shown = key ? exchangesFor(thread.entries, key) : thread.entries.filter((e) => fromHere(userTurn(e)?.context));
   const busy = busyWith(thread);
-  const mine = !!busy && busy === lastMine;                 // the agent is on this element's question right now
+  const mine = !!busy && fromHere(busy.context);            // the agent is on this element's question right now
   const waiting = thread.running && !mine && thread.inbox.length > 0;
   const canChange = !!context.anchor && (ACTIONABLE_KINDS as readonly string[]).includes(anchorKind(context.anchor));
   const vw = window.innerWidth;
@@ -49,7 +48,7 @@ export default function Popover() {
       {!canChange && <p className="agent-widget-why">The agent can explain this, but can't change it from here.</p>}
       <Thread entries={shown} partial={mine ? thread.partial : null} running={mine && thread.running}
         toolsRunning={thread.toolsRunning} />
-      {waiting && <p className="agent-busy">Agent is busy with “{busy}”; your question is next.</p>}
+      {waiting && <p className="agent-busy">Agent is busy with “{busy?.question}”; your question is next.</p>}
       <Composer placeholder="Ask about this…" autoFocus onSend={(t) => void agent.ask(t, context)} />
     </div>
   );

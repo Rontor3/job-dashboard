@@ -105,3 +105,60 @@ Steps 3–5 of `docs/superpowers/specs/2026-10-10-in-app-agent-design.md`:
   - "What does this mean?" on a Needs-you card opened the popover, and the answer streamed in.
   - The Agent tab shows that exchange with its "About:" line next to the earlier session messages.
   - The setup banner shows on a setup that isn't complete.
+
+## Step 5: live eval, ADR, docs
+- **Live eval.** `agent/eval/run.ts`, run with `mise run eval:agent`; pass a substring to run one scenario.
+  - It reads the real model settings (config table, else `.env`) without changing the user's data. It then starts
+    `tests/agent_api_app.py` with `AGENT_EVAL_SEED=1` on a temp data root, which seeds a blocking question and a
+    guess. Each scenario gets a fresh session on a temp store.
+  - Each scenario checks the effect through the api, not the reply's wording. The 10 scenarios:
+    1. says what the apply agent is waiting on;
+    2. answers the blocking question;
+    3. fixes a profile field;
+    4. undoes its own change;
+    5. sets apply details;
+    6. moves a job on the tracker;
+    7. changes a threshold;
+    8. proposes rather than turning on auto-submit;
+    9. asks for a key through the secret box;
+    10. explains an element from the popover.
+  - `startApi` takes extra env for this.
+- **ADR.** `docs/adr/0001-in-app-agent-on-pi-durable.md` records the exception to the one-LLM-client rule: same
+  endpoint, every write through FastAPI, bulk work stays on `llm.py`.
+- **`INIT.md`:**
+  - §4: the new process layout and ports, and the in-app agent with its banner.
+  - §5: what runs where. The worker owns the watcher, mail scan and queue. The stale Ollama `pkill` note is
+    replaced: nothing starts or stops Ollama now.
+- **`CLAUDE.md`:**
+  - `agent/` in the index, with ports, `./jobdash test` and `eval:agent`;
+  - the one-LLM-client exception pointing at the ADR;
+  - `docs/adr/` and the spec added to "where knowledge lives".
+- **`README.md`:** the run step mentions the agent and the setup banner.
+
+### Verification
+- `mise run eval:agent` against `Qwen/Qwen3.8-Flash-Next-FP8`: 10/10 passed, 3–8 s each.
+
+### Full run and review
+- `./jobdash test`:
+  - pytest: 1521 passed, 96 skipped, 1 failed. The failure is the pre-existing `test_screening` one, which stops the
+    mise task, so the JS suites were run directly.
+  - Frontend: typecheck clean, 139 tests pass.
+  - Agent: typecheck clean, 9 tests pass.
+- Code review. Fixed:
+  - the popover matched the running question by its text, so two cards asking "What does this mean?" were
+    confused; it now matches by anchor;
+  - cursor capture could take another item's heading; it now uses the element's own heading, else a section's;
+  - `.env` values containing double quotes didn't read back exactly;
+  - a malformed URL escape returned 500 from static serving.
+- Left as is:
+  - Undo restores `before` even when the field changed again later. That's recoverable from History.
+  - Element-context heading and label aren't length-capped. They are local-only.
+
+## Open items
+- The spec has the embedding model loaded by the worker. It still loads in the api on a background thread; moving it
+  needs the api's matching calls to go through the worker.
+- The default model is local Ollama, but nothing starts it. `INIT.md` says so, and the `ollama` process is off by
+  default.
+- Pre-existing:
+  - `tests/test_screening.py::test_prompt_keeps_projects_in_separate_blocks` fails on the base commit too;
+  - `test_qa_api` / `test_feedback_loop` take about 1 s per test.

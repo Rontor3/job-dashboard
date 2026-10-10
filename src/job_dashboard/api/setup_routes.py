@@ -50,7 +50,7 @@ def write_secret(key: str, value: str) -> None:
     """Replace or append ``KEY=value`` in .env, atomically, keeping every other line."""
     if "\n" in value or "\r" in value:
         raise ValueError("value must be one line")
-    quoted = f'"{value}"' if re.search(r"\s|#|'", value) else value
+    quoted = f'"{value}"' if re.search(r"\s|#|'|\"", value) else value
     lines, done = _env_lines(), False
     for i, line in enumerate(lines):
         k, sep, _ = line.strip().removeprefix("export ").partition("=")

@@ -39,12 +39,14 @@ export interface Api {
   ui(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<any>;
 }
 
-export async function startApi(): Promise<Api> {
+/** `extraEnv` is applied after the LLM_* variables are cleared (the live eval passes the real model's settings). */
+export async function startApi(extraEnv: Record<string, string> = {}): Promise<Api> {
   mkdirSync(join(REPO_ROOT, "data", "tmp"), { recursive: true });
   const dir = mkdtempSync(join(REPO_ROOT, "data", "tmp", "agent-test-"));
   const port = await freePort();
   const env: NodeJS.ProcessEnv = { ...process.env, PYTHONPATH: "src:.", JOB_DASHBOARD_DATA_DIR: dir, JOB_DASHBOARD_ENV_FILE: join(dir, ".env") };
   for (const k of Object.keys(env)) if (k.startsWith("LLM_")) delete env[k];
+  Object.assign(env, extraEnv);
   const proc: ChildProcess = spawn(PYTHON, ["-m", "uvicorn", "tests.agent_api_app:app", "--port", String(port), "--log-level", "warning"],
     { cwd: REPO_ROOT, env, stdio: ["ignore", "ignore", "pipe"] });
   let stderr = "";

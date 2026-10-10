@@ -8,7 +8,7 @@
 //   POST /agent/sessions/:id/messages        {content, requestId, context?} — exactly once per requestId
 //   POST /agent/sessions/:id/stop            abort the running work
 import { existsSync, readFileSync } from "node:fs";
-import { extname, join, normalize } from "node:path";
+import { extname, join, normalize, sep } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import { watchEvents, type Conversation, type Harness } from "@earendil-works/pi-durable";
 import { encodeElementMessage, type ElementContext } from "@jobdash/agent-protocol";
@@ -134,9 +134,14 @@ export function createAgentApp(deps: AgentDeps): Hono {
   if (deps.staticDir && existsSync(join(deps.staticDir, "index.html"))) {
     const root = deps.staticDir;
     app.get("*", (c) => {
-      const rel = normalize(decodeURIComponent(new URL(c.req.url).pathname)).replace(/^(\.\.[/\\])+/, "");
+      let rel = "";
+      try {
+        rel = normalize(decodeURIComponent(new URL(c.req.url).pathname)).replace(/^(\.\.[/\\])+/, "");
+      } catch {
+        // a malformed escape: serve the app
+      }
       const file = join(root, rel);
-      const hit = file.startsWith(root) && existsSync(file) && extname(file) ? file : join(root, "index.html");
+      const hit = file.startsWith(root + sep) && existsSync(file) && extname(file) ? file : join(root, "index.html");
       return new Response(readFileSync(hit), {
         headers: {
           "content-type": TYPES[extname(hit)] ?? "application/octet-stream",

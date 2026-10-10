@@ -48,8 +48,9 @@ cd job-dashboard
 #    Linux:  sudo apt-get install texlive-luatex texlive-latex-extra
 
 # 6. run it
-./jobdash start          # api, worker and the agent browser under process-compose; ./jobdash dev for hot reload
+./jobdash start          # api, in-app agent, worker and the agent browser under process-compose; ./jobdash dev for hot reload
 #    opens http://localhost:8000 as a tab in the agent's own Chrome window — agent runs open as tabs beside it
+#    →  the setup banner / Agent tab walks you through the rest (model, profile, résumé) in the app
 #    →  click "Refresh" to pull jobs
 ```
 

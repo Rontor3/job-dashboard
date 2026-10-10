@@ -130,6 +130,10 @@ def test_secrets_go_to_env_and_never_into_the_log_or_back_out(env):
     assert "sk-test-123" not in json.dumps(changes(c))
     assert changes(c)[0]["after"] == "set"
     assert c.put("/api/secrets/NOPE", json={"value": "x"}).status_code == 404
+    from job_dashboard.env import read_env_file
+    for value in ('"quoted"', "it's # hash", 'a"b c'):           # what .env readers get back is what was typed
+        c.put("/api/secrets/TINYFISH_API_KEY", json={"value": value})
+        assert read_env_file(tmp / ".env")["TINYFISH_API_KEY"] == value
 
 
 def test_resume_upload_is_human_only_and_must_be_a_pdf(env):

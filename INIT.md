@@ -258,12 +258,24 @@ Preflight, then report in three lines or fewer, for example:
    ./jobdash start
    ```
 
-   process-compose (`process-compose.yaml`) starts `api` (the dashboard on port 8000), then, once it answers,
-   `worker` (apply queue, submit watcher, daily mail scan) and `browser`, which opens the dashboard as a tab in the
-   agent's own Chrome (port 9333, profile `data/browser/profile`). If that Chrome is already running, it focuses the
-   existing dashboard tab instead. `./jobdash dev` serves the UI from Vite with hot reload on the same port;
-   `./jobdash stop` stops everything. In the Claude desktop app, `preview_start` with name `dashboard` runs
-   `./jobdash start`.
+   process-compose (`process-compose.yaml`) starts:
+   - `api`: FastAPI on port 8001;
+   - `agent`, once the api answers: the in-app agent on port 8000. It serves the dashboard and passes `/api` through,
+     so the user only ever opens `localhost:8000`;
+   - `worker`: apply queue, submit watcher, daily mail scan;
+   - `browser`, once the agent answers: it opens the dashboard as a tab in the agent's own Chrome (port 9333,
+     profile `data/browser/profile`). If that Chrome is already running, it focuses the existing dashboard tab.
+
+   `./jobdash dev` serves the UI from Vite with hot reload on the same port 8000 (api on 8001, agent on 8002).
+   `./jobdash stop` stops everything; logs are in `data/logs/processes.log`. In the Claude desktop app,
+   `preview_start` with name `dashboard` runs `./jobdash start`.
+
+**The in-app agent.** The dashboard's Agent tab, and the "Ask about…" cursor, run the same interview as this file
+from inside the app (its playbook is `docs/agent/system.md`; keep the two in step). While `data/setup-state.md` is
+missing or not `status: complete`, a banner offers to finish setup there. It changes data only through the api:
+- every change is logged with Undo (Memory → History);
+- secrets and the résumé go through boxes straight to the api, never through the chat;
+- anything consequential (queueing, Refresh, auto-submit) waits for the user's Confirm.
 
 **One window.** That Chrome window is the entire app. The dashboard is one tab. Every agent run (filling a form,
 reading a LinkedIn post, scraping a logged-in board) opens as **another tab in the same window**, and an apply run
@@ -274,23 +286,27 @@ Chromium.
 
 ## 5. What runs in the background (tell the user on first start)
 
-As soon as the server starts:
+As soon as the app starts:
 
-- **Loads `.env`** from the repo root. Variables already set in the shell take precedence.
-- **Embedding model load** on a background thread. The first time, it downloads into `data/cache/`.
-- **Submit watcher** thread: every 30 seconds it looks at the agent Chrome for forms parked for review and notices
-  when you submit one by hand. It only reads the page; it never clicks. It also checks Gmail subjects if
-  `gmail_confirmation_check` is on.
-- **Daily mail scan** thread: checks every 30 minutes and scans once a day, provided Gmail read-only is connected.
-  The first scan looks back 30 days. It moves tracker cards and uses the LLM to classify messages.
+- **Loads `.env`** from the repo root. Variables already set in the shell take precedence. Model settings are read
+  from the `config` table after the first start.
+- **Embedding model load** in the api, on a background thread. The first time, it downloads into `data/cache/`.
+- **The agent service** (`agent`) keeps its sessions in `data/agent/sessions.db` and resumes any run a restart
+  interrupted. It calls the model only when the user asks it something.
+- The **`worker`** process runs:
+  - the **submit watcher**: every 30 seconds it looks at the agent Chrome for forms parked for review and notices
+    when you submit one by hand. It only reads the page; it never clicks. It also checks Gmail subjects if
+    `gmail_confirmation_check` is on;
+  - the **daily mail scan**: checks every 30 minutes and scans once a day, provided Gmail read-only is connected.
+    The first scan looks back 30 days. It moves tracker cards and uses the LLM to classify messages;
+  - the **apply queue**, when started.
 
 Only when the user triggers it:
 
 - **Refresh**: scrape, then dedupe, then classify companies (LLM), then score embeddings.
   Deep ranking (`scripts/deep_rank.py` or the `/rank` skill) is a separate step.
 - **Apply or the queue**: runs `career_agent.apply` as a subprocess, one at a time, and launches the agent Chrome on
-  port 9333 if it isn't running. **On macOS with local Ollama, the queue opens Ollama when it starts and quits it
-  (`pkill -f Ollama.app`) when the queue finishes, if the queue was the one that started it.**
+  port 9333 if it isn't running. Nothing starts or stops Ollama; run it yourself or enable the `ollama` process.
 - **Hiring refresh**: reads LinkedIn posts through the agent Chrome and scores them with the LLM.
 
 All files the app writes go under `data/` (or `$JOB_DASHBOARD_DATA_DIR`). Secrets are in `data/secrets/` and

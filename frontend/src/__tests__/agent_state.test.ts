@@ -29,7 +29,8 @@ test("a popover sees only the exchanges started from its element", () => {
   const job = encodeElementMessage({ anchor: "job:4", text: "ML Eng" }, "Why this score?");
   const entries = [user(1, "general"), said(2, "ok"), user(3, job), said(4, "Because"), user(5, "other"), said(6, "x")];
   expect(exchangesFor(entries, "job:4").map((e) => e.id)).toEqual([3, 4]);
-  expect(busyWith({ ...EMPTY, entries, running: true })).toBe("other");
+  expect(busyWith({ ...EMPTY, entries, running: true })?.question).toBe("other");
+  expect(busyWith({ ...EMPTY, entries: entries.slice(0, 4), running: true })?.context?.anchor).toBe("job:4");
   expect(busyWith({ ...EMPTY, entries })).toBeUndefined();
 });
 
@@ -38,6 +39,8 @@ test("a click captures the anchored component, its heading and the tab", () => {
   const ctx = captureContext(document.getElementById("s")!, "answers");
   expect(ctx).toMatchObject({ anchor: "qbank:notice", heading: "Notice period?", tab: "answers" });
   expect(ctx.text).toContain("30 days");
+  document.body.innerHTML = `<section><h1>Jobs</h1><ul><li><h3>Other job</h3></li><li data-agent="job:2"><b id="b">Acme</b></li></ul></section>`;
+  expect(captureContext(document.getElementById("b")!).heading).toBe("Jobs");
   document.body.innerHTML = `<p id="p">${"x".repeat(3000)}</p>`;
   const plain = captureContext(document.getElementById("p")!);
   expect(plain.anchor).toBeUndefined();

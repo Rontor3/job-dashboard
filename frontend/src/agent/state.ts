@@ -156,12 +156,12 @@ export function exchangesFor(entries: Entry[], anchor: string): Entry[] {
   return out;
 }
 
-/** What the agent is working on: the question that started the current run. */
-export function busyWith(state: ThreadState): string | undefined {
+/** What the agent is working on: the turn that started the current run. */
+export function busyWith(state: ThreadState): UserTurn | undefined {
   if (!state.running) return undefined;
   for (let i = state.entries.length - 1; i >= 0; i--) {
     const turn = userTurn(state.entries[i]!);
-    if (turn) return turn.question;
+    if (turn) return turn;
   }
   return undefined;
 }

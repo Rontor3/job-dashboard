@@ -17,10 +17,16 @@ function labelOf(el: Element): string | undefined {
   return squash(field?.textContent) || undefined;
 }
 
+const HEADING = "h1, h2, h3, h4, [role=heading]";
+
+/** The target's own heading, else the nearest enclosing section's (a heading directly inside an ancestor), never
+ * a heading belonging to a sibling item. */
 function headingOf(el: Element): string | undefined {
-  for (let node: Element | null = el; node; node = node.parentElement) {
-    if (/^H[1-4]$/.test(node.tagName)) return squash(node.textContent);
-    const h = node.querySelector("h1, h2, h3, h4, [role=heading]");
+  if (el.matches(HEADING)) return squash(el.textContent);
+  const own = el.querySelector(HEADING);
+  if (own) return squash(own.textContent);
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const h = Array.from(node.children).find((c) => c.matches(HEADING));
     if (h) return squash(h.textContent);
   }
   return undefined;

@@ -12,5 +12,5 @@
     "noUncheckedIndexedAccess": true,
     "types": ["node"]
   },
-  "include": ["src", "test", "../packages/agent-protocol/src"]
+  "include": ["src", "test", "eval", "../packages/agent-protocol/src"]
 }

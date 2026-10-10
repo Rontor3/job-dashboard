@@ -30,3 +30,7 @@ run = [
   "pnpm --filter @jobdash/agent typecheck",
   "pnpm --filter @jobdash/agent test",
 ]
+
+[tasks."eval:agent"]
+description = "Live eval of the in-app agent against the configured model (temp data; calls the real endpoint)"
+run = "pnpm --filter @jobdash/agent eval"

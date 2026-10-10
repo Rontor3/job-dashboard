@@ -1,8 +1,9 @@
 # Job Dashboard — Claude Code config
 
-Two coupled subsystems in one repo, sharing `data/jobs.db`:
+Two coupled subsystems in one repo, sharing `data/jobs.db`, plus the in-app agent:
 - **`src/job_dashboard/`** — scrape jobs, match, render résumés, profile store, API/extension (the "front half").
 - **`src/career_agent/`** — autonomous job-application form-filler (the "back half"); reuses `job_dashboard`'s profile store, LLM, résumé rendering, and screening.
+- **`agent/`** — the in-app agent (TypeScript, Hono + Pi Durable, sessions in `data/agent/`); its tools change data only through the FastAPI routes, which log every change with Undo and gate consequential ones on a Confirm token. Playbook `docs/agent/system.md` (keep in step with `INIT.md`); UI in `frontend/src/agent/`; shared types in `packages/agent-protocol/`.
 
 The dashboard produces jobs + profile; the agent consumes them to apply. This file is a small **index** — query the stores below on demand; don't inline them.
 
@@ -28,7 +29,10 @@ The dashboard produces jobs + profile; the agent consumes them to apply. This fi
 ```bash
 # setup: ./jobdash setup   (mise -> ./.mise with pinned node/python/uv/pnpm/process-compose, uv sync -> ./.venv,
 #        Playwright Chromium -> ./.playwright-browsers, pnpm install + frontend build)
-# run:   ./jobdash start | dev | stop   (process-compose: api :8000, worker, browser; dev = Vite :8000 -> api :8001)
+# run:   ./jobdash start | dev | stop   (process-compose: agent :8000 serves the UI + proxies /api -> api :8001, worker, browser;
+#        dev = Vite :8000 -> api :8001, agent :8002)
+# all tests: ./jobdash test   (pytest, frontend typecheck + vitest, agent typecheck + vitest with a faux model)
+# live agent eval (calls the configured model, temp data): .mise/bin/mise run eval:agent
 # Playwright browsers are project-local; career_agent and tests/conftest.py point PLAYWRIGHT_BROWSERS_PATH at them automatically.
 # Never run bare `playwright install` / `npx playwright install` — that writes to ~/Library/Caches (user scope) and the wrong build.
 # career_agent — reach → fill an application (dry-run; nothing submitted by default)
@@ -50,14 +54,14 @@ PYTHONPATH=src uv run python -m pytest tests/career_agent               # add RU
 - **Account creation is handled by `credential_provider.py`.** For new sites it generates a password, saves to `data/secrets/credentials.json`, and completes registration (email → OTP → password → T&C). On repeat visits it loads saved credentials and logs in. Credentials are local-only — never committed, never in model context.
 - **Secrets never committed; PII stays local** (local LLM; user-authorized Gmail read for OTP only).
 - **One data root, one browser.** Every write goes under `job_dashboard/paths.py` (`data/` or `$JOB_DASHBOARD_DATA_DIR`) — never `~` or `/tmp`. Every browser consumer attaches to the isolated agent Chrome via `job_dashboard/agent_browser.py` — never the user's own Chrome.
-- **One LLM client.** Every model call goes through `job_dashboard/llm.py` (OpenAI-compatible Responses API, `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`). Don't call a provider directly.
+- **One LLM client.** Every model call goes through `job_dashboard/llm.py` (OpenAI-compatible Responses API, `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`). Don't call a provider directly. The one exception is the in-app agent (`agent/`), which calls the same configured endpoint through `pi-ai` (`docs/adr/0001-in-app-agent-on-pi-durable.md`).
 
 ## Where knowledge lives (query on demand — don't inline)
 
 - **ATS page-handling / archetypes** → `python3 scripts/ats_graph.py query <term>` (human map: `docs/career-agent/ats-knowledge-graph.md`)
 - **Question bank** (canonical questions, answered once on the dashboard Answers tab) → `data/jobs.db` tables `qbank_entry`/`qbank_wording`; maintenance `PYTHONPATH=src python3 scripts/qbank.py seed|migrate|calibrate`; spec `docs/superpowers/specs/2026-09-26-question-bank-design.md`
 - **Essay ingredient bank + writing style** (one unit per project, for drafting free-text) → `data/answer_style/ingredients.json`
-- **Architecture / design** → `docs/career-agent/`
+- **Architecture / design** → `docs/career-agent/`, decisions in `docs/adr/`, in-app agent spec `docs/superpowers/specs/2026-10-10-in-app-agent-design.md`
 
 ## Agent skills
 
