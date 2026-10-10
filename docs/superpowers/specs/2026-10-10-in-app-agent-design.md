@@ -57,6 +57,9 @@ Any user can do everything we did in the setup sessions without leaving the dash
 
   If (1) fails, write a small `pi-ai` provider adapter, then try `/chat/completions`. **Never** replace
   Pi Durable with a hand-rolled loop.
+- **Spike result (2026-10-10): passed** (`docs/worklog/2026-10-10-pi-durable-spike.md`). Versions 1.1.0, no
+  adapter needed. The provider's auth must return a placeholder `apiKey` for the keyless endpoint, and Node
+  22.22 or newer is enough.
 
 ### Access path
 - Agent tools reach data **only over HTTP to FastAPI** (Q22). The agent never opens `jobs.db` directly.
@@ -143,7 +146,7 @@ Any user can do everything we did in the setup sessions without leaving the dash
   Vite serves the frontend and passes `/api` and `/agent` through. Either way the user sees one address,
   `localhost:8000`.
 - **Commands:** `./jobdash start` and `./jobdash dev`, thin wrappers over process-compose.
-- **Toolchain:** `mise.toml` pins Node (22.23 or newer), Python, uv, pnpm and process-compose, installed
+- **Toolchain:** `mise.toml` pins Node (22.22 or newer; the packages need 22.19 or newer), Python, uv, pnpm and process-compose, installed
   inside the repo. `mise run setup` replaces `scripts/setup.sh`.
 - **Repo layout:** minimal (Q21).
   - Add `agent/` (TypeScript) and `packages/agent-protocol/` (event and tool types shared with the
