@@ -6,6 +6,8 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from job_dashboard import change_entities  # noqa: F401 — registers what Undo can write back
+from job_dashboard import changes
 from job_dashboard import config as settings
 from job_dashboard.match import preferences
 from job_dashboard.tracker import set_status
@@ -15,6 +17,8 @@ from job_dashboard.api.queue_routes import build_queue_router
 from job_dashboard.apply.queue_control import QueueControl
 from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.api.apply_routes import build_apply_router
+from job_dashboard.api.change_routes import ChangeMiddleware, build_change_router
+from job_dashboard.api.setup_routes import build_setup_router
 from job_dashboard.api.feedback_routes import build_feedback_router
 from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
@@ -23,7 +27,7 @@ from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
     dashboard_stats, distinct_classification_values, init_db, job_detail, query_jobs,
-    set_apply_details, suspected_duplicates, tracker_jobs,
+    suspected_duplicates, tracker_jobs,
 )
 
 DEFAULT_DB = str(paths.DB)
@@ -92,6 +96,9 @@ def create_app(
     this module for the same reason.
     """
     app = FastAPI(title="Job Dashboard")
+    app.add_middleware(ChangeMiddleware, db_path=db_path)     # actor, confirmation gate, change log
+    app.include_router(build_change_router(db_path))
+    app.include_router(build_setup_router(db_path))
     app.include_router(build_apply_router(db_path, screening_engine))
     app.include_router(
         build_resume_router(db_path, resume_engine, resume_llm, jd_keyword_extractor)
@@ -157,15 +164,18 @@ def create_app(
     def put_apply_details(job_id: int, body: ApplyDetails):
         details = {**body.model_dump(), "referrer": body.referrer.strip()}
         with db() as conn:
-            if not set_apply_details(conn, job_id, details):
+            if conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone() is None:
                 raise HTTPException(status_code=404, detail="job not found")
+            changes.apply(conn, "job", job_id, "apply_details", details)
         return details
 
     @app.patch("/api/jobs/{job_id}/status")
     def patch_status(job_id: int, body: StatusPatch):
         with db() as conn:
             try:
+                before = change_entities._job_read(conn, job_id, "status")
                 set_status(conn, job_id, body.status, round=body.round)
+                changes.record(conn, "job", job_id, "status", before, body.status)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc))
             except KeyError:
@@ -207,10 +217,11 @@ def create_app(
     def put_config(key: str, body: ConfigValue):
         if key not in settings.KEYS:
             raise HTTPException(status_code=404, detail=f"unknown setting {key!r}")
-        try:
-            settings.put(key, body.value)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
+        with db() as conn:
+            try:
+                changes.apply(conn, "config", key, "value", body.value.strip() or None)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc))
         return {"key": key, "value": settings.get(key), "restart": settings.KEYS[key].restart}
 
     state = RefreshState()

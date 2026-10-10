@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from job_dashboard import qa_store
+from job_dashboard import changes, qa_store
 from job_dashboard.apply import queue as q
 from job_dashboard.match import preferences
 from job_dashboard.db import init_db, set_job_status
@@ -159,7 +159,7 @@ def build_queue_router(db_path, runner) -> APIRouter:
             raise HTTPException(status_code=422, detail=f"unknown board {body.board!r}")
         conn = db()
         try:
-            qa_store.set_setting(conn, AUTOSUBMIT_PREFIX + body.board, "1" if body.on else "0")
+            changes.apply(conn, "setting", AUTOSUBMIT_PREFIX + body.board, "value", "1" if body.on else "0")
             return toggles(conn)
         finally:
             conn.close()
@@ -197,9 +197,10 @@ def build_queue_router(db_path, runner) -> APIRouter:
             if body.telegram_wait_minutes is not None:
                 if not 0 <= body.telegram_wait_minutes <= 120:
                     raise HTTPException(status_code=422, detail="telegram_wait_minutes must be 0-120")
-                qa_store.set_setting(conn, "telegram_wait_minutes", body.telegram_wait_minutes)
+                changes.apply(conn, "setting", "telegram_wait_minutes", "value", str(body.telegram_wait_minutes))
             if body.gmail_confirmation_check is not None:
-                qa_store.set_setting(conn, "gmail_confirmation_check", "1" if body.gmail_confirmation_check else "0")
+                changes.apply(conn, "setting", "gmail_confirmation_check", "value",
+                              "1" if body.gmail_confirmation_check else "0")
             return {"telegram_wait_minutes": int(qa_store.get_setting(conn, "telegram_wait_minutes")),
                     "gmail_confirmation_check": qa_store.get_setting(conn, "gmail_confirmation_check") == "1"}
         finally:

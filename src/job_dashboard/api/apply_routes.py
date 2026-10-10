@@ -17,6 +17,7 @@ from job_dashboard.apply.store import (
     get_application, get_application_profile, save_application,
     save_application_profile,
 )
+from job_dashboard import changes
 from job_dashboard.db import company_key, init_db, job_detail, selected_resources_for
 from job_dashboard.letter.company_research import Fact, ResearchBundle, company_research
 from job_dashboard.match.profile_text import compose_profile_text
@@ -145,9 +146,10 @@ def build_apply_router(db_path, screening_engine=None) -> APIRouter:
     def put_profile(body: ApplicationProfileRequest):
         conn = db()
         try:
-            # Merge: a form that doesn't send a column must not null it out.
-            current = get_application_profile(conn) or {}
-            saved = save_application_profile(conn, {**current, **body.model_dump(exclude_unset=True)})
+            # Merge: a form that doesn't send a column must not null it out. One logged change per field.
+            for field, value in body.model_dump(exclude_unset=True).items():
+                changes.apply(conn, "profile", 1, field, value)
+            saved = get_application_profile(conn) or {}
         finally:
             conn.close()
         return saved

@@ -1,4 +1,5 @@
-# ./jobdash dev: Vite serves the UI on :8000 with hot reload and passes /api through to the api on :8001.
+# ./jobdash dev: Vite serves the UI on :8000 with hot reload, passing /api to the api (:8001) and /agent to the
+# agent service (:8002).
 version: "0.5"
 processes:
   api:
@@ -6,11 +7,21 @@ processes:
     readiness_probe:
       http_get: {host: 127.0.0.1, port: 8001, path: /api/health}
 
+  agent:
+    command: node --disable-warning=ExperimentalWarning --watch-path=agent/src --watch-path=packages agent/src/server.ts
+    environment:
+      - AGENT_PORT=8002
+      - API_URL=http://127.0.0.1:8001
+      - AGENT_SERVE_UI=0
+    readiness_probe:
+      http_get: {host: 127.0.0.1, port: 8002, path: /agent/health}
+
   frontend:
     description: Vite dev server
     command: pnpm --filter job-dashboard-frontend dev
     environment:
       - API_URL=http://127.0.0.1:8001
+      - AGENT_URL=http://127.0.0.1:8002
     readiness_probe:
       http_get: {host: 127.0.0.1, port: 8000, path: /}
       period_seconds: 1

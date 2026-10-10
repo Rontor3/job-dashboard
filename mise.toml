@@ -23,4 +23,9 @@ run = [
 
 [tasks.test]
 description = "Python and frontend tests"
-run = ["uv run pytest -q", "pnpm --filter job-dashboard-frontend test"]
+run = [
+  "uv run pytest -q",
+  "pnpm --filter job-dashboard-frontend test",
+  "pnpm --filter @jobdash/agent typecheck",
+  "pnpm --filter @jobdash/agent test",
+]

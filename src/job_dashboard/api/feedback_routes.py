@@ -4,7 +4,8 @@ GET  /api/inbox                    open questions blocking applications, guesses
 POST /api/jobs/{id}/feedback       Skip (with reasons) / More-like-this — re-ranks the feed and the LLM fit-judge
 GET  /api/preferences              what the clicks taught (likes, dislikes, blocked companies) + skip reasons
 DELETE /api/preferences/{feature}  forget one learned preference
-POST /api/explain                  plain-language meaning of a form question (the "What does this mean?" link)
+
+"What does this mean?" on a card asks the in-app agent (agent/), not a one-shot endpoint here.
 """
 from __future__ import annotations
 
@@ -15,7 +16,6 @@ from pydantic import BaseModel
 
 from career_agent.memory import qbank
 from career_agent.memory.qbank_rules import NO_INPUT_RULES, RULE_HELP
-from job_dashboard import llm as llm_client
 from job_dashboard import qa_store
 from job_dashboard.apply.store import get_application_profile
 from job_dashboard.db import init_db, set_job_status
@@ -27,20 +27,6 @@ _GUESS_SOURCES = ("qbank_likely", "judgment", "semantic", "learned")
 class FeedbackBody(BaseModel):
     verdict: str
     reasons: list[str] = []
-
-
-class ExplainBody(BaseModel):
-    question: str
-    options: list[str] = []
-    company: str | None = None
-
-
-def _explain_prompt(b: ExplainBody) -> str:
-    opts = f" The choices are: {', '.join(b.options)}." if b.options else ""
-    who = f" from {b.company}" if b.company else ""
-    return (f'A job application form{who} asks the candidate: "{b.question.strip()}".{opts}\n'
-            "In at most 3 short, plain sentences, explain what the employer is actually asking, why they ask it, "
-            "and what each choice would mean for the candidate. No preamble, no advice on which to pick.")
 
 
 def _questions(conn) -> list[dict]:
@@ -126,16 +112,6 @@ def build_feedback_router(db_path, embed=None) -> APIRouter:
             return preferences.summary(preferences.learn(conn))
         finally:
             conn.close()
-
-    @router.post("/api/explain")
-    def explain(body: ExplainBody):
-        if not body.question.strip():
-            raise HTTPException(status_code=422, detail="question is required")
-        try:
-            text = llm_client.complete(_explain_prompt(body), temperature=0.2).strip()
-        except Exception as e:  # noqa: BLE001 — model down / misconfigured
-            raise HTTPException(status_code=503, detail=f"the model couldn't be reached ({type(e).__name__})")
-        return {"explanation": text}
 
     @router.get("/api/preferences")
     def get_preferences():

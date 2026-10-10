@@ -40,6 +40,7 @@ KEYS: dict[str, Key] = {
     "LLM_TIMEOUT": Key("seconds per LLM call", valid=_number),
     "LLM_REASONING_EFFORT": Key("none|low|medium|high", valid=lambda v: v in ("none", "low", "medium", "high")),
     "LLM_NO_TEMPERATURE": Key("1 = never send temperature", valid=lambda v: v in ("0", "1")),
+    "LLM_CONTEXT_WINDOW": Key("the model's context window in tokens (the in-app agent compacts near it)", valid=str.isdigit),
     "AGENT_CDP_PORT": Key("debug port of the agent Chrome", restart="browser", valid=str.isdigit),
     "AGENT_CHROME_PATH": Key("Chrome binary for the agent browser", restart="browser"),
 }
@@ -52,7 +53,7 @@ def _conn() -> sqlite3.Connection:
     return conn
 
 
-def _stored() -> dict[str, str]:
+def stored() -> dict[str, str]:
     conn = _conn()
     try:
         return dict(conn.execute("SELECT key, value FROM config"))
@@ -62,13 +63,13 @@ def _stored() -> dict[str, str]:
 
 def snapshot() -> dict[str, str | None]:
     """Every key's current value (table, else environment, else None), from one read."""
-    stored = _stored()
-    return {k: stored.get(k) or os.getenv(k) or None for k in KEYS}
+    table = stored()
+    return {k: table.get(k) or os.getenv(k) or None for k in KEYS}
 
 
 def get(key: str) -> str | None:
     """The table's value, else the environment's, else None."""
-    return _stored().get(key) or os.getenv(key) or None
+    return stored().get(key) or os.getenv(key) or None
 
 
 def put(key: str, value: str) -> None:
@@ -92,9 +93,9 @@ def put(key: str, value: str) -> None:
 
 
 def listing() -> list[dict]:
-    stored = _stored()
-    return [{"key": k, "value": stored.get(k) or os.getenv(k) or None,
-             "source": "config" if k in stored else ("env" if os.getenv(k) else None),
+    table = stored()
+    return [{"key": k, "value": table.get(k) or os.getenv(k) or None,
+             "source": "config" if k in table else ("env" if os.getenv(k) else None),
              "help": spec.help, "restart": spec.restart} for k, spec in KEYS.items()]
 
 
@@ -102,10 +103,10 @@ def migrate_from_env(env_path=None) -> list[str]:
     """Copy each key set in the ``.env`` file but not yet in the table. Returns the keys copied."""
     from job_dashboard.env import read_env_file
     values = read_env_file(env_path or paths.REPO_ROOT / ".env")
-    stored, moved = _stored(), []
+    table, moved = stored(), []
     for k, spec in KEYS.items():
         v = values.get(k)
-        if k not in stored and v and spec.valid(v):
+        if k not in table and v and spec.valid(v):
             put(k, v)
             moved.append(k)
     return moved

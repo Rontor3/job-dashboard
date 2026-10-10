@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from career_agent.memory import qbank
 from career_agent.memory.qbank_match import split_escape
 from career_agent.memory.qbank_rules import NO_INPUT_RULES, RULE_HELP
-from job_dashboard import qa_store
+from job_dashboard import change_entities, changes, qa_store
 from job_dashboard.apply.store import get_application_profile
 from job_dashboard.db import init_db
 from job_dashboard.sources.cdp import state as cdp_state
@@ -143,12 +143,14 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         conn = db()
         try:
             if body.entry_id:
-                if not qbank.set_answer(conn, body.entry_id, ans):
+                if qbank.get_entry(conn, body.entry_id) is None:
                     raise HTTPException(status_code=404, detail="no such entry")
+                changes.apply(conn, "qbank", body.entry_id, "answer", ans)
                 eid = body.entry_id
             elif (body.question or "").strip():
                 eid = qbank.add_entry(conn, question=body.question.strip(), kind="text",
                                       answer=ans, embed=get_embed())
+                changes.record(conn, "qbank", eid, "status", None, "active")
             else:
                 raise HTTPException(status_code=422, detail="entry_id or question is required")
         finally:
@@ -160,8 +162,9 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         """Retire, don't erase: the entry stays in the DB as superseded."""
         conn = db()
         try:
-            if not qbank.set_status(conn, entry_id, "superseded"):
+            if qbank.get_entry(conn, entry_id) is None:
                 raise HTTPException(status_code=404, detail="no such entry")
+            changes.apply(conn, "qbank", entry_id, "status", "superseded")
         finally:
             conn.close()
         return {"ok": True}
@@ -217,9 +220,11 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
             if row is None:
                 raise HTTPException(status_code=404, detail="question not found")
             label, kind, source, prior_answer = row
+            before = change_entities._qa_read(conn, row_id, "answer")
             if body.save_as == "new":
-                qbank.add_entry(conn, question=split_escape(label)[0] or label, kind=kind,
-                                answer=ans, embed=get_embed())
+                eid = qbank.add_entry(conn, question=split_escape(label)[0] or label, kind=kind,
+                                      answer=ans, embed=get_embed())
+                changes.record(conn, "qbank", eid, "status", None, "active")
             elif body.save_as == "wording":
                 if not body.entry_id or qbank.get_entry(conn, body.entry_id) is None:
                     raise HTTPException(status_code=422, detail="pick an existing entry")
@@ -229,6 +234,7 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
                 same = (prior_answer or "").strip().casefold() == ans.casefold()
                 qa_store.set_outcome(conn, row_id, "kept" if same else "edited")
             qa_store.mark_answered(conn, job_id, qa_store.norm_key(label), ans, keep_source=keep_source)
+            changes.record(conn, "qa_row", row_id, "answer", before, change_entities._qa_read(conn, row_id, "answer"))
             requeued = _requeue_if_unblocked(conn, job_id)
         finally:
             conn.close()
@@ -260,14 +266,18 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
                 raise HTTPException(status_code=404, detail="not found")
             label, kind, retrieved = row
             if body.save_as == "new":
-                qbank.add_entry(conn, question=split_escape(label)[0] or label, kind=kind or "text",
-                                answer=ans, embed=get_embed())
+                eid = qbank.add_entry(conn, question=split_escape(label)[0] or label, kind=kind or "text",
+                                      answer=ans, embed=get_embed())
+                changes.record(conn, "qbank", eid, "status", None, "active")
             elif body.save_as == "entry":
-                if not retrieved or not qbank.set_answer(conn, retrieved, ans):
+                if not retrieved or qbank.get_entry(conn, retrieved) is None:
                     raise HTTPException(status_code=422, detail="no saved answer behind this one")
+                changes.apply(conn, "qbank", retrieved, "answer", ans)
+            before = change_entities._qa_read(conn, row_id, "answer")
             conn.execute("UPDATE application_qa SET answer=?, source='human', status='answered', updated_at=? "
                          "WHERE id=?", (ans, qa_store._now(), row_id))
             conn.commit()
+            changes.record(conn, "qa_row", row_id, "answer", before, change_entities._qa_read(conn, row_id, "answer"))
             qa_store.set_outcome(conn, row_id, "edited")
         finally:
             conn.close()
@@ -335,11 +345,11 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         try:
             for key in ("answer_confidence_min", "qbank_confident_min"):
                 if getattr(body, key) is not None:
-                    qa_store.set_setting(conn, key, getattr(body, key))
+                    changes.apply(conn, "setting", key, "value", str(getattr(body, key)))
             for site in BROWSER_SITES:
                 val = getattr(body, f"browser_{site}_enabled")
                 if val is not None:
-                    qa_store.set_setting(conn, f"browser_{site}_enabled", "1" if val else "0")
+                    changes.apply(conn, "setting", f"browser_{site}_enabled", "value", "1" if val else "0")
             return {"answer_confidence_min": qa_store.confidence_min(conn),
                     "qbank_confident_min": qa_store.qbank_confident_min(conn),
                     **_browser_flags(conn)}

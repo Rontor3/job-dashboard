@@ -7,10 +7,10 @@ environment:
 
 processes:
   api:
-    description: FastAPI — data and actions only; serves the built UI on :8000
-    command: uv run python -m uvicorn job_dashboard.api.serve:app --host 127.0.0.1 --port 8000
+    description: FastAPI — data and actions only, on :8001 behind the agent service
+    command: uv run python -m uvicorn job_dashboard.api.serve:app --host 127.0.0.1 --port 8001
     readiness_probe:
-      http_get: {host: 127.0.0.1, port: 8000, path: /api/health}
+      http_get: {host: 127.0.0.1, port: 8001, path: /api/health}
       period_seconds: 1
       failure_threshold: 120
     availability: {restart: on_failure}
@@ -21,10 +21,23 @@ processes:
     depends_on: {api: {condition: process_healthy}}
     availability: {restart: on_failure}
 
+  agent:
+    description: the in-app agent (Pi Durable + Hono) on :8000 — serves the dashboard, passes /api through
+    command: node --disable-warning=ExperimentalWarning agent/src/server.ts
+    environment:
+      - AGENT_PORT=8000
+      - API_URL=http://127.0.0.1:8001
+    depends_on: {api: {condition: process_healthy}}
+    readiness_probe:
+      http_get: {host: 127.0.0.1, port: 8000, path: /agent/health}
+      period_seconds: 1
+      failure_threshold: 60
+    availability: {restart: on_failure}
+
   browser:
     description: the agent Chrome with the dashboard tab — not restarted when you close it
     command: uv run python -m job_dashboard.agent_browser --open http://localhost:8000
-    depends_on: {api: {condition: process_healthy}}
+    depends_on: {agent: {condition: process_healthy}}
     availability: {restart: "no"}
 
   ollama:

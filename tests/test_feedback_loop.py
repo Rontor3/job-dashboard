@@ -99,18 +99,7 @@ def test_inbox_lists_blocking_questions_with_their_options_and_guesses_to_confir
     assert [(g["label"], g["answer"]) for g in box["guesses"]] == [("Years of Python?", "5")]
 
 
-def test_explain_asks_the_model_about_the_question_and_its_choices(env, monkeypatch):
-    c, _ = env
-    seen = []
-    monkeypatch.setattr("job_dashboard.llm.complete", lambda prompt, **kw: seen.append(prompt) or " They ask whether you agree. ")
-    r = c.post("/api/explain", json={"question": "Do you acknowledge our AI policy?", "options": ["Yes", "No"]})
-    assert r.json() == {"explanation": "They ask whether you agree."}
-    assert "Do you acknowledge our AI policy?" in seen[0] and "Yes, No" in seen[0]
 
-
-def test_explain_reports_an_unreachable_model_instead_of_failing_silently(env, monkeypatch):
+def test_explain_endpoint_is_gone_the_agent_answers_instead(env):
     c, _ = env
-    def down(*a, **k):
-        raise ConnectionError("refused")
-    monkeypatch.setattr("job_dashboard.llm.complete", down)
-    assert c.post("/api/explain", json={"question": "Q?"}).status_code == 503
+    assert c.post("/api/explain", json={"question": "Q?"}).status_code in (404, 405)
