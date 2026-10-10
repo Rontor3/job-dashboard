@@ -8,6 +8,7 @@ export const QUEUE_REASON = {
   unconfirmed: "submitted, not confirmed", stuck: "stuck on a page", no_entry: "no apply button",
   auth_wall: "login wall", error: "agent error",
   sensitive_field: "needs bank/ID details — fill them yourself",
+  email_code: "enter the code the site emailed you",
 };
 
 export const reasonText = (reason) => (reason ? QUEUE_REASON[reason] || reason.replace(/_/g, " ") : "");
@@ -26,6 +27,7 @@ export const QUEUE_FIX = {
   job_missing: "The job no longer exists. Remove it from the board.",
   daily_cap: "This site's daily limit is reached. Re-queue tomorrow.",
   sensitive_field: "Fill the bank/ID fields yourself in the agent's Chrome window, then submit there.",
+  email_code: "The site emailed you a code (the agent can't read your email). Enter it in the agent's Chrome window, then Re-queue.",
   unconfirmed: "Check your email for a confirmation. If it arrived, mark this Applied.",
   one_click_needs_autosubmit: "Turn on auto-submit for this board (queue → Manage), then Re-queue.",
 };

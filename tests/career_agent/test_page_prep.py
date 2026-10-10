@@ -1,5 +1,5 @@
 from career_agent.browser.form_model import Field
-from career_agent.browser.page_prep import suppress_noise, _best_apply, _is_ad_frame, login_from_signals, site_key
+from career_agent.browser.page_prep import suppress_noise, _best_apply, _is_ad_frame, login_from_signals, site_key, email_code_wall
 
 
 def _f(ref, label, kind="text", purpose=None):
@@ -153,3 +153,11 @@ def test_dismiss_dialogs_never_clicks_the_pages_own_continue():
         pg.set_content("<div role=dialog><p>Notice</p><button onclick=\"this.parentElement.remove()\">Dismiss</button></div>" + page_continue)
         assert dismiss_dialogs(pg) is True and pg.title() != "advanced"
         b.close()
+
+
+def test_email_code_wall_spots_pages_waiting_for_an_emailed_code():
+    assert email_code_wall("https://himalayas.app/onboarding/talent/verify/apply", "Verify your email. We sent a code to a@b.c")
+    assert email_code_wall("https://x.com/apply", "Enter the 6-digit verification code we sent to your inbox")
+    assert email_code_wall("https://x.com/login", "Check your email for a sign-in link")
+    assert not email_code_wall("https://x.com/jobs/verify-skills", "Senior ML Engineer. Apply now")
+    assert not email_code_wall("https://x.com/apply", "First name  Last name  Email  Resume")

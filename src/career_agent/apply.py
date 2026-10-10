@@ -503,6 +503,13 @@ def _apply(args, box: dict) -> None:
             # Registration+application on one page (e.g. SAP SuccessFactors): the
             # credential provider fills the auth fields; walk() fills the rest.
             print(f"[password] after the credential step: kind={kind} url={page.url[:90]}", flush=True)
+            from .browser.page_prep import needs_email_code
+            if kind != "form" and needs_email_code(page):
+                # The site emailed a code or link; the agent has no access to the user's email, by design.
+                print("[stop] the site sent a code to your email. Enter it in the agent's Chrome window, then re-run.")
+                box["out"] = {"url": page.url, "stopped_reason": "email_code"}
+                print({"url": page.url, "stopped_reason": "email_code", "filled_count": 0, "escalated_count": 0}, flush=True)
+                return
             if kind == "password" and is_application_form(page):
                 print("[password] combined registration+application form — walk() handles remainder")
                 kind = "form"

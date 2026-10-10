@@ -99,3 +99,10 @@ User feedback after trying the in-app agent:
   - Covered by an e2e test and a live eval scenario.
   - The live eval passed 10/10 on the new thinking defaults, and the new "reports what the app is doing" scenario
     passed too.
+- **A run that hits an emailed-code wall now says so.** The failed Wadhwani AI application (#450, via Himalayas)
+  went "Apply now" → Himalayas sign-up → "verify your email". The credential step had no email to read (by design:
+  the agent's Chrome has no email access), and the run ended as an unexplained "closed"/"error".
+  - `page_prep.email_code_wall()` / `needs_email_code()` recognise a page waiting for an emailed code or link.
+  - After the credential step, `apply.py` now parks such a run as `email_code`.
+  - The tracker says "enter the code the site emailed you" and how to finish.
+  - Now that the user is logged in to Himalayas, re-queueing #450 should get past the wall. That's theirs to start.

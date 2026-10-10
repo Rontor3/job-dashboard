@@ -433,6 +433,25 @@ def _real_field_count(page) -> int:
     return total
 
 
+_CODE_URL = re.compile(r"verif|/otp\b|one-time|confirm-?email|email-?confirm", re.I)
+_CODE_TEXT = re.compile(r"(enter|type|paste)\s+(the|your)?\s*(\d[- ]digit\s+)?(verification|confirmation|security|one[- ]time|login)?\s*code"
+                        r"|code\s+(we|was|has been)\s+(just\s+)?sent|check your (email|inbox)|we('ve| have)? (just )?(sent|emailed) (you )?(a|an|the) "
+                        r"(code|link|verification)|one[- ]time pass(word|code)|\botp\b", re.I)
+
+
+def email_code_wall(url: str, text: str) -> bool:
+    """A page waiting for a code (or link) the site emailed: sign-up verification, passwordless login. The agent
+    has no access to the user's email by design, so such a page is the human's to finish."""
+    return bool(_CODE_TEXT.search(text or "")) or (bool(_CODE_URL.search(url or "")) and bool(re.search(r"code|email", text or "", re.I)))
+
+
+def needs_email_code(page) -> bool:
+    try:
+        return email_code_wall(page.url, page.evaluate("() => document.body.innerText.slice(0, 4000)")) and not is_application_form(page)
+    except Exception:
+        return False
+
+
 def is_application_form(page) -> bool:
     """True only when >=2 distinct real applicant fields (name/email/resume/phone)
     are present — so a JD/search/SPA landing is never mistaken for the form."""
