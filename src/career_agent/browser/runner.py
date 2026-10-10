@@ -33,7 +33,11 @@ def launch(settings, cdp_url: str | None = None):
         else:
             print("[browser] CDP: no existing contexts, creating one", flush=True)
             context = browser.new_context()
-        page = context.new_page()
+        page = context.new_page()       # a new tab in the agent window, next to the dashboard
+        try:
+            page.bring_to_front()        # the user watches the run happen
+        except Exception:
+            pass
         print(f"[browser] CDP connected → {cdp_url}", flush=True)
         return pw, context, page, browser
     Path(settings.user_data_dir).mkdir(parents=True, exist_ok=True)

@@ -52,8 +52,9 @@ direnv allow
 #    Linux:  sudo apt-get install texlive-luatex texlive-latex-extra
 
 # 6. run it
-PYTHONPATH=src uv run python -m uvicorn job_dashboard.api.serve:app --port 8000
-#    open http://localhost:8000  →  click "Refresh" to pull jobs
+PYTHONPATH=src uv run python -m job_dashboard.start
+#    opens http://localhost:8000 as a tab in the agent's own Chrome window — agent runs open as tabs beside it
+#    →  click "Refresh" to pull jobs
 ```
 
 The SQLite DB (`data/jobs.db`) is created automatically on first run.

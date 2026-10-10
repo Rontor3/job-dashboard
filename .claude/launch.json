@@ -6,8 +6,7 @@
       "runtimeExecutable": ".venv/bin/python",
       "runtimeArgs": [
         "-m",
-        "uvicorn",
-        "job_dashboard.api.serve:app",
+        "job_dashboard.start",
         "--port",
         "8000"
       ],

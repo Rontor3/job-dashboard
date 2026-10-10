@@ -1,7 +1,8 @@
 """The agent's own browser: one Chrome process, its own profile under the data root, its own debug port.
 
 Every browser consumer (job sources, hiring posts, the apply agent, the submit watcher) attaches here and nowhere
-else, so the agent never touches your everyday Chrome, its tabs or its cookies. A Chrome started with its own
+else, so the agent never touches your everyday Chrome, its tabs or its cookies. It is also the ONE window the user
+works in: ``python -m job_dashboard.start`` opens the dashboard here, and every agent run is another tab beside it. A Chrome started with its own
 ``--user-data-dir`` runs as a separate instance next to your normal Chrome, so launching it never disturbs yours.
 
 Config: ``AGENT_CDP_PORT`` (default 9333), ``AGENT_CHROME_PATH`` (default Google Chrome, else Playwright Chromium),
@@ -9,11 +10,13 @@ or ``CAREER_AGENT_CDP_URL`` to point at a browser you manage yourself.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import quote
 
 from job_dashboard import paths
 
@@ -53,9 +56,10 @@ def _executable() -> str | None:
         return None
 
 
-def launch_args(port: int) -> list[str]:
+def launch_args(port: int, start_url: str | None = None) -> list[str]:
     return [f"--remote-debugging-port={port}", f"--user-data-dir={paths.BROWSER_PROFILE}",
-            "--no-first-run", "--no-default-browser-check", "--remote-allow-origins=*"]
+            "--no-first-run", "--no-default-browser-check", "--remote-allow-origins=*",
+            *([start_url] if start_url else [])]
 
 
 def _page_count(url: str) -> int:
@@ -75,9 +79,9 @@ def ensure_window(url: str) -> None:
 
 
 def ensure_running(url: str | None = None, wait_s: float = 10, popen=subprocess.Popen,
-                   is_up=None, window=None) -> str | None:
-    """None once the agent browser answers on its debug port with a window open (launching it if needed), else a
-    reason. Never raises."""
+                   is_up=None, window=None, start_url: str | None = None) -> str | None:
+    """None once the agent browser answers on its debug port with a window open (launching it if needed, on
+    ``start_url`` when given), else a reason. Never raises."""
     from urllib.parse import urlparse
     url, is_up, window = url or cdp_url(), is_up or reachable, window or ensure_window
     if is_up(url):
@@ -90,7 +94,7 @@ def ensure_running(url: str | None = None, wait_s: float = 10, popen=subprocess.
     if not exe:
         return "no Chrome/Chromium found — install Google Chrome or set AGENT_CHROME_PATH"
     paths.BROWSER_PROFILE.mkdir(parents=True, exist_ok=True)
-    popen([exe, *launch_args(urlparse(url).port or 9333)],
+    popen([exe, *launch_args(urlparse(url).port or 9333, start_url)],
           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
@@ -98,3 +102,24 @@ def ensure_running(url: str | None = None, wait_s: float = 10, popen=subprocess.
             return None
         time.sleep(0.5)
     return f"launched the agent browser but it didn't answer at {url} within {wait_s:.0f}s"
+
+
+def _http(method: str, url: str) -> str:
+    with urllib.request.urlopen(urllib.request.Request(url, method=method), timeout=3) as r:
+        return r.read().decode()
+
+
+def show_tab(target: str, url: str | None = None, http=_http) -> bool:
+    """Bring the agent browser's tab showing ``target`` (or a page under it) to the front, else open ``target`` as a
+    new tab in the same window. False if the browser can't be reached. Never raises."""
+    url = url or cdp_url()
+    want = target.split("#")[0].rstrip("/")
+    try:
+        for t in json.loads(http("GET", f"{url}/json/list")):
+            if t.get("type") == "page" and (t.get("url") or "").split("#")[0].startswith(want):
+                http("GET", f"{url}/json/activate/{t['id']}")
+                return True
+        http("PUT", f"{url}/json/new?{quote(target, safe='')}")
+        return True
+    except Exception:
+        return False

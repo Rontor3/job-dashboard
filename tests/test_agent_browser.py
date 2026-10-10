@@ -1,3 +1,5 @@
+import json
+
 from job_dashboard import agent_browser, paths
 
 _ensure_window = agent_browser.ensure_window      # conftest stubs it for every other test
@@ -60,3 +62,41 @@ def test_a_chrome_with_a_window_is_left_alone(monkeypatch):
     monkeypatch.setattr(agent_browser, "_page_count", lambda url: 2)
     monkeypatch.setattr(agent_browser.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no tab opened")))
     _ensure_window("http://127.0.0.1:9333")
+
+
+def test_launch_opens_on_the_start_url(monkeypatch):
+    monkeypatch.setattr(agent_browser, "_executable", lambda: "/bin/chrome")
+    monkeypatch.setattr(paths, "BROWSER_PROFILE", paths.TMP / "test-profile")
+    ups = iter([False, True])
+    launched = []
+    agent_browser.ensure_running("http://127.0.0.1:9444", popen=lambda argv, **k: launched.append(argv),
+                                 is_up=lambda url: next(ups), start_url="http://localhost:8000")
+    assert launched[0][-1] == "http://localhost:8000"
+
+
+def _fake_cdp(pages):
+    calls = []
+
+    def http(method, url):
+        calls.append((method, url))
+        return json.dumps(pages) if url.endswith("/json/list") else ""
+    return http, calls
+
+
+def test_show_tab_focuses_the_tab_already_showing_it():
+    http, calls = _fake_cdp([{"type": "page", "id": "A", "url": "https://jobs.example/x"},
+                             {"type": "page", "id": "D", "url": "http://localhost:8000/#/tracker"}])
+    assert agent_browser.show_tab("http://localhost:8000", "http://127.0.0.1:9333", http=http)
+    assert calls[1:] == [("GET", "http://127.0.0.1:9333/json/activate/D")]
+
+
+def test_show_tab_opens_a_new_tab_when_none_shows_it():
+    http, calls = _fake_cdp([{"type": "page", "id": "A", "url": "https://jobs.example/x"}])
+    assert agent_browser.show_tab("http://localhost:8000", "http://127.0.0.1:9333", http=http)
+    assert calls[1:] == [("PUT", "http://127.0.0.1:9333/json/new?http%3A%2F%2Flocalhost%3A8000")]
+
+
+def test_show_tab_reports_an_unreachable_browser():
+    def http(method, url):
+        raise OSError("refused")
+    assert agent_browser.show_tab("http://localhost:8000", "http://127.0.0.1:9333", http=http) is False
