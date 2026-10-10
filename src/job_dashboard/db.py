@@ -202,14 +202,23 @@ def get_sample_job_for_company(conn, company_key):
 
 
 def get_job(conn, job_id):
-    """The (title, company, description) for a job id, or None. Used by the
-    career agent to ground judgment-tier answers in the job's JD."""
+    """The (title, company, location, description, apply_details) for a job id, or None.
+    Used by the career agent to ground judgment-tier answers in the job's JD and by
+    question-bank rules that depend on the job (local city, referral details)."""
     row = conn.execute(
-        "SELECT title, company, description FROM jobs WHERE id = ?", (job_id,)
+        "SELECT title, company, location, description, apply_details FROM jobs WHERE id = ?", (job_id,)
     ).fetchone()
     if row is None:
         return None
-    return {"title": row[0], "company": row[1], "description": row[2]}
+    return {"title": row[0], "company": row[1], "location": row[2], "description": row[3],
+            "apply_details": json.loads(row[4]) if row[4] else {}}
+
+
+def set_apply_details(conn, job_id, details: dict) -> bool:
+    """Per-application facts (referrer, relatives, past contact) entered beside Apply."""
+    cur = conn.execute("UPDATE jobs SET apply_details = ? WHERE id = ?", (json.dumps(details), job_id))
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def job_exists(conn, job_url):
@@ -377,7 +386,7 @@ def _ensure_expired_column(conn):
 
 def _ensure_apply_columns(conn):
     cols = [row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()]
-    for c in ("apply_url", "apply_kind"):
+    for c in ("apply_url", "apply_kind", "apply_details"):
         if c not in cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {c} TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS jobs_source_ext ON jobs(source, external_id)")
@@ -515,7 +524,7 @@ def job_detail(conn, job_id):
                   j.is_remote, j.posted_date, j.source, j.status,
                   m.embed_score, m.llm_score, m.verdict,
                   cc.industry, cc.company_type,
-                  j.description, m.strengths, m.gaps, m.flags, j.apply_url, j.apply_kind
+                  j.description, m.strengths, m.gaps, m.flags, j.apply_url, j.apply_kind, j.apply_details
            FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
            LEFT JOIN company_classifications cc
                   ON cc.company_key = LOWER(TRIM(j.company))
@@ -524,10 +533,11 @@ def job_detail(conn, job_id):
     ).fetchone()
     if row is None:
         return None
-    detail = dict(zip(_JOB_COLUMNS + ("industry", "company_type", "description", "strengths", "gaps", "flags", "apply_url", "apply_kind"), row))
+    detail = dict(zip(_JOB_COLUMNS + ("industry", "company_type", "description", "strengths", "gaps", "flags", "apply_url", "apply_kind", "apply_details"), row))
     detail["strengths"] = json.loads(detail["strengths"]) if detail["strengths"] else []
     detail["gaps"] = json.loads(detail["gaps"]) if detail["gaps"] else []
     detail["flags"] = json.loads(detail["flags"]) if detail["flags"] else {}
+    detail["apply_details"] = json.loads(detail["apply_details"]) if detail["apply_details"] else {}
     detail["cross_listings"] = [
         {"id": r[0], "source": r[1], "job_url": r[2]}
         for r in conn.execute(

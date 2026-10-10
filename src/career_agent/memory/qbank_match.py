@@ -174,7 +174,8 @@ def resolve_value(conn, entry, *, question, escape, job, contact, options=(), _d
                 conn, other, question=other["question"], escape=None,
                 job=job, contact=contact, _depth=_depth + 1)
         return fn(RuleCtx(question, entry.get("answer"), escape, job or {}, bank,
-                          options=list(options), synonyms=entry.get("synonyms") or {}))
+                          options=list(options), synonyms=entry.get("synonyms") or {},
+                          entry_id=entry.get("id") or ""))
     if entry.get("profile_ref"):
         v = (contact or {}).get(entry["profile_ref"])
         if v is None or str(v).strip() == "":

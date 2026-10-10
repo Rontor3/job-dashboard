@@ -21,6 +21,7 @@ class RuleCtx:
     bank: Callable[[str], str | None]  # entry id -> resolved answer of another entry
     options: list = field(default_factory=list)    # the page field's options (pick-one questions)
     synonyms: dict = field(default_factory=dict)   # entry synonyms; for preference: {alternative: [keywords]}
+    entry_id: str = ""                             # the entry being resolved (job_detail answers several)
 
 
 def _items(s) -> list[str]:
@@ -61,6 +62,24 @@ def company_in_list(c: RuleCtx):
     if not company or c.answer is None:
         return None
     return "Yes" if any(re.search(rf"\b{re.escape(x)}\b", company) for x in _items(c.answer)) else "No"
+
+
+_JOB_FLAGS = {"relatives_at_company": "relatives", "applied_before": "applied_before",
+              "interviewed_before": "interviewed_before", "worked_before": "worked_before"}
+
+
+def job_detail(c: RuleCtx):
+    """Per-application facts (referral, relatives, past contact) from the details the
+    user entered beside Apply for this job. Nothing entered means No; a referrer's
+    name has no default, so it falls back to the page's escape word or a flag."""
+    d = c.job.get("apply_details") or {}
+    referrer = str(d.get("referrer") or "").strip()
+    if c.entry_id == "referrer_name":
+        return referrer or c.escape
+    if c.entry_id == "referred":
+        return "Yes" if referrer else "No"
+    key = _JOB_FLAGS.get(c.entry_id)
+    return None if key is None else ("Yes" if d.get(key) else "No")
 
 
 def years_in_skill(c: RuleCtx):
@@ -123,13 +142,14 @@ def preference(c: RuleCtx):
 
 
 RULES = {f.__name__: f for f in (local_or_escape, empty_or_escape, country_is_home,
-                                 company_in_list, years_in_skill, preference)}
-NO_INPUT_RULES = {"local_or_escape", "country_is_home"}
+                                 company_in_list, job_detail, years_in_skill, preference)}
+NO_INPUT_RULES = {"local_or_escape", "country_is_home", "job_detail"}
 RULE_HELP = {
     "local_or_escape": "Worked out per job: your home address if the job is in one of your local cities or remote, otherwise the word the form asks for (e.g. \"relocating\").",
     "empty_or_escape": "Your value, or 'none' if you don't have one (the form's N/A word is used then).",
     "country_is_home": "Worked out per question: Yes for India, No for any other country named.",
     "company_in_list": "Companies where the answer is Yes, comma-separated — or 'none'.",
+    "job_detail": "Worked out per job: No unless you add details beside that job's Apply button (who referred you, relatives there, applied, interviewed or worked there before).",
     "years_in_skill": "skill=years pairs, e.g. python=3, sql=3, default=2",
     "preference": "Best first, separated by >, e.g. Remote > Hybrid > Onsite. Add '; not: X, Y' for options you refuse. Pick-one questions get your highest-ranked offered option; yes/no questions get Yes if the option asked about is on your list, No if refused.",
 }

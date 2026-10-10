@@ -118,3 +118,27 @@ def test_preference_text_and_unanswered():
     assert r(pctx("What is your preferred work mode?")) == "Remote"        # no options, none named -> top choice
     assert r(pctx("Open to onsite?", answer=None)) is None
     assert r(pctx("Open to onsite?", answer="")) is None
+
+
+def test_job_detail_defaults_to_no_and_reads_this_jobs_details():
+    r = RULES["job_detail"]
+
+    def ask(eid, details=None, escape=None):
+        return r(RuleCtx("", None, escape, {"company": "Acme", "apply_details": details or {}},
+                         lambda _: None, entry_id=eid))
+
+    for eid in ("referred", "relatives_at_company", "applied_before", "interviewed_before", "worked_before"):
+        assert ask(eid) == "No"
+    assert ask("referrer_name") is None                       # no referrer, no escape word -> flag
+    assert ask("referrer_name", escape="N/A") == "N/A"
+    ref = {"referrer": " Jane Doe ", "interviewed_before": True}
+    assert ask("referred", ref) == "Yes" and ask("referrer_name", ref) == "Jane Doe"
+    assert ask("interviewed_before", ref) == "Yes" and ask("applied_before", ref) == "No"
+    assert "job_detail" in NO_INPUT_RULES
+
+
+def test_per_company_seed_entries_use_job_detail():
+    seed = {e["id"]: e for e in json.loads(SEED_PATH.read_text())["entries"]}
+    for eid in ("referred", "referrer_name", "relatives_at_company", "applied_before",
+                "interviewed_before", "worked_before"):
+        assert seed[eid].get("rule") == "job_detail", eid

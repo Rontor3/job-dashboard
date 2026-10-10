@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   agentLink, fetchAgentSettings, fetchJob, fetchJobs, fetchPreferences, forgetPreference, saveAgentSettings, sendJobFeedback,
 } from "../api.js";
+import ApplyDetails from "./ApplyDetails.jsx";
 
 // Jobs ranked by fit + what your clicks taught. Every row asks for one decision: Apply (= more like this) or
 // Skip with a one-tap reason (= less of exactly that). The learned strip shows what changed, and any chip can be
@@ -75,6 +76,7 @@ function Why({ id }) {
 function JobRow({ job, reasons, onApply, onSkip, onOpen, queued }) {
   const [open, setOpen] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const [details, setDetails] = useState(false);
   const pref = job.pref || 0;
   const done = DONE.includes(job.status);
   return (
@@ -92,9 +94,11 @@ function JobRow({ job, reasons, onApply, onSkip, onOpen, queued }) {
           {queued ? <span className="btn btn-sm btn-quiet">{queued}</span>
             : done ? <span className="btn btn-sm btn-quiet">{job.status}</span>
             : <button className="btn btn-sm btn-primary" onClick={() => onApply(job.id)}>Apply</button>}
+          {!done && !queued && <button className="btn btn-sm" aria-expanded={details} onClick={() => setDetails((o) => !o)}>Details</button>}
           {!done && !queued && <button className="btn btn-sm" aria-expanded={skipping} onClick={() => setSkipping((s) => !s)}>Skip</button>}
         </div>
       </div>
+      {details && !done && !queued && <ApplyDetails jobId={job.id} onApply={onApply} />}
       {skipping && (
         <div className="skip-reasons" role="group" aria-label="Why skip?">
           <span>Why?</span>

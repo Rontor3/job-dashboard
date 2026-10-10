@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from job_dashboard.match import preferences
 from job_dashboard.tracker import set_status
@@ -21,7 +21,7 @@ from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
     dashboard_stats, distinct_classification_values, init_db, job_detail, query_jobs,
-    suspected_duplicates, tracker_jobs,
+    set_apply_details, suspected_duplicates, tracker_jobs,
 )
 
 DEFAULT_DB = str(paths.DB)
@@ -30,6 +30,15 @@ DEFAULT_DB = str(paths.DB)
 class StatusPatch(BaseModel):
     status: Optional[str] = None
     round: Optional[int] = None          # interview round, with status "interviewing"
+
+
+class ApplyDetails(BaseModel):
+    """Per-application facts the agent can't know; anything left unset answers No."""
+    referrer: str = Field(default="", max_length=120)
+    relatives: bool = False
+    applied_before: bool = False
+    interviewed_before: bool = False
+    worked_before: bool = False
 
 
 def create_app(
@@ -142,6 +151,14 @@ def create_app(
         from job_dashboard.match.apply_type import classify_apply_type
         detail["apply_type"] = classify_apply_type(detail.get("source"), detail.get("job_url"), detail.get("apply_kind"), detail.get("apply_url"))
         return detail
+
+    @app.put("/api/jobs/{job_id}/apply-details")
+    def put_apply_details(job_id: int, body: ApplyDetails):
+        details = {**body.model_dump(), "referrer": body.referrer.strip()}
+        with db() as conn:
+            if not set_apply_details(conn, job_id, details):
+                raise HTTPException(status_code=404, detail="job not found")
+        return details
 
     @app.patch("/api/jobs/{job_id}/status")
     def patch_status(job_id: int, body: StatusPatch):

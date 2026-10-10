@@ -5,6 +5,7 @@ import { XIcon, ArrowUpRightIcon } from "./icons.jsx";
 import ResumePanel from "./ResumePanel.jsx";
 import CoverLetterPanel from "./CoverLetterPanel.jsx";
 import ApplyPanel from "./ApplyPanel.jsx";
+import ApplyDetails from "./ApplyDetails.jsx";
 import AgentRunHistory from "./AgentRunHistory.jsx";
 
 const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14px", borderRadius: "var(--radius-pill)", transition: "transform var(--dur-quick) ease-out" };
@@ -12,6 +13,7 @@ const BTN = { border: "none", cursor: "pointer", fontSize: 12, padding: "6px 14p
 export default function JobDetail({ id, onApply, onStatusChange, onClose }) {
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
+  const [details, setDetails] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,11 +59,14 @@ export default function JobDetail({ id, onApply, onStatusChange, onClose }) {
         <button style={{ ...BTN, background: "var(--green-tint)", color: "var(--green)" }} onClick={() => setStatus("saved")}>Save</button>
         <button style={{ ...BTN, background: "var(--gold)", color: "var(--gold-ink)" }} onClick={() => setStatus("applied")}>Applied</button>
         <button style={{ ...BTN, background: "#F1EBE0", color: "var(--ink-faint)" }} onClick={() => setStatus("dismissed")}>Dismiss</button>
+        <button style={{ ...BTN, background: "var(--canvas)", color: "var(--ink-soft)", marginLeft: "auto" }} aria-expanded={details}
+                onClick={() => setDetails((o) => !o)}>Details</button>
         <a href={job.job_url} target="_blank" rel="noreferrer" onClick={onApply ? (e) => { e.preventDefault(); onApply(id); } : agentLink(job.job_url)}
-           style={{ ...BTN, background: "var(--green)", color: "#FFFFFF", marginLeft: "auto", textDecoration: "none" }}>
+           style={{ ...BTN, background: "var(--green)", color: "#FFFFFF", textDecoration: "none" }}>
           Apply <ArrowUpRightIcon />
         </a>
       </div>
+      {details && <ApplyDetails jobId={id} onApply={onApply} />}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-soft)" }}>Response:</span>

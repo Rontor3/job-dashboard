@@ -159,6 +159,10 @@ export const promoteHiring = (id) => postOrThrow(`/api/hiring/posts/${id}/promot
 export const draftHiringEmail = (id, to) =>
   postOrThrow(`/api/hiring/posts/${id}/email-draft${to ? `?to=${encodeURIComponent(to)}` : ""}`);
 
+export const saveApplyDetails = (id, details) =>
+  fetch(`/api/jobs/${id}/apply-details`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(details),
+  }).then(json);
 export const launchApplyAgent = (id) =>
   fetch(`/api/jobs/${id}/apply-agent`, { method: "POST" }).then(json);
 // Open a job/ATS link in the career-agent Chrome (CDP) rather than the dashboard's

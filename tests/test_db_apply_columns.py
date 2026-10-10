@@ -43,3 +43,22 @@ def test_posted_date_is_normalized_on_insert(tmp_path):
     insert_job(conn, _job(job_url="https://x/e1", external_id="e1", posted_date="1789082478"))
     row = conn.execute("SELECT posted_date FROM jobs WHERE job_url='https://x/e1'").fetchone()
     assert row[0] == "2026-09-10T23:21:18+00:00"
+
+
+def test_apply_details_roundtrip_and_api(tmp_path):
+    from fastapi.testclient import TestClient
+    from job_dashboard.api.app import create_app
+    from job_dashboard.db import get_job
+    p = str(tmp_path / "j.db")
+    conn = init_db(p)
+    insert_job(conn, _job())
+    jid = query_jobs(conn)[0][0]["id"]
+    assert get_job(conn, jid)["apply_details"] == {} and job_detail(conn, jid)["apply_details"] == {}
+    client = TestClient(create_app(db_path=p))
+    r = client.put(f"/api/jobs/{jid}/apply-details", json={"referrer": "  Jane ", "relatives": True})
+    assert r.status_code == 200 and r.json()["referrer"] == "Jane"
+    assert get_job(conn, jid)["apply_details"] == {"referrer": "Jane", "relatives": True, "applied_before": False,
+                                                   "interviewed_before": False, "worked_before": False}
+    assert client.get(f"/api/jobs/{jid}").json()["apply_details"]["relatives"] is True
+    assert client.put("/api/jobs/999/apply-details", json={}).status_code == 404
+    assert client.put(f"/api/jobs/{jid}/apply-details", json={"referrer": "x" * 121}).status_code == 422
