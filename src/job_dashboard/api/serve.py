@@ -21,38 +21,9 @@ load_app_env()
 
 
 from job_dashboard.api.app import create_app  # noqa: E402
-from job_dashboard.linkedin.cdp_fetch import CdpHiringFetcher  # noqa: E402
-from job_dashboard.linkedin.contacts import judge_post  # noqa: E402
-from job_dashboard.match.profile_text import current_resume_text  # noqa: E402
-from job_dashboard.db import init_db  # noqa: E402
-from job_dashboard.api.app import DEFAULT_DB  # noqa: E402
-from job_dashboard.match.embedder import LazyModel  # noqa: E402
 
-# Hiring posts come through the agent's isolated Chrome over CDP (job_dashboard.agent_browser).
-# The cookie-based LinkedInBrowserFetcher (li_at/JSESSIONID in .env) is
-# superseded; kept in linkedin/browser_fetch.py for reference only.
-_fetcher = CdpHiringFetcher()
-_model = LazyModel()          # loads in the background; the server answers immediately
-
-
-
-def _constraints():
-    try:
-        conn = init_db(DEFAULT_DB)
-        row = conn.execute("SELECT location, work_authorization FROM application_profile").fetchone()
-        conn.close()
-        return f"Candidate is based in {row[0]}. Work authorization: {row[1]}" if row else ""
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-def _judge(post):
-    # Re-read each call so replacing data/current_resume.pdf needs no restart.
-    return judge_post(post, current_resume_text(), _constraints())
-
-
-# Hiring posts: Ollama extracts the role title and scores it against the current
-# résumé; off-family titles and fits below MIN_FIT are dropped.
-app = create_app(hiring_fetcher=_fetcher, embed_model=_model, hiring_role_fn=_judge)
+# Refresh and the hiring-post refresh run in the worker, which owns the embedding model and the agent Chrome's
+# LinkedIn search (job_dashboard/worker_jobs.py); the api never loads the model.
+app = create_app(in_worker=True)
 
 __all__ = ["app"]

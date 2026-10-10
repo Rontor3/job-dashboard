@@ -75,26 +75,22 @@ def load_default_model():
 
 
 class LazyModel:
-    """Stands in for the embedding model while it loads in the background, so the server starts at once.
-    Attribute access blocks until the model is ready; a failed load raises on use instead of at startup."""
+    """Stands in for the embedding model until something uses it: the first attribute access loads it (once,
+    thread-safe), so a process that never scores never pays for it. A failed load raises on that use, and the
+    next use tries again."""
 
     def __init__(self, loader=load_default_model):
         import threading
-        self._loader, self._model, self._error = loader, None, None
-        self._ready = threading.Event()
-        threading.Thread(target=self._load, name="embed-model-load", daemon=True).start()
-
-    def _load(self):
-        try:
-            self._model = self._loader()
-        except Exception as e:  # noqa: BLE001
-            self._error = e
-        finally:
-            self._ready.set()
+        self._loader, self._model = loader, None
+        self._lock = threading.Lock()
 
     def __getattr__(self, name):
-        self._ready.wait()
-        if self._model is None:
-            raise RuntimeError(f"embedding model unavailable: {self._error}")
+        if name.startswith("_"):
+            raise AttributeError(name)
+        with self._lock:
+            if self._model is None:
+                try:
+                    self._model = self._loader()
+                except Exception as e:  # noqa: BLE001
+                    raise RuntimeError(f"embedding model unavailable: {e}") from e
         return getattr(self._model, name)
-

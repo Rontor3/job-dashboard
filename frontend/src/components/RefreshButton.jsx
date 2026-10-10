@@ -38,6 +38,9 @@ export default function RefreshButton({ onDone }) {
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      {status.queued && status.worker === false && (
+        <span role="alert" style={{ fontSize: 11, color: "var(--dupe-ink)" }}>waiting for the worker process to start</span>
+      )}
       {status.stage === "error" && (
         <span role="alert" style={{ fontSize: 11, color: "var(--dupe-ink)" }}>refresh failed: {status.error}</span>
       )}

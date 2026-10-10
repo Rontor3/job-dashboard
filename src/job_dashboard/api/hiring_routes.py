@@ -27,7 +27,7 @@ class StatusBody(BaseModel):
     status: str | None = None   # drafted | emailed | applied | null (clear)
 
 
-def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=None) -> APIRouter:
+def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=None, in_worker=False) -> APIRouter:
     router = APIRouter()
 
     @contextmanager
@@ -50,11 +50,20 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
                        fetched_at=datetime.now(timezone.utc).isoformat(),
                        role_fn=role_fn, on_event=on_event)
 
+    # In production the background refresh runs in the worker, which owns the embedding model (worker_jobs.py).
+    remote = None
+    if in_worker:
+        from job_dashboard.worker_jobs import RemoteJob
+        remote = RemoteJob(db_path, "hiring", idle={"state": "idle"})
+
     @router.post("/api/hiring/refresh")
     def refresh(background: bool = False):
         """Search LinkedIn (through the user's Chrome), score and store new posts.
         ``background=true`` returns at once; poll ``/api/hiring/refresh/status``.
         Default blocks until done (scripts, tests)."""
+        if remote is not None:                       # never block the api for a minutes-long run
+            started = remote.start()
+            return {"started": started, **remote.status(), **({"state": "running"} if started else {})}
         if hiring_fetcher is None:
             raise HTTPException(status_code=503,
                                 detail="LinkedIn fetcher not configured — set cookies in .env")
@@ -75,7 +84,7 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
 
     @router.get("/api/hiring/refresh/status")
     def refresh_status():
-        return refresher.status()
+        return remote.status() if remote is not None else refresher.status()
 
     @router.get("/api/hiring/posts")
     def list_posts(within_hours: int = 168):

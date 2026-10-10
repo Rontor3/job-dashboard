@@ -55,7 +55,7 @@ def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_embed=None,
-    hiring_role_fn=None, queue_launch=None, mail_scanner=None,
+    hiring_role_fn=None, queue_launch=None, mail_scanner=None, in_worker=False,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -104,7 +104,7 @@ def create_app(
         build_resume_router(db_path, resume_engine, resume_llm, jd_keyword_extractor)
     )
     app.include_router(build_letter_router(db_path, letter_engine))
-    app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model, hiring_role_fn))
+    app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model, hiring_role_fn, in_worker=in_worker))
     app.include_router(build_agent_router(db_path, AgentRunState()))
     # Apply queue: the worker process runs it (job_dashboard.worker); the api only hands it start/pause through
     # jobs.db. A test's ``queue_launch`` runs it here instead, in-process, with that fake launch.
@@ -224,12 +224,21 @@ def create_app(
                 raise HTTPException(status_code=422, detail=str(exc))
         return {"key": key, "value": settings.get(key), "restart": settings.KEYS[key].restart}
 
-    state = RefreshState()
-    runner = pipeline_runner or default_pipeline_runner
+    # In production (``in_worker``) Refresh runs in the worker process, which owns the embedding model
+    # (worker_jobs.py); tests run it on a thread here with a fake pipeline.
+    if in_worker:
+        from job_dashboard.worker_jobs import RemoteJob
+        state = RemoteJob(db_path, "refresh", idle=RefreshState().snapshot())
+        state.snapshot = state.status
+        start_job = lambda: state.start()                                   # noqa: E731
+    else:
+        state = RefreshState()
+        runner = pipeline_runner or default_pipeline_runner
+        start_job = lambda: state.start(lambda on_stage: runner(db_path, on_stage))   # noqa: E731
 
     @app.post("/api/refresh")
     def start_refresh():
-        started = state.start(lambda on_stage: runner(db_path, on_stage))
+        started = start_job()
         if not started:
             raise HTTPException(status_code=409, detail="refresh already running")
         return {"started": True}

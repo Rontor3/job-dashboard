@@ -67,10 +67,12 @@ def _summarize(result):
     return ", ".join(parts)
 
 
-def default_pipeline_runner(db_path, on_stage):
+def default_pipeline_runner(db_path, on_stage, model=None):
+    """``model``: an embedding model to reuse across runs (the worker's); else each run loads its own."""
     conn = init_db(db_path)  # own connection: sqlite is per-thread
     try:
+        extra = {"model_loader": lambda: model} if model is not None else {}
         return run_pipeline(conn, job_sources(), company_sources(), on_stage=on_stage,
-                            browser_fetch=partial(fetch_browser_sources, insert_as_you_go=True))
+                            browser_fetch=partial(fetch_browser_sources, insert_as_you_go=True), **extra)
     finally:
         conn.close()
