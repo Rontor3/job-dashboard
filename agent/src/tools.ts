@@ -229,6 +229,56 @@ export function makeTools(client: ApiClient) {
       execute: async ({ job_id, ...details }, api, ctx) => asResult(await caller(client, api, ctx)("PUT", `/api/jobs/${job_id}/apply-details`, details)),
     }),
 
+    // ── What the app is doing ────────────────────────────────────────────────────────────────────────────
+    defineTool({
+      name: "get_overview",
+      description: "Where things stand: job counts by status, the apply queue (items, running, whether the worker is up), "
+        + "Refresh and hiring-refresh status, and which logged-in job sites are switched on.",
+      parameters: Type.Object({}),
+      replay: "safe",
+      execute: async (_a, api, ctx) => {
+        const call = caller(client, api, ctx);
+        const [stats, queue, refresh, hiring, settings] = await Promise.all([
+          call("GET", "/api/stats"), call("GET", "/api/queue"), call("GET", "/api/refresh/status"),
+          call("GET", "/api/hiring/refresh/status"), call("GET", "/api/agent-settings"),
+        ]);
+        const sites = Object.entries((settings.data ?? {}) as Record<string, unknown>)
+          .filter(([k]) => /^browser_.*_enabled$/.test(k)).map(([k, v]) => [k.replace(/^browser_|_enabled$/g, ""), v]);
+        const st = (stats.data ?? {}) as Record<string, unknown>;
+        return asResult({ ...stats, data: {
+          jobs: pick(st, ["total", "new", "saved", "applied", "interviewing", "offer", "rejected", "failed", "dismissed", "unranked"]),
+          queue: queue.data, refresh: refresh.data, hiring_refresh: hiring.data, browser_sites: Object.fromEntries(sites),
+        } });
+      },
+    }),
+    defineTool({
+      name: "get_tracker",
+      description: "The Applied board: jobs by column (saved, applied, failed, interviewing, offer, archived), with queue state "
+        + "and why an application failed or was parked.",
+      parameters: Type.Object({}),
+      replay: "safe",
+      execute: async (_a, api, ctx) => asResult(await caller(client, api, ctx)("GET", "/api/tracker"), (d) => Object.fromEntries(
+        Object.entries(d as Record<string, any[]>).map(([col, jobs]) => [col, jobs.map((j) => pick(j, [
+          "id", "title", "company", "status", "source", "queue_state", "queue_reason", "error_detail", "interview_round"]))]))),
+    }),
+    defineTool({
+      name: "get_apply_run",
+      description: "The apply agent's latest run on one job: each step (page reached, what stopped it, what it waited on a "
+        + "human for) and the questions it saw. Use it to explain why an application failed or is parked.",
+      parameters: Type.Object({ job_id: Type.Integer() }),
+      replay: "safe",
+      execute: async (a, api, ctx) => asResult(await caller(client, api, ctx)("GET", `/api/jobs/${a.job_id}/agent-runs/latest`),
+        (d) => ({ ...d, steps: (d.steps ?? []).map(({ screenshot: _s, ...step }: Record<string, unknown>) => step) })),
+    }),
+    defineTool({
+      name: "list_hiring_posts",
+      description: "LinkedIn hiring posts the hiring refresh kept (role, company, fit, contact status), newest first.",
+      parameters: Type.Object({ within_hours: Type.Optional(Type.Integer({ minimum: 1, maximum: 720 })) }),
+      replay: "safe",
+      execute: async (a, api, ctx) => asResult(await caller(client, api, ctx)("GET", `/api/hiring/posts${q({ within_hours: a.within_hours ?? 168 })}`),
+        (d) => ({ posts: (d.posts ?? []).slice(0, 30).map((p: Record<string, unknown>) => ({ ...p, text: String(p.text ?? "").slice(0, 400) })) })),
+    }),
+
     // ── Setup state and secrets ───────────────────────────────────────────────────────────────────────────
     defineTool({
       name: "get_setup_state",

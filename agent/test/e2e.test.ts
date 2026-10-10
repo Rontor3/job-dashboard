@@ -110,6 +110,21 @@ describe.skipIf(!hasPython)("agent over FastAPI", () => {
     await a.harness.close(ctx);
   });
 
+  it("read-only status tools report the queue, tracker and a job's last run without logging anything", async () => {
+    const a = await agent("status");
+    a.faux.setResponses([toolUse("get_overview", {}), toolUse("get_tracker", {}), toolUse("get_apply_run", { job_id: 1 }), say("Idle.")]);
+    await a.ask("What's going on?");
+    const results = (await a.entries()).filter((e) => e.kind === "pi.tool-result").map((e) => e.model[0]);
+    expect(results.map((r: any) => r.isError)).toEqual([false, false, true]);         // job 1 was never run
+    expect(JSON.parse(results[2].content[0].text)).toMatchObject({ error: 404 });
+    const overview = JSON.parse(results[0].content[0].text);
+    expect(overview).toMatchObject({ jobs: { total: 1 }, queue: { items: [] }, refresh: { running: false } });
+    expect(Object.keys(overview.browser_sites)).toContain("linkedin");
+    expect(JSON.parse(results[1].content[0].text)).toHaveProperty("applied");
+    expect((await api.ui("GET", `/api/changes?session_id=${a.session}`)).body.changes).toHaveLength(0);
+    await a.harness.close(ctx);
+  });
+
   it("streams a snapshot first to every client of a session", async () => {
     const a = await agent("stream");
     const read = async () => {

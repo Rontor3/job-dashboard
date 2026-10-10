@@ -163,7 +163,6 @@ export default function AnswersTab({ only }) {
       <div className="mem-pane">
         <div className="mem-toolbar">
           <input aria-label="Search questions" placeholder="Search every question and answer…" value={q} onChange={(e) => setQ(e.target.value)} />
-          {data && !only && <span className="mem-summary">{data.unanswered} unanswered</span>}
           <button className="btn btn-sm" onClick={() => setAdding(!adding)}>+ Add question</button>
         </div>
         {err && <div role="alert" className="alert">{err}</div>}

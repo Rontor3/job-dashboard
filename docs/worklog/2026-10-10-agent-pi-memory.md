@@ -84,3 +84,18 @@ User feedback after trying the in-app agent:
 
 ## Open items
 - Logged-in LinkedIn and Himalayas: see the next worklog entry.
+
+## Follow-ups (same session)
+- **LinkedIn.** You logged in to LinkedIn in the agent Chrome, so I turned on its browser source
+  (`browser_linkedin_enabled` 0 → 1, logged with Undo). The next Refresh scrapes it.
+- **Himalayas:**
+  - A logged-in himalayas.app adds Matches and Saved. Matches is empty until the Himalayas profile is filled in, which
+    is the user's own outward-facing action. "Apply now" still links out to the employer, so the login doesn't change
+    ingestion.
+  - Ingestion now passes `country=IN`. Most Himalayas roles are US/UK/Canada-only: 300 of the 353 already stored.
+- **Memory.** Dropped the "N unanswered" count, which disagreed with To fill because it included story entries.
+- **New agent tools:** `get_overview` (job counts, queue, worker, Refresh, hiring refresh, which sites are on),
+  `get_tracker`, `get_apply_run` (why an application failed or is parked), `list_hiring_posts`. All are read-only.
+  - Covered by an e2e test and a live eval scenario.
+  - The live eval passed 10/10 on the new thinking defaults, and the new "reports what the app is doing" scenario
+    passed too.

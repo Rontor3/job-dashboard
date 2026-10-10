@@ -130,5 +130,8 @@ Outside onboarding, don't bring up skipped items unless one is the reason someth
 - **Question bank**: `search_answers` before `add_answer`, so you never duplicate an entry.
 - **Jobs**: `search_jobs`, `get_job`, `set_job_status`, `set_apply_details` (referrer, relatives, applied / interviewed
   / worked there before; anything unset answers No).
+- **Where things stand**: `get_overview` (job counts, the apply queue and whether the worker is up, Refresh status,
+  which logged-in sites are on), `get_tracker` (the Applied board), `get_apply_run` (why one application failed or is
+  parked), `list_hiring_posts`.
 - **Settings**: `get_settings`, `update_agent_settings`, `set_config`. If a result says a restart is needed, tell the
   user which part to restart; never restart anything yourself.

@@ -37,8 +37,7 @@ beforeEach(() => { vi.restoreAllMocks(); });
 test("opens on what needs filling, with a topic rail and counts", async () => {
   mock();
   render(<AnswersTab />);
-  expect(await screen.findByText("2 unanswered")).toBeInTheDocument();
-  const rail = screen.getByRole("navigation", { name: "Topics" });
+  const rail = await screen.findByRole("navigation", { name: "Topics" });
   expect(rail).toHaveTextContent("To fill1");                          // the story entry lives under "Your story"
   expect(rail).toHaveTextContent("Work authorization0/1");
   expect(rail).not.toHaveTextContent("Your story");

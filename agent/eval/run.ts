@@ -135,6 +135,14 @@ const SCENARIOS: Scenario[] = [
     },
   },
   {
+    name: "reports what the app is doing",
+    say: ["Is the apply queue running, and is Refresh going? Just check."],
+    check: async (_api, a) => {
+      const tools = await a.toolsCalled();
+      return expectThat(tools.includes("get_overview"), `tools ${tools}`);
+    },
+  },
+  {
     name: "explains an element from the popover",
     say: [encodeElementMessage({ anchor: "job:1", tab: "jobs", text: "ML Engineer · Acme" }, "What is this job about?")],
     check: async (_api, a) => {
