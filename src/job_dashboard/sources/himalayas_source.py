@@ -5,10 +5,14 @@ from job_dashboard.models import JobListing
 HIMALAYAS_SEARCH_URL = "https://himalayas.app/jobs/api/search"
 
 
-def fetch_himalayas_jobs(query, employment_type=None):
+def fetch_himalayas_jobs(query, employment_type=None, country=None):
+    """``country`` (ISO code or name) keeps only roles open to someone there: the API then returns jobs whose
+    location restrictions include it, plus worldwide ones (without it, most hits are US/UK/Canada-only)."""
     params = {"q": query}
     if employment_type:
         params["employment_type"] = employment_type
+    if country:
+        params["country"] = country
     response = requests.get(HIMALAYAS_SEARCH_URL, params=params, timeout=15)
     response.raise_for_status()
     data = response.json()

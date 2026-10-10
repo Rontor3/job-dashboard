@@ -52,3 +52,15 @@ def test_fetch_himalayas_jobs_skips_rows_without_description(monkeypatch):
 
     assert len(jobs) == 1
     assert jobs[0].job_url == "https://himalayas.app/jobs/has-jd"
+
+
+def test_country_asks_only_for_roles_open_there(monkeypatch):
+    seen = {}
+
+    def get(url, params=None, timeout=None):
+        seen.update(params)
+        return FakeResponse(json_data={"jobs": []})
+
+    monkeypatch.setattr(himalayas_source.requests, "get", get)
+    himalayas_source.fetch_himalayas_jobs("ml", country="IN")
+    assert seen == {"q": "ml", "country": "IN"}

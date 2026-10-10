@@ -49,6 +49,8 @@ SEARCH_TERMS = [
 # LinkedIn is a browser (CDP) source. Indeed's web page sits behind a
 # Cloudflare challenge in CDP, but jobspy hits Indeed's API and isn't blocked.
 REGION_SEARCHES = [("India", ["indeed"], "india")]
+# Himalayas is remote-only but most roles are country-restricted: ask only for ones open to India (or worldwide).
+HIMALAYAS_COUNTRY = "IN"
 
 
 def _target_only(jobs):
@@ -67,7 +69,7 @@ def job_sources():
                 )
             )
         fetchers.append(lambda t=term: _target_only(fetch_remotive_jobs(t)))
-        fetchers.append(lambda t=term: _target_only(fetch_himalayas_jobs(t)))
+        fetchers.append(lambda t=term: _target_only(fetch_himalayas_jobs(t, country=HIMALAYAS_COUNTRY)))
     # remoteok has no keyword search — it returns its entire board — and
     # remotive's search is loose, so both are gated to ML/AI/DS titles only.
     fetchers.append(lambda: _target_only(fetch_remoteok_jobs()))
