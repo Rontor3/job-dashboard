@@ -89,13 +89,17 @@ test("remove asks first, then DELETEs by entry id", async () => {
 test("both thresholds are editable under Tuning", async () => {
   mock();
   render(<Tuning />);
-  expect((await screen.findByLabelText(/Minimum match score/)).value).toBe("80");
+  expect(await screen.findByRole("radio", { name: /Balanced/ })).toHaveAttribute("aria-checked", "false");   // 80 is custom
+  expect(screen.getByText("You've set your own numbers below.")).toBeInTheDocument();
+  expect(screen.getByLabelText(/Minimum match score/).value).toBe("80");
   expect(screen.getByLabelText(/Minimum confidence to fill a generated answer/).value).toBe("60");
 });
 
 test("Your story shows only story entries, in a multi-line box", async () => {
   mock();
   render(<AnswersTab only="story" />);
+  expect(await screen.findByText(/Not written yet/)).toBeInTheDocument();            // one line, not an open box
+  fireEvent.click(screen.getByRole("button", { name: /Why do you want to work at an early-stage startup/ }));
   const box = await screen.findByLabelText("Answer for Why do you want to work at an early-stage startup?");
   expect(box.tagName).toBe("TEXTAREA");
   expect(screen.queryByText("Will you require visa sponsorship?")).toBeNull();
@@ -131,4 +135,13 @@ test("an answer shows how many approvals it has earned toward autonomy", async (
   expect(screen.getByTestId("approvals-notice_period_text")).toHaveTextContent("approved 2 of 3 times");
   fireEvent.click(screen.getByRole("button", { name: /Background/ }));
   expect(screen.getByText("✓ auto")).toBeInTheDocument();
+});
+
+test("Tuning in plain words: a preset sets both numbers at once", async () => {
+  const calls = mock();
+  render(<Tuning />);
+  fireEvent.click(await screen.findByRole("radio", { name: /Careful/ }));
+  await waitFor(() => expect(calls.some(([, o]) => o && o.method === "PUT" && /"qbank_confident_min":93/.test(o.body)
+    && /"answer_confidence_min":75/.test(o.body))).toBe(true));
+  expect(screen.getByRole("radio", { name: /Careful/ })).toHaveAttribute("aria-checked", "true");
 });

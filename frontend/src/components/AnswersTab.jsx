@@ -22,14 +22,30 @@ function shownValue(a) {
   return a.profile_ref ? a.value : a.answer;
 }
 
+// How bold the apply agent is, in words: each preset is a pair of thresholds (questionnaire match, drafted answer).
+const PRESETS = [
+  { key: "careful", label: "Careful", qbank: 93, conf: 75,
+    text: "Fills only what it's sure of and asks you about the rest. More questions in your Inbox, almost no wrong answers." },
+  { key: "balanced", label: "Balanced", qbank: 87, conf: 60,
+    text: "Fills what it's confident about and flags close calls for you to check before anything is sent." },
+  { key: "bold", label: "Bold", qbank: 75, conf: 45,
+    text: "Fills nearly everything itself. Fewest questions for you; now and then an answer needs fixing." },
+];
+
 export function Thresholds() {
   const [s, setS] = useState(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => { fetchAgentSettings().then(setS).catch(() => {}); }, []);
   if (!s) return null;
-  const save = () => saveAgentSettings({
-    answer_confidence_min: Number(s.answer_confidence_min), qbank_confident_min: Number(s.qbank_confident_min),
+  const put = (v) => saveAgentSettings({
+    answer_confidence_min: Number(v.answer_confidence_min), qbank_confident_min: Number(v.qbank_confident_min),
   }).then(() => { setSaved(true); setTimeout(() => setSaved(false), 1500); });
+  const current = PRESETS.find((p) => Number(s.qbank_confident_min) === p.qbank && Number(s.answer_confidence_min) === p.conf);
+  const choose = (p) => {
+    const v = { ...s, qbank_confident_min: p.qbank, answer_confidence_min: p.conf };
+    setS(v);
+    put(v);
+  };
   const row = (key, id, label, hint) => (
     <div className="mem-threshold">
       <label htmlFor={id}>{label}</label>
@@ -38,12 +54,27 @@ export function Thresholds() {
     </div>
   );
   return (
-    <div className="mem-card" data-agent="setting:thresholds">
-      {row("qbank_confident_min", "qbank-min", "Minimum match score to fill from the questionnaire without flagging",
-           "Below this, the best match is still filled but listed for you to check before submit.")}
-      {row("answer_confidence_min", "conf-min", "Minimum confidence to fill a generated answer",
-           "Below this (or unknown) a drafted answer is not filled.")}
-      <div><button className="btn btn-primary btn-sm" onClick={save} aria-label="Save thresholds">{saved ? "Saved" : "Save"}</button></div>
+    <div className="mem-card tune" data-agent="setting:thresholds">
+      <h3 className="tune-h">How much should the agent decide on its own?</h3>
+      <p className="tune-sub">When a form asks something, the agent answers from what you've told it. This sets how sure it
+        must be before it answers without checking with you. Nothing is ever submitted without your say.</p>
+      <div className="tune-presets" role="radiogroup" aria-label="How bold the agent is">
+        {PRESETS.map((p) => (
+          <button key={p.key} type="button" role="radio" aria-checked={current?.key === p.key} className="tune-preset" onClick={() => choose(p)}>
+            <strong>{p.label}{p.key === "balanced" && <small> · recommended</small>}</strong>
+            <span>{p.text}</span>
+          </button>
+        ))}
+      </div>
+      <p className="tune-status" role="status">{saved ? "Saved." : current ? "" : "You've set your own numbers below."}</p>
+      <details className="tune-advanced">
+        <summary>Advanced: the exact numbers</summary>
+        {row("qbank_confident_min", "qbank-min", "Minimum match score to fill from the questionnaire without flagging",
+             "Below this, the best match is still filled but listed for you to check before submit.")}
+        {row("answer_confidence_min", "conf-min", "Minimum confidence to fill a generated answer",
+             "Below this (or unknown) a drafted answer is not filled.")}
+        <div><button className="btn btn-primary btn-sm" onClick={() => put(s)} aria-label="Save thresholds">{saved ? "Saved" : "Save"}</button></div>
+      </details>
     </div>
   );
 }
@@ -73,13 +104,14 @@ function Editor({ a, onSave, onSaveProfile }) {
 function Row({ a, open, onToggle, onSave, onSaveProfile, onRemove }) {
   const value = shownValue(a);
   const wordings = a.wordings.filter((w) => w !== a.question);
-  const editing = open || unanswered(a);
+  const story = a.topic === "story";
+  const editing = open || (unanswered(a) && !story);              // unwritten essays stay one line until opened
   return (
     <li className={`mem-row${unanswered(a) ? " mem-open" : ""}`} data-testid={`entry-${a.id}`}
       data-agent={a.profile_ref ? `profile:${a.profile_ref}` : `qbank:${a.id}`}>
       <button className="mem-row-head" aria-expanded={open} onClick={onToggle}>
         <span className="mem-q">{a.question}</span>
-        {!editing && <span className="mem-a">{value ?? "—"}</span>}
+        {!editing && <span className="mem-a">{value ?? (story ? "Not written yet: the agent drafts it from your projects" : "—")}</span>}
         <span className="mem-meta">
           {a.asked_in ? `asked ${a.asked_in}×` : ""}
           {!a.profile_ref && a.topic !== "story" && (a.approvals || 0) >= 3 && <span className="mem-auto" title="May submit without you"> ✓ auto</span>}
@@ -193,7 +225,10 @@ export function Tuning() {
   return (
     <div className="mem-tuning">
       <Thresholds />
-      <RetrievalPanel />
+      <details className="tune-advanced mem-card">
+        <summary>Advanced: how questions are matched to your answers</summary>
+        <RetrievalPanel />
+      </details>
     </div>
   );
 }

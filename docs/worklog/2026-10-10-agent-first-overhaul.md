@@ -62,7 +62,6 @@ integrated with the agent; try several system prompts / agent profiles, includin
 - Playbook: talk like a person; never show group letters, file names, tool names or field keys.
 - Verified: pytest (profile/feedback/QA/notifications), agent typecheck + 19 tests, frontend 160 tests + typecheck,
   a live autofill (50% → 71%), screenshots in both themes.
-- Open: plain-language Tuning, a shorter Your Story.
 
 ## Follow-up (2026-10-11): Jobs by company, and questions only some jobs ask
 - Jobs are grouped by company (`JobGroups.jsx`), in rank order of each company's best opening: one card per company,
@@ -77,3 +76,12 @@ integrated with the agent; try several system prompts / agent profiles, includin
   a bank entry (wordings embedded), joins readiness ("For your jobs") and the Inbox with which jobs asked. Agent tool
   `get_readiness`. The scan is cached until jobs, scores or the queue change (0.8 s → under 1 ms).
 - Verified: full pytest (1548 passed), frontend 163 tests + typecheck, agent typecheck + 19 tests, screenshots.
+
+## Follow-up (2026-10-11): Memory in plain words
+- Tuning: three choices (Careful / Balanced (recommended) / Bold), each a pair of thresholds, saved on one tap; the
+  numbers and the retrieval panel are folded under "Advanced".
+- Your story: unwritten essays are one line ("Not written yet…") until opened; the projects are a grid of short
+  cards (title, role, one-line problem, four skills) that open into the editor.
+- Data fix: the `certifications` answer held a request ("scrape them from my LinkedIn") rather than an answer;
+  cleared through the change log (Undo id 42) and the profile re-read. LinkedIn gave no certificates, so it stays open.
+- Verified: frontend 164 tests + typecheck, screenshots of both parts.

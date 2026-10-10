@@ -122,3 +122,33 @@
 .company-solo .company-facts:not(.company-facts-set):not([aria-expanded="true"]) { opacity: 0; transition: opacity var(--dur-quick); }
 .company-solo:hover .company-facts, .company-solo:focus-within .company-facts { opacity: 1; }
 @media (hover: none) { .company-solo .company-facts { opacity: 1 !important; } }
+
+/* ── Memory → Tuning: three choices in words, numbers folded away ── */
+.tune-h { margin: 0 0 4px; font-family: var(--font-display); font-size: 20px; font-weight: 560; }
+.tune-sub { margin: 0 0 14px; color: var(--ink-soft); font-size: 14px; line-height: 1.5; max-width: 72ch; }
+.tune-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.tune-preset { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px 16px; border-radius: 14px; cursor: pointer;
+  font: inherit; color: var(--ink); background: var(--canvas); border: 1px solid var(--hairline); transition: border-color var(--dur-quick); }
+.tune-preset:hover { border-color: var(--green-soft); }
+.tune-preset[aria-checked="true"] { background: var(--green-tint); border-color: var(--green-mid); box-shadow: inset 0 0 0 1px var(--green-mid); }
+.tune-preset strong { font-size: 15px; }
+.tune-preset small { font-weight: 500; color: var(--green-mid); }
+.tune-preset span { font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+.tune-status { min-height: 18px; margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); }
+.tune-advanced { margin-top: 10px; }
+.tune-advanced > summary { cursor: pointer; font-size: 13.5px; color: var(--ink-soft); padding: 4px 0; }
+.tune-advanced[open] > summary { margin-bottom: 10px; }
+
+/* ── Memory → Your story: the projects as a grid of short cards ── */
+.ing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.ing-grid > .ing-edit { grid-column: 1 / -1; }
+.ing-card { background: var(--card); border: 1px solid var(--hairline); border-radius: 12px; padding: 12px 14px; display: flex;
+  flex-direction: column; gap: 4px; min-width: 0; }
+.ing-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.ing-top strong { font-size: 14.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ing-top .linkish { font-size: 13px; flex: none; }
+.ing-meta { font-size: 12px; color: var(--ink-soft); text-transform: capitalize; }
+.ing-line { margin: 2px 0 0; font-size: 13px; color: var(--ink-soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ing-tech { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ing-tech span { font-size: 11.5px; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--green-tint); color: var(--green-mid); }
+@media (max-width: 720px) { .tune-presets { grid-template-columns: 1fr; } }
