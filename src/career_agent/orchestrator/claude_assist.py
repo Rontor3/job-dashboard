@@ -9,6 +9,8 @@ takes it with no Claude call.
 """
 from __future__ import annotations
 
+from job_dashboard import paths
+
 import json
 import subprocess
 import tempfile
@@ -24,7 +26,7 @@ _DENY = ("submit", "send application", "captcha", "password", "sign in", "sign u
 
 def _claude_cli(prompt: str, timeout: int = 120) -> str:
     r = subprocess.run(["claude", "-p", prompt, "--allowedTools", "Read", "--max-turns", "4"],
-                       capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
+                       capture_output=True, text=True, timeout=timeout, cwd=paths.tmp("."))
     return r.stdout
 
 
@@ -57,7 +59,7 @@ class ClaudeAssist:
     def __init__(self, cap: int = 5, run=_claude_cli, shot_dir: str | None = None):
         self.cap, self.calls, self._run = cap, 0, run
         # absolute: `claude -p` runs from the temp dir, so a relative screenshot path is "file not found" for it
-        self._dir = Path(shot_dir or tempfile.mkdtemp(prefix="career_assist_")).resolve()
+        self._dir = Path(shot_dir or tempfile.mkdtemp(prefix="career_assist_", dir=paths.tmp("."))).resolve()
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _controls(self, page, limit: int = 60) -> list:

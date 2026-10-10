@@ -1,3 +1,4 @@
+from job_dashboard import paths
 import hashlib
 import re
 from dataclasses import dataclass
@@ -53,12 +54,12 @@ def _career_goals_block(evaluation_file):
     return match.group(1) if match else ""
 
 
-CURRENT_RESUME = _REPO_ROOT / "data" / "current_resume.pdf"  # gitignored (PII)
+CURRENT_RESUME = paths.CURRENT_RESUME  # gitignored (PII)
 
 
 def current_resume_pdf() -> Path:
     """The résumé the candidate supplied — the ONLY one sent to employers
-    (``CURRENT_RESUME_PDF`` env, else ``data/current_resume.pdf``)."""
+    (``CURRENT_RESUME_PDF`` env, else ``<data root>/current_resume.pdf``)."""
     import os
     return Path(os.getenv("CURRENT_RESUME_PDF") or CURRENT_RESUME)
 

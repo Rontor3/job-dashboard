@@ -67,3 +67,12 @@ def test_load_default_model_raises_actionable_error_without_dependency(monkeypat
 
     with pytest.raises(RuntimeError, match="pip3 install sentence-transformers"):
         embedder.load_default_model()
+
+
+def test_cosine_of_numpy_vectors_is_a_plain_float_sqlite_can_store():
+    import sqlite3
+    import numpy as np
+    from job_dashboard.match.embedder import cosine
+    score = cosine(np.array([1, 2, 3], dtype="float32"), np.array([1, 2, 4], dtype="float32"))
+    assert type(score) is float
+    assert sqlite3.connect(":memory:").execute("SELECT typeof(?)", (score,)).fetchone()[0] == "real"

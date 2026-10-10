@@ -21,11 +21,12 @@ import time
 
 ROOT = pathlib.Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+from job_dashboard import paths, agent_browser
 
-URLS_FILE  = ROOT / "data" / "rl_test_urls.json"
-LOG_FILE   = ROOT / "data" / "bulk_run_log.json"
-STATE_FILE = pathlib.Path.home() / ".career_agent" / "portal_state.json"
-CDP_URL    = os.getenv("CAREER_AGENT_CDP_URL", "http://localhost:9222")
+URLS_FILE  = paths.DATA_DIR / "rl_test_urls.json"
+LOG_FILE   = paths.DATA_DIR / "bulk_run_log.json"
+STATE_FILE = paths.STATE / "portal_state.json"
+CDP_URL    = agent_browser.cdp_url()
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +241,7 @@ def _prep_bulk_input(jobs):
     entries = [{"url": j["apply_url"]} for j in jobs if "apply_url" in j]
 
     # Pull in 4 more jobs from existing collection to get multi-domain coverage
-    existing_file = ROOT / "data" / "job_urls_collected.json"
+    existing_file = paths.DATA_DIR / "job_urls_collected.json"
     if existing_file.exists():
         try:
             existing = json.loads(existing_file.read_text())
@@ -262,7 +263,7 @@ def _prep_bulk_input(jobs):
         except Exception:
             pass
 
-    out = ROOT / "data" / "rl_test_bulk.json"
+    out = paths.DATA_DIR / "rl_test_bulk.json"
     out.write_text(json.dumps(entries, indent=2))
     return out
 

@@ -24,10 +24,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from job_dashboard import qa_store
+from job_dashboard import agent_browser, paths, qa_store
 from job_dashboard.db import init_db, job_detail
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = paths.REPO_ROOT
 
 
 class AgentRunState:
@@ -84,76 +84,13 @@ class AgentRunState:
         return 0 if proc is None else proc.wait()
 
 
-def _cdp_reachable(cdp_url: str, timeout: float = 1.5) -> bool:
-    try:
-        import urllib.request
-        with urllib.request.urlopen(f"{cdp_url}/json/version", timeout=timeout):
-            return True
-    except Exception:
-        return False
-
-
-def _any_chrome_running() -> bool:
-    """True if any Google Chrome process is running — including ones without
-    the debug port. Used to decide whether auto-launching the career-agent
-    Chrome is safe (nothing open to disturb)."""
-    try:
-        return subprocess.run(["pgrep", "-x", "Google Chrome"],
-                              capture_output=True).returncode == 0
-    except Exception:
-        return True  # can't tell -> assume yes, the non-destructive default
-
-
-_CDP_CHROME_PROFILE_DIR = Path.home() / ".career_agent" / "chrome-p3"
-_CDP_CHROME_PROFILE_NAME = "Profile 3"
-_CDP_CHROME_APP = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-
-
-def _launch_cdp_chrome(port: int) -> None:
-    subprocess.Popen(
-        [_CDP_CHROME_APP, f"--remote-debugging-port={port}",
-         f"--user-data-dir={_CDP_CHROME_PROFILE_DIR}",
-         f"--profile-directory={_CDP_CHROME_PROFILE_NAME}",
-         "--no-first-run", "--no-default-browser-check"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
 def _ensure_cdp_chrome(cdp_url: str) -> Optional[str]:
-    """Make the career-agent Chrome reachable before launching the agent
-    against it. Returns None once it's ready (or already was), or an error
-    message if it couldn't be made ready — never raises.
-
-    Only auto-launches when NO Chrome process is running at all. macOS
-    treats Chrome as single-instance: launching a second one with
-    --remote-debugging-port while another Chrome window is already open just
-    focuses that window and silently ignores the flag, so the documented
-    manual recovery (career_agent/CLAUDE.md) does `pkill -x "Google Chrome"`
-    first. Killing the user's existing Chrome closes their tabs/windows —
-    a real, disruptive action — so this never does that automatically; it
-    surfaces a clear error with the manual command instead.
-    """
-    if _cdp_reachable(cdp_url):
-        return None
-    if _any_chrome_running():
-        return (f"career-agent Chrome isn't reachable at {cdp_url}, and Chrome is "
-                "already running without the debug port. Auto-restarting it would "
-                "close your existing Chrome windows, so that wasn't done — close "
-                "Chrome yourself and try again, or run the launch command from "
-                "career_agent/CLAUDE.md.")
-    from urllib.parse import urlparse
-    port = urlparse(cdp_url).port or 9222
-    _launch_cdp_chrome(port)
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        if _cdp_reachable(cdp_url):
-            return None
-        time.sleep(0.5)
-    return f"Launched career-agent Chrome but it didn't come up at {cdp_url} within 10s."
+    """Make the agent's isolated browser reachable (see job_dashboard.agent_browser). None when ready, else why not."""
+    return agent_browser.ensure_running(cdp_url)
 
 
 def _log_path(job_id: int) -> Path:
-    return REPO_ROOT / "data" / "agent_runs" / f"{job_id}.log"
+    return paths.AGENT_RUNS / f"{job_id}.log"
 
 
 def _tail_log(job_id: int, lines: int = 80, max_bytes: int = 65536) -> Optional[list[str]]:
@@ -182,7 +119,7 @@ def _clip(line: str, limit: int = 400) -> str:
 
 
 def _live_screenshot_path(job_id: int) -> Path:
-    return REPO_ROOT / "data" / "agent_runs" / str(job_id) / "live.png"
+    return paths.AGENT_RUNS / str(job_id) / "live.png"
 
 
 def _run_page(ctx, job_id):
@@ -309,7 +246,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         if urlparse(url).scheme not in ("http", "https"):
             raise HTTPException(status_code=422, detail="url must be http(s)")
         from career_agent.config.settings import load_settings
-        cdp_url = load_settings().cdp_url or "http://localhost:9222"
+        cdp_url = load_settings().cdp_url or agent_browser.cdp_url()
         problem = _ensure_cdp_chrome(cdp_url)
         if problem:
             raise HTTPException(status_code=503, detail=problem)
@@ -352,7 +289,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
     def agent_step_screenshot(job_id: int, step: int, part: int = 1):
         """`part` > 1 = the next scrolled segment of a long page (perceive<N>_<part>.png)."""
         name = f"perceive{step}.png" if part <= 1 else f"perceive{step}_{part}.png"
-        path = REPO_ROOT / "data" / "agent_runs" / str(job_id) / name
+        path = paths.AGENT_RUNS / str(job_id) / name
         if not path.exists():
             raise HTTPException(status_code=404, detail="no screenshot for this step")
         return FileResponse(path, media_type="image/png")
@@ -368,7 +305,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         if detail is None:
             raise HTTPException(status_code=404, detail="job not found")
         job_url = detail.get("job_url") or ""
-        run_dir = REPO_ROOT / "data" / "agent_runs" / str(job_id)
+        run_dir = paths.AGENT_RUNS / str(job_id)
 
         from career_agent.boards.profiles import board_for
         board_log = run_dir / "board_run.json"
@@ -389,7 +326,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         from career_agent.orchestrator.run_history import summarize_run
 
         thread_id = hashlib.sha1(job_url.encode()).hexdigest()[:16]
-        checkpoint_db = str(REPO_ROOT / "data" / "jobs_graph.db")
+        checkpoint_db = str(paths.GRAPH_DB)
         steps = summarize_run(thread_id, checkpoint_db, run_dir=str(run_dir))
         if not steps:
             raise HTTPException(status_code=404, detail="no agent run found for this job")

@@ -1,8 +1,10 @@
 """Operator-supplied credential handling for ATS account/login walls.
 Per-ATS register/login flows: Darwinbox, Infosys, SmartRecruiters. Generic fallback: _fill_wall.
-Credentials stored in ~/.career_agent/credentials.json (plaintext — operator use only).
+Credentials stored in <data root>/secrets/credentials.json (plaintext — operator use only).
 """
 from __future__ import annotations
+
+from job_dashboard import paths
 
 import json
 import os
@@ -10,7 +12,7 @@ import secrets
 import string
 from pathlib import Path
 
-_STORE = Path.home() / ".career_agent" / "credentials.json"
+_STORE = paths.SECRETS / "credentials.json"
 
 # SAP SuccessFactors allows only alphanumeric + a limited special set; avoid
 # characters that trigger extra escaping or clipboard issues.
@@ -166,7 +168,7 @@ def _observe_until_change(page, label: str, max_wait_s: int = 30, interval_s: in
         _time.sleep(interval_s)
         elapsed += interval_s
         try:
-            path = f"/tmp/career_agent_cred_{label}_{elapsed}s.png"
+            path = paths.tmp(f"career_agent_cred_{label}_{elapsed}s.png")
             page.screenshot(path=path, full_page=False)
             print(f"[cred] snapshot @{elapsed}s ({label}): {path}", flush=True)
         except Exception:
@@ -621,7 +623,7 @@ def _darwinbox_google_signin(page, original_url: str | None = None) -> bool:
 
 def _darwinbox_register(page, cred: dict, original_url: str | None = None) -> None:
     import time as _t, pathlib as _pl
-    _otp_file = _pl.Path("/tmp/career_agent_otp.txt")
+    _otp_file = _pl.Path(paths.tmp("career_agent_otp.txt"))
 
     try:
         source = original_url or page.url
@@ -656,7 +658,7 @@ def _darwinbox_register(page, cred: dict, original_url: str | None = None) -> No
         if verify_clicked:
             _otp_file.unlink(missing_ok=True)
             token = None
-            print("[darwinbox] waiting for OTP (/tmp/career_agent_otp.txt)…", flush=True)
+            print("[darwinbox] waiting for OTP ({_otp_file})…", flush=True)
             for _ in range(150):
                 _t.sleep(2)
                 if _otp_file.exists():
@@ -703,8 +705,8 @@ def _darwinbox_register(page, cred: dict, original_url: str | None = None) -> No
 
         print(f"[darwinbox] after register URL: {page.url}", flush=True)
         try:
-            page.screenshot(path="/tmp/darwinbox_post_register.png", full_page=False)
-            print("[darwinbox] screenshot: /tmp/darwinbox_post_register.png", flush=True)
+            page.screenshot(path=paths.tmp("darwinbox_post_register.png"), full_page=False)
+            print(f"[darwinbox] screenshot: {paths.tmp('darwinbox_post_register.png')}", flush=True)
         except Exception:
             pass
     except Exception as e:

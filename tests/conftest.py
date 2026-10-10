@@ -13,7 +13,11 @@ class FakeResponse:
 
 
 import os as _os
+import tempfile as _tempfile
 from pathlib import Path as _Path
+
+# Tests never read or write the real data root (job_dashboard.paths resolves this at import).
+_os.environ["JOB_DASHBOARD_DATA_DIR"] = _tempfile.mkdtemp(prefix="jd-test-data-")
 
 _pw = _Path(__file__).resolve().parents[1] / ".playwright-browsers"
 if _pw.is_dir():
@@ -45,10 +49,14 @@ def fake_embed():
 
 @pytest.fixture(autouse=True)
 def _fast_isolated_defaults(monkeypatch):
-    """Tests never load the real MiniLM model (~1s per call) and never start/kill the developer's Ollama."""
+    """Tests never load the real MiniLM model (~1s per call), never start/kill the developer's Ollama, never launch Chrome."""
     from career_agent.memory import qbank
+    from job_dashboard import agent_browser
     from job_dashboard.apply import local_model
     monkeypatch.setattr(qbank, "default_embed", _bow_embed)
+    monkeypatch.setattr(agent_browser, "_executable", lambda: None)      # never launch a real Chrome
+    monkeypatch.setattr(agent_browser, "reachable", lambda *a, **k: False)   # ...or touch a running one
+    monkeypatch.setattr(agent_browser, "ensure_window", lambda url: None)
     monkeypatch.setattr(local_model, "ensure_running", lambda *a, **k: False)
     monkeypatch.setattr(local_model, "stop", lambda *a, **k: None)
 

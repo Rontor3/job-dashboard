@@ -6,9 +6,11 @@ Source B (25): Google/web search for ATS job postings via known job-board patter
 from __future__ import annotations
 import json, time, re, sys
 from pathlib import Path
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src"))
+from job_dashboard import paths, agent_browser
 
-CDP_URL = "http://localhost:9222"
-OUT_FILE = Path(__file__).parent.parent / "data" / "job_urls_collected.json"
+CDP_URL = agent_browser.cdp_url()
+OUT_FILE = paths.DATA_DIR / "job_urls_collected.json"
 
 # ── LinkedIn queries (run separately, not combined) ──────────────────────────
 LINKEDIN_QUERIES = [

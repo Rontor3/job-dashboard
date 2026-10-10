@@ -7,11 +7,36 @@ of db.py for its 500-line cap; init_db calls ensure().
 """
 from __future__ import annotations
 
+import re
+
+from job_dashboard import paths
 from job_dashboard.db import set_job_status
 
 TRACKED = ("saved", "applied", "failed", "interviewing", "offer", "rejected")
 _KEYS = ("id", "title", "company", "location", "source", "status", "embed_score", "llm_score", "verdict",
          "industry", "company_type", "interview_round", "queue_state", "queue_reason")
+
+
+_ERROR_LINE = re.compile(r"^(?:[\w.]+\.)?(\w*(?:Error|Exception))\b:?\s*(.*)$")
+
+
+def last_error(job_id) -> str | None:
+    """The final exception line of a job's agent log ("could not attach to the agent browser: ..."), so a failed row
+    says what actually happened instead of just "agent error"."""
+    path = paths.AGENT_RUNS / f"{job_id}.log"
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 16384))
+            lines = f.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        m = _ERROR_LINE.match(line.strip())
+        if m and m.group(2):
+            msg = m.group(2).strip()
+            return msg if len(msg) <= 240 else msg[:240] + "…"
+    return None
 
 
 def ensure(conn) -> None:
@@ -47,5 +72,7 @@ def tracker_jobs(conn) -> dict:
     buckets = {"saved": [], "applied": [], "failed": [], "interviewing": [], "offer": [], "archived": []}
     for r in rows:
         d = dict(zip(_KEYS, r))
+        if d["status"] == "failed":
+            d["error_detail"] = last_error(d["id"])
         buckets["archived" if d["status"] == "rejected" else d["status"]].append(d)
     return buckets

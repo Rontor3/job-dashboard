@@ -13,9 +13,9 @@ import re
 import sqlite3
 from pathlib import Path
 
-_DEFAULT_PATH = (Path(__file__).resolve()
-                 .parent.parent.parent.parent  # repo root
-                 / "data" / "answer_style" / "ingredients.json")
+from job_dashboard import paths
+
+_DEFAULT_PATH = paths.INGREDIENTS
 
 
 def _load_units(path: Path) -> list[dict]:

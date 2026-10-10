@@ -52,7 +52,9 @@ class QARecorder:
                   source=d.source, status=status)
 
     def needs(self, f):
-        self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, status="needs_answer")
+        opts = [str(o) for o in (getattr(f, "options", None) or [])][:30]
+        self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, status="needs_answer",
+                  **({"context_json": {"options": opts}} if opts else {}))
 
     def on_draft(self, f, res, filled):
         self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, answer=res.get("answer"),

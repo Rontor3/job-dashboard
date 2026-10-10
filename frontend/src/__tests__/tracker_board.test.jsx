@@ -167,3 +167,18 @@ test("a general question defaults to Add to Answers; a why-this-company essay st
   expect([...radios(8)].find((r) => r.checked).parentElement.textContent).toContain("Add to Answers");
   expect([...radios(7)].find((r) => r.checked).parentElement.textContent).toContain("Just this application");
 });
+
+test("a failed row says what happened and what to do", async () => {
+  global.fetch = vi.fn((url) => {
+    const body = String(url).includes("/api/tracker")
+      ? { saved: [], applied: [], interviewing: [], offer: [], archived: [],
+          failed: [{ id: 450, title: "ML Scientist", company: "Wadhwani AI", status: "failed", queue_reason: "logged_out",
+                     error_detail: "could not attach to the agent browser: Protocol error" }] }
+      : {};
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+  });
+  render(<TrackerBoard onSelect={() => {}} onRequeue={() => {}} />);
+  const why = await screen.findByTestId("fail-why-450");
+  expect(why).toHaveTextContent("could not attach to the agent browser");
+  expect(why).toHaveTextContent("Log in to this site in the agent's Chrome window, then Re-queue.");
+});

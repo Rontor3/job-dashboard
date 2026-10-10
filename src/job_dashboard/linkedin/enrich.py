@@ -3,13 +3,11 @@ company's own pages: links in the post, the company site, and the careers page
 or listing for this role found by search.
 
 Reuses ``letter.company_research``'s TinyFish search/fetch adapters; the local
-Ollama model reads the fetched pages and returns ONLY what they state. Never
+LLM (job_dashboard.llm) reads the fetched pages and returns ONLY what they state. Never
 raises: any failure yields an empty result and the post text stands alone.
 """
 from __future__ import annotations
 
-import json
-import os
 
 _MAX_PAGES = 4
 _PAGE_CHARS = 5000
@@ -50,12 +48,9 @@ def _candidate_urls(contacts: dict, role: dict, search) -> list[str]:
     return list(dict.fromkeys(u for u in urls if u))[:_MAX_PAGES + 2]
 
 
-def _ollama(prompt: str, post_fn) -> dict:
-    host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    resp = post_fn(f"{host}/api/generate", {
-        "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt,
-        "stream": False, "format": "json", "options": {"temperature": 0.1, "num_ctx": 16384}})
-    return json.loads(resp["response"])
+def _ask(prompt: str, post_fn) -> dict:
+    from job_dashboard.llm import complete_json
+    return complete_json(prompt, temperature=0.1, post=post_fn)
 
 
 def research_role(post: dict, role: dict, contacts: dict, *, search=None, fetch=None,
@@ -64,8 +59,7 @@ def research_role(post: dict, role: dict, contacts: dict, *, search=None, fetch=
     empty = {"company_about": "", "role_details": "", "apply_url": "", "website": "", "sources": []}
     try:
         from job_dashboard.letter.company_research import _default_fetch, _default_search
-        from job_dashboard.resume.resume_llm import _default_post
-        search, fetch, post_fn = search or _default_search, fetch or _default_fetch, post_fn or _default_post
+        search, fetch = search or _default_search, fetch or _default_fetch
         urls = _candidate_urls(contacts, role, search)
         if not urls:
             return empty
@@ -85,7 +79,7 @@ def research_role(post: dict, role: dict, contacts: dict, *, search=None, fetch=
                 break
         if not pages:
             return empty
-        got = _ollama(_PROMPT.format(
+        got = _ask(_PROMPT.format(
             company=role.get("company") or "the hiring company", title=role.get("title") or "",
             post=(post.get("text") or "")[:2500],
             pages="\n\n".join(f"[{u}]\n{t}" for u, t in pages)), post_fn)

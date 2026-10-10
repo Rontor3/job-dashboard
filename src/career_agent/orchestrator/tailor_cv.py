@@ -9,6 +9,8 @@ failure never blocks the application.
 """
 from __future__ import annotations
 
+from job_dashboard import paths
+
 from pathlib import Path
 
 
@@ -55,7 +57,7 @@ def tailor_cv_node(state, config) -> dict:
             return {}
 
         layout = [{"segment_id": bid} for bid in block_ids]
-        out_dir = Path(c.get("resume_out_dir") or "data/resumes/tailored").resolve()
+        out_dir = Path(c.get("resume_out_dir") or paths.RESUMES / "tailored").resolve()
         result = render_layout_pdf(layout, segments=segments, render_pdf=render_pdf, out_dir=out_dir)
 
         c["resume_pdf"] = str(result["pdf_path"])

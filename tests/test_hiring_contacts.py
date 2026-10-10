@@ -76,7 +76,7 @@ def test_research_role_reads_company_pages():
     searched, fetched = [], []
     search = lambda q: searched.append(q) or [{"url": "https://fship.in/careers/ml"}]  # noqa: E731
     fetch = lambda urls: fetched.extend(urls) or [{"url": u, "text": "Fship careers. " * 30} for u in urls]  # noqa: E731
-    llm = lambda url, body: {"response": json.dumps({  # noqa: E731
+    llm = lambda url, body: {"output_text": json.dumps({  # noqa: E731
         "company_about": "Fship is a logistics platform.", "role_details": "Build ETA models.",
         "apply_url": "https://fship.in/careers/ml", "website": "https://fship.in"})}
     role = {"title": "ML Engineer", "company": "Fship"}
@@ -121,7 +121,7 @@ def test_enrich_skips_offtopic_search_hits_and_survives_a_dead_site():
         if urls[0] == "https://fship.in":
             raise RuntimeError("dead site")
         return [{"url": urls[0], "text": "x" * 300}]
-    llm = lambda url, body: {"response": json.dumps({"company_about": "ok"})}  # noqa: E731
+    llm = lambda url, body: {"output_text": json.dumps({"company_about": "ok"})}  # noqa: E731
     info = research_role({"text": POST}, {"title": "ML", "company": "Fship"}, C.extract_contacts(POST),
                          search=search, fetch=fetch, post_fn=llm)
     assert not any("roberthalf" in u for u in fetched)
@@ -139,7 +139,7 @@ def test_short_link_to_form_is_form_and_entities_unescaped():
 
 
 def test_judge_caps_location_and_drops_poster_as_company():
-    llm = lambda url, body: {"response": json.dumps({  # noqa: E731
+    llm = lambda url, body: {"output_text": json.dumps({  # noqa: E731
         "title": "Senior ML Engineer", "company": "Jane Doe (Recruiter)", "location_open": False,
         "fit": 80, "reason": "Skills match but on-site in Atlanta, no sponsorship"})}
     j = C.judge_post({"text": "Hiring ML Engineer", "poster_name": "Jane Doe"}, "resume", post_fn=llm)
@@ -260,8 +260,8 @@ def test_location_verdict_from_real_wording():
 
 def test_judge_location_is_decided_in_code_not_by_the_model():
     def llm(url, body):  # model wrongly says location closed for an India post, open for a US-only one
-        wrong = "US work authorization" in body["prompt"]
-        return {"response": json.dumps({"title": "ML Engineer", "company": "X", "location_open": wrong,
+        wrong = "US work authorization" in body["input"]
+        return {"output_text": json.dumps({"title": "ML Engineer", "company": "X", "location_open": wrong,
                                         "fit": 80, "reason": "r"})}
     india = C.judge_post({"text": "ML Engineer, Bengaluru (Hybrid)", "poster_name": "A"}, "resume", post_fn=llm)
     us = C.judge_post({"text": "ML Engineer, must have US work authorization", "poster_name": "A"}, "resume", post_fn=llm)

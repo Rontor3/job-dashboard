@@ -23,8 +23,9 @@ MAX_AGE = timedelta(hours=48)
 
 
 class SubmitWatcher:
-    def __init__(self, db_path: str, cdp_url: str = "http://localhost:9222", interval_s: int = POLL_S):
-        self.db_path, self.cdp_url, self.interval_s = db_path, cdp_url, interval_s
+    def __init__(self, db_path: str, cdp_url: str | None = None, interval_s: int = POLL_S):
+        from job_dashboard import agent_browser
+        self.db_path, self.cdp_url, self.interval_s = db_path, cdp_url or agent_browser.cdp_url(), interval_s
         self._thread: threading.Thread | None = None
         self._last_email: dict = {}
         self._last_reconcile = 0.0

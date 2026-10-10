@@ -1,5 +1,7 @@
 """Tests for the grounded screening-answer draft (apply/screening.py)."""
 
+import os
+
 import pytest
 
 from job_dashboard.letter.company_research import Fact, ResearchBundle
@@ -59,18 +61,11 @@ def test_grounded_answer_has_no_unsupported_claims():
 
 
 def _ollama_is_up() -> bool:
-    try:
-        import requests
-
-        from job_dashboard.resume.resume_llm import DEFAULT_HOST
-
-        requests.get(f"{DEFAULT_HOST}/api/tags", timeout=3)
-        return True
-    except Exception:
-        return False
+    """Live-model smokes are opt-in (RUN_LIVE_LLM=1): tests never wait on a real model by default."""
+    return os.environ.get("RUN_LIVE_LLM") == "1"
 
 
-@pytest.mark.skipif(not _ollama_is_up(), reason="Ollama not running at DEFAULT_HOST")
+@pytest.mark.skipif(not _ollama_is_up(), reason="set RUN_LIVE_LLM=1 to call the configured model")
 def test_live_smoke_real_qwen_screening_answer():
     """Real HTTP call to a running Ollama qwen2.5:14b -- no mocks."""
     from job_dashboard.letter.draft import make_default_llm

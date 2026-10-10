@@ -9,11 +9,12 @@ to AgentRunState so the one-Chrome single-flight lock still holds.
 """
 from __future__ import annotations
 
+from job_dashboard import paths
+
 import json
 import os
 import sqlite3
 import sys
-import tempfile
 import threading
 
 from job_dashboard import qa_store
@@ -53,7 +54,7 @@ class QueueRunner:
     def __init__(self, db_path: str, launch, result_dir: str | None = None, watcher=None):
         self.db_path, self.launch = db_path, launch
         self.watcher = watcher                     # SubmitWatcher: told where a parked form was left open
-        self.result_dir = result_dir or tempfile.gettempdir()
+        self.result_dir = result_dir or paths.tmp(".")
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._paused = False

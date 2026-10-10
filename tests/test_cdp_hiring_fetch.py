@@ -26,7 +26,7 @@ class FakeSession:
 
 @pytest.fixture(autouse=True)
 def _reachable(monkeypatch):
-    monkeypatch.setattr(cdp_fetch, "cdp_reachable", lambda url: True)
+    monkeypatch.setattr(cdp_fetch.agent_browser, "ensure_running", lambda url: None)
 
 
 def test_search_posts_parses_cards_from_cdp_tab():
@@ -47,6 +47,6 @@ def test_blocked_becomes_auth_error():
 
 
 def test_unreachable_chrome_is_auth_error(monkeypatch):
-    monkeypatch.setattr(cdp_fetch, "cdp_reachable", lambda url: False)
-    with pytest.raises(LinkedInAuthError, match="CDP"):
+    monkeypatch.setattr(cdp_fetch.agent_browser, "ensure_running", lambda url: "no Chrome/Chromium found")
+    with pytest.raises(LinkedInAuthError, match="no Chrome"):
         cdp_fetch.CdpHiringFetcher().search_posts("x")

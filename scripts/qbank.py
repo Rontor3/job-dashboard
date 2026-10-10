@@ -13,12 +13,14 @@ import sys
 
 from career_agent.memory import qbank
 from career_agent.memory.qbank_admin import calibrate, cleanup, migrate_learned
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src"))
+from job_dashboard import paths
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["seed", "migrate", "cleanup", "calibrate"])
-    ap.add_argument("--db", default="data/jobs.db")
+    ap.add_argument("--db", default=str(paths.DB))
     ap.add_argument("--min-accuracy", type=float, default=0.85)
     a = ap.parse_args()
     conn = sqlite3.connect(a.db)

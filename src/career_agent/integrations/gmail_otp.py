@@ -9,11 +9,13 @@ Runtime (called by apply.py):
     code = poll_otp(timeout_s=300)   # polls ALL authorized accounts in parallel
 
 Credentials:
-    ~/.career_agent/gmail_credentials.json   — OAuth client secret (from Google Cloud Console)
-    ~/.career_agent/gmail_token.json         — default account token
-    ~/.career_agent/gmail_token_<tag>.json   — additional account tokens (--account <tag>)
+    data/secrets/gmail_credentials.json     — OAuth client secret (from Google Cloud Console)
+    data/secrets/gmail_token.json           — default account token
+    data/secrets/gmail_token_<tag>.json     — additional account tokens (--account <tag>)
 """
 from __future__ import annotations
+
+from job_dashboard import paths
 
 import base64
 import json
@@ -22,8 +24,8 @@ import pathlib
 import re
 import time
 
-_CREDS_PATH = pathlib.Path.home() / ".career_agent" / "gmail_credentials.json"
-_TOKEN_DIR  = pathlib.Path.home() / ".career_agent"
+_CREDS_PATH = paths.SECRETS / "gmail_credentials.json"
+_TOKEN_DIR  = paths.SECRETS
 _TOKEN_PATH = _TOKEN_DIR / "gmail_token.json"          # default / first account
 _SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 

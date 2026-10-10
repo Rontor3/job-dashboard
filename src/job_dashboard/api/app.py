@@ -1,3 +1,4 @@
+from job_dashboard import paths
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
@@ -5,12 +6,14 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from job_dashboard.match import preferences
 from job_dashboard.tracker import set_status
 from job_dashboard.api.agent_routes import AgentRunState, build_agent_router
 from job_dashboard.api.mail_routes import MailScanner, build_mail_router
 from job_dashboard.api.queue_routes import build_queue_router, make_agent_launch
 from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.api.apply_routes import build_apply_router
+from job_dashboard.api.feedback_routes import build_feedback_router
 from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
 from job_dashboard.api.qa_routes import build_qa_router
@@ -21,7 +24,7 @@ from job_dashboard.db import (
     suspected_duplicates, tracker_jobs,
 )
 
-DEFAULT_DB = "data/jobs.db"
+DEFAULT_DB = str(paths.DB)
 
 
 class StatusPatch(BaseModel):
@@ -37,11 +40,11 @@ def create_app(
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
-    without touching real Ollama). Defaults to ``make_ollama_llm()``, a
-    local Ollama call — building that closure does NOT touch the network
-    (``make_ollama_llm`` never makes an HTTP call itself); it's only
+    without touching a real model). Defaults to ``make_resume_llm()``, a
+    ``job_dashboard.llm`` call — building that closure does NOT touch the network
+    (``make_resume_llm`` never makes an HTTP call itself); it's only
     invoked, per-keyword, from inside ``suggest_resume`` below, where every
-    failure is already caught (see ``resume_llm.make_ollama_llm`` and
+    failure is already caught (see ``resume_llm.make_resume_llm`` and
     ``keyword_map.propose_rephrasings``) so an unreachable Ollama can never
     turn into a 500.
 
@@ -96,6 +99,7 @@ def create_app(
     app.state.mail_scanner = mail_scanner or MailScanner(db_path)
     app.include_router(build_mail_router(db_path, app.state.mail_scanner))
     app.include_router(build_qa_router(db_path, qa_embed))
+    app.include_router(build_feedback_router(db_path, qa_embed))
 
     @contextmanager
     def db():
@@ -111,14 +115,19 @@ def create_app(
                   status: str = None, verdict: str = None, min_score: float = None,
                   include_dismissed: bool = False, sort: str = "embed",
                   limit: int = 50, offset: int = 0, india: bool = False):
+        learned = sort == "learned"           # base fit + what Skip/Apply clicks taught (match/preferences.py)
         with db() as conn:
             jobs, total = query_jobs(
                 conn, q=q, remote=remote, job_type=job_type, source=source,
                 industry=industry, company_type=company_type,
                 status=status, verdict=verdict, min_score=min_score,
-                include_dismissed=include_dismissed, sort=sort,
-                limit=limit, offset=offset, india=india,
+                include_dismissed=include_dismissed, sort="embed" if learned else sort,
+                limit=5000 if learned else limit, offset=0 if learned else offset, india=india,
             )
+            if learned:
+                preferences.ensure(conn)
+                ranked = preferences.rerank(jobs, preferences.learn(conn))
+                jobs, total = ranked[offset:offset + limit], len(ranked)
         from job_dashboard.match.apply_type import classify_apply_type
         for j in jobs:
             j["apply_type"] = classify_apply_type(j.get("source"), j.get("job_url"), j.get("apply_kind"), j.get("apply_url"))

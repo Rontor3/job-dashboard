@@ -6,7 +6,7 @@ import MailPanel from "./MailPanel.jsx";
 import MailBar from "./MailBar.jsx";
 import { fetchTracker, patchStatus, fetchApplyAgentStatus, fetchOpenCounts, fetchJob } from "../api.js";
 import { cleanJd } from "../cleanJd.js";
-import { reasonText } from "../queueReasons.js";
+import { fixText, reasonText } from "../queueReasons.js";
 
 // Stage menu: interviewing carries its round ("interviewing:2").
 const ROUNDS = [1, 2, 3, 4, 5];
@@ -141,6 +141,12 @@ function Row({ job, agentStatus, onSelect, onMove, onRequeue, expanded, onToggle
         <option value="__remove__">Remove from board</option>
       </select>
     </div>
+    {job.status === "failed" && (
+      <div className="fail-why" data-testid={`fail-why-${job.id}`}>
+        {job.error_detail && <div><b>What happened:</b> {job.error_detail}</div>}
+        <div><b>What to do:</b> {fixText(job.queue_reason)}</div>
+      </div>
+    )}
     {running && <AgentLiveView jobId={job.id} status={agentStatus} />}
     {expanded && (
       <div data-testid={`expand-${job.id}`}

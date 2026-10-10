@@ -9,15 +9,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from career_agent.reliability.rate_limiter import RateLimiter, map_outcome
+from job_dashboard import paths, agent_browser
 
-URLS_FILE  = Path(__file__).parent.parent / "data" / "job_urls_collected.json"
-LOG_FILE   = Path(__file__).parent.parent / "data" / "bulk_run_log.json"
-PROB_FILE  = Path(__file__).parent.parent / "data" / "bulk_problems.md"
+URLS_FILE  = paths.DATA_DIR / "job_urls_collected.json"
+LOG_FILE   = paths.DATA_DIR / "bulk_run_log.json"
+PROB_FILE  = paths.DATA_DIR / "bulk_problems.md"
 
 AGENT_CMD  = [sys.executable, "-m", "career_agent.apply"]
 AGENT_ENV_EXTRA = {"PYTHONPATH": "src", "CAREER_AGENT_LIVEVIEW_DEBUG": "1"}
-CDP_URL    = "http://localhost:9222"
-RESUME_PDF = "data/resumes/resume.pdf"
+CDP_URL    = agent_browser.cdp_url()
+RESUME_PDF = str(paths.RESUMES / "resume.pdf")
 
 
 def run_one(url: str, idx: int) -> dict:

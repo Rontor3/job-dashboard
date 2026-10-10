@@ -27,7 +27,7 @@ from job_dashboard.resume.keyword_map import (
 )
 from job_dashboard.resume.render import render_pdf
 from job_dashboard.resume.resume_llm import (
-    extract_jd_keywords, generate_bullets, highlight_bullets, make_ollama_llm,
+    extract_jd_keywords, generate_bullets, highlight_bullets, make_resume_llm,
     regenerate_block, suggest_skills,
 )
 from job_dashboard.resume.segments import load_segments
@@ -87,7 +87,7 @@ def build_resume_router(
     bullet_llm=None,
 ) -> APIRouter:
     router = APIRouter()
-    default_resume_llm = resume_llm if resume_llm is not None else make_ollama_llm()
+    default_resume_llm = resume_llm if resume_llm is not None else make_resume_llm()
     default_jd_keyword_extractor = (
         jd_keyword_extractor if jd_keyword_extractor is not None else extract_jd_keywords
     )

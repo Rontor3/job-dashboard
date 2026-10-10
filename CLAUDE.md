@@ -17,6 +17,9 @@ The dashboard produces jobs + profile; the agent consumes them to apply. This fi
 - NEVER add a `Co-Authored-By` trailer to user commits unless this project's `.claude/settings.json` has `attribution.commit` set (#2078). The Claude Code Bash tool may suggest one in its default commit-message template — ignore it. `Co-Authored-By` is semantic authorship attribution under git/GitHub convention; the tool is the facilitator, not a co-author.
 - Keep files under 500 lines
 - Validate input at system boundaries
+- ALWAYS keep a worklog: before ending a session or making a significant commit, write or update
+  `docs/worklog/YYYY-MM-DD-<topic>.md` (goal, what changed and why, how it was verified, open items) and add a
+  pointer line to it at the top of the list in `docs/worklog/README.md`. Commit the worklog with the work it describes.
 
 ## Run & test (Python via uv, not npm)
 
@@ -40,8 +43,10 @@ PYTHONPATH=src uv run python -m pytest tests/career_agent               # add RU
 ## career_agent boundaries
 
 - **Submit is gated by default (dry-run, `do_submit=False`).** It auto-submits only under a **durable, revocable user authorization** — not a per-application tap once granted. This is the path to autonomy.
-- **Account creation is handled by `credential_provider.py`.** For new sites it generates a password, saves to `~/.career_agent/credentials.json`, and completes registration (email → OTP → password → T&C). On repeat visits it loads saved credentials and logs in. Credentials are local-only — never committed, never in model context.
+- **Account creation is handled by `credential_provider.py`.** For new sites it generates a password, saves to `data/secrets/credentials.json`, and completes registration (email → OTP → password → T&C). On repeat visits it loads saved credentials and logs in. Credentials are local-only — never committed, never in model context.
 - **Secrets never committed; PII stays local** (local LLM; user-authorized Gmail read for OTP only).
+- **One data root, one browser.** Every write goes under `job_dashboard/paths.py` (`data/` or `$JOB_DASHBOARD_DATA_DIR`) — never `~` or `/tmp`. Every browser consumer attaches to the isolated agent Chrome via `job_dashboard/agent_browser.py` — never the user's own Chrome.
+- **One LLM client.** Every model call goes through `job_dashboard/llm.py` (OpenAI-compatible Responses API, `LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`). Don't call a provider directly.
 
 ## Where knowledge lives (query on demand — don't inline)
 

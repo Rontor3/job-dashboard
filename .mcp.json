@@ -6,7 +6,11 @@
       "args": [
         "@playwright/mcp",
         "--browser",
-        "chromium"
+        "chromium",
+        "--user-data-dir",
+        "data/browser/mcp-profile",
+        "--output-dir",
+        "data/tmp/mcp"
       ],
       "env": {}
     }

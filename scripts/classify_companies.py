@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from job_dashboard import paths
 
 
 def main():
@@ -15,7 +16,7 @@ def main():
     load_env_file()
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--db", default="data/jobs.db")
+    ap.add_argument("--db", default=str(paths.DB))
     args = ap.parse_args()
     from job_dashboard.db import init_db
     from job_dashboard.classify.run import classify_unclassified

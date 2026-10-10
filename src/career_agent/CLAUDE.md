@@ -16,33 +16,18 @@ PYTHONPATH=src python3 -m career_agent.apply --url "<url>" --submit
 --no-langgraph   # skip graph, run plain walk()
 --no-llm         # skip judgment tier, rules + memory only
 --no-telegram    # CLI approver instead of Telegram
---cdp-url URL    # attach to existing Chrome (overrides CAREER_AGENT_CDP_URL in .env)
+--cdp-url URL    # attach to a different CDP browser (default: the isolated agent browser)
 
 # Tests
 PYTHONPATH=src python3 -m pytest tests/career_agent
 ```
 
-## CDP browser (real Chrome, real sessions)
+## Agent browser (isolated Chrome)
 
-The agent uses an existing Chrome instance via CDP instead of launching headless Playwright.
-Set once in `.env`:
-```
-CAREER_AGENT_CDP_URL=http://localhost:9222
-```
-
-Launch the career agent Chrome (Profile 3, `rakshitagent@gmail.com`) before running:
-```bash
-pkill -x "Google Chrome" 2>/dev/null; sleep 2; \
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/.career_agent/chrome-p3" \
-  --profile-directory="Profile 3" \
-  --no-first-run --no-default-browser-check &
-```
-
-Profile data lives at `~/.career_agent/chrome-p3/Profile 3` (symlink → real Chrome Profile 3).
-Sessions persist there — log in to job sites once in that Chrome window; future runs are authenticated.
-If Chrome isn't running, `launch()` falls back to `launch_persistent_context` automatically.
+The agent attaches over CDP to its **own** Chrome (`job_dashboard/agent_browser.py`): profile at `<data>/browser/profile`,
+port `AGENT_CDP_PORT` (default 9333). `ensure_running()` launches it on demand as a separate instance next to the
+user's everyday Chrome, which nothing in this repo touches. Log in to job sites once in that window. `CAREER_AGENT_CDP_URL=off`
+switches to Playwright's bundled Chromium (profile `<data>/browser/playwright-profile`).
 
 ## Execution path
 
@@ -58,7 +43,7 @@ apply.py
 
 1. **Question bank** — `memory/qbank*.py` (jobs.db `qbank_entry`/`qbank_wording`) — exact wording → embedding shortlist → LLM picks an entry id or NONE (never writes a value). Confident = fill; likely = fill + listed for review before submit; none = falls through. Answers are typed once on the dashboard's Answers tab. Maintenance: `PYTHONPATH=src python3 scripts/qbank.py seed|migrate|calibrate`. Shared ladder: `orchestrator/answering.py::answer_fields` (graph + boards); every field is recorded to application_qa.
 2. **Rule-based mapper** — `orchestrator/screen_review.py` — standard_answers + profile_resolver
-3. **LLM judgment** — qwen3:14b local / Claude Pro (cap 6/app) — novel free-text fields
+3. **LLM judgment** — `job_dashboard.llm` (OpenAI-compatible Responses API, `LLM_*` env; local qwen3:14b by default) / Claude Pro (cap 6/app) — novel free-text fields
 4. **Human gate** — Telegram collector → `interrupt()` → `Command(resume=answers)`
 
 ## Tri-Partite Memory (`memory/` + `routers/memory_router.py`)
@@ -74,9 +59,14 @@ Confidence: 0.0 → +1/3 per approve → 1.0 after 3 = AUTONOMOUS. Edit resets t
 
 ## Data paths
 
+All under one data root, `job_dashboard/paths.py` (`$JOB_DASHBOARD_DATA_DIR`, default `data/`). Never write to `~` or `/tmp`.
+
 | What | Where |
 |------|-------|
 | SQLite (jobs, qbank_entry/qbank_wording, profile) | `data/jobs.db` |
+| Credentials, Gmail OAuth, portal sessions | `data/secrets/` |
+| Agent Chrome profile | `data/browser/profile/` |
+| Scratch screenshots, OTP file | `data/tmp/` |
 | Semantic vectors | `data/semantic_behavior/` |
 | Ingredient bank | `data/answer_style/ingredients.json` |
 | LangGraph checkpoints | `data/jobs_graph.db` |
@@ -118,7 +108,7 @@ PYTHONPATH=src python3 -m pytest tests/career_agent/ -q
 
 - **Submit is human-gated.** `do_submit=False` by default. Auto-submit only under `--autonomous`.
 - **Captcha = detect + escalate only.** Remote-solve via Tailscale live-view (human solves on phone). Never solve programmatically.
-- **Account creation is automated but credential-gated.** `credential_provider.py` generates a password, saves it to `~/.career_agent/credentials.json`, and registers the account (Darwinbox: email→OTP→password→T&C→sign-up). On repeat visits it loads the saved credential and logs in. Credentials are local-only — never committed, never in model context.
+- **Account creation is automated but credential-gated.** `credential_provider.py` generates a password, saves it to `data/secrets/credentials.json`, and registers the account (Darwinbox: email→OTP→password→T&C→sign-up). On repeat visits it loads the saved credential and logs in. Credentials are local-only — never committed, never in model context.
 - **No PII committed.** Profile JSON lives outside repo. Secrets in `.env` / env vars only.
 - **Exact Tech source is verbatim.** Never paraphrase or summarise `ingredients.json` source fields.
 

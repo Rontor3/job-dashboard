@@ -9,12 +9,14 @@ Sending stays a human action: this only places the draft in Gmail's Drafts.
 """
 from __future__ import annotations
 
+from job_dashboard import paths
+
 import base64
 import pathlib
 from email.message import EmailMessage
 from urllib.parse import quote, urlencode
 
-_DIR = pathlib.Path.home() / ".career_agent"
+_DIR = paths.SECRETS
 _CREDS = _DIR / "gmail_credentials.json"
 _TOKEN = _DIR / "gmail_compose_token.json"  # not gmail_token*.json → OTP glob skips it
 _SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]

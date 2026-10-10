@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from job_dashboard.env import load_env_file  # noqa: E402
 from job_dashboard.db import init_db  # noqa: E402
 from job_dashboard.match.liveness import sweep, CLOSED_MARKERS  # noqa: E402
+from job_dashboard import paths
 
 
 def build_browser_check(li_at, jsessionid):
@@ -54,7 +55,7 @@ def build_browser_check(li_at, jsessionid):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default="data/jobs.db")
+    ap.add_argument("--db", default=str(paths.DB))
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument("--llm-gate", type=int, default=50)
     ap.add_argument("--max-age-days", type=int, default=45)

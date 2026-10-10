@@ -2,18 +2,17 @@
 ``JobListing`` so the per-job pipeline (tailored résumé, company research,
 cover letter, career_agent) works on it unchanged.
 
-Pure regex for contacts; role/company use a single local-Ollama JSON call with
+Pure regex for contacts; role/company use a single LLM JSON call (job_dashboard.llm) with
 a regex fallback. Nothing here sends anything.
 """
 from __future__ import annotations
 
 import hashlib
 import html
-import json
-import os
 import re
 from urllib.parse import urlparse
 
+from job_dashboard.llm import complete_json
 from job_dashboard.models import JobListing
 
 _EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
@@ -97,27 +96,21 @@ def _regex_role(post: dict) -> dict:
 
 
 def extract_role(post: dict, post_fn=None) -> dict:
-    """{title, company, location} for a post: local Ollama first, regex fills gaps."""
+    """{title, company, location} for a post: the LLM first, regex fills gaps."""
     guess = _regex_role(post)
     try:
-        if post_fn is None:
-            from job_dashboard.resume.resume_llm import _default_post as post_fn
-        host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         prompt = ("From this LinkedIn hiring post, return ONLY JSON "
                   '{"title": "...", "company": "...", "location": "..."} — the role being '
                   "hired for, the HIRING company (not a recruiting agency if the client is "
                   'named), and location. Use "" when not stated.\n\n'
                   f"Poster headline: {post.get('poster_headline') or ''}\n"
                   f"Post: {(post.get('text') or '')[:3000]}")
-        resp = post_fn(f"{host}/api/generate", {
-            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt,
-            "stream": False, "format": "json", "options": {"temperature": 0.1}})
-        got = json.loads(resp["response"])
+        got = complete_json(prompt, temperature=0.1, post=post_fn)
         for k in guess:
             v = got.get(k)
             if isinstance(v, str) and v.strip():
                 guess[k] = v.strip()
-    except Exception:  # noqa: BLE001 — Ollama down → regex guess stands
+    except Exception:  # noqa: BLE001 — model down → regex guess stands
         pass
     return guess
 
@@ -228,24 +221,15 @@ Post by {poster} ({headline}):
 
 
 def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None) -> dict:
-    """{title, company, fit (0-100 or None), reason} via local Ollama. On failure
+    """{title, company, fit (0-100 or None), reason} via the LLM. On failure
     only the regex title guess comes back, with ``fit`` None."""
     out = {"title": _regex_role(post)["title"], "company": "", "fit": None, "reason": ""}
     try:
-        if post_fn is None:
-            import requests
-            # Résumé-sized prompt + a shared local Ollama (other sessions queue on
-            # it) runs past resume_llm's 60s default — allow 180s.
-            post_fn = lambda url, body: requests.post(url, json=body, timeout=180).json()  # noqa: E731
-        host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         prompt = _JUDGE_PROMPT.format(
             constraints=constraints, location_hint=_LOC_HINT[location_verdict(post.get("text"))],
             resume=resume_text[:6000], poster=post.get("poster_name") or "",
             headline=post.get("poster_headline") or "", post=(post.get("text") or "")[:3000])
-        got = json.loads(post_fn(f"{host}/api/generate", {
-            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt, "stream": False,
-            "format": "json", "keep_alive": "30m",
-            "options": {"temperature": 0.1, "num_ctx": 12288}})["response"])
+        got = complete_json(prompt, temperature=0.1, post=post_fn)
         if isinstance(got.get("title"), str) and got["title"].strip():
             out["title"] = got["title"].strip()
         company = str(got.get("company") or "").strip()

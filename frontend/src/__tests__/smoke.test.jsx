@@ -2,38 +2,41 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import App from "../App.jsx";
 
+const INBOX = {
+  questions: [{ row_id: 7, job_id: 1, title: "ML Engineer", company: "Stripe", label: "Notice period?",
+                kind: "select", options: ["Immediate", "30 days"], guess: null }],
+  guesses: [], bank: [],
+};
+
 beforeEach(() => {
   global.fetch = vi.fn((url) => {
-    const body = String(url).includes("/api/tracker")
-      ? { saved: [], applied: [], interviewing: [], offer: [], archived: [] }
-      : String(url).includes("/api/stats")
-      ? { total: 2, new: 1, saved: 0, applied: 1, dismissed: 0, unranked: 1 }
-      : { jobs: [{ id: 1, title: "ML Engineer", company: "Stripe" },
-                 { id: 2, title: "AI Engineer", company: "Acme" }], total: 2 };
+    const u = String(url);
+    const body = u.includes("/api/inbox") ? INBOX
+      : u.includes("/api/queue") ? { items: [], running: false }
+      : u.includes("/api/preferences") ? { likes: [], dislikes: [], blocked_companies: [], skip_reasons: [] }
+      : u.includes("/api/tracker") ? { saved: [], applied: [], failed: [], interviewing: [], offer: [], archived: [] }
+      : { jobs: [{ id: 1, title: "ML Engineer", company: "Stripe", llm_score: 81 }], total: 1 };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
   });
 });
 
-test("renders feed and stats from the API", async () => {
+test("opens on what the agent needs, with a waiting count on the tab", async () => {
   render(<App />);
-  await waitFor(() => expect(screen.getByText(/ML Engineer/)).toBeDefined());
-  expect(screen.getByTestId("stats").textContent).toContain("2 jobs");
+  expect(await screen.findByText("Notice period?")).toBeInTheDocument();
+  expect(screen.getByLabelText("1 waiting")).toBeInTheDocument();
 });
 
-test("switches between Browse and Tracker tabs", async () => {
-  render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: /tracker/i }));
-  expect(await screen.findByText(/Nothing tracked yet/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /browse/i }));
-  expect(screen.getByTestId("feed-slot")).toBeInTheDocument();
-});
-
-test("sidebar holds the nav, the filters (Browse only) and the queue", async () => {
+test("four destinations, no stats or filter wall", async () => {
   render(<App />);
   const nav = screen.getByRole("navigation", { name: "Sections" });
-  expect(nav.querySelectorAll("button")).toHaveLength(5);
-  expect(screen.getByRole("region", { name: "Filters" })).toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "Apply queue" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /tracker/i }));
+  expect(nav.querySelectorAll("button")).toHaveLength(4);
+  fireEvent.click(screen.getByRole("button", { name: /^jobs$/i }));
+  expect(await screen.findByText("Stripe")).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Filters" })).toBeNull();
+});
+
+test("the queue strip appears only when there is queued work", async () => {
+  render(<App />);
+  await screen.findByText("Notice period?");
+  expect(screen.queryByRole("status")).toBeNull();
 });

@@ -19,11 +19,13 @@ import json
 import os
 import sys
 from pathlib import Path
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src"))
+from job_dashboard import paths
 
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR = ROOT / "vendor" / "NopeRi"
 sys.path.insert(0, str(VENDOR))
-SESSION_PATH = ROOT / "data" / "naukri_session.json"
+SESSION_PATH = paths.SECRETS / "naukri_session.json"
 
 
 def main():

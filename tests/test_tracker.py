@@ -44,3 +44,13 @@ def test_stats_has_verdicts_and_industries(tmp_path):
     s = dashboard_stats(conn)
     assert "verdict_counts" in s and isinstance(s["verdict_counts"], dict)
     assert "top_industries" in s and isinstance(s["top_industries"], list)
+
+
+def test_failed_row_carries_the_last_error_from_its_agent_log(tmp_path, monkeypatch):
+    from job_dashboard import paths, tracker
+    monkeypatch.setattr(paths, "AGENT_RUNS", tmp_path)
+    (tmp_path / "7.log").write_text("[warn] something\nTraceback (most recent call last):\n  File x\n"
+                                    "playwright._impl._errors.Error: BrowserType.connect_over_cdp: boom\n"
+                                    "RuntimeError: could not attach to the agent browser: Protocol error\n")
+    assert tracker.last_error(7) == "could not attach to the agent browser: Protocol error"
+    assert tracker.last_error(8) is None

@@ -112,7 +112,7 @@ def test_history_endpoint_attaches_each_pages_questions(tmp_path, monkeypatch):
     _rec(conn, "r", "#b", "Expected CTC?", 1, status="needs_answer")
     qa_store.record(conn, job_id=1, run_key="r", ref="#z", label="Legacy row", status="filled", source="human")
     conn.close()
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes.paths, "AGENT_RUNS", tmp_path / "data" / "agent_runs")
     run_dir = tmp_path / "data" / "agent_runs" / "1"
     run_dir.mkdir(parents=True)
     (run_dir / "board_run.json").write_text(json.dumps([

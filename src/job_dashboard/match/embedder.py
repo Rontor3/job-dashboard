@@ -6,8 +6,8 @@ from job_dashboard.db import jobs_needing_embed_score, upsert_embed_score
 # Single source of truth for the embedding model, so a future swap here also
 # changes the cache key below and existing scores don't get silently reused
 # across incompatible models/vector spaces.
-EMBED_MODEL_NAME = "Alibaba-NLP/gte-base-en-v1.5"
-EMBED_MODEL_REVISION = "a829fd0e060bb84554da0dfd354d0de0f7712b7f"
+EMBED_MODEL_NAME = "Alibaba-NLP/gte-modernbert-base"
+EMBED_MODEL_REVISION = "e7f32e3c00f91d699e8c43b53106206bcc72bb22"
 
 
 def cosine(a, b):
@@ -16,7 +16,7 @@ def cosine(a, b):
     norm_b = math.sqrt(sum(y * y for y in b))
     if norm_a == 0 or norm_b == 0:
         return 0.0
-    return dot / (norm_a * norm_b)
+    return float(dot / (norm_a * norm_b))     # plain float: a numpy float32 would be stored by sqlite as a blob
 
 
 def _cache_key(profile_hash):
@@ -69,8 +69,32 @@ def load_default_model():
         )
     # 8192-token context (vs all-MiniLM-L6-v2's 256) so the full candidate
     # profile is embedded instead of being silently truncated to its first
-    # ~250 words. trust_remote_code=True: this model ships custom modeling
-    # code from Alibaba-NLP's official repo.
-    return SentenceTransformer(
-        EMBED_MODEL_NAME, trust_remote_code=True, revision=EMBED_MODEL_REVISION,
-    )
+    # ~250 words. ModernBERT is native to transformers: no remote code to break
+    # on a transformers upgrade (gte-base-en-v1.5's custom code did, on v5).
+    return SentenceTransformer(EMBED_MODEL_NAME, revision=EMBED_MODEL_REVISION)
+
+
+class LazyModel:
+    """Stands in for the embedding model while it loads in the background, so the server starts at once.
+    Attribute access blocks until the model is ready; a failed load raises on use instead of at startup."""
+
+    def __init__(self, loader=load_default_model):
+        import threading
+        self._loader, self._model, self._error = loader, None, None
+        self._ready = threading.Event()
+        threading.Thread(target=self._load, name="embed-model-load", daemon=True).start()
+
+    def _load(self):
+        try:
+            self._model = self._loader()
+        except Exception as e:  # noqa: BLE001
+            self._error = e
+        finally:
+            self._ready.set()
+
+    def __getattr__(self, name):
+        self._ready.wait()
+        if self._model is None:
+            raise RuntimeError(f"embedding model unavailable: {self._error}")
+        return getattr(self._model, name)
+

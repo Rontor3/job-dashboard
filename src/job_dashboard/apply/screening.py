@@ -10,6 +10,8 @@ general, truthful answer assembled from the profile. This function NEVER raises.
 """
 from __future__ import annotations
 
+from job_dashboard import paths
+
 import json
 from pathlib import Path
 import re
@@ -34,7 +36,7 @@ def _facts_block(research) -> str:
     return "\n".join(lines) or "(none)"
 
 
-_INGREDIENTS = Path(__file__).resolve().parents[3] / "data" / "answer_style" / "ingredients.json"
+_INGREDIENTS = paths.INGREDIENTS
 _STOP = {"the", "and", "for", "with", "you", "your", "our", "are", "this", "that", "what", "why", "how", "have"}
 
 

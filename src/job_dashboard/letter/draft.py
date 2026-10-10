@@ -1,12 +1,11 @@
-"""Grounded qwen cover-letter draft — the integrity-critical half of the pair
+"""Grounded cover-letter draft — the integrity-critical half of the pair
 with :mod:`job_dashboard.letter.grounding`.
 
 ``draft_cover_letter`` connects the candidate's REAL strengths (the job's
 stored deep-rank ``strengths`` plus ``profile_text``) to company-specific,
 role-relevant impact drawn ONLY from ``research.facts``. The model call is
-injected as ``llm(prompt: str) -> str``; the default reuses the same
-Ollama host/model env-var seam as ``resume_llm.make_ollama_llm``
-(``OLLAMA_HOST`` / ``OLLAMA_MODEL``, lazy ``requests`` import).
+injected as ``llm(prompt: str) -> str``; the default is ``make_default_llm``,
+backed by ``job_dashboard.llm`` (OpenAI-compatible Responses API, ``LLM_*`` env).
 
 Integrity guarantee — structural, not just prompted:
 
@@ -32,14 +31,13 @@ returned body — never a claim about what the model "meant" to use.
 
 from __future__ import annotations
 
-import os
 from typing import Callable
 
+from job_dashboard import llm as llm_client
 from job_dashboard.letter.company_research import Fact, ResearchBundle
-from job_dashboard.resume.resume_llm import DEFAULT_HOST, DEFAULT_MODEL
+from job_dashboard.llm import PostFn
 
 LlmFn = Callable[[str], str]
-PostFn = Callable[[str, dict], dict]
 
 # Bound on how many stored strengths / profile chars feed the prompt.
 _MAX_STRENGTHS = 6
@@ -50,46 +48,15 @@ _DEFAULT_WRITING_STYLE = "professional, confident, concise"
 
 
 # --------------------------------------------------------------------------
-# Default Ollama adapter (reuses resume_llm's host/model/post seam)
+# Default adapter: the shared OpenAI-compatible client
 # --------------------------------------------------------------------------
 
 
-def _default_post(url: str, json_body: dict) -> dict:
-    import requests  # lazy import: only needed when actually calling Ollama
-
-    return requests.post(url, json=json_body, timeout=60).json()
-
-
-def make_default_llm(
-    post: PostFn | None = None,
-    model: str | None = None,
-    host: str | None = None,
-) -> LlmFn:
-    """Build the default ``llm(prompt) -> str`` backed by a local Ollama
-    ``/api/generate`` call. Same env-var seam as ``resume_llm.make_ollama_llm``
-    (``OLLAMA_HOST`` / ``OLLAMA_MODEL``, falling back to
-    ``resume_llm.DEFAULT_HOST`` / ``DEFAULT_MODEL``). May raise on HTTP or
-    parsing failure — callers (``draft_cover_letter``) are responsible for
-    catching that and falling back; this adapter itself stays thin.
-    """
-    resolved_host = host or os.getenv("OLLAMA_HOST", DEFAULT_HOST)
-    resolved_model = model or os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
-    post_fn = post or _default_post
-    url = f"{resolved_host}/api/generate"
-
+def make_default_llm(post: PostFn | None = None, model: str | None = None) -> LlmFn:
+    """The default ``llm(prompt) -> str`` for every free-text drafting call in both halves.
+    May raise on HTTP or parsing failure — callers catch that and fall back."""
     def llm(prompt: str) -> str:
-        body = {
-            "model": resolved_model,
-            "prompt": prompt,
-            "stream": False,
-            "think": False,
-            "options": {"temperature": 0.4},
-        }
-        resp = post_fn(url, body)
-        text = resp.get("response") if isinstance(resp, dict) else None
-        if not isinstance(text, str):
-            raise ValueError("Ollama response missing a string 'response' field")
-        return text
+        return llm_client.complete(prompt, temperature=0.4, model=model, post=post)
 
     return llm
 

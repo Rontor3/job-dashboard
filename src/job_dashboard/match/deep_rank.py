@@ -18,7 +18,7 @@ _DEFAULT_SCORE = {"Strong Fit": 85, "Good Fit": 68, "Moderate Fit": 52,
                   "Weak Fit": 38, "Poor Fit": 15}
 
 
-def _build_prompt(job, profile_text):
+def _build_prompt(job, profile_text, preference_hint=""):
     desc = (job.get("description") or "")[:3000]
     return (
         "You screen jobs for a candidate. Judge fit and reply EXACTLY in this "
@@ -28,6 +28,7 @@ def _build_prompt(job, profile_text):
         "Strengths: <short comma list>\n"
         "Gaps: <short comma list>\n\n"
         f"CANDIDATE PROFILE:\n{(profile_text or '')[:1500]}\n\n"
+        f"{preference_hint}"
         f"JOB: {job.get('title')} at {job.get('company')}\n{desc}\n"
     )
 
@@ -57,9 +58,9 @@ def _parse(text):
             "strengths": grab("strengths"), "gaps": grab("gaps")}
 
 
-def judge_job(job, profile_text, llm):
+def judge_job(job, profile_text, llm, preference_hint=""):
     try:
-        out = llm(_build_prompt(job, profile_text))
+        out = llm(_build_prompt(job, profile_text, preference_hint))
         return _parse(out if isinstance(out, str) else "")
     except Exception:
         return {"verdict": "Moderate Fit", "llm_score": 50,
@@ -78,6 +79,8 @@ def deep_rank_unranked(conn, llm=None, profile_text=None, candidate_years=None,
         from job_dashboard.match.eligibility import candidate_years_from_profile
         candidate_years = candidate_years_from_profile(profile_text) or 3
 
+    from job_dashboard.match.preferences import prompt_hint
+    hint = prompt_hint(conn)           # what the candidate's Skip/Apply clicks taught us
     rows = conn.execute(
         """SELECT j.id, j.title, j.company, j.description
            FROM jobs j LEFT JOIN match_scores m ON m.job_id = j.id
@@ -95,7 +98,7 @@ def deep_rank_unranked(conn, llm=None, profile_text=None, candidate_years=None,
                        "gaps": [f"off-target role ({hit})"], "flags": {}}
             bucket = "nuisance"
         else:
-            payload = {**judge_job(job, profile_text, llm), "flags": {}}
+            payload = {**judge_job(job, profile_text, llm, hint), "flags": {}}
             bucket = "llm"
         adj = apply_eligibility(job, payload, candidate_years)
         try:

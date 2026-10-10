@@ -3,15 +3,26 @@
   "configurations": [
     {
       "name": "dashboard",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "uvicorn", "job_dashboard.api.serve:app", "--port", "8000"],
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "job_dashboard.api.serve:app",
+        "--port",
+        "8000"
+      ],
       "port": 8000,
       "autoPort": true
     },
     {
       "name": "frontend-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "dev"
+      ],
       "port": 5173
     }
   ]

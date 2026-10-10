@@ -5,18 +5,17 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-_DEFAULT_PROFILE_DIR = str(
-    Path(__file__).resolve().parents[1] / "chrome-profile"
-)
+from job_dashboard import agent_browser, paths
+
+# Only used when CAREER_AGENT_CDP_URL=off: Playwright's bundled Chromium with its own profile, still under the data root.
+_DEFAULT_PROFILE_DIR = str(paths.BROWSER_PROFILE.parent / "playwright-profile")
 
 
 @dataclass(frozen=True)
 class Settings:
     user_data_dir: str
     headed: bool
-    cdp_url: str | None        # e.g. "http://localhost:9222"; None = launch fresh Playwright
-    ollama_host: str
-    ollama_model: str
+    cdp_url: str | None        # the isolated agent browser (agent_browser.cdp_url()); None = Playwright persistent context
     telegram_bot_token: str | None
     telegram_chat_id: str | None
     remote_solve_port: int
@@ -55,14 +54,17 @@ def _load_dotenv(path: str = _REPO_ENV) -> None:
         pass
 
 
+def _cdp_url() -> str | None:
+    raw = (os.getenv("CAREER_AGENT_CDP_URL") or "").strip()
+    return None if raw.lower() in ("off", "none", "0") else agent_browser.cdp_url()
+
+
 def load_settings() -> Settings:
     _load_dotenv()
     return Settings(
         user_data_dir=os.getenv("CAREER_AGENT_USER_DATA_DIR", _DEFAULT_PROFILE_DIR),
         headed=_as_bool(os.getenv("CAREER_AGENT_HEADED"), True),
-        cdp_url=os.getenv("CAREER_AGENT_CDP_URL") or None,
-        ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-        ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:14b"),
+        cdp_url=_cdp_url(),
         telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN") or None,
         telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID") or None,
         remote_solve_port=int(os.getenv("REMOTE_SOLVE_PORT", "8765")),

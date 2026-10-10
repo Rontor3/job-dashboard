@@ -45,9 +45,9 @@ TELEGRAM_CHAT_ID=your_chat_id_here
 # Remote captcha solve (Tailscale)
 TAILSCALE_HOST=100.x.x.x    # your Mac's Tailscale IP
 
-# LLM (judgment tier)
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=qwen3:14b
+# LLM (any OpenAI-compatible Responses API; defaults to local Ollama)
+# LLM_BASE_URL=http://localhost:11434/v1
+# LLM_MODEL=qwen3:14b
 
 # Optional overrides
 # CAREER_AGENT_HEADED=true       # show browser window (default: true)

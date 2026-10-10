@@ -3,6 +3,8 @@
 `deps` so the loop is testable without Playwright."""
 from __future__ import annotations
 
+from job_dashboard import paths
+
 from ..browser.gate_probe import HANDLERS
 from ..orchestrator.screen_review import map_screen, apply_answers
 from ..orchestrator.advance import (
@@ -27,7 +29,7 @@ def _page_survey(page, label: str, run_dir: str | None = None) -> None:
     With `run_dir` (the LangGraph path passes `data/agent_runs/{job_id}`), the
     screenshot survives the run and is keyed by job so it doesn't collide with
     the next job's `perceive0`. Without one (the legacy `walk()` path, or no
-    job_id), it's a debug-only artifact in /tmp as before."""
+    job_id), it's a debug-only artifact in <data root>/tmp."""
     try:
         page.evaluate("window.scrollTo(0, 0)")
         page.wait_for_timeout(300)
@@ -36,7 +38,7 @@ def _page_survey(page, label: str, run_dir: str | None = None) -> None:
             Path(run_dir).mkdir(parents=True, exist_ok=True)
             ss = str(Path(run_dir) / f"{label}.png")
         else:
-            ss = f"/tmp/career_agent_{label}_survey.png"
+            ss = paths.tmp(f"career_agent_{label}_survey.png")
         page.screenshot(path=ss, full_page=True, timeout=5000)
         print(f"[nav] survey → {ss}", flush=True)
     except Exception:
@@ -124,7 +126,7 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         print(f"[fill] screen {steps}: {len(decisions)} decisions, {len(needs)} escalated")
         deps.fill(page, decisions)
         try:
-            _ss = f"/tmp/career_agent_step{steps}_filled.png"
+            _ss = paths.tmp(f"career_agent_step{steps}_filled.png")
             page.screenshot(path=_ss, full_page=True, timeout=5000)
             print(f"[screenshot] {_ss}", flush=True)
         except Exception:

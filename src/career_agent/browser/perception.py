@@ -4,6 +4,8 @@
 thin browser-bound collectors."""
 from __future__ import annotations
 
+from job_dashboard import paths
+
 import json
 import os
 import re
@@ -502,7 +504,7 @@ def enrich_with_vision(page, form, vision_fn, shot_path=None):
     if not unl:
         return form
     import os, tempfile
-    path = shot_path or os.path.join(tempfile.gettempdir(), "career_vision_form.png")
+    path = shot_path or paths.tmp("career_vision_form.png")
     try:
         page.screenshot(path=path, full_page=True, timeout=10000)
     except Exception:
@@ -627,8 +629,8 @@ def snapshot_form(page, verify_shot: str | None = None) -> list[Field]:
     from .page_prep import suppress_noise
     fields = suppress_noise(to_form_model(collect_raw(page)))
     # Screenshot after snapshot so a human (or next run) can verify nothing
-    # visible was missed. Saved to /tmp by default; caller can override.
-    shot = verify_shot or os.path.join(tempfile.gettempdir(), "career_agent_perception.png")
+    # visible was missed. Saved to the data root's tmp/ by default; caller can override.
+    shot = verify_shot or paths.tmp("career_agent_perception.png")
     try:
         page.screenshot(path=shot, full_page=True, timeout=5000)   # debug record: never wait 30s on a stuck frame
         print(f"[perc] snapshot: {len(fields)} fields — verify screenshot → {shot}", flush=True)

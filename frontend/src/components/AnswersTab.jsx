@@ -62,7 +62,7 @@ function Entry({ a, onSave, onSaveProfile, onRemove }) {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{a.question}</div>
         <button aria-label={`Remove ${a.question}`} onClick={() => onRemove(a)}
-                style={{ ...BTN, background: "var(--dupe-bg)", color: "var(--dupe-ink)", flexShrink: 0 }}>Remove</button>
+                style={{ ...BTN, background: "transparent", color: "var(--ink-faint)", flexShrink: 0 }}>Remove</button>
       </div>
       {a.profile_ref ? (
         <div style={{ marginTop: 6 }}>
@@ -84,7 +84,7 @@ function Entry({ a, onSave, onSaveProfile, onRemove }) {
       {a.rule_help && <div style={{ fontSize: 11, color: "var(--ink-faint)", marginTop: 4 }}>{a.rule_help}</div>}
       {!a.profile_ref && a.topic !== "story" && (
         <div data-testid={`approvals-${a.id}`} style={{ fontSize: 11, marginTop: 4, color: (a.approvals || 0) >= 3 ? "var(--green-mid)" : "var(--ink-faint)" }}>
-          {(a.approvals || 0) >= 3 ? "✓ autonomous — approved 3 times, may be submitted without you" : `approved ${a.approvals || 0} of 3 times — an unchanged submit counts, an edit resets it`}
+          {(a.approvals || 0) >= 3 ? "✓ autonomous — may submit without you" : `approved ${a.approvals || 0} of 3 times`}
         </div>
       )}
       <details style={{ marginTop: 4 }}>
@@ -124,9 +124,7 @@ export default function AnswersTab() {
 
   const shown = data ? data.answers.filter((a) => !onlyOpen || unanswered(a)) : [];
   return (
-    <div style={{ marginTop: 14 }}>
-      <Thresholds />
-      <RetrievalPanel />
+    <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
         <strong style={{ fontSize: 13 }}>Questionnaire</strong>
         {data && <span style={{ fontSize: 12, color: "var(--warm-ink)" }}>{data.unanswered} unanswered</span>}
@@ -162,6 +160,13 @@ export default function AnswersTab() {
           );
         })}
       <IngredientsPanel />
+      <details style={{ marginTop: 18 }}>
+        <summary style={{ fontSize: 13, color: "var(--ink-soft)", cursor: "pointer" }}>Agent tuning & retrieval stats</summary>
+        <div style={{ marginTop: 10 }}>
+          <Thresholds />
+          <RetrievalPanel />
+        </div>
+      </details>
     </div>
   );
 }

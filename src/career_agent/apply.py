@@ -1,6 +1,8 @@
 """Entrypoint: walk a full multi-page application from a target URL."""
 from __future__ import annotations
 
+from job_dashboard import paths
+
 import argparse
 import hashlib
 import json
@@ -81,7 +83,7 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
 def main() -> None:
     ap = argparse.ArgumentParser(description="Career agent — multi-page application walk")
     ap.add_argument("--url", required=True)
-    ap.add_argument("--db", default="data/jobs.db")
+    ap.add_argument("--db", default=str(paths.DB))
     ap.add_argument("--resume-version", default="Rakshit_Singh_draft1")
     ap.add_argument("--submit", action="store_true")
     ap.add_argument("--review", action="store_true",
@@ -455,7 +457,7 @@ def _apply(args, box: dict) -> None:
         # OTP reader shared by email_auth (ZF/Phenom) and otp_email gate (SAP SF).
         # Prefers Gmail API (fully automated); falls back to file drop.
         import time as _time, pathlib as _pl
-        _otp_path = _pl.Path("/tmp/career_agent_otp.txt")
+        _otp_path = _pl.Path(paths.tmp("career_agent_otp.txt"))
 
         def _file_otp_reader(path=_otp_path, timeout=300):
             path.unlink(missing_ok=True)
@@ -475,7 +477,7 @@ def _apply(args, box: dict) -> None:
                 def _file_otp_reader(timeout=300):  # noqa: F811
                     return _gmail_poll(timeout_s=timeout)
             else:
-                print("[otp] Gmail token not found — using file reader (/tmp/career_agent_otp.txt)")
+                print("[otp] Gmail token not found — using file reader ({_otp_path})")
         except ImportError:
             pass  # google client libs not installed yet
 
@@ -562,7 +564,7 @@ def _apply(args, box: dict) -> None:
         else:
             print("[engine] walk() (--no-langgraph)", flush=True)
             out = _walk()
-        ss_path = args.screenshot or "/tmp/career_agent_fill_result.png"
+        ss_path = args.screenshot or paths.tmp("career_agent_fill_result.png")
         try:
             page.screenshot(path=ss_path, full_page=True)
             print(f"[screenshot] {ss_path}", flush=True)

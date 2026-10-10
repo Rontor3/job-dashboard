@@ -9,6 +9,7 @@ update_resume is the accept signal, and the response body is scanned best-effort
 for the pushed filename — a match confirms it, a miss still returns ok (accepted,
 name unconfirmable). Never hard-fails on an unconfirmable name. Never raises.
 """
+from job_dashboard import paths
 import json
 import logging
 import os
@@ -18,7 +19,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SESSION_PATH = Path("data/naukri_session.json")
+DEFAULT_SESSION_PATH = paths.SECRETS / "naukri_session.json"
 
 
 @dataclass

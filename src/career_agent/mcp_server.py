@@ -16,6 +16,8 @@ without a page (they only need memory_router and human_loop).
 """
 from __future__ import annotations
 
+from job_dashboard import paths
+
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -115,7 +117,7 @@ def browser_action(action: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"uploaded": payload["path"]}
 
     if action == "SCREENSHOT":
-        path = payload.get("path", "/tmp/career_agent_shot.png")
+        path = payload.get("path") or paths.tmp("career_agent_shot.png")
         page.screenshot(path=path, full_page=True)
         return {"path": path}
 

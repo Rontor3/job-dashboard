@@ -5,6 +5,7 @@ apply / resume-upload / profile code is never imported here. The pipeline
 reads a cached session written by that script; with no session or on any
 error this returns [] so a blocked/expired Naukri never breaks a refresh.
 """
+from job_dashboard import paths
 import json
 import logging
 from pathlib import Path
@@ -13,7 +14,7 @@ from job_dashboard.models import JobListing
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SESSION_PATH = Path("data/naukri_session.json")
+DEFAULT_SESSION_PATH = paths.SECRETS / "naukri_session.json"
 
 
 def _default_client_factory(session):

@@ -1,4 +1,4 @@
-"""Hiring-post search through the user's own logged-in Chrome over CDP (no cookies
+"""Hiring-post search through the agent's isolated, logged-in Chrome over CDP (no cookies
 in .env). Same ``search_posts(keyword)`` contract as ``LinkedInBrowserFetcher``,
 same parser; each keyword opens its own tab via ``CdpSession`` and closes it."""
 from __future__ import annotations
@@ -10,7 +10,8 @@ import urllib.parse
 from job_dashboard.linkedin.browser_fetch import LinkedInAuthError
 from job_dashboard.linkedin.post_parse import parse_posts_html
 from job_dashboard.sources.cdp.runner import CDP_URL
-from job_dashboard.sources.cdp.session import CdpSession, cdp_reachable
+from job_dashboard import agent_browser
+from job_dashboard.sources.cdp.session import CdpSession
 from job_dashboard.sources.cdp.types import Blocked
 
 
@@ -22,9 +23,9 @@ class CdpHiringFetcher:
         self._calls = 0
 
     def search_posts(self, keyword, *, date_posted="past-24h"):
-        if not cdp_reachable(self.cdp_url):
-            raise LinkedInAuthError(f"Chrome not reachable over CDP at {self.cdp_url} — "
-                                    "start Chrome with --remote-debugging-port=9222")
+        problem = agent_browser.ensure_running(self.cdp_url)
+        if problem:
+            raise LinkedInAuthError(problem)
         if self._calls:
             self._nap()                      # pace keywords like a person would
         self._calls += 1
@@ -37,4 +38,4 @@ class CdpHiringFetcher:
                 s.scroll(self._scrolls)
                 return parse_posts_html(s.html())
         except Blocked as e:
-            raise LinkedInAuthError(f"LinkedIn blocked/logged out in your Chrome — log in there and retry ({e})")
+            raise LinkedInAuthError(f"LinkedIn blocked/logged out in the agent browser — log in there and retry ({e})")

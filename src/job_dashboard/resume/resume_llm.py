@@ -1,44 +1,33 @@
-"""Ollama adapter producing :class:`LlmProposal` objects for keyword_map.
+"""LLM adapter producing :class:`LlmProposal` objects for keyword_map.
 
-``make_ollama_llm`` returns an ``LlmFn`` (see ``keyword_map.LlmFn``) that
-prompts a local Ollama model (default ``qwen2.5:14b``) to truthfully reword
+``make_resume_llm`` returns an ``LlmFn`` (see ``keyword_map.LlmFn``) that
+prompts the configured model (``job_dashboard.llm``) to truthfully reword
 one resume bullet per salient, uncovered JD keyword. This module NEVER
 enforces integrity itself — ``keyword_map._integrity_violation`` re-validates
 every proposal this returns against the block's own source text. The prompt
 built here only *asks* the model not to fabricate; that's a courtesy, not a
 guarantee (see ``keyword_map`` module docstring for the full control stack).
 
-Every failure mode — HTTP error, non-JSON ``resp["response"]``, a malformed
+Every failure mode — HTTP error, non-JSON model output, a malformed
 or missing field, an unreachable host — is caught per-keyword and simply
 skips that keyword. This function never raises.
 """
 
 from __future__ import annotations
 
-import json
-import os
 import re
 from typing import Callable
 
+from job_dashboard import llm as llm_client
+from job_dashboard.llm import PostFn
 from job_dashboard.resume.keyword_map import LlmProposal, extract_keywords
 from job_dashboard.resume.segments import Segment
-
-DEFAULT_HOST = "http://localhost:11434"
-DEFAULT_MODEL = "qwen2.5:14b"
 
 # Bound on how many JD keywords we'll spend model calls on per invocation.
 _MAX_KEYWORDS = 8
 
 # Bound on how many keywords extract_jd_keywords returns.
 _MAX_JD_KEYWORDS = 15
-
-PostFn = Callable[[str, dict], dict]
-
-
-def _default_post(url: str, json_body: dict) -> dict:
-    import requests  # lazy import: only needed when actually calling Ollama
-
-    return requests.post(url, json=json_body, timeout=60).json()
 
 
 def _covered_tokens(segments: list[Segment]) -> set[str]:
@@ -62,12 +51,10 @@ def extract_jd_keywords(
     jd_text: str,
     post: PostFn | None = None,
     model: str | None = None,
-    host: str | None = None,
 ) -> list[str]:
-    """Extract clean technical JD keywords via a single Ollama call.
+    """Extract clean technical JD keywords via a single LLM call.
 
-    This is the fix for the actual keyword SOURCE the rephrasing LLM was
-    starved of: plain regex tokenization of a job description (see
+    Plain regex tokenization of a job description (see
     ``keyword_map.extract_keywords``) surfaces whatever tokens happen to
     be capitalized-looking or punctuation-adjacent — "work.", "rga" — not
     real tech terms. Asking the model to name the concrete skills/tools/
@@ -75,30 +62,18 @@ def extract_jd_keywords(
 
     Returns a lowercased, deduped (order-preserving), length-capped
     (``_MAX_JD_KEYWORDS``) list of keyword strings. ANY failure — HTTP
-    error, unreachable host, non-JSON ``resp["response"]``, a missing or
-    malformed ``keywords`` field — is caught and this returns ``[]``. This
-    function NEVER raises; callers should treat ``[]`` as "extraction
-    unavailable" and fall back to ``keyword_map.extract_keywords(jd_text)``.
+    error, unreachable host, non-JSON output, a missing or malformed
+    ``keywords`` field — is caught and this returns ``[]``. This function
+    NEVER raises; callers should treat ``[]`` as "extraction unavailable"
+    and fall back to ``keyword_map.extract_keywords(jd_text)``.
     """
-    resolved_host = host or os.getenv("OLLAMA_HOST", DEFAULT_HOST)
-    resolved_model = model or os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
-    post_fn = post or _default_post
-    url = f"{resolved_host}/api/generate"
-
     try:
-        body = {
-            "model": resolved_model,
-            "prompt": (
-                _JD_KEYWORD_SYSTEM_PROMPT
-                + f"\n\nJob description:\n{jd_text}\n\n"
-                "Return the JSON object now."
-            ),
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0.1},
-        }
-        resp = post_fn(url, body)
-        parsed = json.loads(resp["response"])
+        parsed = llm_client.complete_json(
+            _JD_KEYWORD_SYSTEM_PROMPT
+            + f"\n\nJob description:\n{jd_text}\n\n"
+            "Return the JSON object now.",
+            temperature=0.1, model=model, post=post,
+        )
         raw_keywords = parsed.get("keywords", [])
         if not isinstance(raw_keywords, list):
             return []
@@ -164,7 +139,7 @@ def _build_user_prompt(segment: Segment, jd_keyword: str) -> str:
 def _salient_keywords(segments: list[Segment], jd_text: str) -> list[str]:
     """Crude fallback: JD keywords (raw tokenization) not already present
     verbatim in any block's own text. Only used when ``extract_jd_keywords``
-    can't produce a clean list (e.g. Ollama unreachable) — see ``llm``
+    can't produce a clean list (e.g. the model is unreachable) — see ``llm``
     below, where the clean extraction is tried first.
     """
     covered = _covered_tokens(segments)
@@ -221,22 +196,14 @@ def _best_matching_segment(segments: list[Segment], jd_keyword: str) -> Segment 
     return best_seg
 
 
-def make_ollama_llm(
+def make_resume_llm(
     post: PostFn | None = None,
     model: str | None = None,
-    host: str | None = None,
 ) -> Callable[[list[Segment], str], list[LlmProposal]]:
-    """Build an ``LlmFn`` backed by a local Ollama ``/api/generate`` call.
-
-    ``post(url, json_body) -> dict`` defaults to a real ``requests.post``
-    call; tests inject a fake. ``model``/``host`` default to
-    ``OLLAMA_MODEL``/``OLLAMA_HOST`` env vars, then hardcoded defaults.
+    """Build an ``LlmFn`` backed by ``job_dashboard.llm`` (OpenAI-compatible
+    Responses API). ``post(url, json_body) -> dict`` defaults to a real HTTP
+    call; tests inject a fake. ``model`` defaults to ``LLM_MODEL``.
     """
-    resolved_host = host or os.getenv("OLLAMA_HOST", DEFAULT_HOST)
-    resolved_model = model or os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
-    post_fn = post or _default_post
-    url = f"{resolved_host}/api/generate"
-
     def llm(segments: list[Segment], jd_text: str) -> list[LlmProposal]:
         proposals: list[LlmProposal] = []
 
@@ -245,10 +212,8 @@ def make_ollama_llm(
         # "rga") that no bullet can ever be truthfully reworded around,
         # which is why rewording used to silently produce ~0 proposals.
         # Falls back to the old crude tokenization only when extraction
-        # itself is unavailable (e.g. Ollama down).
-        extracted = extract_jd_keywords(
-            jd_text, post=post_fn, model=resolved_model, host=resolved_host
-        )
+        # itself is unavailable (e.g. the model is down).
+        extracted = extract_jd_keywords(jd_text, post=post, model=model)
         if extracted:
             covered = _covered_tokens(segments)
             keywords = [kw for kw in extracted if kw not in covered][:_MAX_KEYWORDS]
@@ -261,20 +226,10 @@ def make_ollama_llm(
                 if seg is None:
                     continue
 
-                body = {
-                    "model": resolved_model,
-                    "prompt": (
-                        _build_system_prompt()
-                        + "\n\n"
-                        + _build_user_prompt(seg, jd_keyword)
-                    ),
-                    "stream": False,
-                    "format": "json",
-                    "options": {"temperature": 0.1},
-                }
-
-                resp = post_fn(url, body)
-                parsed = json.loads(resp["response"])
+                parsed = llm_client.complete_json(
+                    _build_system_prompt() + "\n\n" + _build_user_prompt(seg, jd_keyword),
+                    temperature=0.1, model=model, post=post,
+                )
 
                 proposed_text = parsed.get("proposed_text", "")
                 confidence = parsed.get("confidence", "")

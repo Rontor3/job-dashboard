@@ -88,12 +88,19 @@ This repo ships **placeholder** profile/résumé files. Your real details live i
 
 ## Swap the model
 
-Any Ollama model works. Point the app at it with env vars:
+Every model call goes through one OpenAI-compatible **Responses API** client (`src/job_dashboard/llm.py`). The default is local Ollama (`http://localhost:11434/v1`, `qwen3:14b`). To swap, set these in `.env` (see `.env.example`):
 
 ```bash
-export OLLAMA_MODEL=llama3.1:8b      # repo default: qwen2.5:14b; this repo's .envrc sets qwen3:14b
-export OLLAMA_HOST=http://localhost:11434
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-5-mini
 ```
+
+For local Ollama, raise the context length (Ollama app → Settings, or `OLLAMA_CONTEXT_LENGTH=16384`): hiring-post judging sends a résumé-sized prompt.
+
+## Data and browser isolation
+
+Everything the app writes (SQLite, run logs, résumés, credentials, the agent's browser profile, scratch files) lives under `data/` (or `$JOB_DASHBOARD_DATA_DIR`). Back up or move that one folder. The agent drives its **own** Chrome (separate profile at `data/browser/profile`, debug port 9333), launched on demand next to your everyday Chrome, which it never touches. Log in to job sites once in that window.
 
 Smaller models are faster but less reliable at the résumé-writing rules; the code grounds every number/skill against your own text regardless, so it never fabricates.
 

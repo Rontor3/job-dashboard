@@ -1,15 +1,17 @@
 """Per-domain portal state — tracks captcha escalations, daily app counts, cooldowns.
 
-Storage: ~/.career_agent/portal_state.json (one entry per normalised domain key).
+Storage: <data root>/state/portal_state.json (one entry per normalised domain key).
 """
 from __future__ import annotations
+
+from job_dashboard import paths
 
 import json
 import pathlib
 import time
 from datetime import date, datetime, timezone
 
-_DEFAULT_PATH = pathlib.Path.home() / ".career_agent" / "portal_state.json"
+_DEFAULT_PATH = paths.STATE / "portal_state.json"
 
 # Prefixes stripped when normalising domain keys so jobs.greenhouse.io == greenhouse.io
 _STRIP_PREFIXES = ("jobs.", "careers.", "apply.", "boards.", "www.")

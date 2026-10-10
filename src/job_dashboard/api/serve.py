@@ -13,10 +13,13 @@ Tests import ``api.app`` directly and stay key-free; only this module loads
 from __future__ import annotations
 
 from job_dashboard.env import load_env_file
+from job_dashboard.paths import REPO_ROOT
+
+REPO_ENV = REPO_ROOT / ".env"   # not cwd-relative: the server may start anywhere
 
 # Load .env BEFORE importing the app so the key is in os.environ for every
 # request handler (company_research reads it lazily at call time).
-load_env_file()
+load_env_file(REPO_ENV)
 
 
 from job_dashboard.api.app import create_app  # noqa: E402
@@ -25,16 +28,13 @@ from job_dashboard.linkedin.contacts import judge_post  # noqa: E402
 from job_dashboard.match.profile_text import current_resume_text  # noqa: E402
 from job_dashboard.db import init_db  # noqa: E402
 from job_dashboard.api.app import DEFAULT_DB  # noqa: E402
-from job_dashboard.match.embedder import load_default_model  # noqa: E402
+from job_dashboard.match.embedder import LazyModel  # noqa: E402
 
-# Hiring posts come through the user's own logged-in Chrome over CDP (port 9222).
+# Hiring posts come through the agent's isolated Chrome over CDP (job_dashboard.agent_browser).
 # The cookie-based LinkedInBrowserFetcher (li_at/JSESSIONID in .env) is
 # superseded; kept in linkedin/browser_fetch.py for reference only.
 _fetcher = CdpHiringFetcher()
-try:
-    _model = load_default_model()
-except Exception:
-    _model = None
+_model = LazyModel()          # loads in the background; the server answers immediately
 
 
 

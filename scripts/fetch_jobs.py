@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+from job_dashboard import paths
 
 
 def main():
@@ -20,7 +21,7 @@ def main():
 
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default="data/jobs.db")
+    ap.add_argument("--db", default=str(paths.DB))
     ap.add_argument("--no-rank", action="store_true",
                     help="skip the LLM deep-rank step (fetch + embed only)")
     args = ap.parse_args()

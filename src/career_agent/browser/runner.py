@@ -1,9 +1,9 @@
 """Persistent-context Chrome launcher. A real on-disk profile so sessions and
 cookies persist across runs, headed by default.
 
-CDP mode: pass cdp_url (e.g. "http://localhost:9222") to attach to an
-already-running Chrome instead of launching a new one.  close() disconnects
-cleanly without killing the user's browser.
+CDP mode: pass cdp_url to attach to the agent's isolated Chrome
+(job_dashboard.agent_browser), launching it on demand — never the user's own
+Chrome. close() disconnects cleanly without killing that browser.
 """
 from __future__ import annotations
 
@@ -14,13 +14,20 @@ def launch(settings, cdp_url: str | None = None):
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
     if cdp_url:
+        from job_dashboard.agent_browser import ensure_running
+        problem = ensure_running(cdp_url)
+        if problem:
+            pw.stop()
+            raise RuntimeError(problem)
         try:
             browser = pw.chromium.connect_over_cdp(cdp_url, timeout=60000)
         except Exception as e:
             pw.stop()
             # attaching waits for EVERY tab to answer; one frozen tab ("Page unresponsive") blocks it for good
-            raise RuntimeError("could not attach to Chrome in 60 s — a tab is probably frozen; close it "
-                               f"(Chrome's task manager, Shift+Esc, shows which): {type(e).__name__}") from e
+            why = str(e).splitlines()[0] if str(e) else type(e).__name__
+            hint = (" — a tab is probably frozen; close it (Chrome's task manager, Shift+Esc, shows which)"
+                    if "Timeout" in type(e).__name__ or "Timeout" in why else "")
+            raise RuntimeError(f"could not attach to the agent browser: {why}{hint}") from e
         if browser.contexts:
             context = browser.contexts[0]
         else:

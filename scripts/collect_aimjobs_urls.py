@@ -11,10 +11,12 @@ import json
 import pathlib
 import sys
 import time
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1] / "src"))
+from job_dashboard import paths, agent_browser
 
 ROOT = pathlib.Path(__file__).parent.parent
-CDP_URL = "http://localhost:9222"
-OUT_FILE = ROOT / "data" / "aimjobs_urls.json"
+CDP_URL = agent_browser.cdp_url()
+OUT_FILE = paths.DATA_DIR / "aimjobs_urls.json"
 
 # ATS domains we can actually handle — skip ones that are just company portals
 # or known impossible gates (LinkedIn Easy Apply, Indeed, Glassdoor aggregators).

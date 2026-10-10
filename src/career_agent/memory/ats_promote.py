@@ -8,6 +8,8 @@ Runs without a trail (older entries) are left in place.
 """
 from __future__ import annotations
 
+from job_dashboard import paths
+
 import json
 import re
 from pathlib import Path
@@ -15,7 +17,7 @@ from urllib.parse import urlparse
 
 _ROOT = Path(__file__).resolve().parents[3]
 GRAPH = _ROOT / "docs" / "career-agent" / "ats-graph.json"
-PENDING = _ROOT / "data" / "pending_memory_updates.md"
+PENDING = paths.DATA_DIR / "pending_memory_updates.md"
 
 
 def _host(u: str) -> str:

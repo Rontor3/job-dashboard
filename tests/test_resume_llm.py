@@ -1,4 +1,5 @@
-"""Tests for the Ollama LlmFn adapter (resume_llm.make_ollama_llm)."""
+"""Tests for the résumé LlmFn adapter (resume_llm.make_resume_llm)."""
+import os
 
 from pathlib import Path
 
@@ -6,7 +7,7 @@ import pytest
 
 from job_dashboard.resume.keyword_map import LlmProposal
 from job_dashboard.resume.resume_llm import (
-    DEFAULT_HOST, extract_jd_keywords, make_ollama_llm,
+    extract_jd_keywords, make_resume_llm,
 )
 from job_dashboard.resume.segments import Segment
 
@@ -36,20 +37,20 @@ def test_ollama_llm_maps_keyword_to_proposal():
     def fake_post(url, json_body):
         calls.append(json_body)
         return {
-            "response": (
+            "output_text": (
                 '{"proposed_text": "Implemented vector search using '
                 'sentence-transformers embeddings", "confidence": "exact-synonym"}'
             )
         }
 
-    llm = make_ollama_llm(post=fake_post)
+    llm = make_resume_llm(post=fake_post)
     props = llm(segs, "We need vector search experience")
     assert any(
         isinstance(p, LlmProposal) and p.jd_keyword and "vector" in p.proposed_text.lower()
         for p in props
     )
-    assert calls and calls[0]["model"]  # model set, format=json used
-    assert calls[0].get("format") == "json"
+    assert calls and calls[0]["model"]
+    assert calls[0]["text"] == {"format": {"type": "json_object"}}
 
 
 def test_ollama_llm_returns_empty_on_http_error():
@@ -58,7 +59,7 @@ def test_ollama_llm_returns_empty_on_http_error():
     def boom(url, json_body):
         raise RuntimeError("connection refused")
 
-    props = make_ollama_llm(post=boom)(segs, "need kafka")
+    props = make_resume_llm(post=boom)(segs, "need kafka")
     assert props == []
 
 
@@ -66,15 +67,15 @@ def test_ollama_llm_skips_unparseable_response():
     segs = [_seg("p", r"\item Python microservices", ["python"])]
 
     def bad(url, json_body):
-        return {"response": "not json at all"}
+        return {"output_text": "not json at all"}
 
-    props = make_ollama_llm(post=bad)(segs, "need python and go")
+    props = make_resume_llm(post=bad)(segs, "need python and go")
     assert props == []  # nothing parseable -> no proposals, no raise
 
 
 def test_extract_jd_keywords_parses_clean_list_from_fake_post():
     def fake_post(url, json_body):
-        return {"response": '{"keywords": ["kubernetes", "pytorch"]}'}
+        return {"output_text": '{"keywords": ["kubernetes", "pytorch"]}'}
 
     kws = extract_jd_keywords("We need K8s and deep learning experience.", post=fake_post)
     assert kws == ["kubernetes", "pytorch"]
@@ -89,14 +90,14 @@ def test_extract_jd_keywords_returns_empty_on_post_raising():
 
 def test_extract_jd_keywords_returns_empty_on_unparseable_response():
     def bad(url, json_body):
-        return {"response": "not json at all"}
+        return {"output_text": "not json at all"}
 
     assert extract_jd_keywords("some JD text", post=bad) == []
 
 
 def test_extract_jd_keywords_returns_empty_on_missing_keywords_field():
     def no_keywords(url, json_body):
-        return {"response": '{"proposed_text": "x", "confidence": "equivalent"}'}
+        return {"output_text": '{"proposed_text": "x", "confidence": "equivalent"}'}
 
     assert extract_jd_keywords("some JD text", post=no_keywords) == []
 
@@ -104,7 +105,7 @@ def test_extract_jd_keywords_returns_empty_on_missing_keywords_field():
 def test_extract_jd_keywords_dedupes_lowercases_and_caps():
     def fake_post(url, json_body):
         return {
-            "response": (
+            "output_text": (
                 '{"keywords": ["Kubernetes", "kubernetes", "Pytorch", '
                 '"Docker", "1", "2", "3", "4", "5", "6", "7", "8", "9", '
                 '"10", "11", "12"]}'
@@ -131,41 +132,36 @@ def test_ollama_llm_reword_attempts_use_clean_extracted_keywords_not_raw_jd_junk
 
     def fake_post(url, json_body):
         calls.append(json_body)
-        prompt = json_body["prompt"]
+        prompt = json_body["input"]
         if "Extract the concrete technical skills" in prompt:
-            return {"response": '{"keywords": ["docker"]}'}
+            return {"output_text": '{"keywords": ["docker"]}'}
         return {
-            "response": (
+            "output_text": (
                 '{"proposed_text": "Built CI/CD pipelines and containerized '
                 'services with Docker", "confidence": "exact-synonym"}'
             )
         }
 
-    llm = make_ollama_llm(post=fake_post)
+    llm = make_resume_llm(post=fake_post)
     jd_text = "5+ years required. work. rga and other junk tokens. We use Docker heavily."
     props = llm(segs, jd_text)
 
     assert any(p.jd_keyword == "docker" for p in props)
     reword_calls = [
-        c for c in calls if "Extract the concrete technical skills" not in c["prompt"]
+        c for c in calls if "Extract the concrete technical skills" not in c["input"]
     ]
     assert reword_calls  # at least one reword attempt was made
     for c in reword_calls:
-        assert "work." not in c["prompt"].split("keyword to surface")[-1]
-        assert "rga" not in c["prompt"].split("keyword to surface")[-1]
+        assert "work." not in c["input"].split("keyword to surface")[-1]
+        assert "rga" not in c["input"].split("keyword to surface")[-1]
 
 
 def _ollama_is_up() -> bool:
-    try:
-        import requests
-
-        requests.get(f"{DEFAULT_HOST}/api/tags", timeout=3)
-        return True
-    except Exception:
-        return False
+    """Live-model smokes are opt-in (RUN_LIVE_LLM=1): tests never wait on a real model by default."""
+    return os.environ.get("RUN_LIVE_LLM") == "1"
 
 
-@pytest.mark.skipif(not _ollama_is_up(), reason="Ollama not running at DEFAULT_HOST")
+@pytest.mark.skipif(not _ollama_is_up(), reason="set RUN_LIVE_LLM=1 to call the configured model")
 def test_ollama_llm_live_smoke():
     """Real HTTP call to a running Ollama qwen2.5:14b — no mocks.
 
@@ -181,7 +177,7 @@ def test_ollama_llm_live_smoke():
         )
     ]
 
-    llm = make_ollama_llm()
+    llm = make_resume_llm()
     props = llm(segs, "We need vector search experience")
 
     assert isinstance(props, list)

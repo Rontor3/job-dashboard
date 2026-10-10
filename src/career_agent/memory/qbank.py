@@ -172,7 +172,9 @@ def default_embed(texts):
     """Local MiniLM (Chroma's bundled ONNX model): no network, PII stays on-device."""
     global _EF
     if _EF is None:
-        from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
-        _EF = DefaultEmbeddingFunction()
+        from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
+        from job_dashboard import paths
+        ONNXMiniLM_L6_V2.DOWNLOAD_PATH = paths.CHROMA_ONNX      # model cache inside the data root, not ~/.cache
+        _EF = ONNXMiniLM_L6_V2()
     v = np.asarray(_EF(list(texts)), dtype="float32")
     return v / np.linalg.norm(v, axis=1, keepdims=True)

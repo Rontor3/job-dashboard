@@ -243,3 +243,13 @@ export const saveGmailConfirmation = (on) =>
 export const fetchJobMail = (id) => fetch(`/api/jobs/${id}/mail`).then(json).then((d) => d.mail || []);
 export const startMailScan = () => fetch("/api/mail-scan", { method: "POST" }).then(json);
 export const fetchMailScanStatus = () => fetch("/api/mail-scan/status").then(json);
+
+// Feedback loop: what the agent needs from you, and the clicks that teach it.
+export const fetchInbox = () => fetch("/api/inbox").then(json);   // {questions, guesses, bank}
+export const sendJobFeedback = (id, verdict, reasons = []) =>
+  fetch(`/api/jobs/${id}/feedback`, jsonBody("POST", { verdict, reasons })).then(json);
+export const fetchPreferences = () => fetch("/api/preferences").then(json);
+export const forgetPreference = (feature) =>
+  fetch(`/api/preferences/${encodeURIComponent(feature)}`, { method: "DELETE" }).then(json);
+export const explainQuestion = (question, options = [], company = null) =>
+  fetch("/api/explain", jsonBody("POST", { question, options, company })).then(json);   // {explanation}

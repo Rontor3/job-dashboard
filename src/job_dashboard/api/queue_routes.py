@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from job_dashboard import qa_store
 from job_dashboard.apply import queue as q
 from job_dashboard.apply.queue_runner import QueueRunner
+from job_dashboard.match import preferences
 from job_dashboard.db import init_db, set_job_status
 
 AUTOSUBMIT_PREFIX = "autosubmit_"
@@ -98,6 +99,7 @@ def build_queue_router(db_path, runner: QueueRunner) -> APIRouter:
             if row is None:
                 raise HTTPException(status_code=404, detail="job not found")
             q.enqueue(conn, body.job_id, front=body.front)
+            preferences.record(conn, body.job_id, "more", ["applied"])   # queueing = "more like this"
             if row[0] is None:
                 set_job_status(conn, body.job_id, "saved")        # queued jobs show on the tracker
             if body.start:
