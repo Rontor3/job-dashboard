@@ -6,6 +6,8 @@ Two coupled subsystems in one repo, sharing `data/jobs.db`:
 
 The dashboard produces jobs + profile; the agent consumes them to apply. This file is a small **index** — query the stores below on demand; don't inline them.
 
+**Starting / setting up the app:** when the user asks to start, run, set up or reconfigure the app — or asks where a credential comes from, which model runs, or what runs in the background — follow `INIT.md` first. It checks `data/setup-state.md` and runs the onboarding interview if setup hasn't been done.
+
 ## Rules
 
 - Do what has been asked; nothing more, nothing less

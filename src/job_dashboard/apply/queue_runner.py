@@ -115,7 +115,7 @@ class QueueRunner:
 
     def argv(self, conn, url: str, job_id: int, result_path: str) -> list[str]:
         argv = [sys.executable, "-m", "career_agent.apply", "--job-id", str(job_id), "--url", url,
-                "--park", "--result-json", result_path, "--claude-assist"]   # capped at 5 Claude calls per run
+                "--park", "--result-json", result_path]   # Claude assist only if CAREER_AGENT_CLAUDE_ASSIST=1 (uses your own claude login)
         wait = qa_store.get_setting(conn, "telegram_wait_minutes")
         if wait.isdigit() and int(wait) > 0:
             argv += ["--ask-wait-minutes", wait]

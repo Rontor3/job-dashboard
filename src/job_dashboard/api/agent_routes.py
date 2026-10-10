@@ -228,7 +228,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         from job_dashboard.apply import local_model
         local_model.ensure_running()                 # the drafting model; left running for this single run
         cmd = [sys.executable, "-m", "career_agent.apply",
-               "--job-id", str(job_id), "--url", job_url, "--claude-assist"]   # same as the queue: capped at 5 calls
+               "--job-id", str(job_id), "--url", job_url]   # same as the queue: Claude assist is opt-in via .env
         env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
         log_path = _log_path(job_id)
         started = state.start(job_id, cmd, str(REPO_ROOT), env, log_path)
