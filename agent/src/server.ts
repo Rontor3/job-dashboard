@@ -2,7 +2,7 @@
 //   AGENT_PORT  default 8000 (the address the user sees); API_URL default http://127.0.0.1:8001
 //   AGENT_SERVE_UI=0 in development, where Vite serves the dashboard.
 // Only this process opens <data>/agent/sessions.db (Pi Durable has no cross-process locking).
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createRegistry, defineExtension, Harness } from "@earendil-works/pi-durable";
@@ -12,7 +12,9 @@ import { apiClient } from "./api.ts";
 import { createAgentApp } from "./app.ts";
 import { agentDir, REPO_ROOT, setting } from "./env.ts";
 import { LiveModels } from "./model.ts";
-import { sections } from "./prompt.ts";
+import { BASE_PROMPT, clearPromptCache, sections, USER_PROMPT } from "./prompt.ts";
+import { templates } from "./commands.ts";
+import { pinnedModels } from "./sessions.ts";
 import { makeTools } from "./tools.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -21,7 +23,8 @@ const client = apiClient(setting("API_URL") ?? "http://127.0.0.1:8001");
 
 mkdirSync(agentDir(), { recursive: true });
 const registry = createRegistry();
-registry.install(defineExtension({ name: "jobdash", sections: sections(), tools: makeTools(client) }));
+const install = () => registry.install(defineExtension({ name: "jobdash", sections: sections(), tools: makeTools(client) }));
+install();
 const live = new LiveModels();
 for (let attempt = 0; ; attempt++) {             // process-compose starts us once the api is healthy; this is a guard
   try {
@@ -38,9 +41,19 @@ const harness = await Harness.open(await openNodeSqliteStorage(join(agentDir(), 
   settings: { compaction: { enabled: true } },
 }, ctx);
 harness.resume();                                 // finish any run a crash or restart interrupted
+await live.offer(client, ...await pinnedModels(harness, ctx));
+
+/** /reload: the prompt files are re-read on change anyway; this re-installs the extension (same name: replaced in
+ * place, running work keeps its code) so tool and section changes apply from the next request. */
+async function reload(): Promise<string[]> {
+  clearPromptCache();
+  install();
+  const loaded = [BASE_PROMPT(), USER_PROMPT()].filter((f) => existsSync(f)).map((f) => f.replace(`${REPO_ROOT}/`, ""));
+  return [...loaded, `${makeTools(client).length} tools`, `${templates().length} prompt templates`];
+}
 
 const app = createAgentApp({
-  harness, client, live, ctx,
+  harness, client, live, ctx, reload,
   staticDir: setting("AGENT_SERVE_UI") === "0" ? undefined : join(REPO_ROOT, "frontend", "dist"),
 });
 const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });

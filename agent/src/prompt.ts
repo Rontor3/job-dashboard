@@ -11,6 +11,8 @@ export const USER_PROMPT = () => join(agentDir(), "user.md");
 
 const cache = new Map<string, { mtime: number; text: string }>();
 
+export const clearPromptCache = () => cache.clear();
+
 function readCached(path: string): string | undefined {
   if (!existsSync(path)) return undefined;
   const mtime = statSync(path).mtimeMs;

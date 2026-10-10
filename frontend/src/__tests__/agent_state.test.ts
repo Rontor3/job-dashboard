@@ -9,7 +9,7 @@ const said = (id: number, text: string): Entry =>
 
 test("a snapshot then streamed text builds the thread, and entries never duplicate", () => {
   let s = reduce(EMPTY, { type: "snapshot", entries: [user(1, "hi")], run: { id: 1 }, inbox: [{ id: 4 }] });
-  expect(s).toMatchObject({ running: true, inbox: [4] });
+  expect(s).toMatchObject({ running: true, inbox: [{ id: 4 }] });
   s = reduce(s, { type: "message_start", message: { role: "assistant", content: [] } });
   s = reduce(s, { type: "message_update", changes: [{ type: "text_start", contentIndex: 0, block: { type: "text", text: "" } }] });
   s = reduce(s, { type: "message_update", changes: [{ type: "text_delta", contentIndex: 0, delta: "Hel" }, { type: "text_delta", contentIndex: 0, delta: "lo" }] });

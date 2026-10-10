@@ -92,8 +92,8 @@ test("history lists every change and can undo one", async () => {
       field: null, before: null, after: null, undoable: false, undone_at: null, undo_of: null },
   ] };
   render(<ChangeHistory />);
-  expect(await screen.findByText(/setting min_score value: 60 → 70/)).toBeInTheDocument();
-  expect(screen.getByText("LLM_API_KEY set")).toBeInTheDocument();
+  expect(await screen.findByText(/Setting min_score: 60 → 70/)).toBeInTheDocument();
+  expect(screen.getByText("Set LLM_API_KEY")).toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: "Undo" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Undo" }));
   await waitFor(() => expect(calls.some((c) => c.u === "/api/changes/3/undo")).toBe(true));

@@ -17,6 +17,36 @@ export interface SessionInfo {
   id: string;
   title: string;
   createdAt: number;
+  /** The session this one was forked or cloned from. */
+  parent?: string;
+  /** A model chosen with /model for this session only; otherwise it follows the app's LLM_MODEL. */
+  model?: string;
+}
+
+/** A slash command as the editor's menu shows it. Prompt templates (data/agent/prompts/*.md) are commands too. */
+export interface CommandInfo {
+  name: string;
+  description: string;
+  args?: string;
+  kind: "builtin" | "template";
+}
+
+/** `/session`: what pi shows for the current session. */
+export interface SessionStats {
+  id: string;
+  title: string;
+  createdAt: number;
+  parent?: string;
+  conversation: number;
+  model: string;
+  thinkingLevel: string;
+  contextWindow: number;
+  contextTokens: number;
+  entries: number;
+  messages: { user: number; assistant: number; toolCalls: number; toolResults: number };
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number; cost: number };
+  tools: string[];
+  prompt: { file: string; loaded: boolean }[];
 }
 
 export interface SessionsState {

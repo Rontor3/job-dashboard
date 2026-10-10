@@ -1,6 +1,6 @@
 // Calls from the dashboard to the agent service (/agent/*) and the human-only api routes the agent's widgets use.
 // Secret values and the résumé go from here straight to FastAPI; they never pass through the agent.
-import type { ElementContext, SessionsState } from "@jobdash/agent-protocol";
+import type { CommandInfo, ElementContext, SessionsState, SessionStats } from "@jobdash/agent-protocol";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -27,10 +27,23 @@ export const newSession = () => post("/agent/sessions").then((r) => json<Session
 export const activateSession = (id: string) => post(`/agent/sessions/${id}/activate`).then((r) => json<SessionsState>(r));
 export const stopSession = (id: string) => post(`/agent/sessions/${id}/stop`).then((r) => json<{ stopped: boolean }>(r));
 
-export function sendMessage(session: string, content: string, context?: ElementContext) {
-  const requestId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
-  return post(`/agent/sessions/${session}/messages`, { content, requestId, context }).then((r) => json<{ submission: number }>(r));
+const newRequestId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+
+/** `whenBusy`: pi's Enter steers the running task, Alt+Enter queues a follow-up for after it. */
+export function sendMessage(session: string, content: string, context?: ElementContext, whenBusy?: "steer" | "followUp") {
+  return post(`/agent/sessions/${session}/messages`, { content, requestId: newRequestId(), context, whenBusy })
+    .then((r) => json<{ submission: number }>(r));
 }
+
+export interface CommandResult { ok: boolean; message?: string; session?: string; submission?: number; pick?: boolean }
+
+export const runCommand = (session: string, name: string, args = "", extra: Record<string, unknown> = {}) =>
+  post(`/agent/sessions/${session}/command`, { name, args, requestId: newRequestId(), ...extra }).then((r) => json<CommandResult>(r));
+export const fetchCommands = () => fetch("/agent/commands").then((r) => json<{ commands: CommandInfo[] }>(r));
+export const fetchModels = () => fetch("/agent/models").then((r) => json<{ default: string; available: string[] }>(r));
+export const fetchStats = (session: string) => fetch(`/agent/sessions/${session}/stats`).then((r) => json<SessionStats>(r));
+export const withdraw = (session: string, submission: number) =>
+  post(`/agent/sessions/${session}/withdraw`, { submission }).then((r) => json<{ result: string }>(r));
 
 export const undoChange = (id: number) => post(`/api/changes/${id}/undo`).then((r) => json<{ ok: boolean }>(r));
 

@@ -22,16 +22,42 @@ export interface Entry {
   model?: Message[];
 }
 
+export interface Usage {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+  cost?: { total?: number };
+}
+
+/** A tool call in flight: its arguments and the output streamed so far. */
+export interface LiveTool {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  output: string;
+}
+
 export interface ThreadState {
   entries: Entry[];
   partial: Message | null;           // the assistant message streaming in
   running: boolean;
-  inbox: number[];                   // queued submissions (questions waiting their turn)
+  inbox: { id: number; mode?: string }[];   // queued submissions: steers and follow-ups waiting their turn
   toolsRunning: string[];            // tool names in flight
+  live: LiveTool[];                  // tool calls in flight, with output
   failure?: string;
+  retry?: string;                    // the provider failed; retrying (pi's "Retrying…")
+  compacting: boolean;
+  agent: { model?: { provider: string; modelId: string }; thinkingLevel?: string };
+  usage: { models: Record<string, Usage> };
+  lastUsage?: Usage;                 // the latest response's usage: its input is the context in use
 }
 
-export const EMPTY: ThreadState = { entries: [], partial: null, running: false, inbox: [], toolsRunning: [] };
+export const EMPTY: ThreadState = {
+  entries: [], partial: null, running: false, inbox: [], toolsRunning: [], live: [], compacting: false, agent: {},
+  usage: { models: {} },
+};
 
 type Change =
   | { type: "text_start" | "thinking_start" | "toolcall_start"; contentIndex: number; block: Block }
@@ -41,15 +67,22 @@ type Change =
   | { type: "message"; message: Message };
 
 // The service forwards Pi Durable's events as they are; only the fields used here are typed.
+type ToolSlot = { toolCallId?: string; id?: string; name?: string; toolName?: string; args?: Record<string, unknown>; output?: string };
+
 export type AgentEvent =
-  | { type: "snapshot"; entries: Entry[]; run?: unknown; generation?: { message?: Message }; inbox?: { id: number }[]; tools?: { name?: string }[] }
+  | { type: "snapshot"; entries: Entry[]; run?: unknown; generation?: { message?: Message; retry?: { error: string } };
+      inbox?: { id: number; mode?: string }[]; tools?: ToolSlot[]; compactions?: unknown[];
+      agent?: ThreadState["agent"]; usage?: ThreadState["usage"] }
   | { type: "run_start" | "run_end" }
   | { type: "message_start"; message: Message }
   | { type: "message_update"; changes: Change[] }
   | { type: "message_end" | "entry_appended"; entry: Entry }
-  | { type: "tool_execution_start"; toolCallId: string; toolName: string }
+  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args?: Record<string, unknown> }
   | { type: "tool_execution_end"; toolCallId: string; toolName: string; entry?: Entry }
-  | { type: "inbox_update"; items: { id: number }[] }
+  | { type: "inbox_update"; items: { id: number; mode?: string }[] }
+  | { type: "tool_execution_update"; toolCallId: string; output?: { trimStart?: number; append?: string } | { set: string } }
+  | { type: "agent_changed"; agent: ThreadState["agent"] }
+  | { type: "usage_changed"; usage: ThreadState["usage"] }
   | { type: "task_failed"; message: string }
   | { type: string; [k: string]: unknown };
 
@@ -72,54 +105,110 @@ function applyChange(msg: Message, c: Change): Message {
   return { ...msg, content };
 }
 
+const slotId = (t: ToolSlot) => String(t.toolCallId ?? t.id ?? "");
+
 export function reduce(state: ThreadState, event: AgentEvent): ThreadState {
   switch (event.type) {
     case "snapshot": {
       const e = event as Extract<AgentEvent, { type: "snapshot" }>;
       return {
+        ...EMPTY,
         entries: [...e.entries].sort((a, b) => a.id - b.id),
         partial: e.generation?.message ?? null,
         running: !!e.run,
-        inbox: (e.inbox ?? []).map((i) => i.id),
-        toolsRunning: (e.tools ?? []).map((t) => t.name ?? "tool"),
+        inbox: (e.inbox ?? []).map((i) => ({ id: Number(i.id), mode: i.mode })),
+        toolsRunning: (e.tools ?? []).map((t) => t.name ?? t.toolName ?? "tool"),
+        live: (e.tools ?? []).map((t) => ({ id: slotId(t), name: t.name ?? t.toolName ?? "tool", args: t.args, output: String(t.output ?? "") })),
+        retry: e.generation?.retry?.error,
+        compacting: (e.compactions ?? []).length > 0,
+        agent: e.agent ?? {},
+        usage: e.usage ?? { models: {} },
       };
     }
     case "run_start":
       return { ...state, running: true, failure: undefined };
     case "run_end":
-      return { ...state, running: false, partial: null, toolsRunning: [] };
+      return { ...state, running: false, partial: null, toolsRunning: [], live: [], retry: undefined };
     case "message_start": {
       const m = (event as { message: Message }).message;
-      return m.role === "assistant" ? { ...state, partial: m } : state;
+      return m.role === "assistant" ? { ...state, partial: m, retry: undefined } : state;
     }
-    case "message_update":
-      return state.partial
-        ? { ...state, partial: (event as { changes: Change[] }).changes.reduce(applyChange, state.partial) }
-        : state;
+    case "message_update": {
+      const e = event as { changes: Change[]; usage?: Usage };
+      return {
+        ...state,
+        partial: state.partial ? e.changes.reduce(applyChange, state.partial) : state.partial,
+        lastUsage: e.usage ?? state.lastUsage,
+      };
+    }
     case "message_end":
     case "entry_appended": {
       const entry = (event as { entry: Entry }).entry;
       const done = entry.kind === "pi.assistant";
       return { ...state, entries: withEntry(state.entries, entry), partial: done ? null : state.partial };
     }
-    case "tool_execution_start":
-      return { ...state, toolsRunning: [...state.toolsRunning, (event as { toolName: string }).toolName] };
+    case "tool_execution_start": {
+      const e = event as { toolCallId: string; toolName: string; args?: Record<string, unknown> };
+      return {
+        ...state,
+        toolsRunning: [...state.toolsRunning, e.toolName],
+        live: [...state.live.filter((t) => t.id !== e.toolCallId), { id: e.toolCallId, name: e.toolName, args: e.args, output: "" }],
+      };
+    }
+    case "tool_execution_update": {
+      const e = event as { toolCallId: string; output?: { trimStart?: number; append?: string } | { set: string } };
+      if (!e.output) return state;
+      const out = e.output;
+      return {
+        ...state,
+        live: state.live.map((t) => (t.id !== e.toolCallId ? t : {
+          ...t,
+          output: "set" in out ? out.set : t.output.slice(out.trimStart ?? 0) + (out.append ?? ""),
+        })),
+      };
+    }
     case "tool_execution_end": {
-      const e = event as { toolName: string; entry?: Entry };
+      const e = event as { toolCallId: string; toolName: string; entry?: Entry };
       const i = state.toolsRunning.indexOf(e.toolName);
       return {
         ...state,
         entries: withEntry(state.entries, e.entry),
         toolsRunning: i < 0 ? state.toolsRunning : state.toolsRunning.filter((_, j) => j !== i),
+        live: state.live.filter((t) => t.id !== e.toolCallId),
       };
     }
     case "inbox_update":
-      return { ...state, inbox: (event as { items: { id: number }[] }).items.map((i) => i.id) };
+      return { ...state, inbox: (event as { items: { id: number; mode?: string }[] }).items.map((i) => ({ id: Number(i.id), mode: i.mode })) };
+    case "agent_changed":
+      return { ...state, agent: (event as { agent: ThreadState["agent"] }).agent ?? {} };
+    case "usage_changed":
+      return { ...state, usage: (event as { usage: ThreadState["usage"] }).usage ?? { models: {} } };
+    case "auto_retry_start":
+      return { ...state, retry: String((event as { errorMessage?: unknown }).errorMessage ?? "retrying") };
+    case "auto_retry_end":
+      return { ...state, retry: undefined };
+    case "compaction_start":
+      return { ...state, compacting: true };
+    case "compaction_end":
+      return { ...state, compacting: false };
     case "task_failed":
       return { ...state, failure: String((event as { message: unknown }).message) };
     default:
       return state;
   }
+}
+
+/** Every model's usage added up, as pi's footer shows it. */
+export function totalUsage(usage: ThreadState["usage"]) {
+  const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  for (const u of Object.values(usage.models ?? {})) {
+    t.input += u.input ?? 0;
+    t.output += u.output ?? 0;
+    t.cacheRead += u.cacheRead ?? 0;
+    t.cacheWrite += u.cacheWrite ?? 0;
+    t.cost += u.cost?.total ?? 0;
+  }
+  return t;
 }
 
 /** The text of a message, whichever shape its content has. */

@@ -270,10 +270,14 @@ Preflight, then report in three lines or fewer, for example:
    `./jobdash stop` stops everything; logs are in `data/logs/processes.log`. In the Claude desktop app,
    `preview_start` with name `dashboard` runs `./jobdash start`.
 
-**The in-app agent.** The dashboard's Agent tab, and the "Ask about…" cursor, run the same interview as this file
-from inside the app (its playbook is `docs/agent/system.md`; keep the two in step). While `data/setup-state.md` is
-missing or not `status: complete`, a banner offers to finish setup there. It changes data only through the api:
-- every change is logged with Undo (Memory → History);
+**The in-app agent.** The dashboard's first tab, Agent, is a pi session in the browser: a transcript with tool calls
+and their output, an editor with pi's keys and slash commands (`/model`, `/thinking`, `/new`, `/resume`, `/fork`,
+`/clone`, `/tree`, `/compact`, `/reload`, `/session`, `/export`, `/copy`, `/changes`, `/hotkeys`; prompt templates from
+`data/agent/prompts/<name>.md`), and a footer with model, thinking level, context use and cost. The "Ask about…" cursor
+asks it about any element. Its playbook is `docs/agent/system.md` (keep it in step with this file), plus the user's
+own `data/agent/user.md`. While `data/setup-state.md` is missing or not `status: complete`, a banner offers to finish
+setup there. It changes data only through the api:
+- every change is logged with Undo (`/changes`);
 - secrets and the résumé go through boxes straight to the api, never through the chat;
 - anything consequential (queueing, Refresh, auto-submit) waits for the user's Confirm.
 
@@ -290,7 +294,6 @@ As soon as the app starts:
 
 - **Loads `.env`** from the repo root. Variables already set in the shell take precedence. Model settings are read
   from the `config` table after the first start.
-- **Embedding model load** in the api, on a background thread. The first time, it downloads into `data/cache/`.
 - **The agent service** (`agent`) keeps its sessions in `data/agent/sessions.db` and resumes any run a restart
   interrupted. It calls the model only when the user asks it something.
 - The **`worker`** process runs:
@@ -299,7 +302,10 @@ As soon as the app starts:
     `gmail_confirmation_check` is on;
   - the **daily mail scan**: checks every 30 minutes and scans once a day, provided Gmail read-only is connected.
     The first scan looks back 30 days. It moves tracker cards and uses the LLM to classify messages;
-  - the **apply queue**, when started.
+  - the **apply queue**, when started;
+  - **Refresh** and the **hiring-post refresh**, when the dashboard asks (`job_dashboard/worker_jobs.py`). They are the
+    only users of the embedding model, so it loads in the worker on the first of them (the first time, it downloads
+    into `data/cache/`) and stays loaded. The api never loads it.
 
 Only when the user triggers it:
 

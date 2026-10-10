@@ -23,7 +23,8 @@ export async function sessionsState(harness: Reader, ctx: Context): Promise<Sess
   const s = await harness.snapshot(SessionsDoc, ctx);
   return {
     active: s?.active ?? null,
-    items: [...(s?.items ?? [])].reverse().map(({ id, title, createdAt }) => ({ id, title, createdAt })),
+    items: [...(s?.items ?? [])].reverse().map(({ id, title, createdAt, parent, model }) =>
+      ({ id, title, createdAt, ...(parent ? { parent } : {}), ...(model ? { model } : {}) })),
   };
 }
 
@@ -72,4 +73,48 @@ export async function nameIfNew(harness: Harness, key: string, firstMessage: str
 export async function ensureActive(harness: Harness, model: { provider: string; modelId: string }, ctx: Context): Promise<string> {
   const { active } = await sessionsState(harness, ctx);
   return active ?? createSession(harness, model, ctx);
+}
+
+export async function sessionItem(harness: Reader, key: string, ctx: Context) {
+  return (await harness.snapshot(SessionsDoc, ctx))?.items.find((i) => i.id === key);
+}
+
+/** `/name`: rename a session. False if there's no such session. */
+export async function rename(harness: Harness, key: string, title: string, ctx: Context): Promise<boolean> {
+  return harness.commit(async (tx) => {
+    const item = (await tx.doc(SessionsDoc)).items.find((s) => s.id === key);
+    if (item) item.title = title;
+    return !!item;
+  }, ctx);
+}
+
+/** `/model`: pin a model to this session (undefined follows the app's LLM_MODEL again). */
+export async function pinModel(harness: Harness, key: string, model: string | undefined, ctx: Context): Promise<void> {
+  await harness.commit(async (tx) => {
+    const item = (await tx.doc(SessionsDoc)).items.find((s) => s.id === key);
+    if (!item) return;
+    if (model) item.model = model;
+    else delete item.model;
+  }, ctx);
+}
+
+/** Every model some session pinned, so the provider offers them after a restart. */
+export async function pinnedModels(harness: Reader, ctx: Context): Promise<string[]> {
+  return [...new Set(((await harness.snapshot(SessionsDoc, ctx))?.items ?? []).flatMap((i) => (i.model ? [i.model] : [])))];
+}
+
+/** `/fork` and `/clone`: a new session that sees this one's entries up to `at`, made active. */
+export async function forkSession(harness: Harness, key: string, at: number, title: string, ctx: Context): Promise<string | undefined> {
+  const parent = await conversationOf(harness, key, ctx);
+  const item = await sessionItem(harness, key, ctx);
+  if (!parent || !item) return undefined;
+  const conv = await parent.fork(at as never, { ownership: { kind: "ownerless" } }, ctx);
+  const id = randomUUID();
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(SessionsDoc);
+    doc.items.push({ id, conversation: Number(conv.id), title, createdAt: Date.now(), parent: key,
+      ...(item.model ? { model: item.model } : {}) });
+    doc.active = id;
+  }, ctx);
+  return id;
 }

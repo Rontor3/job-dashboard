@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { ElementContext, SessionsState } from "@jobdash/agent-protocol";
 import { captureContext, captureTarget } from "./capture.ts";
-import { activateSession, fetchSessions, newSession, sendMessage, stopSession } from "./client.ts";
+import { activateSession, fetchSessions, newSession, sendMessage, stopSession, withdraw } from "./client.ts";
 import { EMPTY, reduce, type AgentEvent, type ThreadState } from "./state.ts";
 
 export interface PopoverState {
@@ -15,7 +15,12 @@ export interface AgentApi {
   sessions: SessionsState;
   thread: ThreadState;
   error: string | null;
-  ask(content: string, context?: ElementContext): Promise<void>;
+  /** Send a message; while the agent works, `whenBusy` steers it (default) or queues a follow-up. */
+  ask(content: string, context?: ElementContext, whenBusy?: "steer" | "followUp"): Promise<number | undefined>;
+  /** Alt+Up: withdraw the queued messages and return their text for the editor. */
+  takeBack(): Promise<string[]>;
+  /** Re-read the session list (after /name, /fork, /clone). */
+  refreshSessions(): Promise<void>;
   stop(): Promise<void>;
   newSession(): Promise<void>;
   openSession(id: string): Promise<void>;
@@ -53,6 +58,8 @@ export function AgentProvider({ children, tab, onOpenTab }: { children: ReactNod
   const active = sessions.active;
   const activeRef = useRef(active);
   activeRef.current = active;
+  const threadRef = useRef(thread);
+  threadRef.current = thread;
 
   useEffect(() => {
     fetchSessions().then(setSessions).catch((e) => setError(`The agent isn't reachable (${e.message}).`));
@@ -73,7 +80,9 @@ export function AgentProvider({ children, tab, onOpenTab }: { children: ReactNod
     return () => es.close();
   }, [active]);
 
-  const ask = useCallback(async (content: string, context?: ElementContext) => {
+  const sent = useRef(new Map<number, string>());       // submission id -> what was typed, for Alt+Up
+
+  const ask = useCallback(async (content: string, context?: ElementContext, whenBusy?: "steer" | "followUp") => {
     setError(null);
     let id = activeRef.current;
     if (!id) {
@@ -82,11 +91,28 @@ export function AgentProvider({ children, tab, onOpenTab }: { children: ReactNod
       id = s.id;
     }
     try {
-      await sendMessage(id, content, context);
+      const { submission } = await sendMessage(id, content, context, whenBusy ?? (context ? "followUp" : "steer"));
+      sent.current.set(Number(submission), content);
       fetchSessions().then(setSessions).catch(() => {});       // the first question names the session
+      return Number(submission);
     } catch (e) {
       setError(`Couldn't send that: ${(e as Error).message}`);
+      return undefined;
     }
+  }, []);
+
+  const takeBack = useCallback(async () => {
+    const id = activeRef.current;
+    if (!id) return [];
+    const back: string[] = [];
+    for (const item of threadRef.current.inbox) {
+      try {
+        if ((await withdraw(id, item.id)).result === "aborted") back.push(sent.current.get(item.id) ?? "");
+      } catch {
+        // already placed
+      }
+    }
+    return back.filter(Boolean);
   }, []);
 
   const openPopover = useCallback((el: Element, question?: string) => {
@@ -98,7 +124,8 @@ export function AgentProvider({ children, tab, onOpenTab }: { children: ReactNod
   }, [tab, ask]);
 
   const api = useMemo<AgentApi>(() => ({
-    sessions, thread, error, ask, cursor, setCursor, popover, openPopover, focusEntry,
+    sessions, thread, error, ask, takeBack, cursor, setCursor, popover, openPopover, focusEntry,
+    refreshSessions: async () => setSessions(await fetchSessions()),
     stop: async () => {
       if (activeRef.current) await stopSession(activeRef.current);
     },
@@ -110,7 +137,7 @@ export function AgentProvider({ children, tab, onOpenTab }: { children: ReactNod
       setPopover(null);
       onOpenTab?.();
     },
-  }), [sessions, thread, error, ask, cursor, popover, openPopover, focusEntry, onOpenTab]);
+  }), [sessions, thread, error, ask, takeBack, cursor, popover, openPopover, focusEntry, onOpenTab]);
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }

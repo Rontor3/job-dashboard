@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { addToQueue, fetchInbox, fetchQueue } from "./api.js";
-import AnswersTab from "./components/AnswersTab.jsx";
+import AnswersTab, { Tuning } from "./components/AnswersTab.jsx";
+import IngredientsPanel from "./components/IngredientsPanel.jsx";
 import Inbox from "./components/Inbox.jsx";
 import JobDetail from "./components/JobDetail.jsx";
 import JobsView from "./components/JobsView.jsx";
@@ -12,31 +13,38 @@ import TrackerBoard from "./components/TrackerBoard.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
 import { AgentProvider } from "./agent/AgentProvider.tsx";
 import AgentTab from "./agent/AgentTab.tsx";
-import ChangeHistory from "./agent/ChangeHistory.tsx";
 import { CursorButton, CursorOverlay } from "./agent/Cursor.tsx";
 import Popover from "./agent/Popover.tsx";
 import SetupBanner from "./agent/SetupBanner.tsx";
 
-// Four places, each one a way to give the agent feedback:
+// Agent     — the in-app pi agent: it changes your data and settings for you (the cursor asks about any element)
+// Then four places, each one a way to give the apply agent feedback:
 //   Needs you — questions/guesses the agent is waiting on (answers go into its memory)
 //   Jobs      — apply or skip (re-ranks the feed and the fit judge)
 //   Applied   — outcomes (interview / rejected) for what was sent
-//   Memory    — the answers and résumé the agent reuses, and the history of every change
-//   Agent     — talk to the app: it changes your data and settings for you (the cursor asks about any element)
-const TABS = [["inbox", "Needs you"], ["jobs", "Jobs"], ["applied", "Applied"], ["memory", "Memory"], ["agent", "Agent"]];
+//   Memory    — the answers, story and résumé the agent reuses, and its tuning
+const TABS = [["agent", "Agent"], ["inbox", "Needs you"], ["jobs", "Jobs"], ["applied", "Applied"], ["memory", "Memory"]];
+const MEMORY_PARTS = [["answers", "Answers"], ["story", "Your story"], ["resume", "Résumé"], ["tuning", "Tuning"]];
 
 function Memory() {
   const [part, setPart] = useState("answers");
   return (
     <section aria-label="Memory">
       <h1 className="view-title">Memory</h1>
-      <p className="view-sub">What the agent reuses on every application. Edit anything that's wrong.</p>
+      <p className="view-sub">What the apply agent reuses on every application. Edit anything that's wrong.</p>
       <div className="segmented" role="group" aria-label="Memory section">
-        {[["answers", "Answers"], ["resume", "Résumé"], ["history", "History"]].map(([k, l]) => (
-          <button key={k} aria-pressed={part === k} onClick={() => setPart(k)}>{l}</button>
-        ))}
+        {MEMORY_PARTS.map(([k, l]) => <button key={k} aria-pressed={part === k} onClick={() => setPart(k)}>{l}</button>)}
       </div>
-      {part === "answers" ? <AnswersTab /> : part === "resume" ? <ResumeLibrary /> : <ChangeHistory />}
+      {part === "answers" && <AnswersTab />}
+      {part === "story" && (
+        <>
+          <p className="view-sub">Used to write essays and free-text answers.</p>
+          <AnswersTab only="story" />
+          <IngredientsPanel />
+        </>
+      )}
+      {part === "resume" && <ResumeLibrary />}
+      {part === "tuning" && <Tuning />}
     </section>
   );
 }
@@ -106,7 +114,7 @@ export default function App() {
       )}
       <QueueStrip queue={queue} onChange={onQueueChange} onOpenJob={setSelectedId} />
       {error && <div role="alert" className="alert">{error}</div>}
-      <main className="view">
+      <main className={tab === "agent" ? "view view-agent" : "view"}>
         {tab === "inbox" && <Inbox onCount={setNeeds} onGoJobs={() => setTab("jobs")} />}
         {tab === "jobs" && <Jobs queue={queue} onApply={onApply} onOpen={setSelectedId} refreshTick={tick} />}
         {tab === "applied" && (

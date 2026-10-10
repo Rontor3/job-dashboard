@@ -7,6 +7,7 @@
 //   GET  /agent/sessions/:id/events          SSE: a snapshot, then agent events (any number of clients)
 //   POST /agent/sessions/:id/messages        {content, requestId, context?} — exactly once per requestId
 //   POST /agent/sessions/:id/stop            abort the running work
+//   …and the slash commands (commands.ts)
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
 import type { Context } from "@earendil-works/chord";
@@ -16,7 +17,8 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { ApiClient } from "./api.ts";
 import type { ModelSource } from "./model.ts";
-import { activate, conversationOf, createSession, ensureActive, nameIfNew, sessionsState } from "./sessions.ts";
+import { installCommands } from "./commands.ts";
+import { activate, conversationOf, createSession, ensureActive, nameIfNew, sessionItem, sessionsState } from "./sessions.ts";
 
 export interface AgentDeps {
   harness: Harness;
@@ -27,6 +29,8 @@ export interface AgentDeps {
   staticDir?: string;
   /** How often an idle event stream sends a keep-alive comment. */
   heartbeatMs?: number;
+  /** /reload: re-install the extension from disk; returns what was loaded. */
+  reload?: () => Promise<string[]>;
 }
 
 const MAX_MESSAGE = 20_000;
@@ -40,17 +44,39 @@ export function createAgentApp(deps: AgentDeps): Hono {
   const app = new Hono();
   const configured = new Map<string, string>();         // conversation id -> model id it runs with
 
-  /** The session, running on the configured model (the config can change between messages). */
+  /** The session, running on its model: one picked with /model, else the configured one (which can change
+   * between messages). */
   async function session(key: string): Promise<Conversation | undefined> {
     const conv = await conversationOf(harness, key, ctx);
     if (!conv) return undefined;
-    const model = await live.sync(client);
+    const app = await live.sync(client);
+    const pinned = (await sessionItem(harness, key, ctx))?.model;
+    if (pinned) await live.offer?.(client, pinned);
+    const model = pinned ? { provider: app.provider, modelId: pinned } : app;
     if (configured.get(key) !== model.modelId) {
-      await conv.configure({ model }, ctx);
+      // A session that never chose a thinking level starts at the app's (LLM_REASONING_EFFORT, else medium).
+      const level = live.settings?.thinkingLevel;
+      const chosen = level && configured.has(key) ? true : await hasThinkingLevel(conv);
+      await conv.configure({ model, ...(chosen || !level ? {} : { thinkingLevel: level as never }) }, ctx);
       configured.set(key, model.modelId);
     }
     return conv;
   }
+
+  async function hasThinkingLevel(conv: Conversation): Promise<boolean> {
+    const view = await conv.viewState(ctx);
+    const level = (view.value as unknown as { docs: Record<string, { thinkingLevel?: string } | undefined> }).docs["pi.agent"]?.thinkingLevel;
+    view.dispose();
+    return level !== undefined;
+  }
+
+  async function submit(key: string, conv: Conversation, content: string, requestId: string, whenBusy?: "steer" | "followUp") {
+    const sub = await conv.submit({ type: "input", content, requestId, ...(whenBusy ? { whenBusy } : {}) }, ctx);
+    await nameIfNew(harness, key, content, ctx);
+    return Number(sub.id);
+  }
+
+  installCommands(app, { harness, client, live, ctx, reload: deps.reload, session, submit });
 
   app.get("/agent/health", (c) => c.json({ ok: true }));
 
@@ -89,7 +115,7 @@ export function createAgentApp(deps: AgentDeps): Hono {
   });
 
   app.post("/agent/sessions/:id/messages", async (c) => {
-    const body = await c.req.json().catch(() => null) as { content?: unknown; requestId?: unknown; context?: ElementContext } | null;
+    const body = await c.req.json().catch(() => null) as { content?: unknown; requestId?: unknown; context?: ElementContext; whenBusy?: unknown } | null;
     const content = typeof body?.content === "string" ? body.content.trim() : "";
     const requestId = typeof body?.requestId === "string" ? body.requestId : "";
     if (!content || content.length > MAX_MESSAGE) return c.json({ detail: "content must be 1-20000 characters" }, 422);
@@ -98,9 +124,9 @@ export function createAgentApp(deps: AgentDeps): Hono {
     const conv = await session(key);
     if (!conv) return c.json({ detail: "no such session" }, 404);
     const text = encodeElementMessage(body?.context?.text !== undefined ? body.context : undefined, content);
-    const sub = await conv.submit({ type: "input", content: text, requestId }, ctx);
-    await nameIfNew(harness, key, text, ctx);
-    return c.json({ submission: sub.id });
+    // pi's Enter while busy steers the current task; Alt+Enter queues a follow-up for after it.
+    const whenBusy = body?.whenBusy === "steer" || body?.whenBusy === "followUp" ? body.whenBusy : undefined;
+    return c.json({ submission: await submit(key, conv, text, requestId, whenBusy) });
   });
 
   app.post("/agent/sessions/:id/stop", async (c) => {

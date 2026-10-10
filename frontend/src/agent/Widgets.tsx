@@ -6,7 +6,8 @@ import {
   cancelAction, confirmAction, fetchConfirmation, putSecret, secretsPresent, uploadResume, type Confirmation,
 } from "./client.ts";
 
-export function SecretWidget({ keyName, reason }: { keyName: string; reason: string }) {
+/** `onDone` replaces telling the agent (for /login, which the agent didn't ask for). */
+export function SecretWidget({ keyName, reason, onDone }: { keyName: string; reason: string; onDone?: () => void }) {
   const { ask } = useAgent();
   const [value, setValue] = useState("");
   const [state, setState] = useState<"idle" | "busy" | "set" | string>("idle");
@@ -20,7 +21,8 @@ export function SecretWidget({ keyName, reason }: { keyName: string; reason: str
       await putSecret(keyName, value.trim());
       setValue("");
       setState("set");
-      await ask(`[I set ${keyName}]`);
+      if (onDone) onDone();
+      else await ask(`[I set ${keyName}]`);
     } catch (e) {
       setState(`Couldn't save: ${(e as Error).message}`);
     }
