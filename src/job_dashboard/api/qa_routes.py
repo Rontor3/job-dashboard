@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -58,6 +59,7 @@ class NewIngredientBody(BaseModel):
 
 
 INGREDIENT_TYPES = ("project", "work_experience", "education")
+_INGREDIENTS_LOCK = threading.Lock()      # each write reads, changes and rewrites the whole file; the agent writes in parallel
 
 
 class ReplyBody(BaseModel):
@@ -387,6 +389,10 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
     def save_ingredient(unit_id: str, body: IngredientBody):
         """Edit one unit. The verbatim `source` is ground truth: it changes only when confirm_source is set.
         The previous file is kept as ingredients.json.bak-<time>; the write is atomic."""
+        with _INGREDIENTS_LOCK:
+            return _save_ingredient(unit_id, body)
+
+    def _save_ingredient(unit_id: str, body: IngredientBody):
         try:
             d = json.loads(ing_path().read_text())
         except (OSError, ValueError):
@@ -410,6 +416,24 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
             raise HTTPException(status_code=422, detail=f"type must be one of {', '.join(INGREDIENT_TYPES)}")
         if not body.title.strip() or not body.source.strip():
             raise HTTPException(status_code=422, detail="title and source are required")
+        with _INGREDIENTS_LOCK:
+            return _add_ingredient(body)
+
+    @router.delete("/api/ingredients/{unit_id}")
+    def delete_ingredient(unit_id: str):
+        with _INGREDIENTS_LOCK:
+            try:
+                d = json.loads(ing_path().read_text())
+            except (OSError, ValueError):
+                raise HTTPException(status_code=404, detail="no ingredients file")
+            units = d.get("units", [])
+            if not any(u.get("id") == unit_id for u in units):
+                raise HTTPException(status_code=404, detail="no such ingredient")
+            d["units"] = [u for u in units if u.get("id") != unit_id]
+            write_ingredients(d)
+            return {"deleted": unit_id}
+
+    def _add_ingredient(body: NewIngredientBody):
         try:
             d = json.loads(ing_path().read_text())
         except OSError:
@@ -417,7 +441,7 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         except ValueError:
             raise HTTPException(status_code=409, detail="ingredients.json is not valid JSON; fix it by hand first")
         units = d.setdefault("units", [])
-        base = re.sub(r"[^a-z0-9]+", "-", body.title.lower()).strip("-")[:40] or "unit"
+        base = re.sub(r"[^a-z0-9]+", "-", body.title.lower())[:40].strip("-") or "unit"
         taken = {u.get("id") for u in units}
         uid, n = base, 1
         while uid in taken:

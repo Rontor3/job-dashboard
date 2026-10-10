@@ -107,13 +107,18 @@ def _default_extract(pdf_path: Path) -> str:
     parsers flatten multi-column PDFs into logical reading order the same
     way, so this default mirrors that rather than preserving physical
     layout.
+    Without poppler's ``pdftotext`` installed, pypdf reads the text instead.
     """
-    result = subprocess.run(
-        ["pdftotext", str(pdf_path), "-"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            ["pdftotext", str(pdf_path), "-"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        from pypdf import PdfReader
+        return "\n".join(page.extract_text() or "" for page in PdfReader(pdf_path).pages)
     return result.stdout
 
 

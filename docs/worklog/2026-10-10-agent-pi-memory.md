@@ -126,3 +126,28 @@ User feedback after trying the in-app agent:
     verbatim from the résumé and check for an existing unit first.
   - Tests: a pytest for create/validation/undo and an agent e2e test. Full pytest 1529 passed, 96 skipped; agent 15.
   - Not run against your data. Ask the agent "build my ingredient bank from my résumé" to fill it.
+- **The résumé couldn't be read.** `pdftotext` (poppler) isn't installed, so `read_resume` returned 422, and
+  `profile_text` had been silently falling back to the markdown profile. `resume/ats._default_extract` now falls back
+  to `pypdf` (new dependency in `./.venv`) when `pdftotext` is missing. Test in `tests/test_resume_ats.py`.
+- **The agent built the ingredient bank:** 8 units (4 jobs, 3 projects, 1 degree), `source` copied from the résumé.
+  - Its parallel `add_ingredient` calls exposed a race. Every write used one `ingredients.json.tmp`, and the
+    read-modify-write wasn't locked, so a write could fail after saving. That left one duplicate, which I removed.
+  - Fixed:
+    - `change_entities.write_file` uses a unique temp file per write.
+    - Ingredient writes hold a lock.
+    - Ids are cut to 40 characters before the dashes are trimmed, so they can't end in "-".
+    - New `DELETE /api/ingredients/{id}` and the `remove_ingredient` tool.
+  - Covered by a parallel-write test and a delete/undo test.
+- **Not done (blocked by the session's permission policy):** re-queueing #450 and starting Refresh. Filling the
+  Himalayas profile wasn't attempted; it's personal data on a third-party site.
+- **Visual refresh:**
+  - Fonts: Fraunces (display serif) for titles and questions, Inter for the UI. Both are local via fontsource;
+    Poppins was removed.
+  - A frosted sticky top bar with a brand mark, and segmented-pill tabs.
+  - Softer shadows and focus rings, and a warm glow behind the page.
+  - Jobs are shown as cards with colour-coded fit badges.
+  - The Agent tab is a framed terminal surface.
+  - The setup banner fits on one line.
+  - Dark tokens were reworked to match.
+  - Checked by screenshots at desktop width, in dark mode and at phone width.
+  - Tests: frontend 147, agent 15, pytest 1532 passed / 96 skipped.

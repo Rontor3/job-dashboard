@@ -86,7 +86,8 @@ function JobRow({ job, reasons, onApply, onSkip, onOpen, queued }) {
           <div className="job-title">{job.title}</div>
           <div className="job-meta">{[job.company, job.location].filter(Boolean).join(" · ")}</div>
         </button>
-        <div className="fit" title="Fit score (adjusted by what you've taught it)">
+        <div className="fit" data-band={score(job) >= 70 ? "high" : score(job) >= 50 ? "mid" : "low"}
+          title="Fit score (adjusted by what you've taught it)">
           {score(job)}
           {Math.abs(pref) >= 1 && <small className={pref > 0 ? "up" : "down"}>{pref > 0 ? "↑" : "↓"} you</small>}
         </div>

@@ -309,3 +309,28 @@ def test_ingredient_create_starts_the_file_and_needs_a_source(env, ing_file):
     assert log[0]["entity"] == "file" and log[0]["entity_id"] == "ingredients" and log[0]["undoable"]
     assert c.post(f"/api/changes/{log[0]['id']}/undo").status_code == 200
     assert len(json.loads(path.read_text())["units"]) == 1
+
+
+def test_ingredient_writes_in_parallel_all_land(env, ing_file):
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    c, _ = env
+    post = lambda i: c.post("/api/ingredients", json={"type": "project", "title": f"Project {i}", "source": f"did {i}"})  # noqa: E731
+    with ThreadPoolExecutor(8) as pool:
+        codes = [r.status_code for r in pool.map(post, range(16))]
+    assert codes == [200] * 16
+    assert len(json.loads(ing_file.read_text())["units"]) == 16
+
+
+def test_ingredient_id_and_delete(env, ing_file):
+    import json
+    c, _ = env
+    long = "Integrated Dual Degree (B.Tech + M.Tech) in Ceramic Engineering"
+    uid = c.post("/api/ingredients", json={"type": "education", "title": long, "source": "IIT"}).json()["id"]
+    assert not uid.endswith("-") and len(uid) <= 40
+    assert c.delete(f"/api/ingredients/{uid}").status_code == 200
+    assert json.loads(ing_file.read_text())["units"] == []
+    assert c.delete(f"/api/ingredients/{uid}").status_code == 404
+    undo = c.get("/api/changes").json()["changes"][0]
+    assert c.post(f"/api/changes/{undo['id']}/undo").status_code == 200
+    assert [u["id"] for u in json.loads(ing_file.read_text())["units"]] == [uid]

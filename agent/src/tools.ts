@@ -266,6 +266,13 @@ export function makeTools(client: ApiClient) {
       execute: async ({ id, ...fields }, api, ctx) => asResult(await caller(client, api, ctx)("PUT", `/api/ingredients/${encodeURIComponent(id)}`, fields)),
     }),
 
+    defineTool({
+      name: "remove_ingredient",
+      description: "Remove one ingredient unit by id (a duplicate, or one the user says is wrong). Undoable.",
+      parameters: Type.Object({ id: Type.String() }),
+      execute: async (a, api, ctx) => asResult(await caller(client, api, ctx)("DELETE", `/api/ingredients/${encodeURIComponent(a.id)}`)),
+    }),
+
     // ── What the app is doing ────────────────────────────────────────────────────────────────────────────
     defineTool({
       name: "get_overview",

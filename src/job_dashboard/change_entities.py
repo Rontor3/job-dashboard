@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from job_dashboard import changes, paths, qa_store
@@ -39,9 +41,10 @@ def write_file(name: str, text: str | None) -> None:
         p.unlink(missing_ok=True)
         return
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(p)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")     # unique: writers may overlap
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, p)
 
 
 def _profile_read(conn, _id, fld):

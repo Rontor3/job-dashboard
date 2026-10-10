@@ -93,7 +93,14 @@ export default function App() {
     <AgentProvider tab={tab} onOpenTab={() => setTab("agent")}>
     <div className="app">
       <header className="topbar">
-        <p className="brand">Job agent</p>
+        <p className="brand">
+          <svg className="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <rect width="24" height="24" rx="7" />
+            <path d="M7 15.5l4-4 2.5 2.5L17.5 9" />
+            <circle cx="17.5" cy="9" r="1.6" />
+          </svg>
+          Job agent
+        </p>
         <nav className="tabs" aria-label="Sections">
           {TABS.map(([k, label]) => (
             <button key={k} className="tab" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>

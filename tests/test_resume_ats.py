@@ -164,3 +164,29 @@ Python, Docker, Kubernetes.
     assert "python" not in report.missing_keywords
     assert "docker" not in report.missing_keywords
     assert report.keyword_coverage > 0.0
+
+
+def _one_line_pdf(path, text):
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+    w = PdfWriter()
+    page = w.add_blank_page(300, 200)
+    font = DictionaryObject({NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"),
+                             NameObject("/BaseFont"): NameObject("/Helvetica")})
+    page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/F1"): font})})
+    stream = DecodedStreamObject()
+    stream.set_data(f"BT /F1 12 Tf 20 100 Td ({text}) Tj ET".encode())
+    page[NameObject("/Contents")] = w._add_object(stream)
+    w.write(path)
+
+
+def test_extract_falls_back_to_pypdf_without_pdftotext(tmp_path, monkeypatch):
+    import subprocess
+    from job_dashboard.resume import ats
+    pdf = tmp_path / "r.pdf"
+    _one_line_pdf(pdf, "Built a churn model")
+
+    def missing(*_a, **_k):
+        raise FileNotFoundError("pdftotext")
+    monkeypatch.setattr(subprocess, "run", missing)
+    assert "Built a churn model" in ats._default_extract(pdf)
