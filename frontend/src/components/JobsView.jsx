@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { useOptionalAgent } from "../agent/AgentProvider.tsx";
 import {
-  agentLink, fetchAgentSettings, fetchJob, fetchJobs, fetchPreferences, forgetPreference, saveAgentSettings, sendJobFeedback,
+  addManyToQueue, agentLink, fetchAgentSettings, fetchJob, fetchJobs, fetchPreferences, forgetPreference, saveAgentSettings, sendJobFeedback,
 } from "../api.js";
 import ApplyDetails from "./ApplyDetails.jsx";
 
 // Jobs ranked by fit + what your clicks taught. Every row asks for one decision: Apply (= more like this) or
 // Skip with a one-tap reason (= less of exactly that). The learned strip shows what changed, and any chip can be
-// removed if the agent learned the wrong thing.
+// removed if the agent learned the wrong thing. Tick as many as you like (or "Select strong fits") and apply to all
+// of them at once: the apply agent fills every form, and only what it can't answer comes back to the Inbox.
 
 const score = (j) => Math.round(j.llm_score ?? (j.embed_score || 0) * 100);
 const DONE = ["applied", "interviewing", "offer", "rejected"];
@@ -73,15 +75,19 @@ function Why({ id }) {
   );
 }
 
-function JobRow({ job, reasons, onApply, onSkip, onOpen, queued }) {
+function JobRow({ job, reasons, onApply, onSkip, onOpen, queued, checked, onCheck }) {
   const [open, setOpen] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [details, setDetails] = useState(false);
   const pref = job.pref || 0;
   const done = DONE.includes(job.status);
   return (
-    <li className="job" data-agent={`job:${job.id}`}>
+    <li className={checked ? "job job-checked" : "job"} data-agent={`job:${job.id}`}>
       <div className="job-main">
+        {!done && !queued ? (
+          <input type="checkbox" className="job-check" checked={!!checked} onChange={() => onCheck(job.id)}
+            aria-label={`Select ${job.title} at ${job.company}`} />
+        ) : <span className="job-check" aria-hidden="true" />}
         <button className="job-text" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
           <div className="job-title">{job.title}</div>
           <div className="job-meta">{[job.company, job.location].filter(Boolean).join(" · ")}</div>
@@ -127,19 +133,67 @@ function queuedLabel(queue, id) {
   return waiting[k].state === "running" ? "Applying…" : `Queued #${k + 1}`;
 }
 
-export default function JobsView({ queue, onApply, onOpen, refreshTick }) {
+const selectable = (j, queue) => !DONE.includes(j.status) && !queuedLabel(queue, j.id);
+
+function BulkBar({ ids, onDone, onClear }) {
+  const agent = useOptionalAgent();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const apply = () => {
+    setBusy(true);
+    addManyToQueue(ids).then((r) => { onDone(r); setBusy(false); })
+      .catch((e) => { setError(String(e.message || e)); setBusy(false); });
+  };
+  const review = () => agent.start(
+    `Have the critic and the advocate review jobs ${ids.join(", ")} against my target job. Strike the weak ones, `
+    + "tell me why in a word or two each, and propose applying to the rest.");
+  return (
+    <div className="bulk-bar" role="region" aria-label="Selected jobs">
+      <span className="bulk-count">{ids.length} selected</span>
+      {error && <span role="alert" className="bulk-error">{error}</span>}
+      <span className="spacer" />
+      <button className="btn btn-quiet btn-sm" onClick={onClear}>Clear</button>
+      {agent && <button className="btn btn-sm" onClick={review}>Review with the agents</button>}
+      <button className="btn btn-primary" disabled={busy} onClick={apply}>
+        {busy ? "Queueing…" : `Apply to ${ids.length}`}
+      </button>
+    </div>
+  );
+}
+
+export default function JobsView({ queue, onApply, onOpen, refreshTick, focusIds, onClearFocus, onQueued }) {
   const [jobs, setJobs] = useState(null);
+  const [selected, setSelected] = useState(() => new Set(focusIds || []));
+  const [note, setNote] = useState(null);
   const [prefs, setPrefs] = useState(null);
   const [q, setQ] = useState("");
   const [india, setIndia] = useState(true);
   const [error, setError] = useState(null);
 
+  const focus = focusIds?.length ? focusIds.join(",") : null;
+  useEffect(() => { setSelected(new Set(focusIds || [])); }, [focus]);
   const load = useCallback(() => {
-    Promise.all([fetchJobs({ sort: "learned", q, india, limit: 60 }), fetchPreferences()])
+    const params = focus ? { sort: "learned", ids: focus, limit: 200 } : { sort: "learned", q, india, limit: 60 };
+    Promise.all([fetchJobs(params), fetchPreferences()])
       .then(([feed, p]) => { setJobs(feed.jobs); setPrefs(p); setError(null); })
       .catch((e) => setError(String(e)));
-  }, [q, india]);
+  }, [q, india, focus]);
   useEffect(() => { const t = setTimeout(load, q ? 250 : 0); return () => clearTimeout(t); }, [load, q, refreshTick]);
+
+  const toggle = (id) => setSelected((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+  const open = (jobs || []).filter((j) => selectable(j, queue));
+  const strong = open.filter((j) => score(j) >= 70);
+  const ids = (jobs || []).filter((j) => selected.has(j.id) && selectable(j, queue)).map((j) => j.id);
+  const queued = (r) => {
+    setSelected(new Set());
+    setNote(`Queued ${r.queued.length} job${r.queued.length === 1 ? "" : "s"}${r.skipped.length ? ` (${r.skipped.length} skipped: already applied or gone)` : ""}. `
+      + "The agent fills them one after another; anything it can't answer lands in your Inbox.");
+    onQueued?.(r);
+  };
 
   const skip = (id, reason) => {
     setJobs((js) => js.filter((j) => j.id !== id));
@@ -150,15 +204,32 @@ export default function JobsView({ queue, onApply, onOpen, refreshTick }) {
   return (
     <section aria-label="Jobs">
       <h1 className="view-title">Jobs</h1>
-      <p className="view-sub">Apply or skip. Each choice reshapes this list.</p>
-      <Learned prefs={prefs} onForget={forget} />
-      <Sources />
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input className="search" aria-label="Search jobs" placeholder="Search roles or companies"
-          value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="chip" aria-pressed={india} onClick={() => setIndia((v) => !v)}
-          style={{ marginBottom: 14, whiteSpace: "nowrap" }}>India only</button>
-      </div>
+      <p className="view-sub">Tick everything worth a shot and apply to all of it at once. Each choice reshapes this list.</p>
+      {focus ? (
+        <div className="focus-banner" role="status">
+          <span>Showing {focusIds.length} job{focusIds.length === 1 ? "" : "s"} from the Inbox</span>
+          <button className="linkish" onClick={onClearFocus}>Show all jobs</button>
+        </div>
+      ) : <>
+        <Learned prefs={prefs} onForget={forget} />
+        <Sources />
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input className="search" aria-label="Search jobs" placeholder="Search roles or companies"
+            value={q} onChange={(e) => setQ(e.target.value)} />
+          <button className="chip" aria-pressed={india} onClick={() => setIndia((v) => !v)}
+            style={{ marginBottom: 14, whiteSpace: "nowrap" }}>India only</button>
+        </div>
+      </>}
+      {open.length > 0 && (
+        <div className="select-bar">
+          <button className="linkish" disabled={!strong.length} onClick={() => setSelected(new Set(strong.map((j) => j.id)))}>
+            Select strong fits ({strong.length})
+          </button>
+          <button className="linkish" onClick={() => setSelected(new Set(open.map((j) => j.id)))}>Select all {open.length}</button>
+          {ids.length > 0 && <button className="linkish" onClick={() => setSelected(new Set())}>Select none</button>}
+        </div>
+      )}
+      {note && <div className="note-ok" role="status">{note}</div>}
       {error && <div role="alert" className="alert">{error}</div>}
       {jobs && !jobs.length && (
         <div className="empty"><h2>No jobs here yet</h2><p>Use Refresh to pull new postings from the boards.</p></div>
@@ -167,10 +238,11 @@ export default function JobsView({ queue, onApply, onOpen, refreshTick }) {
         <ul className="jobs">
           {jobs.map((j) => (
             <JobRow key={j.id} job={j} reasons={prefs?.skip_reasons || []} queued={queuedLabel(queue, j.id)}
-              onApply={onApply} onSkip={skip} onOpen={onOpen} />
+              onApply={onApply} onSkip={skip} onOpen={onOpen} checked={selected.has(j.id)} onCheck={toggle} />
           ))}
         </ul>
       )}
+      {ids.length > 0 && <BulkBar ids={ids} onDone={queued} onClear={() => setSelected(new Set())} />}
     </section>
   );
 }

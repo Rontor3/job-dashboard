@@ -9,6 +9,7 @@ const WHO = { agent: "Agent", ui: "You" } as const;
 const ACTIONS: [RegExp, string][] = [
   [/^POST \/api\/queue\/start/, "Started the apply queue"],
   [/^POST \/api\/queue\/pause/, "Paused the apply queue"],
+  [/^POST \/api\/queue\/batch/, "Queued several jobs to apply to"],
   [/^POST \/api\/queue(\?|$)/, "Added a job to the apply queue"],
   [/^DELETE \/api\/queue/, "Removed a job from the apply queue"],
   [/^POST \/api\/refresh/, "Started Refresh"],
@@ -32,6 +33,7 @@ export function describe(c: ChangeRow): string {
     return line;
   }
   if (c.entity === "secret") return `Set ${c.entity_id}`;
+  if (c.entity === "file" && c.entity_id === "about_me") return "Updated what the agent knows about you";
   if (c.entity === "file") return `${c.entity_id === "current_resume" ? "Uploaded the résumé" : `Updated ${c.entity_id?.replace("_", " ")}`}`;
   return `${changeLabel(c)}: ${show(c.before)} → ${show(c.after)}`;
 }

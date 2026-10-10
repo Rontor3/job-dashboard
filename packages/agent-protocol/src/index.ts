@@ -21,6 +21,29 @@ export interface SessionInfo {
   parent?: string;
   /** A model chosen with /model for this session only; otherwise it follows the app's LLM_MODEL. */
   model?: string;
+  /** The agent profile it runs as (scout, critic, advocate, or the user's own); none = the plain playbook. */
+  profile?: string;
+}
+
+/** An agent profile: a system prompt and a tool set for one kind of work (agent/src/team.ts). */
+export interface ProfileInfo {
+  name: string;
+  description: string;
+  source: "base" | "user";
+}
+
+/** One Inbox update (job_dashboard/notifications.py). */
+export interface NotificationItem {
+  id: number;
+  at: string;
+  kind: "submitted" | "parked" | "failed" | "matches" | "tracker" | "agent";
+  level: "info" | "success" | "action" | "warning";
+  title: string;
+  body: string | null;
+  job_id: number | null;
+  data: { job_ids?: number[]; reason?: string };
+  source: string;
+  read_at: string | null;
 }
 
 /** A slash command as the editor's menu shows it. Prompt templates (data/agent/prompts/*.md) are commands too. */
@@ -128,7 +151,7 @@ export function parseElementMessage(text: string): { context?: ElementContext; q
 export const anchorKind = (anchor: Anchor) => anchor.split(":", 1)[0]!;
 
 /** Kinds of element the agent has tools for; on anything else it explains but can't change. */
-export const ACTIONABLE_KINDS = ["job", "qbank", "profile", "answer", "question", "setting", "setup"] as const;
+export const ACTIONABLE_KINDS = ["job", "qbank", "profile", "answer", "question", "setting", "setup", "notification", "about"] as const;
 
 /** A short session title from the first question. */
 export function titleFrom(text: string): string {

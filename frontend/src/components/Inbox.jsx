@@ -132,7 +132,7 @@ function Card({ item, onDone, onSkip }) {
   );
 }
 
-export default function Inbox({ onCount, onGoJobs }) {
+export default function Inbox({ onCount, onGoJobs, embedded = false }) {
   const [items, setItems] = useState(null);
   const [at, setAt] = useState(0);
   const [note, setNote] = useState(null);
@@ -145,6 +145,9 @@ export default function Inbox({ onCount, onGoJobs }) {
 
   if (error) return <div role="alert" className="alert">{error}</div>;
   if (!items) return null;
+  if (!items.length && embedded) {
+    return <p className="view-sub needs-none">{note || "Nothing needs you. Every application has what it asked for."}</p>;
+  }
   if (!items.length) {
     return (
       <div className="empty">
@@ -161,10 +164,11 @@ export default function Inbox({ onCount, onGoJobs }) {
   const skip = () => setAt((i + 1) % items.length);
   const blocking = items.filter((x) => x.type === "question").length;
 
+  const Title = embedded ? "h2" : "h1";
   return (
     <section aria-label="Needs you">
-      <h1 className="view-title">{blocking ? `${blocking} question${blocking > 1 ? "s" : ""} holding up applications`
-        : `${items.length} thing${items.length > 1 ? "s" : ""} to teach the agent`}</h1>
+      <Title className={embedded ? "section-title" : "view-title"}>{blocking ? `${blocking} question${blocking > 1 ? "s" : ""} holding up applications`
+        : `${items.length} thing${items.length > 1 ? "s" : ""} to teach the agent`}</Title>
       <p className="view-sub">{note || "Each answer is remembered, so the agent asks less every time."}</p>
       <div className="progress" aria-hidden="true">
         {items.map((x, k) => <span key={x.key} className={k === i ? "now" : k < i ? "done" : ""} />)}

@@ -120,3 +120,10 @@ test("/export as markdown has the prompts, answers and tool calls", () => {
   expect(md).toContain("Set **location** to `Pune`.");
   expect(exportText(toolTurn, "x", "jsonl").trim().split("\n")).toHaveLength(4);
 });
+
+test("a mission starts a new session as its profile and hands it the task", async () => {
+  await renderTab();
+  fireEvent.click(screen.getAllByRole("button", { name: /Find my next jobs/ })[0]);
+  await waitFor(() => expect(calls.some((c) => c.u === "/agent/sessions" && c.method === "POST" && c.body?.profile === "scout")).toBe(true));
+  await waitFor(() => expect(calls.some((c) => c.u === "/agent/sessions/s1/messages" && /shortlist/.test(c.body.content))).toBe(true));
+});

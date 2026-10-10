@@ -22,7 +22,9 @@ export interface AgentApi {
   /** Re-read the session list (after /name, /fork, /clone). */
   refreshSessions(): Promise<void>;
   stop(): Promise<void>;
-  newSession(): Promise<void>;
+  newSession(profile?: string): Promise<void>;
+  /** Hand the agent a task: a new session (as `profile` when given) with `message` sent, and the Agent tab shown. */
+  start(message: string, opts?: { profile?: string; context?: ElementContext }): Promise<void>;
   openSession(id: string): Promise<void>;
   cursor: boolean;
   setCursor(on: boolean): void;
@@ -129,7 +131,19 @@ export function AgentProvider({ children, tab, onOpenTab }: { children: ReactNod
     stop: async () => {
       if (activeRef.current) await stopSession(activeRef.current);
     },
-    newSession: async () => setSessions(await newSession()),
+    newSession: async (profile) => setSessions(await newSession(profile)),
+    start: async (message, opts = {}) => {
+      try {
+        const s = await newSession(opts.profile);
+        activeRef.current = s.id;
+        setSessions(s);
+        await ask(message, opts.context, "followUp");
+      } catch (e) {
+        setError(`Couldn't start that: ${(e as Error).message}`);
+      }
+      setPopover(null);
+      onOpenTab?.();
+    },
     openSession: async (id) => setSessions(await activateSession(id)),
     closePopover: () => setPopover(null),
     openTab: (entryId) => {

@@ -15,6 +15,7 @@ import { LiveModels } from "./model.ts";
 import { BASE_PROMPT, clearPromptCache, sections, USER_PROMPT } from "./prompt.ts";
 import { templates } from "./commands.ts";
 import { pinnedModels } from "./sessions.ts";
+import { makeConsult, type Team } from "./team.ts";
 import { makeTools } from "./tools.ts";
 
 const ctx = BACKGROUND_CONTEXT;
@@ -23,7 +24,8 @@ const client = apiClient(setting("API_URL") ?? "http://127.0.0.1:8001");
 
 mkdirSync(agentDir(), { recursive: true });
 const registry = createRegistry();
-const install = () => registry.install(defineExtension({ name: "jobdash", sections: sections(), tools: makeTools(client) }));
+const team: Team = {};                            // the council needs the harness, which needs the tools: filled in below
+const install = () => registry.install(defineExtension({ name: "jobdash", sections: sections(), tools: makeTools(client, team) }));
 install();
 const live = new LiveModels();
 for (let attempt = 0; ; attempt++) {             // process-compose starts us once the api is healthy; this is a guard
@@ -40,6 +42,7 @@ const harness = await Harness.open(await openNodeSqliteStorage(join(agentDir(), 
   registry,
   settings: { compaction: { enabled: true } },
 }, ctx);
+team.consult = makeConsult(harness, client, live, ctx);
 harness.resume();                                 // finish any run a crash or restart interrupted
 await live.offer(client, ...await pinnedModels(harness, ctx));
 

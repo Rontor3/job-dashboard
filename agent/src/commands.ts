@@ -2,6 +2,7 @@
 // need the harness run here, the rest (copy, export, hotkeys, resume, tree, new) run in the browser.
 //
 //   GET  /agent/commands                     every command, with prompt templates from <data>/agent/prompts/*.md
+//   GET  /agent/profiles                     the agent profiles (team.ts)
 //   GET  /agent/models                       the configured endpoint's models, and the app default
 //   GET  /agent/sessions/:id/stats           /session
 //   POST /agent/sessions/:id/command         {name, args?, at?} for name|model|thinking|compact|reload|fork|clone|<template>
@@ -16,7 +17,8 @@ import type { ApiClient } from "./api.ts";
 import { agentDir } from "./env.ts";
 import { PROVIDER, type ModelSource } from "./model.ts";
 import { BASE_PROMPT, USER_PROMPT } from "./prompt.ts";
-import { conversationOf, forkSession, pinModel, rename, sessionItem } from "./sessions.ts";
+import { conversationOf, forkSession, pinModel, rename, sessionItem, setProfile } from "./sessions.ts";
+import { applyProfile, findProfile, profiles } from "./team.ts";
 
 export const THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh"] as const;
 
@@ -24,6 +26,7 @@ export const BUILTIN_COMMANDS: CommandInfo[] = [
   { name: "model", description: "Select a model for this session (no argument: pick from a list)", args: "<model>", kind: "builtin" },
   { name: "thinking", description: "Set the thinking level", args: "<off|low|medium|high|xhigh>", kind: "builtin" },
   { name: "new", description: "Start a new session", kind: "builtin" },
+  { name: "profile", description: "Switch this session's agent profile (no argument: list them; 'default' for the plain agent)", args: "<name>", kind: "builtin" },
   { name: "resume", description: "Resume a different session", kind: "builtin" },
   { name: "name", description: "Set the session display name, or show it", args: "<name>", kind: "builtin" },
   { name: "session", description: "Show session info and stats", kind: "builtin" },
@@ -44,7 +47,7 @@ export const PROMPTS_DIR = () => join(agentDir(), "prompts");
 
 interface Template { name: string; description: string; body: string }
 
-function frontmatter(text: string): { meta: Record<string, string>; body: string } {
+export function frontmatter(text: string): { meta: Record<string, string>; body: string } {
   const m = /^---\n([\s\S]*?)\n---\n?/.exec(text);
   if (!m) return { meta: {}, body: text };
   const meta = Object.fromEntries(m[1]!.split("\n").flatMap((l) => {
@@ -95,6 +98,10 @@ export function installCommands(app: Hono, deps: CommandDeps): void {
     commands: [...BUILTIN_COMMANDS, ...templates().map((t): CommandInfo => ({ name: t.name, description: t.description, args: "<args>", kind: "template" }))],
   }));
 
+  app.get("/agent/profiles", (c) => c.json({
+    profiles: profiles().map(({ name, description, source }) => ({ name, description, source })),
+  }));
+
   app.get("/agent/models", async (c) => {
     const current = await live.sync(client);
     return c.json({ default: current.modelId, available: (await live.available?.(client)) ?? [] });
@@ -141,6 +148,18 @@ export function installCommands(app: Hono, deps: CommandDeps): void {
         await pinModel(harness, key, target === configured.modelId ? undefined : target, ctx);
         await conv.configure({ model: { provider: PROVIDER, modelId: target ?? configured.modelId } }, ctx);
         return say(`Model: ${target ?? `${configured.modelId} (app default)`}`);
+      }
+      case "profile": {
+        const list = profiles();
+        if (!args) {
+          const lines = list.map((p) => `- ${p.name}${item.profile === p.name ? " (current)" : ""}: ${p.description}`);
+          return say(`Profiles:\n- default${item.profile ? "" : " (current)"}: the plain agent, every tool\n${lines.join("\n")}`);
+        }
+        const profile = args === "default" ? undefined : findProfile(args, list);
+        if (args !== "default" && !profile) return fail(`No profile named ${args}. Try /profile to list them.`, 404);
+        await applyProfile(conv, profile, ctx);
+        await setProfile(harness, key, profile?.name, ctx);
+        return say(`Profile: ${profile?.name ?? "default"}`);
       }
       case "thinking": {
         if (!args) return say(`Thinking level: ${(await conv.agent(ctx)).thinkingLevel}`);

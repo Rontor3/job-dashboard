@@ -23,8 +23,8 @@ export async function sessionsState(harness: Reader, ctx: Context): Promise<Sess
   const s = await harness.snapshot(SessionsDoc, ctx);
   return {
     active: s?.active ?? null,
-    items: [...(s?.items ?? [])].reverse().map(({ id, title, createdAt, parent, model }) =>
-      ({ id, title, createdAt, ...(parent ? { parent } : {}), ...(model ? { model } : {}) })),
+    items: [...(s?.items ?? [])].reverse().map(({ id, title, createdAt, parent, model, profile }) =>
+      ({ id, title, createdAt, ...(parent ? { parent } : {}), ...(model ? { model } : {}), ...(profile ? { profile } : {}) })),
   };
 }
 
@@ -40,15 +40,35 @@ export async function conversationOf(harness: Harness, key: string, ctx: Context
   return item ? harness.conversation(item.conversation as ConversationId, ctx) : undefined;
 }
 
-export async function createSession(harness: Harness, model: { provider: string; modelId: string }, ctx: Context): Promise<string> {
+export interface NewSession {
+  /** Make it the active session (default). Council members start in the background. */
+  activate?: boolean;
+  parent?: string;
+  /** The agent profile it runs as (team.ts); the caller applies it to the conversation. */
+  profile?: string;
+  title?: string;
+}
+
+export async function createSession(harness: Harness, model: { provider: string; modelId: string }, ctx: Context, opts: NewSession = {}): Promise<string> {
   const conv = await harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model } }, ctx);
   const key = randomUUID();
   await harness.commit(async (tx) => {
     const doc = await tx.doc(SessionsDoc);
-    doc.items.push({ id: key, conversation: Number(conv.id), title: "New session", createdAt: Date.now() });
-    doc.active = key;
+    doc.items.push({ id: key, conversation: Number(conv.id), title: opts.title ?? "New session", createdAt: Date.now(),
+      ...(opts.parent ? { parent: opts.parent } : {}), ...(opts.profile ? { profile: opts.profile } : {}) });
+    if (opts.activate !== false) doc.active = key;
   }, ctx);
   return key;
+}
+
+/** `/profile`: record which profile a session runs as (undefined: the plain playbook). */
+export async function setProfile(harness: Harness, key: string, profile: string | undefined, ctx: Context): Promise<void> {
+  await harness.commit(async (tx) => {
+    const item = (await tx.doc(SessionsDoc)).items.find((s) => s.id === key);
+    if (!item) return;
+    if (profile) item.profile = profile;
+    else delete item.profile;
+  }, ctx);
 }
 
 export async function activate(harness: Harness, key: string, ctx: Context): Promise<boolean> {
@@ -113,7 +133,7 @@ export async function forkSession(harness: Harness, key: string, at: number, tit
   await harness.commit(async (tx) => {
     const doc = await tx.doc(SessionsDoc);
     doc.items.push({ id, conversation: Number(conv.id), title, createdAt: Date.now(), parent: key,
-      ...(item.model ? { model: item.model } : {}) });
+      ...(item.model ? { model: item.model } : {}), ...(item.profile ? { profile: item.profile } : {}) });
     doc.active = id;
   }, ctx);
   return id;

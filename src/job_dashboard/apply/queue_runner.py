@@ -17,13 +17,40 @@ import sqlite3
 import sys
 import threading
 
-from job_dashboard import qa_store
+from job_dashboard import notifications, qa_store
 from job_dashboard.apply import queue as q
 from job_dashboard.apply.outcome import outcome
 from job_dashboard.db import VALID_STATUSES, init_db, set_job_status
 
 # parked reasons that mean "a filled form was left open waiting for you": only those can be submitted by hand
 LEFT_FOR_REVIEW = {"review", "reached_submit_dry_run", "needs_approval", "submit_unconfirmed", "one_click_needs_autosubmit"}
+
+# What a stop means for the user, in their words (the Inbox card; the frontend's queueReasons.js has the long forms).
+_STOPPED = {
+    "needs_answers": "has questions only you can answer", "review": "is filled and waiting for your review",
+    "needs_approval": "is filled with best-guess answers for you to check", "logged_out": "needs you to log in to the site",
+    "auth_wall": "needs you to log in to the site", "challenge": "hit a bot check", "daily_cap": "hit the site's daily cap",
+    "closed": "is closed", "sensitive_field": "needs bank or ID details only you can enter",
+    "email_code": "needs the code the site emailed you", "stalled_no_progress": "stalled on a page",
+    "one_click_needs_autosubmit": "is a one-click apply that needs auto-submit on for that board",
+}
+
+
+def announce(conn, job_id: int, state: str, reason: str | None) -> None:
+    """Put a finished run in the Inbox."""
+    row = conn.execute("SELECT company, title FROM jobs WHERE id=?", (job_id,)).fetchone()
+    what = f"{row[1]} at {row[0]}" if row else f"job #{job_id}"
+    if state == "done":
+        notifications.safe_notify(conn, "submitted", f"Applied: {what}", level="success", job_id=job_id,
+                                  source="queue", dedupe=f"run:{job_id}")
+    elif state == "parked":
+        why = _STOPPED.get(reason or "", (reason or "stopped").replace("_", " "))
+        notifications.safe_notify(conn, "parked", f"{what} {why}", level="action", job_id=job_id, source="queue",
+                                  data={"reason": reason}, dedupe=f"run:{job_id}")
+    else:
+        notifications.safe_notify(conn, "failed", f"Couldn't apply: {what}", (reason or "").replace("_", " ") or None,
+                                  level="warning", job_id=job_id, source="queue", data={"reason": reason},
+                                  dedupe=f"run:{job_id}")
 
 
 def autosubmit_key(url: str) -> str:
@@ -134,6 +161,7 @@ class QueueRunner:
         except Exception as e:
             print(f"[queue] launch failed for job {job_id}: {type(e).__name__}: {e}", flush=True)
             q.mark(conn, job_id, "failed", "launch_error")
+            announce(conn, job_id, "failed", "launch_error")
             return
         result = None
         try:
@@ -143,6 +171,7 @@ class QueueRunner:
             pass
         state, reason, status = outcome(result, code)
         q.mark(conn, job_id, state, reason)
+        announce(conn, job_id, state, reason)
         if self.watcher and state == "parked" and reason in LEFT_FOR_REVIEW and result and result.get("url") and not result.get("submitted"):
             try:
                 self.watcher.register(conn, job_id, result["url"], result.get("run_key"), result.get("final_tab_id"),

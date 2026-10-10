@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { addToQueue, fetchInbox, fetchQueue } from "./api.js";
+import AboutMe from "./components/AboutMe.jsx";
+import Updates from "./components/Updates.jsx";
 import AnswersTab, { Tuning } from "./components/AnswersTab.jsx";
 import IngredientsPanel from "./components/IngredientsPanel.jsx";
 import Inbox from "./components/Inbox.jsx";
@@ -12,29 +14,31 @@ import ThemeToggle from "./components/ThemeToggle.jsx";
 import TrackerBoard from "./components/TrackerBoard.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
 import { AgentProvider } from "./agent/AgentProvider.tsx";
+import { fetchNotifications } from "./agent/client.ts";
 import AgentTab from "./agent/AgentTab.tsx";
 import { CursorButton, CursorOverlay } from "./agent/Cursor.tsx";
 import Popover from "./agent/Popover.tsx";
 import SetupBanner from "./agent/SetupBanner.tsx";
 
-// Agent     — the in-app pi agent: it changes your data and settings for you (the cursor asks about any element)
-// Then four places, each one a way to give the apply agent feedback:
-//   Needs you — questions/guesses the agent is waiting on (answers go into its memory)
-//   Jobs      — apply or skip (re-ranks the feed and the fit judge)
-//   Applied   — outcomes (interview / rejected) for what was sent
-//   Memory    — the answers, story and résumé the agent reuses, and its tuning
-const TABS = [["agent", "Agent"], ["inbox", "Needs you"], ["jobs", "Jobs"], ["applied", "Applied"], ["memory", "Memory"]];
-const MEMORY_PARTS = [["answers", "Answers"], ["story", "Your story"], ["resume", "Résumé"], ["tuning", "Tuning"]];
+// Agent first. You hand the agents work and they come back only for what nobody else can answer:
+//   Agent        — talk to the agents, or hand off a mission (find jobs, review my résumé, what needs me?)
+//   Inbox        — questions holding up applications, then everything that happened (sent, stopped, new matches)
+//   Jobs         — tick as many as you like, apply to all of them at once (= more like this); skip (= less)
+//   Applications — outcomes (interview / rejected) for what was sent
+//   Memory       — what the agents know about you and reuse on every form, and how they're tuned
+const TABS = [["agent", "Agent"], ["inbox", "Inbox"], ["jobs", "Jobs"], ["applied", "Applications"], ["memory", "Memory"]];
+const MEMORY_PARTS = [["about", "About you"], ["answers", "Answers"], ["story", "Your story"], ["resume", "Résumé"], ["tuning", "Tuning"]];
 
 function Memory() {
-  const [part, setPart] = useState("answers");
+  const [part, setPart] = useState("about");
   return (
     <section aria-label="Memory">
       <h1 className="view-title">Memory</h1>
-      <p className="view-sub">What the apply agent reuses on every application. Edit anything that's wrong.</p>
+      <p className="view-sub">What the agents know about you and reuse on every application. Edit anything that's wrong.</p>
       <div className="segmented" role="group" aria-label="Memory section">
         {MEMORY_PARTS.map(([k, l]) => <button key={k} aria-pressed={part === k} onClick={() => setPart(k)}>{l}</button>)}
       </div>
+      {part === "about" && <AboutMe />}
       {part === "answers" && <AnswersTab />}
       {part === "story" && (
         <>
@@ -45,6 +49,17 @@ function Memory() {
       )}
       {part === "resume" && <ResumeLibrary />}
       {part === "tuning" && <Tuning />}
+    </section>
+  );
+}
+
+function InboxPage({ onNeeds, onUnread, onGoJobs, onOpenJob, onShowJobs, onChange }) {
+  return (
+    <section aria-label="Inbox" className="inbox-page">
+      <h1 className="view-title">Inbox</h1>
+      <p className="view-sub">Only what the agents can't do without you, then everything they did.</p>
+      <Inbox embedded onCount={onNeeds} onGoJobs={onGoJobs} />
+      <Updates onOpenJob={onOpenJob} onShowJobs={onShowJobs} onUnread={onUnread} onChange={onChange} />
     </section>
   );
 }
@@ -64,7 +79,9 @@ function Jobs(props) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState("inbox");
+  const [tab, setTab] = useState("agent");
+  const [unread, setUnread] = useState(0);
+  const [focusJobs, setFocusJobs] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [queue, setQueue] = useState({ items: [] });
   const [needs, setNeeds] = useState(null);
@@ -76,7 +93,12 @@ export default function App() {
   const loadNeeds = useCallback(() => fetchInbox()
     .then((b) => setNeeds((b.questions?.length || 0) + (b.guesses?.length || 0) + (b.bank?.length || 0)))
     .catch(() => {}), []);
-  useEffect(() => { loadQueue(); loadNeeds(); }, [loadQueue, loadNeeds]);
+  const loadUnread = useCallback(() => fetchNotifications().then((d) => setUnread(d?.unread || 0)).catch(() => {}), []);
+  useEffect(() => { loadQueue(); loadNeeds(); loadUnread(); }, [loadQueue, loadNeeds, loadUnread]);
+  useEffect(() => {                    // the Inbox badge stays current on every tab
+    const t = setInterval(() => { loadNeeds(); loadUnread(); }, 30_000);
+    return () => clearInterval(t);
+  }, [loadNeeds, loadUnread]);
   useEffect(() => {                    // follow the runner job by job while it works
     if (!queue.running) return undefined;
     const t = setInterval(() => { loadQueue(); loadNeeds(); bump(); }, 3000);
@@ -105,7 +127,9 @@ export default function App() {
           {TABS.map(([k, label]) => (
             <button key={k} className="tab" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
               {label}
-              {k === "inbox" && needs > 0 && <span className="count" aria-label={`${needs} waiting`}>{needs}</span>}
+              {k === "inbox" && (needs || 0) + unread > 0 && (
+                <span className={needs ? "count" : "count count-quiet"} aria-label={`${needs || 0} waiting, ${unread} new`}>{(needs || 0) + unread}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -122,8 +146,12 @@ export default function App() {
       <QueueStrip queue={queue} onChange={onQueueChange} onOpenJob={setSelectedId} />
       {error && <div role="alert" className="alert">{error}</div>}
       <main className={tab === "agent" ? "view view-agent" : "view"}>
-        {tab === "inbox" && <Inbox onCount={setNeeds} onGoJobs={() => setTab("jobs")} />}
-        {tab === "jobs" && <Jobs queue={queue} onApply={onApply} onOpen={setSelectedId} refreshTick={tick} />}
+        {tab === "inbox" && (
+          <InboxPage onNeeds={setNeeds} onUnread={setUnread} onGoJobs={() => setTab("jobs")} onOpenJob={setSelectedId}
+            onShowJobs={(ids) => { setFocusJobs(ids); setTab("jobs"); }} onChange={() => { loadQueue(); bump(); }} />
+        )}
+        {tab === "jobs" && <Jobs queue={queue} onApply={onApply} onOpen={setSelectedId} refreshTick={tick}
+          focusIds={focusJobs} onClearFocus={() => setFocusJobs(null)} onQueued={(snap) => setQueue(snap)} />}
         {tab === "applied" && (
           <section aria-label="Applied">
             <h1 className="view-title">Applied</h1>

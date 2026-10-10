@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import datetime, timezone
 
 from job_dashboard import paths, worker_jobs
 from job_dashboard.apply import queue_control
@@ -74,11 +75,42 @@ def background_jobs(db) -> dict:
         except RefreshBusy:
             pass
 
+    def refresh_and_announce(on_stage):
+        since = datetime.now(timezone.utc).isoformat()
+        result = default_pipeline_runner(db, on_stage, model)
+        announce_refresh(db, since, result)
+        return result
+
     return {
-        "refresh": (lambda: refresh.start(lambda on_stage: default_pipeline_runner(db, on_stage, model)),
+        "refresh": (lambda: refresh.start(refresh_and_announce),
                     refresh.snapshot),
         "hiring": (start_hiring, hiring.status),
     }
+
+
+STRONG = 0.7                                         # embed score (0-1) that counts as a strong match
+
+
+def announce_refresh(db, since: str, result: dict) -> None:
+    """Tell the Inbox what a Refresh found: how many new jobs, how many of them fit well."""
+    from job_dashboard import notifications
+    new = (result or {}).get("ingest", {}).get("new_jobs", 0)
+    conn = init_db(db)
+    try:
+        strong = conn.execute(
+            "SELECT j.id FROM jobs j JOIN match_scores m ON m.job_id = j.id WHERE j.fetched_at >= ? "
+            "AND j.duplicate_of IS NULL AND COALESCE(m.llm_score / 100.0, m.embed_score) >= ? "
+            "ORDER BY COALESCE(m.llm_score / 100.0, m.embed_score) DESC LIMIT 100", (since, STRONG)).fetchall()
+        ids = [r[0] for r in strong]
+        if ids:
+            notifications.safe_notify(conn, "matches", f"{len(ids)} strong new match{'es' if len(ids) != 1 else ''}",
+                                      f"Refresh found {new} new jobs; these fit you best.", level="action",
+                                      data={"job_ids": ids}, source="refresh", dedupe="refresh")
+        elif new:
+            notifications.safe_notify(conn, "matches", f"{new} new jobs, none a strong fit", level="info",
+                                      source="refresh", dedupe="refresh")
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

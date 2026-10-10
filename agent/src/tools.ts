@@ -9,12 +9,14 @@ import { SECRET_KEYS, WIDGET_TOOLS, type ChangeSummary } from "@jobdash/agent-pr
 import type { Context } from "@earendil-works/chord";
 import type { ApiClient, ApiResult } from "./api.ts";
 import { keyOf } from "./sessions.ts";
+import type { Team } from "./team.ts";
+import { teamTools } from "./tools-team.ts";
 
 const MAX_RESULT = 12_000;
 
 const clip = (text: string) => (text.length > MAX_RESULT ? text.slice(0, MAX_RESULT) + "\n…[cut]" : text);
 
-function asResult(r: ApiResult, shape?: (data: any) => unknown): ToolExecutionResult {
+export function asResult(r: ApiResult, shape?: (data: any) => unknown): ToolExecutionResult {
   const detail = (r.data as { detail?: unknown } | null)?.detail ?? r.data;
   const payload = r.ok ? (shape ? shape(r.data) : r.data) : { error: r.status, detail };
   const changes: ChangeSummary[] = r.changes;
@@ -39,10 +41,10 @@ type Caller = (method: string, path: string, body?: unknown) => Promise<ApiResul
 type CallApi = Pick<ToolExecutionApi, "conversationId" | "callId" | "snapshot">;
 
 /** Bind the client to the calling session (its UUID key) and tool call. */
-const caller = (client: ApiClient, api: CallApi, ctx: Context): Caller =>
+export const caller = (client: ApiClient, api: CallApi, ctx: Context): Caller =>
   async (method, path, body) => client.call(method, path, { body, session: await keyOf(api, api.conversationId, ctx), message: api.callId });
 
-const q = (params: Record<string, unknown>) => {
+export const q = (params: Record<string, unknown>) => {
   const s = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => [k, String(v)]));
   return s.size ? `?${s}` : "";
 };
@@ -50,8 +52,9 @@ const q = (params: Record<string, unknown>) => {
 const JOB_FIELDS = ["id", "title", "company", "location", "status", "verdict", "llm_score", "embed_score", "source", "job_url", "apply_type"];
 const pick = (o: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]]));
 
-export function makeTools(client: ApiClient) {
+export function makeTools(client: ApiClient, team: Team = {}) {
   return [
+    ...teamTools(client, team),
     // ── Profile and identity ──────────────────────────────────────────────────────────────────────────────
     defineTool({
       name: "get_profile",
@@ -354,7 +357,8 @@ export function makeTools(client: ApiClient) {
     // ── Consequential actions, Undo, history ──────────────────────────────────────────────────────────────
     defineTool({
       name: WIDGET_TOOLS.confirm,
-      description: "Ask the user to confirm a consequential action: queueing or applying to a job, starting the queue, Refresh, "
+      description: "Ask the user to confirm a consequential action: queueing or applying to jobs (one: POST /api/queue "
+        + "{job_id, start}; many: POST /api/queue/batch {job_ids: [...], start: true}), starting the queue, Refresh, "
         + "a mail scan, auto-submit switches, queue settings, or any delete. Give the exact API request and a one-line summary. "
         + "A Confirm / Cancel box appears; the action runs only if THEY press Confirm. You can't confirm. Ends your turn.",
       parameters: Type.Object({

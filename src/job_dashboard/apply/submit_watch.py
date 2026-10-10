@@ -13,7 +13,7 @@ import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-from job_dashboard import autonomy
+from job_dashboard import autonomy, notifications
 from job_dashboard.db import init_db, set_job_status
 
 POLL_S = 30
@@ -73,6 +73,9 @@ class SubmitWatcher:
             set_job_status(conn, job_id, "applied")
             conn.execute("DELETE FROM submission_watch WHERE job_id=?", (job_id,))
             conn.commit()
+            notifications.safe_notify(conn, "submitted", f"Applied: {title or 'job'} at {company or '?'}",
+                                      "Seen going out from the form the agent left open.", level="success",
+                                      job_id=job_id, source="watch", dedupe=f"run:{job_id}")
             print(f"[watch] job {job_id} submitted ({proof}); approvals {out}", flush=True)
             done.append(job_id)
         return done

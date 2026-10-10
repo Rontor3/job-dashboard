@@ -13,6 +13,7 @@ import { createAgentApp } from "../src/app.ts";
 import { REPO_ROOT } from "../src/env.ts";
 import type { ModelSource } from "../src/model.ts";
 import { sections } from "../src/prompt.ts";
+import { makeConsult, type Team } from "../src/team.ts";
 import { makeTools } from "../src/tools.ts";
 
 export const ctx = BACKGROUND_CONTEXT;
@@ -91,13 +92,16 @@ export function fauxModels() {
 
 export async function openAgent(api: Api, dbFile: string, source: ModelSource, extra: Extension[] = []) {
   const registry = createRegistry();
+  const team: Team = {};
   registry.install(defineExtension({
     name: "jobdash",
-    sections: sections(() => join(REPO_ROOT, "docs", "agent", "system.md"), () => join(api.dir, "agent", "user.md")),
-    tools: makeTools(api.client),
+    sections: sections(() => join(REPO_ROOT, "docs", "agent", "system.md"), () => join(api.dir, "agent", "user.md"),
+      () => join(api.dir, "agent", "about-me.md")),
+    tools: makeTools(api.client, team),
   }));
   for (const e of extra) registry.install(e);
   const harness = await Harness.open(await openNodeSqliteStorage(dbFile), { models: source.models, registry }, ctx);
+  team.consult = makeConsult(harness, api.client, source, ctx, 20_000);
   const app = createAgentApp({ harness, client: api.client, live: source, ctx, heartbeatMs: 50 });
   return { harness, app };
 }

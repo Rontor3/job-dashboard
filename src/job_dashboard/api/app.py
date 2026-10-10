@@ -23,6 +23,7 @@ from job_dashboard.api.feedback_routes import build_feedback_router
 from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
 from job_dashboard.api.qa_routes import build_qa_router
+from job_dashboard.api.notification_routes import build_notification_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
@@ -116,6 +117,7 @@ def create_app(
     app.state.mail_scanner = mail_scanner or MailScanner(db_path)
     app.include_router(build_mail_router(db_path, app.state.mail_scanner))
     app.include_router(build_qa_router(db_path, qa_embed))
+    app.include_router(build_notification_router(db_path))
     app.include_router(build_feedback_router(db_path, qa_embed))
 
     @contextmanager
@@ -131,7 +133,8 @@ def create_app(
                   source: str = None, industry: str = None, company_type: str = None,
                   status: str = None, verdict: str = None, min_score: float = None,
                   include_dismissed: bool = False, sort: str = "embed",
-                  limit: int = 50, offset: int = 0, india: bool = False):
+                  limit: int = 50, offset: int = 0, india: bool = False, ids: str = None):
+        id_list = [int(x) for x in (ids or "").split(",") if x.strip().isdigit()][:200] or None
         learned = sort == "learned"           # base fit + what Skip/Apply clicks taught (match/preferences.py)
         with db() as conn:
             jobs, total = query_jobs(
@@ -139,7 +142,7 @@ def create_app(
                 industry=industry, company_type=company_type,
                 status=status, verdict=verdict, min_score=min_score,
                 include_dismissed=include_dismissed, sort="embed" if learned else sort,
-                limit=5000 if learned else limit, offset=0 if learned else offset, india=india,
+                limit=5000 if learned else limit, offset=0 if learned else offset, india=india, ids=id_list,
             )
             if learned:
                 preferences.ensure(conn)

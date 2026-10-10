@@ -49,3 +49,24 @@ test("a learned preference can be forgotten", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Forget llm" }));
   await waitFor(() => expect(calls.some(([u, m]) => u.includes("/api/preferences/title%3Allm") && m === "DELETE")).toBe(true));
 });
+
+test("tick jobs (or every strong fit) and apply to all of them in one go", async () => {
+  const queued = vi.fn();
+  render(<JobsView onApply={() => {}} onOpen={() => {}} onQueued={queued} />);
+  await screen.findByText("LLM Engineer");
+  fireEvent.click(screen.getByRole("button", { name: "Select strong fits (1)" }));
+  expect(screen.getByLabelText("Select LLM Engineer at Sarvam")).toBeChecked();
+  fireEvent.click(screen.getByLabelText("Select Data Scientist at PhonePe"));
+  fireEvent.click(screen.getByRole("button", { name: "Apply to 2" }));
+  await waitFor(() => expect(calls.some(([u, m, b]) => u.includes("/api/queue/batch") && m === "POST"
+    && b.start === true && b.job_ids.join() === "1,2")).toBe(true));
+});
+
+test("jobs sent over from the Inbox arrive pre-selected, and only those are listed", async () => {
+  render(<JobsView onApply={() => {}} onOpen={() => {}} focusIds={[2]} onClearFocus={() => {}} />);
+  await screen.findByText("Data Scientist");
+  expect(calls.some(([u]) => u.includes("ids=2"))).toBe(true);
+  expect(screen.getByText("Showing 1 job from the Inbox")).toBeInTheDocument();
+  expect(screen.getByLabelText("Select Data Scientist at PhonePe")).toBeChecked();
+  expect(screen.getByRole("button", { name: "Apply to 1" })).toBeInTheDocument();
+});

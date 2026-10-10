@@ -2,7 +2,7 @@
 // /api/* through to FastAPI, and in production serves the built dashboard.
 //
 //   GET  /agent/sessions                     the session list and which one is active
-//   POST /agent/sessions                     start a new session (it becomes active)
+//   POST /agent/sessions                     {profile?} start a new session (it becomes active)
 //   POST /agent/sessions/:id/activate        reopen a past session
 //   GET  /agent/sessions/:id/events          SSE: a snapshot, then agent events (any number of clients)
 //   POST /agent/sessions/:id/messages        {content, requestId, context?} — exactly once per requestId
@@ -18,6 +18,7 @@ import { streamSSE } from "hono/streaming";
 import type { ApiClient } from "./api.ts";
 import type { ModelSource } from "./model.ts";
 import { installCommands } from "./commands.ts";
+import { applyProfile, findProfile } from "./team.ts";
 import { activate, conversationOf, createSession, ensureActive, nameIfNew, sessionItem, sessionsState } from "./sessions.ts";
 
 export interface AgentDeps {
@@ -86,7 +87,11 @@ export function createAgentApp(deps: AgentDeps): Hono {
   });
 
   app.post("/agent/sessions", async (c) => {
-    const id = await createSession(harness, await live.sync(client), ctx);
+    const body = await c.req.json().catch(() => ({})) as { profile?: unknown };
+    const profile = typeof body.profile === "string" && body.profile !== "default" ? findProfile(body.profile) : undefined;
+    if (typeof body.profile === "string" && body.profile !== "default" && !profile) return c.json({ detail: "no such profile" }, 404);
+    const id = await createSession(harness, await live.sync(client), ctx, profile ? { profile: profile.name } : {});
+    if (profile) await applyProfile((await conversationOf(harness, id, ctx))!, profile, ctx);
     return c.json({ id, ...(await sessionsState(harness, ctx)) });
   });
 

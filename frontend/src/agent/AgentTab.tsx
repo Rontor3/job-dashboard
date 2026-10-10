@@ -11,6 +11,7 @@ import { Editor, type EditorHandle } from "./Editor.tsx";
 import { HotkeysPanel, Panel, Picker, StatsPanel, treeItems, type PickItem } from "./Overlays.tsx";
 import { textOf, totalUsage, userTurn, type Entry } from "./state.ts";
 import { Thread, type ViewOptions } from "./Thread.tsx";
+import TeamRail, { MISSIONS } from "./TeamRail.tsx";
 import { SecretWidget } from "./Widgets.tsx";
 
 const LEVELS = ["off", "low", "medium", "high", "xhigh"];
@@ -56,7 +57,9 @@ export default function AgentTab() {
   const agent = useAgent();
   const { sessions, thread } = agent;
   const active = sessions.active;
-  const title = sessions.items.find((s) => s.id === active)?.title ?? "New session";
+  const current = sessions.items.find((s) => s.id === active);
+  const title = current?.title ?? "New session";
+  const profile = current?.profile;
   const [commands, setCommands] = useState<CommandInfo[]>(CLIENT_COMMANDS);
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [overlay, setOverlay] = useState<Overlay | null>(null);
@@ -197,7 +200,8 @@ export default function AgentTab() {
           <tr><th>Compaction</th><td>automatic near the context limit; /compact to run it now</td></tr>
           <tr><th>Tool output</th><td>{view.expandTools ? "expanded" : "collapsed"} <span className="pi-dim">(Ctrl+O)</span></td></tr>
           <tr><th>Thinking blocks</th><td>{view.showThinking ? "shown" : "hidden"} <span className="pi-dim">(Ctrl+T)</span></td></tr>
-          <tr><th>Instructions</th><td>docs/agent/system.md + data/agent/user.md <span className="pi-dim">(/reload after editing)</span></td></tr>
+          <tr><th>Instructions</th><td>docs/agent/system.md + data/agent/user.md + data/agent/about-me.md <span className="pi-dim">(/reload after editing)</span></td></tr>
+          <tr><th>Profiles</th><td>docs/agent/profiles/&lt;name&gt;.md, yours in data/agent/profiles/ <span className="pi-dim">(/profile)</span></td></tr>
           <tr><th>Prompt templates</th><td>data/agent/prompts/&lt;name&gt;.md → /&lt;name&gt; <span className="pi-dim">($1…$9, $@)</span></td></tr>
         </tbody></table>
       </Panel>
@@ -208,11 +212,18 @@ export default function AgentTab() {
     );
   }
 
+  const empty = thread.entries.length === 0 && !thread.partial && !thread.running;
+
   return (
+    <div className="agent-home">
+    <TeamRail />
     <section aria-label="Agent" className="pi-tab">
       <div className="pi-scroll">
         <div className="pi-header">
-          <div><strong>jobdash agent</strong> <span className="pi-dim">· pi-durable · /hotkeys for keys, / for commands</span></div>
+          <div>
+            <strong>{profile ? `${profile[0]!.toUpperCase()}${profile.slice(1)}` : "jobdash agent"}</strong>
+            {" "}<span className="pi-dim">· pi-durable · /profile to switch, / for commands, /hotkeys for keys</span>
+          </div>
           {stats && (
             <div className="pi-dim">
               [Context] {stats.prompt.filter((p) => p.loaded).map((p) => p.file.replace(/^.*\/(docs|data)\//, "$1/")).join(", ")}
@@ -221,6 +232,19 @@ export default function AgentTab() {
             </div>
           )}
         </div>
+        {empty && (
+          <div className="agent-start">
+            <h2>What should the agents do?</h2>
+            <p>Type anything below, or hand off one of these. You'll only be asked what nobody else can answer.</p>
+            <div className="agent-start-grid">
+              {MISSIONS.map((m) => (
+                <button key={m.title} className="agent-start-card" onClick={() => void agent.start(m.message, { profile: m.profile })}>
+                  <strong>{m.title}</strong><span>{m.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Thread entries={thread.entries} partial={thread.partial} running={thread.running} toolsRunning={thread.toolsRunning}
           live={thread.live} focus={agent.focusEntry} view={view}
           notes={<>
@@ -249,9 +273,10 @@ export default function AgentTab() {
         <div className="pi-footer-line pi-dim">
           <span>↑{k(u.input)} ↓{k(u.output)}{u.cacheRead ? ` R${k(u.cacheRead)}` : ""}{u.cacheWrite ? ` W${k(u.cacheWrite)}` : ""} ${u.cost.toFixed(3)}
             {ctxWindow ? `  ${((100 * ctxTokens) / ctxWindow).toFixed(1)}%/${k(ctxWindow)}` : ""}</span>
-          <span>{model} • {level === "off" ? "thinking off" : level}</span>
+          <span>{profile ? `${profile} • ` : ""}{model} • {level === "off" ? "thinking off" : level}</span>
         </div>
       </footer>
     </section>
+    </div>
   );
 }

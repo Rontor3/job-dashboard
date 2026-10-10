@@ -228,6 +228,8 @@ export const reviewAnswer = (rowId, verdict, entry_id = null) =>
 export const fetchQueue = () => fetch("/api/queue").then(json);          // {items, running, paused, job_id}
 export const addToQueue = (jobId, { front = false, start = false } = {}) =>
   fetch("/api/queue", jsonBody("POST", { job_id: jobId, front, start })).then(json);
+export const addManyToQueue = (jobIds, { start = true } = {}) =>          // {items, queued, skipped, …}
+  fetch("/api/queue/batch", jsonBody("POST", { job_ids: jobIds, start })).then(json);
 export const removeFromQueue = (jobId) => fetch(`/api/queue/${jobId}`, { method: "DELETE" }).then(json);
 export const moveInQueue = (jobId, before) =>
   fetch(`/api/queue/${jobId}/move`, jsonBody("POST", { before })).then(json);
@@ -255,3 +257,9 @@ export const sendJobFeedback = (id, verdict, reasons = []) =>
 export const fetchPreferences = () => fetch("/api/preferences").then(json);
 export const forgetPreference = (feature) =>
   fetch(`/api/preferences/${encodeURIComponent(feature)}`, { method: "DELETE" }).then(json);
+
+// What the agent has learned about you (data/agent/about-me.md), with Undo through the change log.
+export const fetchAboutMe = () => fetch("/api/about-me").then(json);         // {exists, text, sections, known_sections}
+export const saveAboutMe = (text) => fetch("/api/about-me", jsonBody("PUT", { text })).then(json);
+export const addAboutFact = (section, fact, replaces) =>
+  fetch("/api/about-me/facts", jsonBody("POST", { section, fact, ...(replaces ? { replaces } : {}) })).then(json);

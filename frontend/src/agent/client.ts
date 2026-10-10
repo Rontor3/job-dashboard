@@ -1,6 +1,6 @@
 // Calls from the dashboard to the agent service (/agent/*) and the human-only api routes the agent's widgets use.
 // Secret values and the résumé go from here straight to FastAPI; they never pass through the agent.
-import type { CommandInfo, ElementContext, SessionsState, SessionStats } from "@jobdash/agent-protocol";
+import type { CommandInfo, ElementContext, NotificationItem, ProfileInfo, SessionsState, SessionStats } from "@jobdash/agent-protocol";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -23,7 +23,8 @@ const post = (url: string, body?: unknown, headers: Record<string, string> = {})
   });
 
 export const fetchSessions = () => fetch("/agent/sessions").then((r) => json<SessionsState>(r));
-export const newSession = () => post("/agent/sessions").then((r) => json<SessionsState & { id: string }>(r));
+export const newSession = (profile?: string) => post("/agent/sessions", profile ? { profile } : {}).then((r) => json<SessionsState & { id: string }>(r));
+export const fetchProfiles = () => fetch("/agent/profiles").then((r) => json<{ profiles: ProfileInfo[] }>(r));
 export const activateSession = (id: string) => post(`/agent/sessions/${id}/activate`).then((r) => json<SessionsState>(r));
 export const stopSession = (id: string) => post(`/agent/sessions/${id}/stop`).then((r) => json<{ stopped: boolean }>(r));
 
@@ -112,3 +113,7 @@ export interface ChangeRow {
 
 export const fetchChanges = (beforeId?: number) =>
   fetch(`/api/changes?limit=50${beforeId ? `&before_id=${beforeId}` : ""}`).then((r) => json<{ changes: ChangeRow[] }>(r));
+
+export const fetchNotifications = () => fetch("/api/notifications").then((r) => json<{ items: NotificationItem[]; unread: number }>(r));
+export const readNotifications = (ids?: number[]) => post("/api/notifications/read", ids ? { ids } : {}).then((r) => json<{ unread: number }>(r));
+export const dismissNotification = (id: number) => post(`/api/notifications/${id}/dismiss`).then((r) => json<{ unread: number }>(r));

@@ -447,9 +447,12 @@ def _india_clause():
 
 def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=None, company_type=None, status=None,
                verdict=None, min_score=None, include_dismissed=False, sort="embed",
-               limit=50, offset=0, india=False):
+               limit=50, offset=0, india=False, ids=None):
     where = ["j.duplicate_of IS NULL"]
     params = []
+    if ids:                                         # a fixed set (the Inbox's "Show them")
+        where.append(f"j.id IN ({','.join('?' * len(ids))})")
+        params += list(ids)
     if india:
         clause, vals = _india_clause()
         where.append(clause)

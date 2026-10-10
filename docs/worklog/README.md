@@ -3,6 +3,7 @@
 One file per working session or significant change, named `YYYY-MM-DD-<topic>.md`: goal, what changed (and why),
 how it was verified, open items. Newest first.
 
+- [2026-10-10 — Agent-first overhaul: Inbox, bulk apply, memory across sessions, agent profiles and the council](2026-10-10-agent-first-overhaul.md)
 - [2026-10-10 — Agent tab as a pi session, Memory redesign, embedding model in the worker](2026-10-10-agent-pi-memory.md)
 - [2026-10-10 — In-app agent: service, change log, UI, eval (spec steps 3–5)](2026-10-10-in-app-agent.md)
 - [2026-10-10 — Platform rework: ./jobdash, worker split, config table (in-app agent step 2)](2026-10-10-platform-rework.md)

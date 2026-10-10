@@ -6,6 +6,7 @@ Nothing is written to ``~``, ``/tmp`` or the system temp dir.
     jobs.db, jobs_graph.db     SQLite: jobs, profile, question bank, run log / LangGraph checkpoints
     agent_runs/<job_id>/       per-run logs and screenshots
     answer_style/              essay ingredient bank
+    agent/                     the in-app agent: sessions.db, about-me.md (what it learned), user.md, prompts/
     resumes/                   rendered résumés and cover letters
     secrets/                   site credentials, Gmail OAuth, portal session cookies (never committed)
     state/                     portal rate-limit state
@@ -47,6 +48,7 @@ GRAPH_DB = DATA_DIR / "jobs_graph.db"
 AGENT_RUNS = DATA_DIR / "agent_runs"
 ANSWER_STYLE = DATA_DIR / "answer_style"
 INGREDIENTS = ANSWER_STYLE / "ingredients.json"
+ABOUT_ME = DATA_DIR / "agent" / "about-me.md"          # what the in-app agent has learned about the user
 RESUMES = DATA_DIR / "resumes"
 CURRENT_RESUME = DATA_DIR / "current_resume.pdf"
 SECRETS = DATA_DIR / "secrets"

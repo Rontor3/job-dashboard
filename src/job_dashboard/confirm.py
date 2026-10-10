@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 # and rate-limit changes, any delete).
 CONSEQUENTIAL = [(m, re.compile(p + r"$")) for m, p in (
     ("POST", r"/api/queue"),
+    ("POST", r"/api/queue/batch"),
     ("POST", r"/api/queue/start"),
     ("POST", r"/api/refresh"),
     ("POST", r"/api/mail-scan"),

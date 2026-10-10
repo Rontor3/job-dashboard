@@ -108,6 +108,17 @@ def _candidates(conn) -> list[dict]:
 
 def _move(conn, job: dict, result: dict) -> str:
     """Apply a classified mail to the job's tracker status; returns the status after."""
+    after = _move_status(conn, job, result)
+    if after != job["status"]:
+        from job_dashboard import notifications
+        title = {"rejected": "Rejected", "offer": "Offer", "interviewing": "Interview"}.get(after, after)
+        notifications.safe_notify(conn, "tracker", f"{title}: {job['title']} at {job['company']}", result.get("summary"),
+                                  level="success" if after != "rejected" else "info", job_id=job["id"],
+                                  source="mail", dedupe=f"mail:{job['id']}:{after}")
+    return after
+
+
+def _move_status(conn, job: dict, result: dict) -> str:
     cat, cur = result["category"], job["status"]
     if cur in _FINAL:
         return cur
