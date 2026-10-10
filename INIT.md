@@ -20,14 +20,14 @@ one is present.
   If an `LLM_*`, `TELEGRAM_*` or other app variable is set in the shell but not in `.env`, say so and ask before
   relying on it, because the shell takes precedence over `.env`.
 - **Every write stays in this directory**: `data/` (or `$JOB_DASHBOARD_DATA_DIR`, which should point inside the
-  repo), `.venv/`, `.playwright-browsers/`, `frontend/node_modules`. Nothing goes in `~`, `/tmp` or system caches.
+  repo), `.venv/`, `.playwright-browsers/`, `.mise/` (the toolchain), `.pnpm-store/`, `node_modules/`. Nothing goes
+  in `~`, `/tmp` or system caches. `./jobdash` points mise at `.mise/`, and `mise.toml` points the uv and npm caches
+  at `data/cache/`.
 - **Known gaps; tell the user about them, don't hide them:**
   - **Ollama** keeps model weights in `~/.ollama/models` and is installed system-wide (`brew install --cask`). To keep
     weights in the repo, run the server as `OLLAMA_MODELS=$PWD/data/cache/ollama ollama serve` instead of the
-    macOS app. Note that `apply/local_model.py` currently starts and stops the *app*. A hosted model (group B)
-    avoids Ollama entirely.
-  - **uv and npm caches** (`~/.cache/uv`, `~/.npm`) are written during setup. Point them inside the repo with
-    `UV_CACHE_DIR=$PWD/data/cache/uv` and `npm_config_cache=$PWD/data/cache/npm` when running `scripts/setup.sh`.
+    macOS app. The app never starts or stops Ollama itself; `process-compose.yaml` has an `ollama` process that is
+    off by default. A hosted model (group B) avoids Ollama entirely.
   - **Claude assist** calls the user's own `claude` CLI login and writes its transcripts under `~/.claude`. It is
     **off** unless the user sets `CAREER_AGENT_CLAUDE_ASSIST=1` in `.env` (group H).
 
@@ -63,10 +63,11 @@ experience better.
 
 ### Group A: Toolchain (check it, don't ask)
 
-Check `uv --version`, `node --version` (18 or newer), that `.venv/` exists, that `frontend/dist/index.html` exists,
-and that `.playwright-browsers/` exists. If anything is missing, offer to run `./scripts/setup.sh`. Warn first that
-it downloads the default model (about 9 GB) unless group B picks a hosted model, in which case run the steps from
-that script by hand and skip the `ollama pull`. Never run a bare `playwright install`.
+Check that `.mise/bin/mise`, `.venv/`, `frontend/dist/index.html` and `.playwright-browsers/` exist. If anything is
+missing, offer to run `./jobdash setup`: it downloads mise into `.mise/` (from mise.run), then the pinned Node, pnpm,
+uv and process-compose (`mise.toml`), the Python deps, the project-local Chromium and the frontend, and builds the UI.
+It does not install Ollama or pull a model; if group B picks local Ollama, do that by hand. Never run a bare
+`playwright install`.
 
 ### Group B: Language model (the most important choice)
 
@@ -84,7 +85,14 @@ What does **not** use the LLM, so the user knows exactly what changing it affect
 | Question-bank matching | Local ONNX `all-MiniLM-L6-v2` via Chroma | Code constant only |
 | Unsticking the apply agent | Headless `claude -p` CLI (see group H) | On/off |
 
-**Default:** local Ollama at `http://localhost:11434/v1` running `qwen3:14b`. It's private, since nothing leaves the
+**Where the choice goes:** `LLM_API_KEY` goes in `.env` (a secret). The rest (`LLM_BASE_URL`, `LLM_MODEL`,
+`LLM_NO_TEMPERATURE`, …) is copied from `.env` into the `config` table on the first start and read from there after
+that, so a later `.env` edit has no effect. Once the app has started, set them with
+`curl -X PUT localhost:8000/api/config/LLM_MODEL -H 'content-type: application/json' -d '{"value": "<tag>"}'`;
+they apply without a restart.
+
+**Default:** local Ollama at `http://localhost:11434/v1` running `qwen3:14b`. Nothing starts Ollama for you: enable
+the `ollama` process in `process-compose.yaml` (or run `ollama serve` yourself). It's private, since nothing leaves the
 machine, and costs nothing, but it needs about 16 GB of RAM and is slower than a hosted model. Essay quality varies.
 
 Check the machine before recommending anything: `sysctl -n hw.memsize` on macOS, `free -g` on Linux. Then offer:
@@ -93,8 +101,7 @@ Check the machine before recommending anything: `sysctl -n hw.memsize` on macOS,
 2. **A smaller local model** (recommended if RAM is under 16 GB). Set `LLM_MODEL` and `OLLAMA_MODEL` to the tag and
    `ollama pull` it. Warn that ranking and essays get noticeably worse.
 3. **Hosted OpenAI**: `LLM_BASE_URL=https://api.openai.com/v1`, `LLM_API_KEY`, `LLM_MODEL=gpt-5-mini`. Reasoning
-   models also need `LLM_NO_TEMPERATURE=1`. This is the best quality for essays and ranking, and the queue no longer
-   starts or stops Ollama.
+   models also need `LLM_NO_TEMPERATURE=1`. This is the best quality for essays and ranking, and Ollama isn't needed.
 4. **A custom endpoint** (OpenRouter, vLLM, LM Studio, a company gateway): set the same three variables. The endpoint
    **must implement `/responses`**; plain `/chat/completions` won't work.
 
@@ -245,16 +252,18 @@ Preflight, then report in three lines or fewer, for example:
 1. If the LLM is local Ollama, check it's up (`curl -fs -m 2 localhost:11434/api/version`). If it isn't, ask before
    starting it.
 2. Re-check the presence flags from the state file and report drift.
-3. Start the server **and the agent window** with one command:
+3. Start the app with one command:
 
    ```bash
-   PYTHONPATH=src uv run python -m job_dashboard.start
+   ./jobdash start
    ```
 
-   This serves the dashboard on port 8000, then opens it as a tab in the agent's own Chrome (port 9333, profile
-   `data/browser/profile`). If that Chrome is already running, it focuses the existing dashboard tab instead of
-   opening another. In the Claude desktop app, `preview_start` with name `dashboard` runs the same launcher.
-   `--no-browser` serves without opening anything; `--port N` changes the port.
+   process-compose (`process-compose.yaml`) starts `api` (the dashboard on port 8000), then, once it answers,
+   `worker` (apply queue, submit watcher, daily mail scan) and `browser`, which opens the dashboard as a tab in the
+   agent's own Chrome (port 9333, profile `data/browser/profile`). If that Chrome is already running, it focuses the
+   existing dashboard tab instead. `./jobdash dev` serves the UI from Vite with hot reload on the same port;
+   `./jobdash stop` stops everything. In the Claude desktop app, `preview_start` with name `dashboard` runs
+   `./jobdash start`.
 
 **One window.** That Chrome window is the entire app. The dashboard is one tab. Every agent run (filling a form,
 reading a LinkedIn post, scraping a logged-in board) opens as **another tab in the same window**, and an apply run

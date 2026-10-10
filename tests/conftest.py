@@ -49,16 +49,13 @@ def fake_embed():
 
 @pytest.fixture(autouse=True)
 def _fast_isolated_defaults(monkeypatch):
-    """Tests never load the real MiniLM model (~1s per call), never start/kill the developer's Ollama, never launch Chrome."""
+    """Tests never load the real MiniLM model (~1s per call), never launch Chrome."""
     from career_agent.memory import qbank
     from job_dashboard import agent_browser
-    from job_dashboard.apply import local_model
     monkeypatch.setattr(qbank, "default_embed", _bow_embed)
     monkeypatch.setattr(agent_browser, "_executable", lambda: None)      # never launch a real Chrome
     monkeypatch.setattr(agent_browser, "reachable", lambda *a, **k: False)   # ...or touch a running one
     monkeypatch.setattr(agent_browser, "ensure_window", lambda url: None)
-    monkeypatch.setattr(local_model, "ensure_running", lambda *a, **k: False)
-    monkeypatch.setattr(local_model, "stop", lambda *a, **k: None)
 
 
 QBANK_ENTRIES = [

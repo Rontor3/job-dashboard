@@ -53,7 +53,7 @@ def test_launch_then_status_running_then_done(tmp_path, monkeypatch):
     c, jid = _client(tmp_path)
     fake = {}
 
-    def fake_popen(cmd, cwd=None, env=None, stdout=None, stderr=None):
+    def fake_popen(cmd, cwd=None, env=None, stdout=None, stderr=None, pass_fds=()):
         p = FakePopen()
         fake["proc"] = p
         fake["cmd"] = cmd

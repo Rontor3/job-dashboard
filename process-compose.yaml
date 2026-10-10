@@ -1,0 +1,34 @@
+# ./jobdash start: the app's processes, started in order once each one's dependency is healthy.
+version: "0.5"
+log_location: data/logs/processes.log
+environment:
+  - PYTHONPATH=src
+  - PYTHONUNBUFFERED=1
+
+processes:
+  api:
+    description: FastAPI — data and actions only; serves the built UI on :8000
+    command: uv run python -m uvicorn job_dashboard.api.serve:app --host 127.0.0.1 --port 8000
+    readiness_probe:
+      http_get: {host: 127.0.0.1, port: 8000, path: /api/health}
+      period_seconds: 1
+      failure_threshold: 120
+    availability: {restart: on_failure}
+
+  worker:
+    description: apply queue, submit watcher, daily mail scan
+    command: uv run python -m job_dashboard.worker
+    depends_on: {api: {condition: process_healthy}}
+    availability: {restart: on_failure}
+
+  browser:
+    description: the agent Chrome with the dashboard tab — not restarted when you close it
+    command: uv run python -m job_dashboard.agent_browser --open http://localhost:8000
+    depends_on: {api: {condition: process_healthy}}
+    availability: {restart: "no"}
+
+  ollama:
+    description: optional local LLM — start it from the process list if LLM_BASE_URL points at :11434
+    command: ollama serve
+    disabled: true
+    availability: {restart: on_failure}

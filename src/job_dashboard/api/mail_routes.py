@@ -11,7 +11,8 @@ from job_dashboard.db import init_db
 
 
 class MailScanner:
-    """Runs a scan on a background thread; one at a time."""
+    """Runs a scan on a background thread; one at a time across processes (the api's "Scan now" and the worker's
+    daily scan each have a scanner), through a lock file. The last result is kept in jobs.db for both to read."""
 
     def __init__(self, db_path, mailbox_factory=None, llm=None):
         self.db_path = str(db_path)
@@ -30,14 +31,48 @@ class MailScanner:
         except Exception:
             return None                      # keyword rules still classify
 
+    @staticmethod
+    def _lock_fd(blocking: bool = False) -> int | None:
+        """An fd holding the scan lock, or None when another scan holds it."""
+        import fcntl
+        import os
+        from job_dashboard import paths
+        paths.STATE.mkdir(parents=True, exist_ok=True)
+        fd = os.open(paths.STATE / "mail_scan.lock", os.O_CREAT | os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            return fd
+        except BlockingIOError:
+            os.close(fd)
+            return None
+
     def _run(self) -> None:
+        import json
+        import os
+        fd = self._lock_fd()
+        if fd is None:
+            return                            # the other process is scanning
         conn = init_db(self.db_path)
         try:
-            self.last_result = mail_scan.run_scan(conn, self.mailbox_factory(), self._llm())
-        except Exception as e:                # run_scan never raises; this guards the factory
-            self.last_result = {"scanned": 0, "matched": 0, "changes": [], "error": type(e).__name__}
+            try:
+                result = mail_scan.run_scan(conn, self.mailbox_factory(), self._llm())
+            except Exception as e:            # run_scan never raises; this guards the factory
+                result = {"scanned": 0, "matched": 0, "changes": [], "error": type(e).__name__}
+            self.last_result = result
+            qa_store.set_setting(conn, "mail_last_result", json.dumps(result))
         finally:
             conn.close()
+            os.close(fd)
+
+    def result(self) -> dict | None:
+        """The last scan's result, whichever process ran it."""
+        import json
+        conn = init_db(self.db_path)
+        try:
+            raw = qa_store.get_setting(conn, "mail_last_result")
+        finally:
+            conn.close()
+        return json.loads(raw) if raw else self.last_result
 
     def start(self) -> bool:
         with self._lock:
@@ -49,7 +84,14 @@ class MailScanner:
 
     @property
     def running(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        if self._thread is not None and self._thread.is_alive():
+            return True
+        fd = self._lock_fd()
+        if fd is None:
+            return True                       # a scan in the other process
+        import os
+        os.close(fd)
+        return False
 
     def run_if_due(self) -> bool:
         conn = init_db(self.db_path)
@@ -93,7 +135,7 @@ def build_mail_router(db_path, scanner: MailScanner) -> APIRouter:
             last = int(qa_store.get_setting(conn, "mail_last_scan"))
         finally:
             conn.close()
-        result = scanner.last_result
+        result = scanner.result()
         return {"running": scanner.running, "last_scan": last, "last_result": result,
                 "connected": not (result and result.get("error") == "gmail_not_connected")}
 

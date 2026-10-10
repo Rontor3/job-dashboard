@@ -12,14 +12,12 @@ Tests import ``api.app`` directly and stay key-free; only this module loads
 
 from __future__ import annotations
 
-from job_dashboard.env import load_env_file
-from job_dashboard.paths import REPO_ROOT
-
-REPO_ENV = REPO_ROOT / ".env"   # not cwd-relative: the server may start anywhere
+from job_dashboard.env import load_app_env
 
 # Load .env BEFORE importing the app so the key is in os.environ for every
-# request handler (company_research reads it lazily at call time).
-load_env_file(REPO_ENV)
+# request handler (company_research reads it lazily at call time); non-secret
+# settings move into the config table, once.
+load_app_env()
 
 
 from job_dashboard.api.app import create_app  # noqa: E402
@@ -56,11 +54,5 @@ def _judge(post):
 # Hiring posts: Ollama extracts the role title and scores it against the current
 # résumé; off-family titles and fits below MIN_FIT are dropped.
 app = create_app(hiring_fetcher=_fetcher, embed_model=_model, hiring_role_fn=_judge)
-
-# Daily Gmail scan of the companies we applied to (moves jobs to Interview round /
-# Selected / Rejected). Off in tests: they import api.app directly, never serve.
-import threading  # noqa: E402
-
-threading.Thread(target=app.state.mail_scanner.loop, name="mail-scan-daily", daemon=True).start()
 
 __all__ = ["app"]

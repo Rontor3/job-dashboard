@@ -81,3 +81,26 @@ def test_daily_runner_scans_only_when_due(tmp_path):
 def test_mail_for_a_job_with_none_is_an_empty_list(tmp_path):
     c, *_ = _client(tmp_path)
     assert c.get("/api/jobs/1/mail").json() == {"mail": []}
+
+
+def test_one_scan_at_a_time_across_processes_and_status_sees_the_other_ones(tmp_path):
+    import threading
+    path = str(tmp_path / "t.db")
+    init_db(path).close()
+    go, inside = threading.Event(), threading.Event()
+
+    def slow_box():
+        inside.set()
+        go.wait(5)
+        return Box([])
+
+    worker = MailScanner(path, mailbox_factory=slow_box, llm=lambda p: "{}")       # the worker's daily scan
+    api = MailScanner(path, mailbox_factory=lambda: Box([MSG]), llm=lambda p: "{}")
+    worker.start()
+    inside.wait(5)
+    assert api.running is True                                   # the worker's scan shows in the api
+    assert api.start() is False                                  # "Scan now" answers 409 while the worker scans
+    go.set()
+    worker._thread.join(timeout=5)
+    assert api.running is False
+    assert api.result()["scanned"] == 0                          # the worker's result, read by the api

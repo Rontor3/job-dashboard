@@ -95,8 +95,6 @@ class QueueRunner:
         # a 'running' row at drain start belongs to a run the server restart orphaned: back to the queue, not stuck
         conn.execute("UPDATE apply_queue SET state='queued', started_at=NULL WHERE state='running'")
         conn.commit()
-        from . import local_model
-        started_model = local_model.ensure_running()
         try:
             while not self._paused:
                 job_id = q.next_queued(conn)
@@ -110,8 +108,6 @@ class QueueRunner:
                     self._promote_trails()
         finally:
             conn.close()
-            if started_model:
-                local_model.stop()
 
     def argv(self, conn, url: str, job_id: int, result_path: str) -> list[str]:
         argv = [sys.executable, "-m", "career_agent.apply", "--job-id", str(job_id), "--url", url,

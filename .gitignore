@@ -38,3 +38,7 @@ src/job_dashboard/proxy_tool.py
 .playwright-browsers/
 .envrc
 .archify/architecture-repo-20261008-230603
+
+# Toolchain (mise) and pnpm store, installed inside the repo by ./jobdash setup
+.mise/
+.pnpm-store/

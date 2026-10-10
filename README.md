@@ -20,10 +20,8 @@ A **local-first job-search dashboard**. It scrapes jobs from multiple boards, ra
 
 | Tool | Why | Notes |
 |------|-----|-------|
-| **[uv](https://docs.astral.sh/uv/)** | manages ./.venv and Python 3.12 (`.python-version`) | `scripts/setup.sh` needs it |
-| **Python 3.11** | backend (FastAPI) + pipeline | 3.10+ should work; 3.11 tested |
-| **Node 18+ / npm** | frontend (React + Vite) | only to build the UI once |
-| **[Ollama](https://ollama.com)** + a model | all LLM features (bullets, rewrite, ranking, screening) | default model `qwen3:14b` (set via `OLLAMA_MODEL` in `.envrc`) |
+| **curl** | `./jobdash setup` fetches [mise](https://mise.jdx.dev) into `./.mise` | mise then installs the pinned Node, Python, uv, pnpm and process-compose (`mise.toml`) inside the repo |
+| **An LLM endpoint** | all LLM features (bullets, rewrite, ranking, screening) | any OpenAI-compatible Responses API; local [Ollama](https://ollama.com) works (`qwen3:14b`) |
 | **MacTeX / TeX Live** (`lualatex`) | render résumé PDFs | optional — everything else works without it |
 | **Google Chrome** | LinkedIn/Naukri scraping (Selenium) + the autofill extension | optional per source |
 
@@ -38,21 +36,19 @@ Everything is CPU-friendly; a 14B model wants ~16 GB RAM (or swap in a smaller O
 git clone https://github.com/Rontor3/job-dashboard.git
 cd job-dashboard
 
-# 2. one-shot setup: python deps (./.venv via uv), Playwright Chromium
-#    (project-local ./.playwright-browsers), frontend install + build,
-#    Ollama (brew cask on macOS) + the qwen3:14b model (~9 GB download)
-./scripts/setup.sh
+# 2. one-shot setup, all inside the repo: the toolchain (./.mise), python deps (./.venv via uv),
+#    Playwright Chromium (./.playwright-browsers), frontend install (pnpm) + build
+./jobdash setup
 
-# 4. local LLM — already done by setup.sh; to use another model see "Swap the model" below.
-#    Load the model choice from .envrc (OLLAMA_MODEL=qwen3:14b), or export it yourself:
-direnv allow
+# 4. LLM — set LLM_BASE_URL / LLM_MODEL in .env (copied into the config table on first start).
+#    For local Ollama: install it, `ollama pull qwen3:14b`, and enable the `ollama` process in ./jobdash start.
 
 # 5. (optional) résumé PDFs — install MacTeX (macOS) or TeX Live (Linux)
 #    macOS:  brew install --cask mactex-no-gui
 #    Linux:  sudo apt-get install texlive-luatex texlive-latex-extra
 
 # 6. run it
-PYTHONPATH=src uv run python -m job_dashboard.start
+./jobdash start          # api, worker and the agent browser under process-compose; ./jobdash dev for hot reload
 #    opens http://localhost:8000 as a tab in the agent's own Chrome window — agent runs open as tabs beside it
 #    →  click "Refresh" to pull jobs
 ```
@@ -89,7 +85,7 @@ This repo ships **placeholder** profile/résumé files. Your real details live i
 
 ## Swap the model
 
-Every model call goes through one OpenAI-compatible **Responses API** client (`src/job_dashboard/llm.py`). The default is local Ollama (`http://localhost:11434/v1`, `qwen3:14b`). To swap, set these in `.env` (see `.env.example`):
+Every model call goes through one OpenAI-compatible **Responses API** client (`src/job_dashboard/llm.py`). The default is local Ollama (`http://localhost:11434/v1`, `qwen3:14b`). Non-secret settings live in the `config` table of `data/jobs.db` and are read on every call, so a change applies without a restart (`GET`/`PUT /api/config/{KEY}`). On first start the values in `.env` are copied there; the API key stays in `.env`. To swap:
 
 ```bash
 LLM_BASE_URL=https://api.openai.com/v1
@@ -110,8 +106,7 @@ Smaller models are faster but less reliable at the résumé-writing rules; the c
 ## Tests
 
 ```bash
-PYTHONPATH=src uv run python -m pytest -q      # backend
-npm --prefix frontend run test           # frontend
+./jobdash test           # backend (pytest) + frontend (vitest)
 ```
 
 ---

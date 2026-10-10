@@ -100,3 +100,20 @@ def test_show_tab_reports_an_unreachable_browser():
     def http(method, url):
         raise OSError("refused")
     assert agent_browser.show_tab("http://localhost:8000", "http://127.0.0.1:9333", http=http) is False
+
+
+def test_browser_process_runs_chrome_in_the_foreground_on_the_dashboard(monkeypatch):
+    monkeypatch.setattr(agent_browser, "_executable", lambda: "/bin/chrome")
+    execs = []
+    agent_browser.main(["--open", "http://localhost:8000"], execv=lambda exe, argv: execs.append(argv))
+    argv = execs[0]
+    assert argv[0] == "/bin/chrome" and argv[-1] == "http://localhost:8000"
+    assert "--remote-debugging-port=9333" in argv
+
+
+def test_browser_process_only_shows_the_tab_when_chrome_is_already_up(monkeypatch):
+    monkeypatch.setattr(agent_browser, "reachable", lambda *a, **k: True)
+    shown, execs = [], []
+    monkeypatch.setattr(agent_browser, "show_tab", lambda target, url=None: shown.append(target) or True)
+    agent_browser.main(["--open", "http://localhost:8000"], execv=lambda exe, argv: execs.append(argv))
+    assert shown == ["http://localhost:8000"] and execs == []

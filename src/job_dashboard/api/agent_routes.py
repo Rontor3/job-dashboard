@@ -32,7 +32,11 @@ REPO_ROOT = paths.REPO_ROOT
 
 class AgentRunState:
     """Single-flight lock: one career_agent run at a time, since there's one
-    shared career-agent Chrome profile. Mirrors RefreshState's shape."""
+    shared career-agent Chrome profile. Mirrors RefreshState's shape.
+
+    The api (manual runs) and the worker (the queue) each hold one, so the lock is
+    also a file lock: the child inherits the locked file, which stays locked
+    exactly as long as the run lives, whichever process started it."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -41,14 +45,24 @@ class AgentRunState:
         self._log_file = None
 
     def start(self, job_id: int, cmd: list[str], cwd: str, env: dict, log_path: Path) -> bool:
+        import fcntl
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 return False
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            self._log_file = open(log_path, "wb")
-            self._proc = subprocess.Popen(
-                cmd, cwd=cwd, env=env, stdout=self._log_file, stderr=subprocess.STDOUT,
-            )
+            paths.STATE.mkdir(parents=True, exist_ok=True)
+            fd = os.open(paths.STATE / "agent_run.lock", os.O_CREAT | os.O_RDWR)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return False                     # the other process has a run going
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                self._log_file = open(log_path, "wb")
+                self._proc = subprocess.Popen(
+                    cmd, cwd=cwd, env=env, stdout=self._log_file, stderr=subprocess.STDOUT, pass_fds=(fd,),
+                )
+            finally:
+                os.close(fd)                         # the child's copy now holds the lock
             self._job_id = job_id
             return True
 
@@ -225,8 +239,6 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
             if problem:
                 raise HTTPException(status_code=503, detail=problem)
 
-        from job_dashboard.apply import local_model
-        local_model.ensure_running()                 # the drafting model; left running for this single run
         cmd = [sys.executable, "-m", "career_agent.apply",
                "--job-id", str(job_id), "--url", job_url]   # same as the queue: Claude assist is opt-in via .env
         env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
@@ -261,7 +273,11 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
     def agent_status():
         snapshot = state.poll()
         if not snapshot["running"]:
-            return snapshot
+            from job_dashboard.apply.queue_control import QueueControl
+            queue = QueueControl(db_path).status()       # a queue run, in the worker process
+            if not queue["running"] or queue["job_id"] is None:
+                return snapshot
+            snapshot = {"running": True, "job_id": queue["job_id"]}
         from career_agent.config.settings import load_settings
         cdp_url = load_settings().cdp_url
         live = ({"url": None, "title": None, "screenshot_path": None} if not cdp_url

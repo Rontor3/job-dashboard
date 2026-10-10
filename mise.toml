@@ -1,0 +1,26 @@
+# Toolchain, installed inside the repo: ./jobdash sets MISE_DATA_DIR etc. to ./.mise, so nothing lands in ~.
+[tools]
+node = "22.22.3"
+python = "3.12.15"
+uv = "0.7.12"
+pnpm = "10.34.6"
+process-compose = "1.122.0"
+
+[env]
+PLAYWRIGHT_BROWSERS_PATH = "{{config_root}}/.playwright-browsers"
+UV_CACHE_DIR = "{{config_root}}/data/cache/uv"
+UV_PYTHON_PREFERENCE = "only-system"
+npm_config_cache = "{{config_root}}/data/cache/npm"
+
+[tasks.setup]
+description = "Install Python deps, the project-local Chromium, frontend deps, and build the UI"
+run = [
+  "uv sync",
+  "uv run playwright install chromium",
+  "pnpm install",
+  "pnpm --filter job-dashboard-frontend build",
+]
+
+[tasks.test]
+description = "Python and frontend tests"
+run = ["uv run pytest -q", "pnpm --filter job-dashboard-frontend test"]

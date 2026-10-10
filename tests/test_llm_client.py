@@ -1,7 +1,6 @@
 import pytest
 
 from job_dashboard import llm
-from job_dashboard.apply import local_model
 
 
 @pytest.fixture
@@ -56,8 +55,3 @@ def test_missing_text_raises_so_callers_fall_back():
 def test_parse_json_tolerates_prose_around_the_object():
     assert llm.parse_json('Sure! {"k": [1, 2]} hope that helps') == {"k": [1, 2]}
 
-
-def test_local_model_never_starts_or_kills_ollama_for_a_remote_provider(clean_env):
-    clean_env.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
-    assert local_model._ollama_root() is None
-    assert local_model.is_up() is False

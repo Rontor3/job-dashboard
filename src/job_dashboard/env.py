@@ -18,23 +18,12 @@ import os
 from pathlib import Path
 
 
-def load_env_file(path: str | os.PathLike = ".env", *, override: bool = False) -> int:
-    """Load ``KEY=VALUE`` pairs from ``path`` into ``os.environ``.
-
-    - Blank lines and ``#`` comments are ignored.
-    - A leading ``export `` is tolerated.
-    - Surrounding single/double quotes on the value are stripped.
-    - By default an existing environment variable is NOT overwritten
-      (``override=False``), so a value already exported in the shell / CI wins.
-
-    Returns the number of variables actually set. A missing file is a no-op
-    (returns 0) -- deployment may rely purely on real environment variables.
-    """
+def read_env_file(path: str | os.PathLike = ".env") -> dict[str, str]:
+    """The ``KEY=VALUE`` pairs of ``path`` (same rules as ``load_env_file``), without touching ``os.environ``."""
     env_path = Path(path)
     if not env_path.is_file():
-        return 0
-
-    set_count = 0
+        return {}
+    out = {}
     for raw_line in env_path.read_text().splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -50,6 +39,33 @@ def load_env_file(path: str | os.PathLike = ".env", *, override: bool = False) -
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
             value = value[1:-1]
+        out[key] = value
+    return out
+
+
+def load_app_env() -> None:
+    """Process start for the api and the worker: load the repo ``.env``, then move its non-secret settings into
+    the config table (job_dashboard.config) the first time."""
+    from job_dashboard import config
+    from job_dashboard.paths import REPO_ROOT
+    load_env_file(REPO_ROOT / ".env")
+    config.migrate_from_env(REPO_ROOT / ".env")
+
+
+def load_env_file(path: str | os.PathLike = ".env", *, override: bool = False) -> int:
+    """Load ``KEY=VALUE`` pairs from ``path`` into ``os.environ``.
+
+    - Blank lines and ``#`` comments are ignored.
+    - A leading ``export `` is tolerated.
+    - Surrounding single/double quotes on the value are stripped.
+    - By default an existing environment variable is NOT overwritten
+      (``override=False``), so a value already exported in the shell / CI wins.
+
+    Returns the number of variables actually set. A missing file is a no-op
+    (returns 0) -- deployment may rely purely on real environment variables.
+    """
+    set_count = 0
+    for key, value in read_env_file(path).items():
         if override or key not in os.environ:
             os.environ[key] = value
             set_count += 1

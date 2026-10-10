@@ -2,11 +2,12 @@
 
 Every browser consumer (job sources, hiring posts, the apply agent, the submit watcher) attaches here and nowhere
 else, so the agent never touches your everyday Chrome, its tabs or its cookies. It is also the ONE window the user
-works in: ``python -m job_dashboard.start`` opens the dashboard here, and every agent run is another tab beside it. A Chrome started with its own
+works in: the ``browser`` process (``python -m job_dashboard.agent_browser``) opens the dashboard here, and every agent run is
+another tab beside it. A Chrome started with its own
 ``--user-data-dir`` runs as a separate instance next to your normal Chrome, so launching it never disturbs yours.
 
-Config: ``AGENT_CDP_PORT`` (default 9333), ``AGENT_CHROME_PATH`` (default Google Chrome, else Playwright Chromium),
-or ``CAREER_AGENT_CDP_URL`` to point at a browser you manage yourself.
+Config (job_dashboard.config): ``AGENT_CDP_PORT`` (default 9333), ``AGENT_CHROME_PATH`` (default Google Chrome, else
+Playwright Chromium), or ``CAREER_AGENT_CDP_URL`` (environment) to point at a browser you manage yourself.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
-from job_dashboard import paths
+from job_dashboard import config, paths
 
 _LOCAL_BROWSERS = paths.REPO_ROOT / ".playwright-browsers"
 if _LOCAL_BROWSERS.is_dir():
@@ -31,7 +32,7 @@ def cdp_url() -> str:
     explicit = (os.getenv("CAREER_AGENT_CDP_URL") or "").strip()
     if explicit.startswith("http"):
         return explicit
-    return f"http://127.0.0.1:{os.getenv('AGENT_CDP_PORT', '9333')}"
+    return f"http://127.0.0.1:{config.get('AGENT_CDP_PORT') or '9333'}"
 
 
 def reachable(url: str | None = None, timeout: float = 1.5) -> bool:
@@ -43,7 +44,7 @@ def reachable(url: str | None = None, timeout: float = 1.5) -> bool:
 
 
 def _executable() -> str | None:
-    explicit = os.getenv("AGENT_CHROME_PATH")
+    explicit = config.get("AGENT_CHROME_PATH")
     if explicit:
         return explicit
     if Path(_MAC_CHROME).exists():
@@ -123,3 +124,26 @@ def show_tab(target: str, url: str | None = None, http=_http) -> bool:
         return True
     except Exception:
         return False
+
+
+def main(argv=None, execv=os.execv) -> None:
+    """The ``browser`` process: the agent Chrome in the foreground, opened on the dashboard. If it is already up
+    (started by a run, or kept from before), just bring the dashboard tab forward and exit."""
+    import argparse
+    from urllib.parse import urlparse
+    ap = argparse.ArgumentParser(description=main.__doc__.splitlines()[0])
+    ap.add_argument("--open", default="http://localhost:8000", help="the dashboard URL to show")
+    args = ap.parse_args(argv)
+    url = cdp_url()
+    if reachable(url):
+        print(f"[browser] agent browser already up; dashboard tab: {show_tab(args.open, url)}", flush=True)
+        return
+    exe = _executable()
+    if not exe:
+        raise SystemExit("no Chrome/Chromium found — install Google Chrome or set AGENT_CHROME_PATH")
+    paths.BROWSER_PROFILE.mkdir(parents=True, exist_ok=True)
+    execv(exe, [exe, *launch_args(urlparse(url).port or 9333, args.open)])
+
+
+if __name__ == "__main__":
+    main()

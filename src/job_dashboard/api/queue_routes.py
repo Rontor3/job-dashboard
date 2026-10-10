@@ -1,8 +1,9 @@
 """The apply queue API: add / reorder / remove jobs, start and pause the runner,
 and the per-board standing authorization to auto-submit.
 
-The runner launches career_agent through the same AgentRunState the
-single-job /apply-agent route uses, so the two never drive Chrome at once.
+The runner itself lives in the worker process (job_dashboard.worker); these routes
+hand it start/pause through jobs.db (apply/queue_control.py). AgentRunState's lock
+file keeps a queue run and a manual /apply-agent run from driving Chrome at once.
 """
 from __future__ import annotations
 
@@ -15,7 +16,6 @@ from pydantic import BaseModel
 
 from job_dashboard import qa_store
 from job_dashboard.apply import queue as q
-from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.match import preferences
 from job_dashboard.db import init_db, set_job_status
 
@@ -48,7 +48,7 @@ class AutosubmitSet(BaseModel):
 
 
 def make_agent_launch(state, poll_s: float = 2.0):
-    """launch(job_id, argv, result_path) -> exit code, via the shared AgentRunState.
+    """launch(job_id, argv, result_path) -> exit code, via the worker's AgentRunState.
     Waits for a busy agent (e.g. a manual /apply-agent run) instead of failing."""
     from job_dashboard.api.agent_routes import REPO_ROOT, _ensure_cdp_chrome, _log_path
 
@@ -74,7 +74,8 @@ def _boards() -> list[str]:
     return sorted(k[len(AUTOSUBMIT_PREFIX):] for k in qa_store.DEFAULT_SETTINGS if k.startswith(AUTOSUBMIT_PREFIX))
 
 
-def build_queue_router(db_path, runner: QueueRunner) -> APIRouter:
+def build_queue_router(db_path, runner) -> APIRouter:
+    """``runner``: a QueueControl (the worker runs the queue) or, in tests, an in-process QueueRunner."""
     router = APIRouter()
 
     def db():

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# ./jobdash setup | start | dev | stop | test — extra args go to process-compose (e.g. -t=false: no TUI). Thin wrapper over mise + process-compose, everything kept inside the repo.
+set -euo pipefail
+cd "$(dirname "$0")"
+ROOT="$PWD"
+export MISE_DATA_DIR="$ROOT/.mise/data" MISE_CACHE_DIR="$ROOT/.mise/cache" MISE_STATE_DIR="$ROOT/.mise/state"
+export MISE_CONFIG_DIR="$ROOT/.mise/config" MISE_TRUSTED_CONFIG_PATHS="$ROOT"
+MISE="$ROOT/.mise/bin/mise"
+MISE_PIN="v2026.10.6"
+
+install_mise() {
+    [ -x "$MISE" ] && return
+    echo "Installing mise $MISE_PIN into $ROOT/.mise/bin (from https://mise.run)"
+    curl -fsSL https://mise.run | MISE_VERSION="$MISE_PIN" MISE_INSTALL_PATH="$MISE" MISE_QUIET=1 sh
+}
+
+compose() {
+    mkdir -p data/logs data/state
+    exec "$MISE" exec -- process-compose up -L data/logs/process-compose.log -U -u data/state/process-compose.sock "$@"
+}
+
+case "${1:-}" in
+    setup) install_mise; "$MISE" install; exec "$MISE" run setup ;;
+    start) shift; compose -f process-compose.yaml "$@" ;;
+    dev)   shift; compose -f process-compose.yaml -f process-compose.dev.yaml "$@" ;;
+    stop)  exec "$MISE" exec -- process-compose down -U -u data/state/process-compose.sock 2>/dev/null ;;
+    test)  exec "$MISE" run test ;;
+    *)     echo "usage: ./jobdash setup | start | dev | stop | test" >&2; exit 2 ;;
+esac

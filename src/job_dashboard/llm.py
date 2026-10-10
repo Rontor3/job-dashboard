@@ -1,9 +1,10 @@
 """The one LLM client: an OpenAI-compatible Responses API call (``POST {LLM_BASE_URL}/responses``).
 
-Every model call in both halves goes through ``complete`` / ``complete_json``, so swapping the model is env-only:
+Every model call in both halves goes through ``complete`` / ``complete_json``. Settings are read on every call from
+the ``config`` table (job_dashboard.config; the environment is the fallback), so a change applies without a restart:
 
     LLM_BASE_URL          default http://localhost:11434/v1 (local Ollama); e.g. https://api.openai.com/v1
-    LLM_API_KEY           default "ollama" (Ollama ignores it)
+    LLM_API_KEY           default "ollama" (Ollama ignores it); a secret, so .env only
     LLM_MODEL             default $OLLAMA_MODEL, else qwen3:14b
     LLM_TIMEOUT           seconds, default 180
     LLM_REASONING_EFFORT  none|low|medium|high; default "none" for local Ollama (no thinking), unset elsewhere
@@ -40,15 +41,17 @@ class LlmConfig:
 
 
 def config() -> LlmConfig:
-    base = (os.getenv("LLM_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
-    effort = os.getenv("LLM_REASONING_EFFORT")
+    from job_dashboard import config as settings
+    s = settings.snapshot()
+    base = (s["LLM_BASE_URL"] or DEFAULT_BASE_URL).rstrip("/")
+    effort = s["LLM_REASONING_EFFORT"]
     cfg = LlmConfig(
         base_url=base,
         api_key=os.getenv("LLM_API_KEY") or "ollama",
-        model=os.getenv("LLM_MODEL") or os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
-        timeout=float(os.getenv("LLM_TIMEOUT") or 180),
+        model=s["LLM_MODEL"] or os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
+        timeout=float(s["LLM_TIMEOUT"] or 180),
         reasoning_effort=effort or None,
-        send_temperature=os.getenv("LLM_NO_TEMPERATURE", "").strip().lower() not in ("1", "true", "yes"),
+        send_temperature=(s["LLM_NO_TEMPERATURE"] or "").strip().lower() not in ("1", "true", "yes"),
     )
     if effort is None and cfg.is_local_ollama:
         cfg = LlmConfig(**{**cfg.__dict__, "reasoning_effort": "none"})

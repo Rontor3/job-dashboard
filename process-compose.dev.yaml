@@ -1,0 +1,21 @@
+# ./jobdash dev: Vite serves the UI on :8000 with hot reload and passes /api through to the api on :8001.
+version: "0.5"
+processes:
+  api:
+    command: uv run python -m uvicorn job_dashboard.api.serve:app --host 127.0.0.1 --port 8001 --reload --reload-dir src
+    readiness_probe:
+      http_get: {host: 127.0.0.1, port: 8001, path: /api/health}
+
+  frontend:
+    description: Vite dev server
+    command: pnpm --filter job-dashboard-frontend dev
+    environment:
+      - API_URL=http://127.0.0.1:8001
+    readiness_probe:
+      http_get: {host: 127.0.0.1, port: 8000, path: /}
+      period_seconds: 1
+      failure_threshold: 60
+    availability: {restart: on_failure}
+
+  browser:
+    depends_on: {frontend: {condition: process_healthy}}

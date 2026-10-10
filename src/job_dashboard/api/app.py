@@ -6,11 +6,13 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from job_dashboard import config as settings
 from job_dashboard.match import preferences
 from job_dashboard.tracker import set_status
 from job_dashboard.api.agent_routes import AgentRunState, build_agent_router
 from job_dashboard.api.mail_routes import MailScanner, build_mail_router
-from job_dashboard.api.queue_routes import build_queue_router, make_agent_launch
+from job_dashboard.api.queue_routes import build_queue_router
+from job_dashboard.apply.queue_control import QueueControl
 from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.api.apply_routes import build_apply_router
 from job_dashboard.api.feedback_routes import build_feedback_router
@@ -39,6 +41,10 @@ class ApplyDetails(BaseModel):
     applied_before: bool = False
     interviewed_before: bool = False
     worked_before: bool = False
+
+
+class ConfigValue(BaseModel):
+    value: str = Field(default="", max_length=500)    # empty = back to the .env value / default
 
 
 def create_app(
@@ -92,19 +98,14 @@ def create_app(
     )
     app.include_router(build_letter_router(db_path, letter_engine))
     app.include_router(build_hiring_router(db_path, hiring_fetcher, embed_model, hiring_role_fn))
-    agent_state = AgentRunState()
-    app.include_router(build_agent_router(db_path, agent_state))
-    # Apply queue: ``queue_launch`` overrides how a queued job is run (tests
-    # inject a fake); default launches career_agent via the shared agent state.
-    app.state.submit_watcher = None
-    if queue_launch is None:                        # the real thing (not a test's fake launch): watch parked forms for a hand submit
-        from job_dashboard.apply.submit_watch import SubmitWatcher
-        app.state.submit_watcher = SubmitWatcher(str(db_path))
-        app.state.submit_watcher.start()
-    app.state.queue_runner = QueueRunner(str(db_path), queue_launch or make_agent_launch(agent_state),
-                                         watcher=app.state.submit_watcher)
+    app.include_router(build_agent_router(db_path, AgentRunState()))
+    # Apply queue: the worker process runs it (job_dashboard.worker); the api only hands it start/pause through
+    # jobs.db. A test's ``queue_launch`` runs it here instead, in-process, with that fake launch.
+    app.state.submit_watcher = None                  # the worker watches parked forms for a hand submit
+    app.state.queue_runner = (QueueRunner(str(db_path), queue_launch) if queue_launch
+                              else QueueControl(db_path))
     app.include_router(build_queue_router(db_path, app.state.queue_runner))
-    # Mail scan: ``mail_scanner`` overrides Gmail + the LLM (tests); serve.py runs its daily loop.
+    # Mail scan: ``mail_scanner`` overrides Gmail + the LLM (tests); the worker runs the daily loop.
     app.state.mail_scanner = mail_scanner or MailScanner(db_path)
     app.include_router(build_mail_router(db_path, app.state.mail_scanner))
     app.include_router(build_qa_router(db_path, qa_embed))
@@ -193,6 +194,24 @@ def create_app(
             vals = distinct_classification_values(conn)
             vals["sources"] = distinct_sources(conn)
             return vals
+
+    @app.get("/api/health")
+    def health():
+        return {"ok": True}
+
+    @app.get("/api/config")
+    def get_config():
+        return {"config": settings.listing()}
+
+    @app.put("/api/config/{key}")
+    def put_config(key: str, body: ConfigValue):
+        if key not in settings.KEYS:
+            raise HTTPException(status_code=404, detail=f"unknown setting {key!r}")
+        try:
+            settings.put(key, body.value)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"key": key, "value": settings.get(key), "restart": settings.KEYS[key].restart}
 
     state = RefreshState()
     runner = pipeline_runner or default_pipeline_runner

@@ -26,19 +26,21 @@ The dashboard produces jobs + profile; the agent consumes them to apply. This fi
 ## Run & test (Python via uv, not npm)
 
 ```bash
-# setup: ./scripts/setup.sh   (uv sync -> ./.venv, Playwright Chromium -> ./.playwright-browsers, frontend build, Ollama + qwen3:14b)
+# setup: ./jobdash setup   (mise -> ./.mise with pinned node/python/uv/pnpm/process-compose, uv sync -> ./.venv,
+#        Playwright Chromium -> ./.playwright-browsers, pnpm install + frontend build)
+# run:   ./jobdash start | dev | stop   (process-compose: api :8000, worker, browser; dev = Vite :8000 -> api :8001)
 # Playwright browsers are project-local; career_agent and tests/conftest.py point PLAYWRIGHT_BROWSERS_PATH at them automatically.
 # Never run bare `playwright install` / `npx playwright install` — that writes to ~/Library/Caches (user scope) and the wrong build.
 # career_agent — reach → fill an application (dry-run; nothing submitted by default)
 PYTHONPATH=src uv run python -m career_agent.apply --url "<job-url>"     # or --job-id <N>
 # tests
 PYTHONPATH=src uv run python -m pytest tests/career_agent               # add RUN_BROWSER_TESTS=1 for Playwright fixtures
-# dashboard — API/service lives in src/job_dashboard/ (api/app.py)
+# dashboard — API in src/job_dashboard/api/app.py; background work (queue, submit watch, mail scan) in job_dashboard/worker.py
 ```
 
 ## Tests must fail fast
 
-- Tests never wait on real services, models, sleeps or timeouts: no Ollama, no network, no real embeddings, no `time.sleep`. Fake the seam (`tests/conftest.py` already patches `qbank.default_embed` and `local_model.ensure_running/stop` for every test) or inject a fake clock/page.
+- Tests never wait on real services, models, sleeps or timeouts: no Ollama, no network, no real embeddings, no `time.sleep`. Fake the seam (`tests/conftest.py` already patches `qbank.default_embed` and the agent browser launch for every test) or inject a fake clock/page.
 - A test that needs a missing external dependency must fail or skip immediately, not poll. Per-test timeout is 30s (`pytest-timeout`, `pyproject.toml`); the full suite should stay around a minute. Check with `uv run pytest -q --durations=10` and fix anything over ~2s.
 - Never let a test start or kill the developer's Ollama.
 
