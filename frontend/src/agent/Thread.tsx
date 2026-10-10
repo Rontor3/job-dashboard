@@ -173,7 +173,11 @@ export function Thread({ entries, partial, running, toolsRunning, live = [], foc
     scroller.addEventListener("wheel", onWheel, { passive: true });
     scroller.addEventListener("touchmove", letGo, { passive: true });
     scroller.addEventListener("keydown", onKey);
+    // The editor growing shrinks this box without a scroll event; keep the last message in view if we were following.
+    const resized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => { if (stick.current) follow(); });
+    resized?.observe(scroller);
     return () => {
+      resized?.disconnect();
       scroller.removeEventListener("scroll", onScroll);
       scroller.removeEventListener("wheel", onWheel);
       scroller.removeEventListener("touchmove", letGo);

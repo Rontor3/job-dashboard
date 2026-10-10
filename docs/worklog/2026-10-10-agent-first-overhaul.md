@@ -93,7 +93,7 @@ integrated with the agent; try several system prompts / agent profiles, includin
 - `/tree` is a real tree: where the session came from, its turns, and each branch nested under the turn it forked at.
 - Inbox: a typed answer is read by the agent in the background while you move on. If it turns out to be a question
   rather than an answer, that card comes back after the one you're on, marked "!", not abruptly.
-- Agent transcript: one scroller (the nested `.agent-thread` max-height caused the white gap above the editor and the
+- Agent transcript: stays on the last message while the editor grows. One scroller (the nested `.agent-thread` max-height caused the white gap above the editor and the
   jank while streaming). Scrolling up lets go of the bottom while text streams; "↓ Latest" returns.
 - Editor: one line when empty, grows with the text up to 40% of the window. Pictures by paste, drop or ＋ (png, jpeg,
   webp, gif; up to 4, 5 MB each), validated in the agent route, sent as image blocks (`LLM_IMAGES=0` for a text-only
