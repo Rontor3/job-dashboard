@@ -139,10 +139,23 @@ export function Thread({ entries, partial, running, toolsRunning, live = [], foc
 }) {
   const end = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);                 // follow new output only while the reader is at the bottom, as pi does
   useEffect(() => {
-    const target = focus != null ? box.current?.querySelector(`[data-entry="${focus}"]`) : null;
-    (target ?? end.current)?.scrollIntoView?.({ block: target ? "center" : "end" });
-  }, [entries.length, partial, focus, live.length, notes]);
+    const scroller = (box.current?.closest(".pi-scroll") as HTMLElement | null) ?? box.current;
+    if (!scroller) return undefined;
+    const onScroll = () => { stick.current = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80; };
+    scroller.addEventListener("scroll", onScroll);
+    return () => scroller.removeEventListener("scroll", onScroll);
+  }, []);
+  useEffect(() => {
+    if (focus != null) {
+      box.current?.querySelector(`[data-entry="${focus}"]`)?.scrollIntoView?.({ block: "center" });
+      stick.current = false;
+    }
+  }, [focus]);
+  useEffect(() => {
+    if (stick.current) end.current?.scrollIntoView?.({ block: "end" });
+  });
   const results = new Map<string, Message>();
   for (const e of entries) {
     const m = e.model?.[0];

@@ -106,3 +106,11 @@ User feedback after trying the in-app agent:
   - After the credential step, `apply.py` now parks such a run as `email_code`.
   - The tracker says "enter the code the site emailed you" and how to finish.
   - Now that the user is logged in to Himalayas, re-queueing #450 should get past the wall. That's theirs to start.
+- **Review fixes:**
+  - The transcript follows new output only while you're at the bottom; Ctrl+O and Ctrl+T used to jump to the end.
+  - `/withdraw` only takes back a submission that belongs to that session.
+- **`test_screening`** read the user's real `data/answer_style/ingredients.json`, so it failed wherever that file is
+  missing. It now uses fixture data.
+  - Full pytest: 1528 passed, 96 skipped.
+  - The same missing file means essays aren't grounded in project units ("memory router unavailable" in the apply
+    log). Filling Your story → Ingredients, or asking the agent to draft them from the résumé, fixes that.

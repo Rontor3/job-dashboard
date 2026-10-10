@@ -110,8 +110,9 @@ export function installCommands(app: Hono, deps: CommandDeps): void {
 
   app.post("/agent/sessions/:id/withdraw", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { submission?: unknown };
-    const sub = typeof body.submission === "number" ? await harness.submission(body.submission as never, ctx) : undefined;
-    if (!sub) return c.json({ detail: "no such submission" }, 404);
+    const conv = await conversationOf(harness, c.req.param("id"), ctx);
+    const sub = conv && typeof body.submission === "number" ? await harness.submission(body.submission as never, ctx) : undefined;
+    if (!sub || Number((await sub.status(ctx)).conversationId) !== Number(conv!.id)) return c.json({ detail: "no such submission" }, 404);
     return c.json({ result: await sub.abort(ctx) });
   });
 
