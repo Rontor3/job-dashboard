@@ -44,3 +44,23 @@ integrated with the agent; try several system prompts / agent profiles, includin
   question beside the card; going back shows the saved answer and lets you change it; keys 1–9, ← →, Enter, Esc.
 - Verified: frontend 157 tests (new: auto-advance + back, keyboard, jump list), feedback/QA pytest, screenshots
   in both themes at 1440×900.
+
+## Follow-up (2026-10-11): a smarter Inbox, readable themes, plain language
+- Profile readiness (`profile_intel.py`, `api/profile_routes.py`, `ProfileReadiness.jsx`): a percent of what forms
+  ask that the agents know, must-haves called out, "You're good to go" at 85% with every must-have. A new résumé is
+  read into the gaps by itself (résumé, candidate profile, essay bank, and LinkedIn through the agent Chrome when
+  enabled; `linkedin/own_profile.py`), every write logged with Undo.
+- Inbox asks only what matters: questions real applications asked, the qbank must-haves, and missing profile
+  must-haves (notice period, pay, years, work authorization; saved through `/api/profile/facts`). Answers are staged
+  until Submit; skips are snoozed 30 days. Typed answers are read by the model (`/api/answers/interpret`): cleaned,
+  other facts they imply filled, and any request in them sent to the agent.
+- A reload keeps the tab (`#<tab>` in the URL). Agents and sessions show their full text, with a hover card
+  (`agent/Tip.tsx`) for what each agent may touch; `/agent/profiles` returns `power` and `tools`.
+- Theme: a softer paper-grey day palette (no near-white glare; text ≥ 4.5:1) and higher-contrast dark text
+  (`tokens.css`); new styles in `polish.css`. The Agent header is one quiet bar: who you're talking to, what it does,
+  tool count with a hover for what's loaded. The conversation reads in the sans font; tools and code stay monospace.
+- Playbook: talk like a person; never show group letters, file names, tool names or field keys.
+- Verified: pytest (profile/feedback/QA/notifications), agent typecheck + 19 tests, frontend 160 tests + typecheck,
+  a live autofill (50% → 71%), screenshots in both themes.
+- Open: Jobs tab redesign with company-level details and credentials (e.g. JLPT score), plain-language Tuning,
+  a shorter Your Story.

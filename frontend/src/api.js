@@ -263,3 +263,11 @@ export const fetchAboutMe = () => fetch("/api/about-me").then(json);         // 
 export const saveAboutMe = (text) => fetch("/api/about-me", jsonBody("PUT", { text })).then(json);
 export const addAboutFact = (section, fact, replaces) =>
   fetch("/api/about-me/facts", jsonBody("POST", { section, fact, ...(replaces ? { replaces } : {}) })).then(json);
+
+// Profile readiness and the model's reading of what you type (profile_routes.py).
+export const fetchReadiness = () => fetch("/api/profile/readiness").then(json);
+export const autofillProfile = (linkedin = true) => fetch("/api/profile/autofill", jsonBody("POST", { linkedin })).then(json);
+export const saveFacts = (answers) => fetch("/api/profile/facts", jsonBody("POST", { answers })).then(json);
+export const interpretAnswer = (question, text, entry_id, choices) =>
+  fetch("/api/answers/interpret", jsonBody("POST", { question, text, entry_id, choices })).then(json);
+export const snoozeInbox = (keys, days = 30) => fetch("/api/inbox/snooze", jsonBody("POST", { keys, days })).then(json);

@@ -41,6 +41,14 @@ export function profiles(base = BASE_PROFILES(), user = USER_PROFILES()): Profil
   return [...byName.values()];
 }
 
+const WRITES = /^(update_|set_|add_|remove_|write_|remember|undo_change|answer_|review_guess|request_|dismiss_|notify_)/;
+
+/** How far a profile reaches, in the user's terms (shown before they pick one). */
+export function power(tools: string[] | undefined): "read" | "write" | "act" {
+  if (!tools || tools.includes("propose_action")) return "act";
+  return tools.some((t) => WRITES.test(t)) ? "write" : "read";
+}
+
 export const findProfile = (name: string, list = profiles()) => list.find((p) => p.name === name);
 
 /** Put a session on a profile (undefined: back to the plain playbook with every tool). */

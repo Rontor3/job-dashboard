@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { addToQueue, fetchInbox, fetchQueue } from "./api.js";
 import AboutMe from "./components/AboutMe.jsx";
 import Updates from "./components/Updates.jsx";
+import ProfileReadiness from "./components/ProfileReadiness.jsx";
 import AnswersTab, { Tuning } from "./components/AnswersTab.jsx";
 import IngredientsPanel from "./components/IngredientsPanel.jsx";
 import Inbox from "./components/Inbox.jsx";
@@ -29,8 +30,30 @@ import SetupBanner from "./agent/SetupBanner.tsx";
 const TABS = [["agent", "Agent"], ["inbox", "Inbox"], ["jobs", "Jobs"], ["applied", "Applications"], ["memory", "Memory"]];
 const MEMORY_PARTS = [["about", "About you"], ["answers", "Answers"], ["story", "Your story"], ["resume", "Résumé"], ["tuning", "Tuning"]];
 
+// The open tab (and Memory's section) live in the URL hash, so a reload, a bookmark or Back lands where you were.
+const TAB_KEYS = TABS.map(([k]) => k);
+const readHash = () => window.location.hash.replace(/^#\/?/, "").split("/");
+
+function useHashTab() {
+  const [tab, set] = useState(() => (TAB_KEYS.includes(readHash()[0]) ? readHash()[0] : "agent"));
+  useEffect(() => {
+    const on = () => { const t = readHash()[0]; if (TAB_KEYS.includes(t)) set(t); };
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  const setTab = useCallback((t) => {
+    set(t);
+    if (readHash()[0] !== t) window.history.pushState(null, "", `#${t}`);
+  }, []);
+  return [tab, setTab];
+}
+
 function Memory() {
-  const [part, setPart] = useState("about");
+  const [part, setPartState] = useState(() => {
+    const p = readHash()[1];
+    return MEMORY_PARTS.some(([k]) => k === p) ? p : "about";
+  });
+  const setPart = (p) => { setPartState(p); window.history.replaceState(null, "", `#memory/${p}`); };
   return (
     <section aria-label="Memory">
       <h1 className="view-title">Memory</h1>
@@ -54,11 +77,14 @@ function Memory() {
 }
 
 function InboxPage({ onNeeds, onUnread, onGoJobs, onOpenJob, onShowJobs, onChange }) {
+  const [tick, setTick] = useState(0);
+  const [inboxKey, setInboxKey] = useState(0);
   return (
     <section aria-label="Inbox" className="inbox-page">
       <h1 className="view-title">Inbox</h1>
       <p className="view-sub">Only what the agents can't do without you, then everything they did.</p>
-      <Inbox embedded onCount={onNeeds} onGoJobs={onGoJobs} />
+      <ProfileReadiness tick={tick} onChange={() => setInboxKey((k) => k + 1)} />
+      <Inbox key={inboxKey} embedded onCount={onNeeds} onGoJobs={onGoJobs} onSubmitted={() => setTick((t) => t + 1)} />
       <Updates onOpenJob={onOpenJob} onShowJobs={onShowJobs} onUnread={onUnread} onChange={onChange} />
     </section>
   );
@@ -79,7 +105,7 @@ function Jobs(props) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState("agent");
+  const [tab, setTab] = useHashTab();
   const [unread, setUnread] = useState(0);
   const [focusJobs, setFocusJobs] = useState(null);
   const [selectedId, setSelectedId] = useState(null);

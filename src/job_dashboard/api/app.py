@@ -24,6 +24,7 @@ from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
 from job_dashboard.api.qa_routes import build_qa_router
 from job_dashboard.api.notification_routes import build_notification_router
+from job_dashboard.api.profile_routes import build_profile_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
 from job_dashboard.db import (
@@ -56,7 +57,7 @@ def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_embed=None,
-    hiring_role_fn=None, queue_launch=None, mail_scanner=None, in_worker=False,
+    hiring_role_fn=None, queue_launch=None, mail_scanner=None, in_worker=False, profile_llm=None, profile_linkedin=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -118,6 +119,7 @@ def create_app(
     app.include_router(build_mail_router(db_path, app.state.mail_scanner))
     app.include_router(build_qa_router(db_path, qa_embed))
     app.include_router(build_notification_router(db_path))
+    app.include_router(build_profile_router(db_path, profile_llm, profile_linkedin, qa_embed))
     app.include_router(build_feedback_router(db_path, qa_embed))
 
     @contextmanager

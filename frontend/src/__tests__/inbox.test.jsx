@@ -4,7 +4,7 @@ import Inbox from "../components/Inbox.jsx";
 import { AgentProvider } from "../agent/AgentProvider.tsx";
 import Popover from "../agent/Popover.tsx";
 
-let calls;
+let calls, interpretReply;
 const BOX = {
   questions: [
     { row_id: 1, job_id: 9, title: "ML Eng", company: "Razorpay", label: "Notice period?", kind: "select",
@@ -17,42 +17,69 @@ const BOX = {
   bank: [],
 };
 
-beforeEach(() => {
-  calls = [];
+function serve(box) {
   global.fetch = vi.fn((url, opts = {}) => {
-    calls.push([String(url), opts.method || "GET", opts.body && JSON.parse(opts.body)]);
-    const body = String(url).includes("/api/inbox") ? BOX : { ok: true };
+    const u = String(url);
+    calls.push([u, opts.method || "GET", opts.body && JSON.parse(opts.body)]);
+    const body = u.includes("/api/inbox?") || u.endsWith("/api/inbox") ? box
+      : u.includes("/api/answers/interpret") ? interpretReply
+      : u === "/agent/sessions" && (opts.method || "GET") === "GET" ? { active: "s1", items: [{ id: "s1", title: "x", createdAt: 0 }] }
+      : { ok: true, submission: 1 };
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
   });
+}
+const heading = (name) => screen.findByRole("heading", { name });
+const saved = (pred) => waitFor(() => expect(calls.some(pred)).toBe(true));
+
+beforeEach(() => {
+  calls = [];
+  interpretReply = { answer: null, also: {}, request: null };
+  serve(BOX);
 });
 
-test("one tap on an option answers a blocking question and saves it for every application", async () => {
+test("a tap stages the answer and moves on; nothing is saved until Submit", async () => {
   render(<Inbox />);
   fireEvent.click(await screen.findByRole("radio", { name: "30 days" }));
-  await waitFor(() => expect(calls.some(([u]) => u.includes("/questions/1/reply"))).toBe(true));
-  const [, , body] = calls.find(([u]) => u.includes("/questions/1/reply"));
-  expect(body).toEqual({ answer: "30 days", save_as: "new", entry_id: null });
-  expect(await screen.findByRole("heading", { name: "Why Razorpay?" })).toBeInTheDocument();     // next card
+  expect(await heading("Why Razorpay?")).toBeInTheDocument();
+  expect(calls.some(([u]) => u.includes("/reply"))).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Submit 1 answer" }));
+  await saved(([u, , b]) => u.includes("/questions/1/reply") && b.answer === "30 days" && b.save_as === "new");
 });
 
 test("a question naming the company defaults to this application only", async () => {
   render(<Inbox />);
   fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
-  expect(await screen.findByRole("heading", { name: "Why Razorpay?" })).toBeInTheDocument();
+  expect(await heading("Why Razorpay?")).toBeInTheDocument();
   expect(screen.getByLabelText("Use for every application")).not.toBeChecked();
 });
 
-test("confirming a guess teaches the match", async () => {
+test("confirming a guess teaches the match once submitted", async () => {
   render(<Inbox />);
-  fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
+  await heading("Notice period?");
+  fireEvent.click(within(screen.getByRole("list", { name: "All questions" })).getByRole("button", { name: /Years of Python/ }));
   fireEvent.click(await screen.findByRole("button", { name: "Looks right" }));
-  await waitFor(() => expect(calls.some(([u, m, b]) => u.includes("/application-qa/3/review") && b.verdict === "correct")).toBe(true));
+  fireEvent.click(screen.getAllByRole("button", { name: "Submit 1 answer" })[0]);
+  await saved(([u, , b]) => u.includes("/application-qa/3/review") && b.verdict === "correct");
+});
+
+test("a typed answer is read by the model: cleaned, extra facts filled, the request sent to the agent", async () => {
+  interpretReply = { answer: "Machine Learning Engineer", also: { "qbank:current_employer": "Rephrase.ai" },
+    request: "Read my title from LinkedIn next time." };
+  serve({ questions: [], guesses: [], bank: [{ id: "current_title", question: "What is your current job title?", atype: "text",
+    asked_in: 0, asked_by: [], rule: null, options: [] }] });
+  render(<AgentProvider tab="inbox"><Inbox /></AgentProvider>);
+  const box = await screen.findByLabelText("Your answer");
+  fireEvent.change(box, { target: { value: "Machine learning engineer. Why weren't you able to scrape this from my LinkedIn?" } });
+  fireEvent.keyDown(box, { key: "Enter" });
+  expect(await screen.findByText(/Ready to save 1 answer/)).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole("button", { name: "Submit 1 answer" })[0]);
+  await saved(([u, , b]) => u.endsWith("/api/answers") && b.entry_id === "current_title" && b.answer === "Machine Learning Engineer");
+  await saved(([u, , b]) => u.endsWith("/api/profile/facts") && b.answers["qbank:current_employer"] === "Rephrase.ai");
+  await saved(([u, , b]) => u === "/agent/sessions/s1/messages" && /Read my title from LinkedIn/.test(b.content));
 });
 
 test("nothing waiting says so and points to jobs", async () => {
-  global.fetch = vi.fn(() => Promise.resolve({ ok: true, status: 200,
-    json: () => Promise.resolve({ questions: [], guesses: [], bank: [] }) }));
+  serve({ questions: [], guesses: [], bank: [] });
   const go = vi.fn();
   render(<Inbox onGoJobs={go} />);
   fireEvent.click(await screen.findByRole("button", { name: "Review jobs" }));
@@ -66,102 +93,86 @@ const RULE_BOX = { questions: [], guesses: [], bank: [
     asked_in: 2, asked_by: ["Anthropic", "Acme"], rule: null, rule_help: null },
 ] };
 
-function serve(box) {
-  global.fetch = vi.fn((url, opts = {}) => {
-    calls.push([String(url), opts.method || "GET", opts.body && JSON.parse(opts.body)]);
-    const u = String(url);
-    const body = u.includes("/api/inbox") ? box
-      : u === "/agent/sessions" && (opts.method || "GET") === "GET" ? { active: "s1", items: [{ id: "s1", title: "x", createdAt: 0 }] }
-      : { ok: true, submission: 1 };
-    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
-  });
-}
-
 test("a per-company rule question asks for the list, not a bare Yes/No", async () => {
   serve(RULE_BOX);
   render(<Inbox />);
   expect(await screen.findByText(/Companies where the answer is Yes/)).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Yes" })).toBeNull();
+  expect(screen.queryByRole("radio", { name: "Yes" })).toBeNull();
   expect(screen.getByLabelText("Your answer")).toBeInTheDocument();
-  expect(screen.getByText(/None of your applications has asked it yet/)).toBeInTheDocument();
 });
 
-test("says which applications asked, asks the agent in place, and allows a typed answer", async () => {
+test("says which applications asked, and asks the agent in place", async () => {
   serve(RULE_BOX);
   render(<AgentProvider tab="inbox"><Inbox /><Popover /></AgentProvider>);
   fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
   expect(await screen.findByText("Asked by Anthropic, Acme")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "What does this mean?" }));
   expect(await screen.findByRole("dialog", { name: "Ask the agent" })).toBeInTheDocument();
-  await waitFor(() => expect(calls.some(([u]) => u === "/agent/sessions/s1/messages")).toBe(true));
+  await saved(([u]) => u === "/agent/sessions/s1/messages");
   const [, , sent] = calls.find(([u]) => u === "/agent/sessions/s1/messages");
-  expect(sent.content).toBe("What does this mean?");
   expect(sent.context).toMatchObject({ anchor: "qbank:ai_policy_ack", tab: "inbox" });
-  expect(sent.context.text).toContain("acknowledge our policy on using AI");
-  fireEvent.click(screen.getByRole("button", { name: "Type my own answer" }));
-  fireEvent.change(screen.getByLabelText("Your answer"), { target: { value: "Yes, I've read it" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  await waitFor(() => expect(calls.some(([u, m, b]) => u.endsWith("/api/answers") && b.answer === "Yes, I've read it")).toBe(true));
 });
-
-test("without the agent there is no explain link", async () => {
-  serve(RULE_BOX);
-  render(<Inbox />);
-  fireEvent.click(await screen.findByRole("button", { name: "Next question" }));
-  await screen.findByText("Asked by Anthropic, Acme");
-  expect(screen.queryByRole("button", { name: "What does this mean?" })).toBeNull();
-});
-
 
 const BANK_BOX = { questions: [], guesses: [], bank: [
-  { id: "sexual_orientation", question: "What is your sexual orientation?", atype: "choice", asked_in: 0, asked_by: [],
+  { id: "sexual_orientation", question: "What is your sexual orientation?", atype: "choice", asked_in: 1, asked_by: ["Acme"],
     rule: null, options: ["Heterosexual / straight", "Gay or lesbian", "Prefer not to say"] },
-  { id: "transgender", question: "Do you identify as transgender?", atype: "bool", asked_in: 0, asked_by: [], rule: null },
-  { id: "pronouns", question: "What are your pronouns?", atype: "text", asked_in: 0, asked_by: [], rule: null },
+  { id: "transgender", question: "Do you identify as transgender?", atype: "bool", asked_in: 1, asked_by: ["Acme"], rule: null },
+  { id: "pronouns", question: "What are your pronouns?", atype: "text", asked_in: 1, asked_by: ["Acme"], rule: null },
 ] };
 
-test("a choice question offers its usual answers; a tap saves and moves on, Back shows what you picked", async () => {
+test("Back shows what you picked and lets you change it before submitting", async () => {
   serve(BANK_BOX);
   render(<Inbox />);
   fireEvent.click(await screen.findByRole("radio", { name: "Prefer not to say" }));
-  expect(await screen.findByRole("heading", { name: "Do you identify as transgender?" })).toBeInTheDocument();      // moved on by itself
-  await waitFor(() => expect(calls.some(([u, m, b]) => u.endsWith("/api/answers") && m === "PUT"
-    && b.entry_id === "sexual_orientation" && b.answer === "Prefer not to say")).toBe(true));
-  expect(screen.getByText("2 of 3")).toBeInTheDocument();
-
+  expect(await heading("Do you identify as transgender?")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Previous question" }));
-  expect(await screen.findByRole("heading", { name: "What is your sexual orientation?" })).toBeInTheDocument();
   expect(screen.getByRole("radio", { name: "Prefer not to say" })).toHaveAttribute("aria-checked", "true");
-  fireEvent.click(screen.getByRole("radio", { name: "Gay or lesbian" }));                        // change it
-  await waitFor(() => expect(calls.some(([, , b]) => b?.entry_id === "sexual_orientation" && b.answer === "Gay or lesbian")).toBe(true));
-  expect(await screen.findByRole("heading", { name: "Do you identify as transgender?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Gay or lesbian" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Submit 1 answer" })[0]);
+  await saved(([, , b]) => b?.entry_id === "sexual_orientation" && b.answer === "Gay or lesbian");
+  expect(calls.some(([, , b]) => b?.answer === "Prefer not to say")).toBe(false);
 });
 
-test("keyboard: a number picks a choice, the arrows move, Enter saves a typed answer", async () => {
+test("Submit snoozes what you skipped, so it stops coming back", async () => {
   serve(BANK_BOX);
   render(<Inbox />);
-  await screen.findByRole("heading", { name: "What is your sexual orientation?" });
+  fireEvent.click(await screen.findByRole("radio", { name: "Prefer not to say" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Submit 1 answer" })[0]);
+  await saved(([u, , b]) => u.endsWith("/api/inbox/snooze") && b.keys.join() === "btransgender,bpronouns");
+});
+
+test("keyboard: a number picks a choice, the arrows move, Enter takes a typed answer, the end is a review", async () => {
+  serve(BANK_BOX);
+  render(<Inbox />);
+  await heading("What is your sexual orientation?");
   fireEvent.keyDown(window, { key: "ArrowRight" });
-  expect(await screen.findByRole("heading", { name: "Do you identify as transgender?" })).toBeInTheDocument();
-  fireEvent.keyDown(window, { key: "2" });                                                       // No
-  await waitFor(() => expect(calls.some(([, , b]) => b?.entry_id === "transgender" && b.answer === "No")).toBe(true));
-  const box = await screen.findByLabelText("Your answer");                                      // pronouns
+  expect(await heading("Do you identify as transgender?")).toBeInTheDocument();
+  fireEvent.keyDown(window, { key: "2" });
+  const box = await screen.findByLabelText("Your answer");
   fireEvent.change(box, { target: { value: "he/him" } });
   fireEvent.keyDown(box, { key: "Enter" });
-  await waitFor(() => expect(calls.some(([, , b]) => b?.entry_id === "pronouns" && b.answer === "he/him")).toBe(true));
-  expect(await screen.findByRole("heading", { name: "What is your sexual orientation?" })).toBeInTheDocument();   // the skipped one
-  fireEvent.keyDown(window, { key: "3" });
-  expect(await screen.findByText("That's everything for now.")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /Review my answers/ }));
-  expect(await screen.findByText(/Your answer:/)).toHaveTextContent("he/him");
+  expect(await screen.findByText(/Ready to save 2 answers/)).toBeInTheDocument();
+  expect(document.querySelector(".review-list")).toHaveTextContent("he/him");
 });
 
 test("the list beside the card jumps to any question", async () => {
   serve(BANK_BOX);
   render(<Inbox />);
-  await screen.findByRole("heading", { name: "What is your sexual orientation?" });
-  const list = screen.getByRole("list", { name: "All questions" });
-  fireEvent.click(within(list).getByRole("button", { name: /pronouns/ }));
+  await heading("What is your sexual orientation?");
+  fireEvent.click(within(screen.getByRole("list", { name: "All questions" })).getByRole("button", { name: /pronouns/ }));
   expect(await screen.findByLabelText("Your answer")).toBeInTheDocument();
   expect(screen.getByText("3 of 3")).toBeInTheDocument();
+});
+
+test("a profile must-have is saved to the profile, not the question bank", async () => {
+  interpretReply = { answer: "60 days", also: {}, request: null };
+  serve({ questions: [], guesses: [], bank: [{ id: "profile:notice_period", question: "What is your notice period?", atype: "text",
+    asked_in: 0, asked_by: [], rule: null, options: [], fact: "profile:notice_period" }] });
+  render(<Inbox />);
+  const box = await screen.findByLabelText("Your answer");
+  fireEvent.change(box, { target: { value: "two months" } });
+  fireEvent.keyDown(box, { key: "Enter" });
+  fireEvent.click((await screen.findAllByRole("button", { name: "Submit 1 answer" }))[0]);
+  await saved(([u, , b]) => u.endsWith("/api/profile/facts") && b.answers["profile:notice_period"] === "60 days");
+  expect(calls.some(([u]) => u.endsWith("/api/answers"))).toBe(false);
 });

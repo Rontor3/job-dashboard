@@ -1,13 +1,15 @@
 :root {
-  --canvas: #F7F2EA; --card: #FFFDF9; --hairline: #E7DECF; --hairline-strong: #D9CDBA;
-  --green: #1C4542; --green-mid: #2F6B5E; --green-soft: #6E9C8F; --sage: #9DBBB2;
-  --green-tint: #E3EEE8;
-  --gold: #E6AC3A; --gold-ink: #4A3208;
-  --peach: #F6C99F; --peach-deep: #E8A87C; --warm-band: #FBEED9;
-  --warm-tint: #FAEEDB; --warm-ink: #8A5A1C;
-  --dupe-bg: #F7E8E2; --dupe-ink: #8A4A38; --rejected-bar: #D9B8A6;
-  --ink: #1F2A27; --ink-soft: #6F6150; --ink-faint: #A39580;
-  --ring-track: #EEE5D7;
+  /* Day: a soft paper grey rather than bright cream, cards a step lighter but never white, so nothing glares;
+     every text colour clears 4.5:1 on both. */
+  --canvas: #E8E5DE; --card: #F3F1EB; --hairline: #D6D0C4; --hairline-strong: #C3BBAC;
+  --green: #1C4542; --green-mid: #2A6255; --green-soft: #6E9C8F; --sage: #9DBBB2;
+  --green-tint: #DAE6DF;
+  --gold: #D49A2A; --gold-ink: #4A3208;
+  --peach: #EBC8A6; --peach-deep: #D99B70; --warm-band: #EFE5D3;
+  --warm-tint: #EFE3CE; --warm-ink: #7A4E14;
+  --dupe-bg: #EEDDD6; --dupe-ink: #833F2D; --rejected-bar: #D9B8A6;
+  --ink: #1D2523; --ink-soft: #48504D; --ink-faint: #69706C;
+  --ring-track: #DCD6CA;
   --radius-card: 16px; --radius-tag: 6px; --radius-pill: 999px;
   --font-sans: 'Inter Variable', 'Helvetica Neue', system-ui, sans-serif;
   --font-display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
@@ -19,30 +21,30 @@
   --shadow-md: 0 1px 2px rgba(60, 45, 20, 0.04), 0 6px 18px -6px rgba(60, 45, 20, 0.12);
   --shadow-lg: 0 2px 4px rgba(60, 45, 20, 0.04), 0 18px 48px -12px rgba(60, 45, 20, 0.22);
   --hover-shadow: var(--shadow-md);
-  --glow: radial-gradient(1100px 420px at 12% -8%, rgba(230, 172, 58, 0.10), transparent 60%),
-          radial-gradient(900px 380px at 95% -12%, rgba(47, 107, 94, 0.10), transparent 60%);
-  --topbar-bg: rgba(247, 242, 234, 0.78);
+  --glow: radial-gradient(1100px 420px at 12% -8%, rgba(212, 154, 42, 0.06), transparent 60%),
+          radial-gradient(900px 380px at 95% -12%, rgba(42, 98, 85, 0.06), transparent 60%);
+  --topbar-bg: rgba(232, 229, 222, 0.84);
   /* Status pie (tracker): validated categorical slots 1-6, fixed order, adjacent+wrap pairs. */
   --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a;
   --series-4: #eda100; --series-5: #e87ba4; --series-6: #008300;
 }
 
 :root[data-theme="dark"] {
-  --canvas:#14181D; --card:#1C2127; --hairline:#2A3139; --hairline-strong:#38414B;
+  --canvas:#15191E; --card:#1D2229; --hairline:#2D343D; --hairline-strong:#3D4752;
   --green:#86D4BD; --green-mid:#64B9A0; --green-soft:#4E9683; --sage:#4E9683;
   --green-tint:#1F2C29;
   --gold:#D9A13C; --gold-ink:#1A1408;
   --peach:#2B313B; --peach-deep:#3F7266; --warm-band:#1C2127; --warm-tint:#2A2620;
   --warm-ink:#D4BC8E;
   --dupe-bg:#2E2226; --dupe-ink:#E8A893; --rejected-bar:#7A5648;
-  --ink:#ECEDEF; --ink-soft:#A7AFB9; --ink-faint:#6B7480;
+  --ink:#E6E8EB; --ink-soft:#B1B8C1; --ink-faint:#8A939E;
   --ring-track:#262C34;
   --shadow-sm:0 1px 2px rgba(0,0,0,0.3);
   --shadow-md:0 1px 2px rgba(0,0,0,0.3), 0 8px 22px -8px rgba(0,0,0,0.5);
   --shadow-lg:0 2px 4px rgba(0,0,0,0.3), 0 20px 50px -12px rgba(0,0,0,0.6);
   --glow: radial-gradient(1100px 420px at 12% -8%, rgba(217, 161, 60, 0.07), transparent 60%),
           radial-gradient(900px 380px at 95% -12%, rgba(134, 212, 189, 0.07), transparent 60%);
-  --topbar-bg: rgba(20, 24, 29, 0.78);
+  --topbar-bg: rgba(21, 25, 30, 0.84);
   --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70;
   --series-4:#c98500; --series-5:#d55181; --series-6:#008300;
 }

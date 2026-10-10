@@ -18,7 +18,7 @@ import { agentDir } from "./env.ts";
 import { PROVIDER, type ModelSource } from "./model.ts";
 import { BASE_PROMPT, USER_PROMPT } from "./prompt.ts";
 import { conversationOf, forkSession, pinModel, rename, sessionItem, setProfile } from "./sessions.ts";
-import { applyProfile, findProfile, profiles } from "./team.ts";
+import { applyProfile, findProfile, power, profiles } from "./team.ts";
 
 export const THINKING_LEVELS = ["off", "low", "medium", "high", "xhigh"] as const;
 
@@ -99,7 +99,7 @@ export function installCommands(app: Hono, deps: CommandDeps): void {
   }));
 
   app.get("/agent/profiles", (c) => c.json({
-    profiles: profiles().map(({ name, description, source }) => ({ name, description, source })),
+    profiles: profiles().map(({ name, description, source, tools }) => ({ name, description, source, power: power(tools), ...(tools ? { tools } : {}) })),
   }));
 
   app.get("/agent/models", async (c) => {

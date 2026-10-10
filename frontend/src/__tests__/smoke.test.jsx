@@ -12,6 +12,7 @@ const NOTES = [{ id: 4, at: new Date().toISOString(), kind: "matches", level: "a
   body: null, job_id: null, data: { job_ids: [1, 2, 3] }, source: "refresh", read_at: null }];
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/");
   global.fetch = vi.fn((url) => {
     const u = String(url);
     const body = u.includes("/api/inbox") ? INBOX
@@ -57,4 +58,13 @@ test("the queue strip appears only when there is queued work", async () => {
   render(<App />);
   await screen.findByRole("heading", { name: "What should the agents do?" });
   expect(document.querySelector(".strip")).toBeNull();
+});
+
+test("a reload reopens the tab you were on", async () => {
+  const first = render(<App />);
+  fireEvent.click(screen.getByRole("button", { name: /^jobs$/i }));
+  expect(window.location.hash).toBe("#jobs");
+  first.unmount();
+  render(<App />);
+  expect(screen.getByRole("button", { name: /^jobs$/i })).toHaveAttribute("aria-current", "page");
 });

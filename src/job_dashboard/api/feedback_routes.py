@@ -60,11 +60,17 @@ def _guesses(conn, limit: int = 20) -> list[dict]:
 
 
 def _bank(conn, limit: int) -> list[dict]:
+    """Only questions worth your time: ones a real application asked, or that nearly every form needs. A common
+    question nobody has asked yet waits until a form asks it (or the résumé answers it)."""
+    from job_dashboard.api.profile_routes import snoozed
+    from job_dashboard.profile_intel import NEEDS
+    must = {n.key.split(":", 1)[1] for n in NEEDS if n.required and n.key.startswith("qbank:")}
     asked = qa_store.asked_in_counts(conn)
     profile = get_application_profile(conn) or {}
+    skip = snoozed(conn)
     todo = []
     for e in qbank.entries(conn):
-        if e["profile_ref"] or e["rule"] in NO_INPUT_RULES or e["topic"] == "story":
+        if e["profile_ref"] or e["rule"] in NO_INPUT_RULES or e["topic"] == "story" or f"b{e['id']}" in skip:
             continue
         if (e["answer"] or "").strip() or (profile.get(e["profile_ref"]) if e["profile_ref"] else None):
             continue
@@ -72,11 +78,38 @@ def _bank(conn, limit: int) -> list[dict]:
         n = sum(asked.get(k, 0) for k in keys)
         asked_by = list(dict.fromkeys(a["company"] for k in keys if asked.get(k)
                                       for a in qa_store.applications_for(conn, k) if a["company"]))[:3]
+        if not n and e["id"] not in must:
+            continue
         todo.append({"id": e["id"], "question": e["question"], "atype": e["atype"], "asked_in": n,
                      "options": qbank.choices(e["id"]),
                      "asked_by": asked_by, "rule": e["rule"], "rule_help": RULE_HELP.get(e["rule"])})
     todo.sort(key=lambda e: -e["asked_in"])
-    return todo[:limit]
+    return (_profile_musts(conn, skip) + todo)[:limit]
+
+
+# Must-haves kept on the profile row (notice period, pay, work authorization): asked in the words a form would use.
+PROFILE_ASKS = {
+    "years_experience": "How many years of full-time work experience do you have?",
+    "notice_period": "What is your notice period?",
+    "current_ctc": "What is your current annual salary (CTC)?",
+    "salary_expectation": "What salary are you expecting?",
+    "work_authorization": "Where are you authorized to work, and would you need sponsorship anywhere?",
+    "location": "Which city do you live in now?",
+    "phone": "What phone number should employers use?",
+    "linkedin_url": "What is your LinkedIn profile URL?",
+}
+
+
+def _profile_musts(conn, skip: set[str]) -> list[dict]:
+    """Missing must-haves on the profile row, as Inbox questions; saved through /api/profile/facts (``fact``)."""
+    from job_dashboard.profile_intel import readiness
+    out = []
+    for m in readiness(conn)["required_missing"]:
+        col = m["key"].split(":", 1)[1] if m["key"].startswith("profile:") else None
+        if col in PROFILE_ASKS and f"b{m['key']}" not in skip:
+            out.append({"id": m["key"], "question": PROFILE_ASKS[col], "atype": "text", "asked_in": 0, "options": [],
+                        "asked_by": [], "rule": None, "rule_help": None, "fact": m["key"]})
+    return out
 
 
 def build_feedback_router(db_path, embed=None) -> APIRouter:
@@ -93,7 +126,9 @@ def build_feedback_router(db_path, embed=None) -> APIRouter:
     def inbox(bank_limit: int = 5):
         conn = db()
         try:
-            return {"questions": _questions(conn), "guesses": _guesses(conn),
+            from job_dashboard.api.profile_routes import snoozed
+            skip = snoozed(conn)
+            return {"questions": _questions(conn), "guesses": [g for g in _guesses(conn) if f"g{g['row_id']}" not in skip],
                     "bank": _bank(conn, max(0, min(bank_limit, 50)))}
         finally:
             conn.close()

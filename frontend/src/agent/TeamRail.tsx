@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ProfileInfo, SessionInfo } from "@jobdash/agent-protocol";
 import { useAgent } from "./AgentProvider.tsx";
 import { fetchProfiles } from "./client.ts";
+import Tip from "./Tip.tsx";
 
 export const MISSIONS: { title: string; hint: string; profile?: string; message: string }[] = [
   {
@@ -29,21 +30,53 @@ export const MISSIONS: { title: string; hint: string; profile?: string; message:
 
 const label = (p: string) => p[0]!.toUpperCase() + p.slice(1);
 
+const POWER = {
+  read: "Reads only. It reviews and reports; it never changes your data.",
+  write: "Can change your data. Every change shows an Undo.",
+  act: "Can change your data and propose applying. Nothing is sent without your Confirm.",
+};
+const tool = (t: string) => t.replace(/_/g, " ");
+
+function ProfileTip({ name, description, power, tools }: { name: string; description: string; power?: keyof typeof POWER; tools?: string[] }) {
+  return (
+    <div className="tip-body">
+      <strong>{label(name)}</strong>
+      <p>{description}</p>
+      {power && <p className="tip-dim">{POWER[power]}</p>}
+      <p className="tip-dim">{tools?.length ? `Uses: ${tools.slice(0, 12).map(tool).join(", ")}${tools.length > 12 ? "…" : ""}` : "Uses every tool the app has."}</p>
+      <p className="tip-hint">Click to start a session as the {name}.</p>
+    </div>
+  );
+}
+
+function SessionTip({ s }: { s: SessionInfo }) {
+  return (
+    <div className="tip-body">
+      <strong>{s.title}</strong>
+      <p className="tip-dim">{s.profile ? `${label(s.profile)} · ` : ""}{new Date(s.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</p>
+    </div>
+  );
+}
+
 function SessionRow({ s, kids, active, open }: { s: SessionInfo; kids: SessionInfo[]; active: string | null; open: (id: string) => void }) {
   return (
     <li>
-      <button className="team-session" aria-current={s.id === active ? "true" : undefined} onClick={() => open(s.id)}>
-        {s.profile && <span className={`team-badge team-badge-${s.profile}`}>{label(s.profile)}</span>}
-        <span className="team-session-title">{s.title}</span>
-      </button>
+      <Tip content={<SessionTip s={s} />}>
+        <button className="team-session" aria-current={s.id === active ? "true" : undefined} onClick={() => open(s.id)}>
+          {s.profile && <span className={`team-badge team-badge-${s.profile}`}>{label(s.profile)}</span>}
+          <span className="team-session-title">{s.title}</span>
+        </button>
+      </Tip>
       {kids.length > 0 && (
         <ul className="team-kids">
           {kids.map((k) => (
             <li key={k.id}>
-              <button className="team-session" aria-current={k.id === active ? "true" : undefined} onClick={() => open(k.id)}>
-                <span className={`team-badge team-badge-${k.profile ?? "agent"}`}>{label(k.profile ?? "agent")}</span>
-                <span className="team-session-title">{k.title.replace(/^\w+: /, "")}</span>
-              </button>
+              <Tip content={<SessionTip s={k} />}>
+                <button className="team-session" aria-current={k.id === active ? "true" : undefined} onClick={() => open(k.id)}>
+                  <span className={`team-badge team-badge-${k.profile ?? "agent"}`}>{label(k.profile ?? "agent")}</span>
+                  <span className="team-session-title">{k.title.replace(/^\w+: /, "")}</span>
+                </button>
+              </Tip>
             </li>
           ))}
         </ul>
@@ -71,8 +104,8 @@ export default function TeamRail() {
       <ul className="team-missions">
         {MISSIONS.map((m) => (
           <li key={m.title}>
-            <button className="team-mission" title={m.hint} onClick={() => void agent.start(m.message, { profile: m.profile })}>
-              <span className="team-mission-title">{m.title}</span>
+            <button className="team-mission" onClick={() => void agent.start(m.message, { profile: m.profile })}>
+              <span className="team-mission-title">{m.title}<small>{m.hint}</small></span>
               <span className="team-mission-go" aria-hidden="true">→</span>
             </button>
           </li>
@@ -82,15 +115,19 @@ export default function TeamRail() {
       <h2 className="team-h">Agents</h2>
       <ul className="team-profiles">
         <li>
-          <button className="team-profile" onClick={() => void agent.newSession()} title="Every tool; the playbook alone">
-            <span className={"team-badge team-badge-agent"}>Agent</span><span className="team-profile-text">Does anything you ask</span>
-          </button>
+          <Tip content={<ProfileTip name="agent" description="Your general assistant: sets up the app, answers questions, changes your profile and answers, and hands work to the others." power="act" />}>
+            <button className="team-profile" onClick={() => void agent.newSession()}>
+              <span className={"team-badge team-badge-agent"}>Agent</span><span className="team-profile-text">Does anything you ask</span>
+            </button>
+          </Tip>
         </li>
         {profiles.map((p) => (
           <li key={p.name}>
-            <button className="team-profile" onClick={() => void agent.newSession(p.name)} title={`New session as the ${p.name}`}>
-              <span className={`team-badge team-badge-${p.name}`}>{label(p.name)}</span><span className="team-profile-text">{p.description}</span>
-            </button>
+            <Tip content={<ProfileTip {...p} />}>
+              <button className="team-profile" onClick={() => void agent.newSession(p.name)}>
+                <span className={`team-badge team-badge-${p.name}`}>{label(p.name)}</span><span className="team-profile-text">{p.description}</span>
+              </button>
+            </Tip>
           </li>
         ))}
       </ul>

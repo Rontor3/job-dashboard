@@ -30,6 +30,10 @@ export interface ProfileInfo {
   name: string;
   description: string;
   source: "base" | "user";
+  /** What it may do: read only, change your data (with Undo), or also propose applying (you confirm). */
+  power?: "read" | "write" | "act";
+  /** Its tools, when the profile limits them (none = every tool). */
+  tools?: string[];
 }
 
 /** One Inbox update (job_dashboard/notifications.py). */

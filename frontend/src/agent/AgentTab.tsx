@@ -6,15 +6,17 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import type { CommandInfo, SessionStats } from "@jobdash/agent-protocol";
 import { useAgent } from "./AgentProvider.tsx";
 import ChangeHistory from "./ChangeHistory.tsx";
-import { fetchCommands, fetchModels, fetchStats, runCommand } from "./client.ts";
+import { fetchCommands, fetchModels, fetchProfiles, fetchStats, runCommand } from "./client.ts";
 import { Editor, type EditorHandle } from "./Editor.tsx";
 import { HotkeysPanel, Panel, Picker, StatsPanel, treeItems, type PickItem } from "./Overlays.tsx";
 import { textOf, totalUsage, userTurn, type Entry } from "./state.ts";
 import { Thread, type ViewOptions } from "./Thread.tsx";
 import StartScreen from "./StartScreen.tsx";
 import TeamRail from "./TeamRail.tsx";
+import Tip from "./Tip.tsx";
 import { SecretWidget } from "./Widgets.tsx";
 
+const label = (p: string) => p[0]!.toUpperCase() + p.slice(1);
 const LEVELS = ["off", "low", "medium", "high", "xhigh"];
 const CLIENT_COMMANDS: CommandInfo[] = [];     // all are listed by the service; kept for an offline editor
 
@@ -68,6 +70,12 @@ export default function AgentTab({ onGo }: { onGo?: (tab: string) => void } = {}
   const [view, setView] = useState<ViewOptions>({ expandTools: false, showThinking: false });
   const editor = useRef<EditorHandle>(null);
   const noteId = useRef(0);
+  const [abouts, setAbouts] = useState<Record<string, string>>({});
+  useEffect(() => {
+    fetchProfiles().then((r) => setAbouts(Object.fromEntries((r?.profiles ?? []).map((p) => [p.name, p.description])))).catch(() => {});
+  }, []);
+  const about = profile ? abouts[profile] : undefined;
+  const templates = (commands ?? []).filter((c) => c.kind === "template");
 
   const note = useCallback((text: string, error = false) => {
     if (text) setNotes((n) => [...n.slice(-30), { id: ++noteId.current, text, error }]);
@@ -220,19 +228,25 @@ export default function AgentTab({ onGo }: { onGo?: (tab: string) => void } = {}
     <TeamRail />
     <section aria-label="Agent" className="pi-tab">
       <div className="pi-scroll">
-        <div className="pi-header">
-          <div>
-            <strong>{profile ? `${profile[0]!.toUpperCase()}${profile.slice(1)}` : "jobdash agent"}</strong>
-            {" "}<span className="pi-dim">· pi-durable · /profile to switch, / for commands, /hotkeys for keys</span>
+        <header className="pi-header">
+          <span className={`pi-avatar team-badge-${profile ?? "default"}`} aria-hidden="true">{(profile ?? "a")[0]!.toUpperCase()}</span>
+          <div className="pi-who">
+            <strong>{profile ? label(profile) : "Your agent"}</strong>
+            <span className="pi-dim">{about ?? "Sets up the app, answers questions, fills your profile and applies for you."}</span>
           </div>
-          {stats && (
-            <div className="pi-dim">
-              [Context] {stats.prompt.filter((p) => p.loaded).map((p) => p.file.replace(/^.*\/(docs|data)\//, "$1/")).join(", ")}
-              {"  "}[Tools] {stats.tools.length}
-              {commands.some((c) => c.kind === "template") && <>{"  "}[Prompts] {commands.filter((c) => c.kind === "template").map((c) => `/${c.name}`).join(" ")}</>}
-            </div>
-          )}
-        </div>
+          <div className="pi-meta">
+            {stats && (
+              <Tip content={<div className="tip-body">
+                <strong>What it has loaded</strong>
+                <p className="tip-dim">{stats.prompt.filter((p) => p.loaded).map((p) => p.file.replace(/^.*\/(docs|data)\//, "$1/")).join(", ")}</p>
+                {templates.length > 0 && <p className="tip-dim">Prompts: {templates.map((c) => `/${c.name}`).join(" ")}</p>}
+              </div>}>
+                <span className="pi-chip" tabIndex={0}>{stats.tools.length} tools</span>
+              </Tip>
+            )}
+            <span className="pi-chip pi-chip-quiet"><kbd>/</kbd> commands</span>
+          </div>
+        </header>
         {empty && <StartScreen onGo={onGo} />}
         <Thread entries={thread.entries} partial={thread.partial} running={thread.running} toolsRunning={thread.toolsRunning}
           live={thread.live} focus={agent.focusEntry} view={view}
