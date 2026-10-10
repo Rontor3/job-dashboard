@@ -62,5 +62,18 @@ integrated with the agent; try several system prompts / agent profiles, includin
 - Playbook: talk like a person; never show group letters, file names, tool names or field keys.
 - Verified: pytest (profile/feedback/QA/notifications), agent typecheck + 19 tests, frontend 160 tests + typecheck,
   a live autofill (50% → 71%), screenshots in both themes.
-- Open: Jobs tab redesign with company-level details and credentials (e.g. JLPT score), plain-language Tuning,
-  a shorter Your Story.
+- Open: plain-language Tuning, a shorter Your Story.
+
+## Follow-up (2026-10-11): Jobs by company, and questions only some jobs ask
+- Jobs are grouped by company (`JobGroups.jsx`), in rank order of each company's best opening: one card per company,
+  one line per opening (title, location, age, fit, Apply, Skip); a one-opening company is a single line. The header
+  ticks every open role there. Strong-fits-only and a flat list are toggles; "Show 60 more" pages the list.
+- Company details (`company_details.py`, `api/company_routes.py`, entity `company` with Undo): referrer, relative,
+  applied / interviewed / worked there before, set once per company; `db.get_job` merges them under the job's own,
+  so the question-bank rules see them on every opening. Agent tool `set_company_details`.
+- Situational questions (`situational.py`): a JLPT level for jobs in Japan, a CEFR level for German / French roles,
+  an IELTS / TOEFL score, publications for research roles, a portfolio for design roles, a clearance, a driving
+  licence: active when one of your live jobs triggers it (location, or an explicit language requirement). Each gets
+  a bank entry (wordings embedded), joins readiness ("For your jobs") and the Inbox with which jobs asked. Agent tool
+  `get_readiness`. The scan is cached until jobs, scores or the queue change (0.8 s → under 1 ms).
+- Verified: full pytest (1548 passed), frontend 163 tests + typecheck, agent typecheck + 19 tests, screenshots.

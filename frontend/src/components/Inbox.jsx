@@ -26,7 +26,8 @@ function toItems(box) {
     // A rule entry ("companies where the answer is Yes") takes a list, never a bare Yes/No.
     ...(box.bank || []).map((b) => ({ ...b, type: "bank", key: `b${b.id}`, label: b.question, hint: b.rule_help,
       options: b.rule ? [] : b.atype === "bool" ? ["Yes", "No"] : b.options || [],
-      context: b.asked_by?.length ? `Asked by ${b.asked_by.join(", ")}` : "Nearly every application form asks this." })),
+      kindLabel: b.why ? "Some of your jobs ask this" : null,
+      context: b.asked_by?.length ? `Asked by ${b.asked_by.join(", ")}` : b.why || "Nearly every application form asks this." })),
   ];
 }
 
@@ -107,7 +108,7 @@ function Card({ item, staged, onStage, onBack, onNext, canBack, position }) {
   return (
     <article className="ask" aria-label="Question from the agent" ref={card} data-agent={ANCHOR[item.type](item)}>
       <div className="ask-top">
-        <span className="ask-kind">{KIND[item.type]}</span>
+        <span className="ask-kind">{item.kindLabel || KIND[item.type]}</span>
         <span className="ask-pos">{position}</span>
       </div>
       {item.company ? <p className="ask-context">{item.company} · {item.title}</p> : item.context && <p className="ask-context">{item.context}</p>}

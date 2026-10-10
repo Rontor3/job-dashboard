@@ -1,17 +1,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useOptionalAgent } from "../agent/AgentProvider.tsx";
 import {
-  addManyToQueue, agentLink, fetchAgentSettings, fetchJob, fetchJobs, fetchPreferences, forgetPreference, saveAgentSettings, sendJobFeedback,
+  addManyToQueue, fetchAgentSettings, fetchCompanyDetails, fetchJobs, fetchPreferences, forgetPreference, saveAgentSettings,
+  sendJobFeedback,
 } from "../api.js";
-import ApplyDetails from "./ApplyDetails.jsx";
+import JobGroups, { DONE, score } from "./JobGroups.jsx";
 
-// Jobs ranked by fit + what your clicks taught. Every row asks for one decision: Apply (= more like this) or
-// Skip with a one-tap reason (= less of exactly that). The learned strip shows what changed, and any chip can be
-// removed if the agent learned the wrong thing. Tick as many as you like (or "Select strong fits") and apply to all
-// of them at once: the apply agent fills every form, and only what it can't answer comes back to the Inbox.
+// Jobs ranked by fit + what your clicks taught, grouped by company (JobGroups.jsx). Every row asks for one decision:
+// Apply (= more like this) or Skip with a one-tap reason (= less of exactly that). The learned strip shows what
+// changed, and any chip can be removed if the agent learned the wrong thing. Tick as many as you like (a whole
+// company, or "Select strong fits") and apply to all of them at once; only what the agent can't answer comes back.
 
-const score = (j) => Math.round(j.llm_score ?? (j.embed_score || 0) * 100);
-const DONE = ["applied", "interviewing", "offer", "rejected"];
 
 function Learned({ prefs, onForget }) {
   if (!prefs) return null;
@@ -60,72 +59,6 @@ function Sources() {
   );
 }
 
-function Why({ id }) {
-  const [d, setD] = useState(null);
-  useEffect(() => { fetchJob(id).then(setD).catch(() => setD({})); }, [id]);
-  if (!d) return null;
-  return (
-    <div className="job-why">
-      {d.strengths?.length > 0 && <div><b>Fits:</b> {d.strengths.slice(0, 3).join(", ")}</div>}
-      {d.gaps?.length > 0 && <div><b>Gaps:</b> {d.gaps.slice(0, 3).join(", ")}</div>}
-      <div className="job-links">
-        {d.job_url && <a href={d.job_url} onClick={agentLink(d.job_url)}>Open posting</a>}
-      </div>
-    </div>
-  );
-}
-
-function JobRow({ job, reasons, onApply, onSkip, onOpen, queued, checked, onCheck }) {
-  const [open, setOpen] = useState(false);
-  const [skipping, setSkipping] = useState(false);
-  const [details, setDetails] = useState(false);
-  const pref = job.pref || 0;
-  const done = DONE.includes(job.status);
-  return (
-    <li className={checked ? "job job-checked" : "job"} data-agent={`job:${job.id}`}>
-      <div className="job-main">
-        {!done && !queued ? (
-          <input type="checkbox" className="job-check" checked={!!checked} onChange={() => onCheck(job.id)}
-            aria-label={`Select ${job.title} at ${job.company}`} />
-        ) : <span className="job-check" aria-hidden="true" />}
-        <button className="job-text" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-          <div className="job-title">{job.title}</div>
-          <div className="job-meta">{[job.company, job.location].filter(Boolean).join(" · ")}</div>
-        </button>
-        <div className="fit" data-band={score(job) >= 70 ? "high" : score(job) >= 50 ? "mid" : "low"}
-          title="Fit score (adjusted by what you've taught it)">
-          {score(job)}
-          {Math.abs(pref) >= 1 && <small className={pref > 0 ? "up" : "down"}>{pref > 0 ? "↑" : "↓"} you</small>}
-        </div>
-        <div className="job-actions">
-          {queued ? <span className="btn btn-sm btn-quiet">{queued}</span>
-            : done ? <span className="btn btn-sm btn-quiet">{job.status}</span>
-            : <button className="btn btn-sm btn-primary" onClick={() => onApply(job.id)}>Apply</button>}
-          {!done && !queued && <button className="btn btn-sm" aria-expanded={details} onClick={() => setDetails((o) => !o)}>Details</button>}
-          {!done && !queued && <button className="btn btn-sm" aria-expanded={skipping} onClick={() => setSkipping((s) => !s)}>Skip</button>}
-        </div>
-      </div>
-      {details && !done && !queued && <ApplyDetails jobId={job.id} onApply={onApply} />}
-      {skipping && (
-        <div className="skip-reasons" role="group" aria-label="Why skip?">
-          <span>Why?</span>
-          {reasons.map((r) => (
-            <button key={r.key} className="chip" onClick={() => onSkip(job.id, r.key)}>{r.label}</button>
-          ))}
-        </div>
-      )}
-      {open && (
-        <>
-          <Why id={job.id} />
-          <button className="linkish" style={{ fontSize: 13, marginTop: 6 }} onClick={() => onOpen(job.id)}>
-            Résumé, cover letter & run history
-          </button>
-        </>
-      )}
-    </li>
-  );
-}
-
 function queuedLabel(queue, id) {
   const waiting = (queue?.items || []).filter((i) => i.state === "queued" || i.state === "running");
   const k = waiting.findIndex((i) => i.job_id === id);
@@ -133,6 +66,7 @@ function queuedLabel(queue, id) {
   return waiting[k].state === "running" ? "Applying…" : `Queued #${k + 1}`;
 }
 
+const PAGE = 60;
 const selectable = (j, queue) => !DONE.includes(j.status) && !queuedLabel(queue, j.id);
 
 function BulkBar({ ids, onDone, onClear }) {
@@ -168,16 +102,21 @@ export default function JobsView({ queue, onApply, onOpen, refreshTick, focusIds
   const [prefs, setPrefs] = useState(null);
   const [q, setQ] = useState("");
   const [india, setIndia] = useState(true);
+  const [strongOnly, setStrongOnly] = useState(false);
+  const [grouped, setGrouped] = useState(true);
+  const [limit, setLimit] = useState(PAGE);
+  const [total, setTotal] = useState(0);
+  const [companies, setCompanies] = useState({});
   const [error, setError] = useState(null);
 
   const focus = focusIds?.length ? focusIds.join(",") : null;
   useEffect(() => { setSelected(new Set(focusIds || [])); }, [focus]);
   const load = useCallback(() => {
-    const params = focus ? { sort: "learned", ids: focus, limit: 200 } : { sort: "learned", q, india, limit: 60 };
-    Promise.all([fetchJobs(params), fetchPreferences()])
-      .then(([feed, p]) => { setJobs(feed.jobs); setPrefs(p); setError(null); })
+    const params = focus ? { sort: "learned", ids: focus, limit: 200 } : { sort: "learned", q, india, limit };
+    Promise.all([fetchJobs(params), fetchPreferences(), fetchCompanyDetails().catch(() => ({ companies: {} }))])
+      .then(([feed, p, c]) => { setJobs(feed.jobs); setTotal(feed.total ?? feed.jobs.length); setPrefs(p); setCompanies(c?.companies || {}); setError(null); })
       .catch((e) => setError(String(e)));
-  }, [q, india, focus]);
+  }, [q, india, focus, limit]);
   useEffect(() => { const t = setTimeout(load, q ? 250 : 0); return () => clearTimeout(t); }, [load, q, refreshTick]);
 
   const toggle = (id) => setSelected((s) => {
@@ -185,7 +124,8 @@ export default function JobsView({ queue, onApply, onOpen, refreshTick, focusIds
     if (n.has(id)) n.delete(id); else n.add(id);
     return n;
   });
-  const open = (jobs || []).filter((j) => selectable(j, queue));
+  const shown = (jobs || []).filter((j) => !strongOnly || score(j) >= 70);
+  const open = shown.filter((j) => selectable(j, queue));
   const strong = open.filter((j) => score(j) >= 70);
   const ids = (jobs || []).filter((j) => selected.has(j.id) && selectable(j, queue)).map((j) => j.id);
   const queued = (r) => {
@@ -199,6 +139,13 @@ export default function JobsView({ queue, onApply, onOpen, refreshTick, focusIds
     setJobs((js) => js.filter((j) => j.id !== id));
     sendJobFeedback(id, "skip", [reason]).then(() => load()).catch((e) => setError(String(e)));
   };
+  const pick = (list, on) => setSelected((s) => {
+    const n = new Set(s);
+    list.forEach((id) => (on ? n.add(id) : n.delete(id)));
+    return n;
+  });
+  const rowProps = (j) => ({ reasons: prefs?.skip_reasons || [], queued: queuedLabel(queue, j.id), onApply, onSkip: skip, onOpen,
+    checked: selected.has(j.id), onCheck: toggle });
   const forget = (feature) => forgetPreference(feature).then(load).catch((e) => setError(String(e)));
 
   return (
@@ -213,11 +160,12 @@ export default function JobsView({ queue, onApply, onOpen, refreshTick, focusIds
       ) : <>
         <Learned prefs={prefs} onForget={forget} />
         <Sources />
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div className="jobs-tools">
           <input className="search" aria-label="Search jobs" placeholder="Search roles or companies"
-            value={q} onChange={(e) => setQ(e.target.value)} />
-          <button className="chip" aria-pressed={india} onClick={() => setIndia((v) => !v)}
-            style={{ marginBottom: 14, whiteSpace: "nowrap" }}>India only</button>
+            value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }} />
+          <button className="chip" aria-pressed={india} onClick={() => setIndia((v) => !v)}>India only</button>
+          <button className="chip" aria-pressed={strongOnly} onClick={() => setStrongOnly((v) => !v)}>Strong fits only</button>
+          <button className="chip" aria-pressed={grouped} onClick={() => setGrouped((v) => !v)}>By company</button>
         </div>
       </>}
       {open.length > 0 && (
@@ -234,13 +182,16 @@ export default function JobsView({ queue, onApply, onOpen, refreshTick, focusIds
       {jobs && !jobs.length && (
         <div className="empty"><h2>No jobs here yet</h2><p>Use Refresh to pull new postings from the boards.</p></div>
       )}
-      {jobs?.length > 0 && (
-        <ul className="jobs">
-          {jobs.map((j) => (
-            <JobRow key={j.id} job={j} reasons={prefs?.skip_reasons || []} queued={queuedLabel(queue, j.id)}
-              onApply={onApply} onSkip={skip} onOpen={onOpen} checked={selected.has(j.id)} onCheck={toggle} />
-          ))}
-        </ul>
+      {shown.length > 0 && (
+        <JobGroups jobs={shown} grouped={grouped && !focus} companyDetails={companies}
+          onDetails={(key, details) => setCompanies((c) => ({ ...c, [key]: { ...(c[key] || {}), details } }))}
+          selectable={(j) => selectable(j, queue)} selected={selected} onSelect={pick} rowProps={rowProps} />
+      )}
+      {!focus && jobs && total > jobs.length && (
+        <div className="jobs-more">
+          <span>Showing {jobs.length} of {total}</span>
+          <button className="btn btn-sm" onClick={() => setLimit((n) => n + PAGE)}>Show {Math.min(PAGE, total - jobs.length)} more</button>
+        </div>
       )}
       {ids.length > 0 && <BulkBar ids={ids} onDone={queued} onClear={() => setSelected(new Set())} />}
     </section>

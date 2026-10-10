@@ -232,6 +232,28 @@ export function makeTools(client: ApiClient, team: Team = {}) {
       execute: async ({ job_id, ...details }, api, ctx) => asResult(await caller(client, api, ctx)("PUT", `/api/jobs/${job_id}/apply-details`, details)),
     }),
 
+    defineTool({
+      name: "set_company_details",
+      description: "Facts that hold for every opening at one company (prefer this to set_apply_details): referrer (name), "
+        + "relatives, applied_before, interviewed_before, worked_before (true/false). Sends all five; unset answers No.",
+      parameters: Type.Object({
+        company: Type.String(), referrer: Type.Optional(Type.String()), relatives: Type.Optional(Type.Boolean()),
+        applied_before: Type.Optional(Type.Boolean()), interviewed_before: Type.Optional(Type.Boolean()),
+        worked_before: Type.Optional(Type.Boolean()),
+      }),
+      replay: "safe",
+      execute: async ({ company, ...details }, api, ctx) =>
+        asResult(await caller(client, api, ctx)("PUT", "/api/company-details", { company, details })),
+    }),
+    defineTool({
+      name: "get_readiness",
+      description: "How ready the user's profile is for application forms: percent, must-haves missing, and questions only "
+        + "some of their jobs ask (with which jobs, e.g. a JLPT level for openings in Japan). Ask for gaps in plain words.",
+      parameters: Type.Object({}),
+      replay: "safe",
+      execute: async (_a, api, ctx) => asResult(await caller(client, api, ctx)("GET", "/api/profile/readiness")),
+    }),
+
     // ── Essay ingredients (data/answer_style/ingredients.json) ──────────────────────────────────────────────
     defineTool({
       name: "get_ingredients",

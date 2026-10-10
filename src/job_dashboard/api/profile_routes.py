@@ -17,7 +17,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from job_dashboard import profile_intel, qa_store
+from job_dashboard import profile_intel, qa_store, situational
 from job_dashboard.db import init_db
 
 
@@ -95,6 +95,7 @@ def build_profile_router(db_path, llm=None, read_linkedin=None, embed=None) -> A
         conn = init_db(db_path)
         qa_store.ensure(conn)
         qbank.seed_if_empty(conn, embed or qbank.default_embed)
+        situational.ensure_entries(conn, embed or qbank.default_embed)      # questions only some of your jobs ask
         return conn
 
     def due(conn) -> bool:

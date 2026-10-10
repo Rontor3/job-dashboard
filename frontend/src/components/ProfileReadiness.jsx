@@ -43,6 +43,7 @@ export default function ProfileReadiness({ tick = 0, onChange }) {
 
   if (!r || typeof r.percent !== "number") return null;
   const must = r.required_missing || [];
+  const situational = (r.optional_missing || []).filter((m) => m.why);       // only some of your jobs ask these
   return (
     <section className={`ready${r.ready ? " ready-ok" : ""}`} aria-label="Profile readiness">
       <Ring percent={r.percent} />
@@ -58,6 +59,12 @@ export default function ProfileReadiness({ tick = 0, onChange }) {
         </p>
         {must.length > 0 && !reading && (
           <div className="ready-chips">{must.slice(0, 8).map((m) => <span key={m.key} className="ready-chip">{m.label}</span>)}</div>
+        )}
+        {situational.length > 0 && !reading && (
+          <div className="ready-chips" aria-label="Asked by some of your jobs">
+            <span className="ready-for">For your jobs:</span>
+            {situational.map((m) => <span key={m.key} className="ready-chip ready-chip-sit" title={m.why}>{m.label}</span>)}
+          </div>
         )}
       </div>
       <button className="btn btn-sm" disabled={reading} onClick={fill}>{reading ? "Reading…" : "Fill from my résumé & LinkedIn"}</button>

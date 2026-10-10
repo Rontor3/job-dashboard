@@ -24,6 +24,7 @@ class Need:
     key: str              # "profile:<column>" | "qbank:<entry id>" | "resume"
     label: str
     required: bool = False
+    why: str = ""         # for a situational need: which of your jobs ask it
 
 
 NEEDS = (
@@ -62,6 +63,14 @@ _WEIGHT = {True: 3, False: 1}
 READY_AT = 85                                    # percent, with every must-have known
 
 
+def needs(conn) -> list[Need]:
+    """Every need, plus what only some of your jobs ask (a JLPT level for Japan, a portfolio for design roles…)."""
+    from job_dashboard import situational
+    fixed = {n.key for n in NEEDS}
+    return [*NEEDS, *(Need(f"qbank:{a['id']}", a["label"], False, a["why"]) for a in situational.active(conn)
+                      if f"qbank:{a['id']}" not in fixed)]
+
+
 def _profile(conn) -> dict:
     from job_dashboard.apply.store import get_application_profile
     return get_application_profile(conn) or {}
@@ -73,12 +82,12 @@ def _has_resume() -> bool:
     return Path(current_resume_pdf()).is_file()
 
 
-def known(conn) -> dict[str, str]:
+def known(conn, all_needs: list[Need] | None = None) -> dict[str, str]:
     """{need key: value} for every need already answered."""
     from career_agent.memory import qbank
     profile = _profile(conn)
     out = {"resume": "uploaded"} if _has_resume() else {}
-    for n in NEEDS:
+    for n in (all_needs if all_needs is not None else needs(conn)):
         kind, _, ref = n.key.partition(":")
         if kind == "profile":
             v = profile.get(ref)
@@ -93,17 +102,19 @@ def known(conn) -> dict[str, str]:
 
 
 def readiness(conn) -> dict:
-    have = known(conn)
-    total = sum(_WEIGHT[n.required] for n in NEEDS)
-    got = sum(_WEIGHT[n.required] for n in NEEDS if n.key in have)
-    missing = [n for n in NEEDS if n.key not in have]
+    every = needs(conn)
+    have = known(conn, every)
+    total = sum(_WEIGHT[n.required] for n in every)
+    got = sum(_WEIGHT[n.required] for n in every if n.key in have)
+    missing = [n for n in every if n.key not in have]
     percent = round(100 * got / total)
     must = [n for n in missing if n.required]
     return {
         "percent": percent, "ready": not must and percent >= READY_AT,
         "required_missing": [{"key": n.key, "label": n.label} for n in must],
-        "optional_missing": [{"key": n.key, "label": n.label} for n in missing if not n.required],
-        "known": len(have), "total": len(NEEDS),
+        "optional_missing": [{"key": n.key, "label": n.label, **({"why": n.why} if n.why else {})}
+                             for n in missing if not n.required],
+        "known": len(have), "total": len(every),
     }
 
 
@@ -112,6 +123,7 @@ def readiness(conn) -> dict:
 def _targets(conn, keys) -> list[dict]:
     """The questions to answer, with their type and choices, for the model."""
     from career_agent.memory import qbank
+    from job_dashboard import situational
     out = []
     for key in keys:
         kind, _, ref = key.partition(":")
@@ -119,7 +131,8 @@ def _targets(conn, keys) -> list[dict]:
             e = qbank.get_entry(conn, ref)
             if e is None or e.get("profile_ref"):
                 continue
-            out.append({"id": key, "question": e["question"], "type": e["atype"], **({"choices": qbank.choices(ref)} if qbank.choices(ref) else {})})
+            opts = qbank.choices(ref) or situational.options(ref)
+            out.append({"id": key, "question": e["question"], "type": e["atype"], **({"choices": opts} if opts else {})})
         elif kind == "profile":
             out.append({"id": key, "question": next((n.label for n in NEEDS if n.key == key), ref), "type": "text"})
     return out
@@ -165,8 +178,9 @@ Return JSON: {{"answers": {{"<id>": "<answer>", ...}}}} with only the ids you ca
 
 def autofill(conn, docs: dict[str, str], llm) -> dict:
     """Fill every gap the documents answer. ``docs``: {source name: text}."""
-    have = known(conn)
-    gaps = [n.key for n in NEEDS if n.key not in have and n.key != "resume"]
+    every = needs(conn)
+    have = known(conn, every)
+    gaps = [n.key for n in every if n.key not in have and n.key != "resume"]
     from career_agent.memory import qbank
     for e in qbank.entries(conn):                         # and whatever else forms ask that the documents answer
         key = f"qbank:{e['id']}"
@@ -205,8 +219,9 @@ Return JSON: {{"answer": ..., "also": {{...}}, "request": ...}}"""
 
 
 def interpret(conn, question: str, text: str, llm, choices: list[str] | None = None, entry_id: str | None = None) -> dict:
-    have = known(conn)
-    others = [t for t in _targets(conn, [n.key for n in NEEDS if n.key not in have and n.key != "resume"])
+    every = needs(conn)
+    have = known(conn, every)
+    others = [t for t in _targets(conn, [n.key for n in every if n.key not in have and n.key != "resume"])
               if t["id"] != f"qbank:{entry_id}"]
     prompt = INTERPRET_PROMPT.format(question=question, text=text.strip()[:2000], others=json.dumps(others[:40], ensure_ascii=False),
                                      choices=f"\nChoices: {', '.join(choices)}" if choices else "")

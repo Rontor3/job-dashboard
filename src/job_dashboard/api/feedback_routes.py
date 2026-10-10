@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from career_agent.memory import qbank
 from career_agent.memory.qbank_rules import NO_INPUT_RULES, RULE_HELP
-from job_dashboard import qa_store
+from job_dashboard import qa_store, situational
 from job_dashboard.apply.store import get_application_profile
 from job_dashboard.db import init_db, set_job_status
 from job_dashboard.match import preferences
@@ -63,14 +63,16 @@ def _bank(conn, limit: int) -> list[dict]:
     """Only questions worth your time: ones a real application asked, or that nearly every form needs. A common
     question nobody has asked yet waits until a form asks it (or the résumé answers it)."""
     from job_dashboard.api.profile_routes import snoozed
+    from job_dashboard import situational
     from job_dashboard.profile_intel import NEEDS
+    sit = {a["id"]: a for a in situational.active(conn)}
     must = {n.key.split(":", 1)[1] for n in NEEDS if n.required and n.key.startswith("qbank:")}
     asked = qa_store.asked_in_counts(conn)
     profile = get_application_profile(conn) or {}
     skip = snoozed(conn)
     todo = []
     for e in qbank.entries(conn):
-        if e["profile_ref"] or e["rule"] in NO_INPUT_RULES or e["topic"] == "story" or f"b{e['id']}" in skip:
+        if (e["profile_ref"] and e["id"] not in sit) or e["rule"] in NO_INPUT_RULES or e["topic"] == "story" or f"b{e['id']}" in skip:
             continue
         if (e["answer"] or "").strip() or (profile.get(e["profile_ref"]) if e["profile_ref"] else None):
             continue
@@ -78,11 +80,13 @@ def _bank(conn, limit: int) -> list[dict]:
         n = sum(asked.get(k, 0) for k in keys)
         asked_by = list(dict.fromkeys(a["company"] for k in keys if asked.get(k)
                                       for a in qa_store.applications_for(conn, k) if a["company"]))[:3]
-        if not n and e["id"] not in must:
+        if not n and e["id"] not in must and e["id"] not in sit:
             continue
         todo.append({"id": e["id"], "question": e["question"], "atype": e["atype"], "asked_in": n,
-                     "options": qbank.choices(e["id"]),
-                     "asked_by": asked_by, "rule": e["rule"], "rule_help": RULE_HELP.get(e["rule"])})
+                     "options": qbank.choices(e["id"]) or situational.options(e["id"]),
+                     "asked_by": asked_by, "rule": e["rule"], "rule_help": RULE_HELP.get(e["rule"]),
+                     **({"why": sit[e["id"]]["why"], "jobs": sit[e["id"]]["jobs"]} if e["id"] in sit else {}),
+                     **({"fact": f"qbank:{e['id']}"} if e["profile_ref"] else {})})
     todo.sort(key=lambda e: -e["asked_in"])
     return (_profile_musts(conn, skip) + todo)[:limit]
 
@@ -120,6 +124,7 @@ def build_feedback_router(db_path, embed=None) -> APIRouter:
         qa_store.ensure(conn)
         preferences.ensure(conn)
         qbank.seed_if_empty(conn, embed or qbank.default_embed)
+        situational.ensure_entries(conn, embed or qbank.default_embed)      # questions only some of your jobs ask
         return conn
 
     @router.get("/api/inbox")

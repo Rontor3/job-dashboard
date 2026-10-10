@@ -24,6 +24,7 @@ from job_dashboard.api.hiring_routes import build_hiring_router
 from job_dashboard.api.letter_routes import build_letter_router
 from job_dashboard.api.qa_routes import build_qa_router
 from job_dashboard.api.notification_routes import build_notification_router
+from job_dashboard.api.company_routes import build_company_router
 from job_dashboard.api.profile_routes import build_profile_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
 from job_dashboard.api.resume_routes import build_resume_router
@@ -121,6 +122,7 @@ def create_app(
     app.include_router(build_notification_router(db_path))
     app.include_router(build_profile_router(db_path, profile_llm, profile_linkedin, qa_embed))
     app.include_router(build_feedback_router(db_path, qa_embed))
+    app.include_router(build_company_router(db_path))
 
     @contextmanager
     def db():

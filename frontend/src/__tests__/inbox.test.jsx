@@ -176,3 +176,12 @@ test("a profile must-have is saved to the profile, not the question bank", async
   await saved(([u, , b]) => u.endsWith("/api/profile/facts") && b.answers["profile:notice_period"] === "60 days");
   expect(calls.some(([u]) => u.endsWith("/api/answers"))).toBe(false);
 });
+
+test("a question only some jobs ask says which ones", async () => {
+  serve({ questions: [], guesses: [], bank: [{ id: "jlpt_level", question: "What is your Japanese proficiency (JLPT level)?",
+    atype: "choice", asked_in: 0, asked_by: [], rule: null, options: ["N1", "N2"], why: "2 of your jobs are in Japan (Mercari)." }] });
+  render(<Inbox />);
+  expect(await screen.findByText("Some of your jobs ask this")).toBeInTheDocument();
+  expect(screen.getByText("2 of your jobs are in Japan (Mercari).")).toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: "N2" })).toBeInTheDocument();
+});

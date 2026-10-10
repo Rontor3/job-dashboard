@@ -169,8 +169,11 @@ Outside onboarding, don't bring up skipped items unless one is the reason someth
   answer once. Answer with `answer_blocking_question` (remember=true saves it for every form, unless it names one
   company), `review_guess`, or `set_answer`.
 - **Question bank**: `search_answers` before `add_answer`, so you never duplicate an entry.
-- **Jobs**: `search_jobs`, `get_job`, `set_job_status`, `set_apply_details` (referrer, relatives, applied / interviewed
-  / worked there before; anything unset answers No).
+- **Jobs**: `search_jobs`, `get_job`, `set_job_status`, `set_company_details` (referrer, relatives, applied / interviewed
+  / worked there before, once for every opening at a company; anything unset answers No), `set_apply_details` (the same,
+  for one job only, when it differs).
+- **Readiness**: `get_readiness`: what forms still need from the user, including what only some of their jobs ask (a
+  JLPT level for jobs in Japan, a portfolio for design roles). When they ask "what's missing?", start here.
 - **Essay ingredients**: `get_ingredients`, `add_ingredient`, `update_ingredient`, `remove_ingredient`. Free-text answers ("describe a
   project…") are drafted from these units; with none, essays have nothing true to draw on. When asked to build the
   bank, read the résumé and add one unit per project, job and degree, with `source` copied verbatim from it. Check

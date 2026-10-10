@@ -210,8 +210,10 @@ def get_job(conn, job_id):
     ).fetchone()
     if row is None:
         return None
+    from job_dashboard import company_details
+    own = json.loads(row[4]) if row[4] else {}
     return {"title": row[0], "company": row[1], "location": row[2], "description": row[3],
-            "apply_details": json.loads(row[4]) if row[4] else {}}
+            "apply_details": company_details.merged(company_details.get(conn, row[1]), own)}
 
 
 def set_apply_details(conn, job_id, details: dict) -> bool:

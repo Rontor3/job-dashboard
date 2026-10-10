@@ -6,6 +6,7 @@
     setting      agent_settings value                   entity_id = key, field "value"
     config       config table value                     entity_id = key, field "value"
     job          jobs.status / apply_details            entity_id = job id, field "status" | "apply_details"
+    company      details for every opening at a company  entity_id = company name, field "details"
     file         a whole text file under our control   entity_id = name in FILES, field "text" (None = absent)
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from job_dashboard import changes, paths, qa_store
+from job_dashboard import changes, company_details, paths, qa_store
 
 
 def candidate_profile_path() -> Path:
@@ -122,4 +123,6 @@ changes.register("qa_row", _qa_read, _qa_write)
 changes.register("setting", lambda conn, key, _f: qa_store.get_setting(conn, key), _setting_write)
 changes.register("config", _config_read, _config_write)
 changes.register("job", _job_read, _job_write)
+changes.register("company", lambda conn, name, _f: company_details.get(conn, name),
+                 lambda conn, name, _f, v: company_details.put(conn, name, v))
 changes.register("file", lambda _c, name, _f: read_file(name), lambda _c, name, _f, v: write_file(name, v))
