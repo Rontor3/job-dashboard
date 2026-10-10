@@ -128,7 +128,7 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
         value = None if raw is None or str(raw).strip() == "" else str(raw)
         return {"id": e["id"], "question": e["question"], "topic": e["topic"], "atype": e["atype"],
                 "answer": e["answer"], "profile_ref": e["profile_ref"], "rule": e["rule"],
-                "rule_help": RULE_HELP.get(e["rule"]), "value": value,
+                "rule_help": RULE_HELP.get(e["rule"]), "value": value, "options": qbank.choices(e["id"]),
                 "needs_input": not e["profile_ref"] and e["rule"] not in NO_INPUT_RULES,
                 "wordings": words, "updated_at": e["updated_at"], "approvals": e.get("approvals") or 0,
                 "asked_in": sum(asked.get(qa_store.norm_key(w), 0) for w in words)}

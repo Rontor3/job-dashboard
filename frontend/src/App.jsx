@@ -161,7 +161,7 @@ export default function App() {
           </section>
         )}
         {tab === "memory" && <Memory />}
-        {tab === "agent" && <AgentTab />}
+        {tab === "agent" && <AgentTab onGo={setTab} />}
       </main>
       {selectedId && <JobDetail id={selectedId} onApply={onApply} onStatusChange={bump} onClose={() => setSelectedId(null)} />}
       <CursorOverlay />

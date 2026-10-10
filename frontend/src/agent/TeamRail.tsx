@@ -71,9 +71,9 @@ export default function TeamRail() {
       <ul className="team-missions">
         {MISSIONS.map((m) => (
           <li key={m.title}>
-            <button className="team-mission" onClick={() => void agent.start(m.message, { profile: m.profile })}>
+            <button className="team-mission" title={m.hint} onClick={() => void agent.start(m.message, { profile: m.profile })}>
               <span className="team-mission-title">{m.title}</span>
-              <span className="team-mission-hint">{m.hint}</span>
+              <span className="team-mission-go" aria-hidden="true">→</span>
             </button>
           </li>
         ))}
@@ -83,13 +83,13 @@ export default function TeamRail() {
       <ul className="team-profiles">
         <li>
           <button className="team-profile" onClick={() => void agent.newSession()} title="Every tool; the playbook alone">
-            <span className={"team-badge team-badge-agent"}>Agent</span><span>Does anything you ask</span>
+            <span className={"team-badge team-badge-agent"}>Agent</span><span className="team-profile-text">Does anything you ask</span>
           </button>
         </li>
         {profiles.map((p) => (
           <li key={p.name}>
             <button className="team-profile" onClick={() => void agent.newSession(p.name)} title={`New session as the ${p.name}`}>
-              <span className={`team-badge team-badge-${p.name}`}>{label(p.name)}</span><span>{p.description}</span>
+              <span className={`team-badge team-badge-${p.name}`}>{label(p.name)}</span><span className="team-profile-text">{p.description}</span>
             </button>
           </li>
         ))}

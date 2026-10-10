@@ -73,6 +73,7 @@ def _bank(conn, limit: int) -> list[dict]:
         asked_by = list(dict.fromkeys(a["company"] for k in keys if asked.get(k)
                                       for a in qa_store.applications_for(conn, k) if a["company"]))[:3]
         todo.append({"id": e["id"], "question": e["question"], "atype": e["atype"], "asked_in": n,
+                     "options": qbank.choices(e["id"]),
                      "asked_by": asked_by, "rule": e["rule"], "rule_help": RULE_HELP.get(e["rule"])})
     todo.sort(key=lambda e: -e["asked_in"])
     return todo[:limit]

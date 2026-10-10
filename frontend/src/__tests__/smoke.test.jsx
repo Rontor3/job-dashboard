@@ -37,7 +37,7 @@ test("opens on the agents, with missions to hand off and the Inbox count on its 
 test("the Inbox shows what blocks applications, then updates you can act on", async () => {
   render(<App />);
   fireEvent.click(screen.getByRole("button", { name: /^Inbox/ }));
-  expect(await screen.findByText("Notice period?")).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Notice period?" })).toBeInTheDocument();
   expect(await screen.findByText("3 strong new matches")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Apply to all 3" }));
   await waitFor(() => expect(global.fetch.mock.calls.some(([u, o]) => String(u).includes("/api/queue/batch")

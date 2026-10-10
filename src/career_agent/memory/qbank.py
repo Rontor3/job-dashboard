@@ -10,6 +10,7 @@ qbank_seed.json (next to this module) carries questions/wordings/rules but NEVER
 answers are typed on the dashboard and live only in jobs.db (PII stays local)."""
 from __future__ import annotations
 
+import functools
 import json
 import re
 from datetime import datetime, timezone
@@ -156,6 +157,16 @@ def load_seed(conn, embed, path=SEED_PATH) -> int:
         for t, v in zip(texts, embed(texts)):
             add_wording(conn, t, e["id"], v, "seed")
     return len(data["entries"])
+
+
+@functools.lru_cache(maxsize=1)
+def _seed_options(path=SEED_PATH) -> dict[str, list[str]]:
+    return {e["id"]: e["options"] for e in json.loads(Path(path).read_text())["entries"] if e.get("options")}
+
+
+def choices(entry_id: str) -> list[str]:
+    """The usual answers to a choice question (from the seed), so the dashboard can offer them as one tap."""
+    return list(_seed_options().get(entry_id, []))
 
 
 def seed_if_empty(conn, embed, path=SEED_PATH) -> int:

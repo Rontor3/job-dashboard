@@ -11,7 +11,8 @@ import { Editor, type EditorHandle } from "./Editor.tsx";
 import { HotkeysPanel, Panel, Picker, StatsPanel, treeItems, type PickItem } from "./Overlays.tsx";
 import { textOf, totalUsage, userTurn, type Entry } from "./state.ts";
 import { Thread, type ViewOptions } from "./Thread.tsx";
-import TeamRail, { MISSIONS } from "./TeamRail.tsx";
+import StartScreen from "./StartScreen.tsx";
+import TeamRail from "./TeamRail.tsx";
 import { SecretWidget } from "./Widgets.tsx";
 
 const LEVELS = ["off", "low", "medium", "high", "xhigh"];
@@ -53,7 +54,7 @@ export function exportText(entries: Entry[], title: string, format: "md" | "json
   return out.join("\n");
 }
 
-export default function AgentTab() {
+export default function AgentTab({ onGo }: { onGo?: (tab: string) => void } = {}) {
   const agent = useAgent();
   const { sessions, thread } = agent;
   const active = sessions.active;
@@ -232,19 +233,7 @@ export default function AgentTab() {
             </div>
           )}
         </div>
-        {empty && (
-          <div className="agent-start">
-            <h2>What should the agents do?</h2>
-            <p>Type anything below, or hand off one of these. You'll only be asked what nobody else can answer.</p>
-            <div className="agent-start-grid">
-              {MISSIONS.map((m) => (
-                <button key={m.title} className="agent-start-card" onClick={() => void agent.start(m.message, { profile: m.profile })}>
-                  <strong>{m.title}</strong><span>{m.hint}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        {empty && <StartScreen onGo={onGo} />}
         <Thread entries={thread.entries} partial={thread.partial} running={thread.running} toolsRunning={thread.toolsRunning}
           live={thread.live} focus={agent.focusEntry} view={view}
           notes={<>

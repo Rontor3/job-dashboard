@@ -99,6 +99,15 @@ def test_inbox_lists_blocking_questions_with_their_options_and_guesses_to_confir
     assert [(g["label"], g["answer"]) for g in box["guesses"]] == [("Years of Python?", "5")]
 
 
+def test_bank_choice_questions_come_with_their_usual_answers(env):
+    c, _ = env
+    bank = {b["id"]: b for b in c.get("/api/inbox", params={"bank_limit": 50}).json()["bank"]}
+    assert "Prefer not to say" in bank["sexual_orientation"]["options"]
+    assert bank["sexual_orientation"]["atype"] == "choice"
+    assert all(b["options"] == [] for b in bank.values() if b["atype"] == "text")
+    answers = {a["id"]: a for a in c.get("/api/answers").json()["answers"]}
+    assert answers["highest_degree"]["options"][:2] == ["High school", "Bachelor's degree"]
+
 
 def test_explain_endpoint_is_gone_the_agent_answers_instead(env):
     c, _ = env

@@ -33,3 +33,14 @@ integrated with the agent; try several system prompts / agent profiles, includin
 - Scheduled agents (Scout after each Refresh) and an end-of-session reflection pass.
 - `db.py` was already over 500 lines (now 592); worth splitting the jobs query out.
 - Re-queue #450, Refresh with LinkedIn, Himalayas profile: still the user's (permission).
+
+## Follow-up (2026-10-11): review fixes
+- Agents list: fixed badge column, so descriptions align (2-line clamp). Rail missions are compact one-liners.
+- Agent tab fills the window (`100dvh` flex shell): editor and footer always visible, only the transcript scrolls.
+  The empty session's start screen gained "Right now" (`agent/StartScreen.tsx`): waiting-on-you, queue and updates
+  counts plus the latest updates, each linking to its tab.
+- Inbox questions: the 16 choice questions in `qbank_seed.json` carry `options` (`qbank.choices`), sent with Inbox and
+  Answers items. A choice saves on one tap and moves to the next open question; Back / Next and a list of every
+  question beside the card; going back shows the saved answer and lets you change it; keys 1–9, ← →, Enter, Esc.
+- Verified: frontend 157 tests (new: auto-advance + back, keyboard, jump list), feedback/QA pytest, screenshots
+  in both themes at 1440×900.
