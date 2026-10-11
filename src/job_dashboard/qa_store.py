@@ -34,7 +34,7 @@ _COLS = (
 
 
 def norm_key(label: str) -> str:
-    """Same normalization as learned_answers.qkey, so the two join cleanly."""
+    """The question key: label lowercased, spaces collapsed, edge ' ?:.' stripped (application_qa.qkey, qbank_wording.norm)."""
     return re.sub(r"\s+", " ", (label or "").strip().lower()).strip(" ?:.")
 
 

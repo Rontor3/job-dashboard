@@ -1,5 +1,4 @@
-"""One-off / maintenance operations on the question bank: pull usable rows out
-of the superseded learned_answers table, and measure retrieval so FLOOR /
+"""Maintenance operations on the question bank: merge/retire entries, and measure retrieval so FLOOR /
 HIGH / MARGIN come from data instead of guesses (spec §2, §7)."""
 from __future__ import annotations
 
@@ -8,7 +7,6 @@ from collections import Counter
 import numpy as np
 
 from . import qbank
-from .qbank_match import CONFIDENT, is_junk, match_question, split_escape
 
 # Out-of-bank questions: a good FLOOR sits above most of their best scores.
 NEGATIVES = [
@@ -25,32 +23,6 @@ NEGATIVES = [
     "What questions do you have for us?",
     "Describe your ideal manager.",
 ]
-
-
-def migrate_learned(conn, embed) -> dict:
-    """Move learned_answers rows into the bank. Only CONFIDENT matches migrate
-    (no LLM here); an entry's existing answer/rule/profile_ref is never
-    overwritten. Junk labels are reported and dropped."""
-    from ..browser.form_model import Field
-    from .learned_answers import ensure as ensure_learned
-    ensure_learned(conn)
-    report = {"migrated": [], "junk": [], "unmatched": []}
-    for label, answer in conn.execute("SELECT label, answer FROM learned_answers ORDER BY rowid").fetchall():
-        f = Field(ref="_migrate", kind="text", label=label or "", required=False)
-        question = split_escape(label or "")[0]
-        if is_junk(f) or not question:
-            report["junk"].append(label)
-            continue
-        m = match_question(conn, question, embed=embed, llm=None)
-        if m.band != CONFIDENT:
-            report["unmatched"].append(label)
-            continue
-        e = qbank.get_entry(conn, m.entry_id)
-        qbank.add_wording(conn, question, e["id"], embed([question])[0], "migrated")
-        if e["answer"] is None and not e["rule"] and not e["profile_ref"]:
-            qbank.set_answer(conn, e["id"], answer)
-        report["migrated"].append(label)
-    return report
 
 
 def _pct(xs, p):

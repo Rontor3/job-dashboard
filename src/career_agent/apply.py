@@ -285,23 +285,6 @@ def _apply(args, box: dict) -> None:
         print(f"[warn] question bank unavailable ({type(e).__name__}: {e})")
         learn = None
 
-    memory_router = None
-    _qa_vault = None
-    try:
-        from pathlib import Path as _Path
-        from .memory.exact_tech import ExactTechVault
-        from .memory.semantic_behavior import SemanticBehaviorVault
-        from .routers.memory_router import MemoryRouter
-        _semantic_dir = str(_Path(args.db).parent / "semantic_behavior")
-        _qa_vault = SemanticBehaviorVault(persist_dir=_semantic_dir)
-        memory_router = MemoryRouter(
-            profile=contact,
-            exact_tech=ExactTechVault(),
-            semantic=_qa_vault,
-            answer_memory=learn,
-        )
-    except Exception as _me:
-        print(f"[warn] memory router unavailable ({type(_me).__name__}: {_me})")
     if learn is not None:
         qa_rec.tracer = learn.explain
         qa_rec.promote_embed = learn.embed         # human replies (Telegram too) join the Answers tab
@@ -417,7 +400,7 @@ def _apply(args, box: dict) -> None:
         if _board:
             out = _run_board(_board, page, args, autosubmit_policy=_policy_fn, on_submit=_on_submit,
                              profile=profile, human=human, resume_pdf=resume_pdf,
-                             judge_fn=judge_fn, learn=learn, memory_router=memory_router,
+                             judge_fn=judge_fn, learn=learn,
                              option_matcher=option_matcher, qa=qa_rec, run_dir=_run_dir, assist=_assist)
             if out.get("stopped_reason") == "left_board":
                 # The flow moved off the board (e.g. "Apply on company site"): the career-site engine takes over
@@ -517,7 +500,7 @@ def _apply(args, box: dict) -> None:
         # Register live context for mcp_server tools (no-op if mcp package absent)
         try:
             from . import mcp_server as _mcp
-            _mcp.set_session(page=page, deps=deps, memory_router=memory_router,
+            _mcp.set_session(page=page, deps=deps,
                              human_loop=human, profile=profile, knowledge=longform_kb)
         except ImportError:
             pass
@@ -534,7 +517,7 @@ def _apply(args, box: dict) -> None:
             "thread_id": tid, "page": page, "profile": profile, "deps": deps,
             "human": human, "collector": collector, "resume_pdf": resume_pdf,
             "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
-            "on_link": on_link, "memory_router": memory_router,
+            "on_link": on_link,
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text
             "run_dir": run_dir, "qa": qa_rec, "assist": _assist,
             "autosubmit_policy": _policy_fn, "on_submit": _on_submit,

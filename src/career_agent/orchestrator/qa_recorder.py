@@ -11,7 +11,7 @@ class QARecorder:
     def __init__(self, conn, job_id, run_key=None):
         self.conn, self.job_id = conn, job_id
         self.run_key = run_key or uuid.uuid4().hex
-        self.tracer = None      # f -> retrieval fields (memory.retrieval_trace.explain)
+        self.tracer = None      # f -> retrieval fields (QBankMemory.explain)
         self.page = None            # form page being answered (set by answer_fields)
         self.promote_embed = None   # set -> human answers also join the Answers tab (qbank_promote)
         self._labels: dict = {}

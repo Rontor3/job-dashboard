@@ -1,18 +1,17 @@
 """Career agent MCP server — the 'doing' boundary.
 
-Three tools expose the three routers to any MCP-capable orchestrator
-(Claude Code, an external script, etc.):
+Tools for any MCP-capable orchestrator (Claude Code, an external script, etc.):
 
   browser_action(action, payload)  — drive the live Playwright browser
-  memory_access(op, args)          — tri-partite memory (profile / exact / semantic)
+  knowledge_access(op, args)       — long-answer knowledge (projects, stories, facts, company context)
   human_loop_call(kind, payload)   — Telegram collect / approve
 
 Run as stdio MCP server:
   PYTHONPATH=src python3 -m career_agent.mcp_server
 
 Apply.py calls set_session() after the Playwright page is ready so
-browser_action has a live page. memory_access and human_loop_call work
-without a page (they only need memory_router and human_loop).
+browser_action has a live page. knowledge_access and human_loop_call work
+without a page.
 """
 from __future__ import annotations
 
@@ -30,7 +29,6 @@ def set_session(
     *,
     page=None,
     deps=None,
-    memory_router=None,
     human_loop=None,
     profile: dict | None = None,
     knowledge: Any = None,
@@ -39,7 +37,6 @@ def set_session(
     _session = dict(
         page=page,
         deps=deps,
-        memory_router=memory_router,
         human_loop=human_loop,
         profile=profile,
         knowledge=knowledge,
@@ -129,28 +126,6 @@ def browser_action(action: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {"filled": len(decs)}
 
     raise ValueError(f"Unknown browser action: {action!r}")
-
-
-# ---------------------------------------------------------------------------
-# Tool: memory_access
-# ---------------------------------------------------------------------------
-
-@mcp.tool()
-def memory_access(op: str, args: dict[str, Any]) -> Any:
-    """Tri-partite memory operations.
-
-    op:
-      GET_PROFILE_CHUNK(section)     — static profile JSON slice
-      EXACT_TECH_SEARCH(keywords)    — FTS5 verbatim source from ingredients.json
-      SEMANTIC_MATCH(question)       — ChromaDB vector match + confidence
-      RECORD_FEEDBACK(question, answer, event, purpose?)
-                                     — event = "approve" | "edit"
-    """
-    s = _require()
-    router = s.get("memory_router")
-    if router is None:
-        raise RuntimeError("No memory_router in session")
-    return router.dispatch(op, args)
 
 
 # ---------------------------------------------------------------------------

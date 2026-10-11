@@ -150,11 +150,10 @@ apply.py
 
 **Answer ladder (fill order):**
 
-1. FTS5 recall from `learned_answers` (exact/keyword match on prior approved answers)
-2. Semantic match via ChromaDB (`behavioral_qa`) — confident answers (score ≥ 1.0) go autonomous
-3. Rule-based mapper (`screen_review.py`) — standard Yes/No, EEOC, contact fields
-4. LLM judgment — `qwen3:14b` local; Claude Pro for high-stakes novel fields (capped 4/app)
-5. Human gate — Telegram prompt → you type the answer → agent resumes
+1. Question bank (`memory/qbank*.py`, jobs.db `qbank_entry`/`qbank_wording`) — exact wording → embedding shortlist → LLM picks an entry or NONE; values come from the bank, `application_profile` or a rule
+2. Rule-based mapper (`screen_review.py`) — standard Yes/No, EEOC, contact fields
+3. LLM judgment — `qwen3:14b` local; Claude Pro for high-stakes novel fields (capped 4/app); long answers via `longform/`
+4. Human gate — Telegram prompt → you type the answer → agent resumes
 
 **Captcha handling:** the agent detects captchas (`gate_probe.py`) and escalates via a Tailscale live-view link sent to Telegram. You solve it on your phone; the agent detects the token and continues. The agent never solves captchas programmatically.
 
@@ -186,18 +185,12 @@ orchestrator/
   standard_answers.py     Canonical Yes/No answers for EEOC / work auth / etc.
 
 memory/
-  factual_core.py         Static profile JSON loader; get_profile_chunk()
-  exact_tech.py           ExactTechVault — FTS5 over ingredients.json (verbatim source)
-  semantic_behavior.py    SemanticBehaviorVault — ChromaDB ONNX; graduated autonomy
-  learned_answers.py      AnswerMemory — FTS5 fast-path over jobs.db learned_answers
+  qbank*.py               Question bank: store, match, rules, compose, admin
+  facts.py                Prototype typed fact store + question→plan executor (bench only)
   candidate_profile.py    CandidateProfile from résumé segments
 
-routers/
-  memory_router.py        MemoryRouter; dispatches GET_PROFILE_CHUNK / EXACT_TECH_SEARCH
-                          / SEMANTIC_MATCH / RECORD_FEEDBACK
-
 mcp_server.py             FastMCP server — the 'doing' boundary.
-                          Exposes 3 tools: browser_action / memory_access / human_loop_call.
+                          Exposes browser_action / knowledge_access / human_loop_call.
                           apply.py registers the live session via set_session().
                           Run standalone: python -m career_agent.mcp_server
 
@@ -218,8 +211,8 @@ config/
 
 | Path | Contents |
 |---|---|
-| `data/jobs.db` | SQLite: jobs, application_profile, learned_answers, LangGraph checkpoints |
-| `data/semantic_behavior/` | ChromaDB vectors for behavioral answers |
+| `data/jobs.db` | SQLite: jobs, application_profile, question bank (qbank_entry/qbank_wording), application_qa |
+| `data/jobs_graph.db` | LangGraph checkpoints |
 | `data/answer_style/ingredients.json` | Essay ingredient bank (verbatim source; never paraphrase) |
 | `data/bulk_run_log.json` | Per-job run results from bulk runs |
 | `data/pending_memory_updates.md` | Written after each run; review at session start |

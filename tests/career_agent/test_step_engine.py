@@ -22,6 +22,34 @@ class Human:
 def _f(ref, label, purpose=None, required=False, kind="text"):
     return Field(ref, kind, label, required, [], None, purpose)
 
+class FakeMemory:
+    """The walk's learn interface (recall / record / record_corrections) over a dict keyed by
+    normalized label: what the walk does with a memory, not how a memory matches."""
+    def __init__(self):
+        self.answers = {}
+
+    @staticmethod
+    def _key(f):
+        return " ".join((f.label or "").lower().split())
+
+    def record(self, f, answer):
+        if answer not in (None, ""):
+            self.answers[self._key(f)] = str(answer)
+
+    def record_corrections(self, form, decisions, final_values):
+        byref = {f.ref: f for f in form}
+        for d in decisions:
+            final = final_values.get(d.ref)
+            if final is not None and d.ref in byref and str(final).strip() != str(d.value).strip():
+                self.record(byref[d.ref], str(final).strip())
+
+    def recall(self, fields):
+        from career_agent.orchestrator.mapper import FillDecision, _action_for_kind
+        hit = [f for f in fields if self._key(f) in self.answers]
+        return ([FillDecision(f.ref, f.kind, f.label, self.answers[self._key(f)], _action_for_kind(f.kind), "learned")
+                 for f in hit], [f for f in fields if f not in hit])
+
+
 
 def test_walk_runs_prep_fn_each_step():
     s1 = [_f("#n", "Full name", "full_name"), _f("#c", "Submit application", None, kind="button")]
@@ -99,9 +127,7 @@ def test_dry_run_stops_at_submit_without_submitting():
 def test_learn_records_then_recalls_across_walks():
     # First walk: human answers a novel question. Second walk (same question,
     # varied wording): the learned answer is reused, human.collect never fires.
-    import sqlite3
-    from career_agent.memory.learned_answers import AnswerMemory
-    mem = AnswerMemory(sqlite3.connect(":memory:"))
+    mem = FakeMemory()
     prof = CandidateProfile(contact={})
 
     q1 = [_f("#np", "Notice period (in days)", None, required=True),
@@ -122,9 +148,7 @@ def test_learn_records_then_recalls_across_walks():
 
 def test_recall_overrides_a_wrong_rule_fill():
     # a learned CORRECTION for a field must win over what the rules would fill.
-    import sqlite3
-    from career_agent.memory.learned_answers import AnswerMemory
-    mem = AnswerMemory(sqlite3.connect(":memory:"))
+    mem = FakeMemory()
     # human once corrected "Phone" to a specific value -> recorded
     mem.record(_f("#p", "Phone", "phone"), "+91 99999 88888")
     prof = CandidateProfile(contact={"phone": "+91 00000 00000"})   # rule would fill this
@@ -140,9 +164,7 @@ def test_recall_overrides_a_wrong_rule_fill():
 def test_walk_learns_corrections_at_submit():
     # agent fills; human edits the live form; at submit the walk diffs read-back
     # vs what it filled and learns the change.
-    import sqlite3
-    from career_agent.memory.learned_answers import AnswerMemory
-    mem = AnswerMemory(sqlite3.connect(":memory:"))
+    mem = FakeMemory()
     prof = CandidateProfile(contact={"phone": "+91 000"})
 
     class DepsRB(Deps):

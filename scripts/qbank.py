@@ -1,7 +1,6 @@
 """Question bank maintenance (spec docs/superpowers/specs/2026-09-26-question-bank-design.md).
 
   PYTHONPATH=src python3 scripts/qbank.py seed        load/refresh src/career_agent/memory/qbank_seed.json (answers untouched)
-  PYTHONPATH=src python3 scripts/qbank.py migrate     move usable learned_answers rows into the bank
   PYTHONPATH=src python3 scripts/qbank.py cleanup     seed, then merge overlapping entries / retire rarely-asked ones (idempotent)
   PYTHONPATH=src python3 scripts/qbank.py calibrate   hold-one-out accuracy + suggested FLOOR/HIGH/MARGIN
                                                       (exit 1 below --min-accuracy: retrieval regression check)
@@ -12,12 +11,12 @@ import sqlite3
 import sys
 
 from career_agent.memory import qbank
-from career_agent.memory.qbank_admin import calibrate, cleanup, migrate_learned
+from career_agent.memory.qbank_admin import calibrate, cleanup
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["seed", "migrate", "cleanup", "calibrate"])
+    ap.add_argument("cmd", choices=["seed", "cleanup", "calibrate"])
     ap.add_argument("--db", default="data/jobs.db")
     ap.add_argument("--min-accuracy", type=float, default=0.85)
     a = ap.parse_args()
@@ -29,9 +28,6 @@ def main() -> None:
     elif a.cmd == "cleanup":
         qbank.load_seed(conn, embed)
         print(json.dumps(cleanup(conn)))
-    elif a.cmd == "migrate":
-        qbank.seed_if_empty(conn, embed)
-        print(json.dumps(migrate_learned(conn, embed), indent=2))
     else:
         r = calibrate(conn, embed)
         print(json.dumps(r, indent=2))

@@ -56,28 +56,24 @@ apply.py
 
 ## fill_node answer ladder
 
-1. **Question bank** — `memory/qbank*.py` (jobs.db `qbank_entry`/`qbank_wording`) — exact wording → embedding shortlist → LLM picks an entry id or NONE (never writes a value). Confident = fill; likely = fill + listed for review before submit; none = falls through. Answers are typed once on the dashboard's Answers tab. Maintenance: `PYTHONPATH=src python3 scripts/qbank.py seed|migrate|calibrate`. Shared ladder: `orchestrator/answering.py::answer_fields` (graph + boards); every field is recorded to application_qa.
+1. **Question bank** — `memory/qbank*.py` (jobs.db `qbank_entry`/`qbank_wording`) — exact wording → embedding shortlist → LLM picks an entry id or NONE (never writes a value). Confident = fill; likely = fill + listed for review before submit; none = falls through. Answers are typed once on the dashboard's Answers tab. Maintenance: `PYTHONPATH=src python3 scripts/qbank.py seed|cleanup|calibrate`. Shared ladder: `orchestrator/answering.py::answer_fields` (graph + boards); every field is recorded to application_qa.
 2. **Rule-based mapper** — `orchestrator/screen_review.py` — standard_answers + profile_resolver
 3. **LLM judgment** — qwen3:14b local / Claude Pro (cap 6/app) — novel free-text fields
 4. **Human gate** — Telegram collector → `interrupt()` → `Command(resume=answers)`
 
-## Tri-Partite Memory (`memory/` + `routers/memory_router.py`)
+## Retired memory (superseded 2026-10-11)
 
-| Op | Vault | Rule |
-|----|-------|------|
-| `GET_PROFILE_CHUNK(section)` | `factual_core.py` — static profile JSON | — |
-| `EXACT_TECH_SEARCH(keywords)` | `exact_tech.py` — FTS5 over `ingredients.json` | Return `source` verbatim. NEVER paraphrase. |
-| `SEMANTIC_MATCH(question)` | `semantic_behavior.py` — ChromaDB ONNX | confidence ≥ 1.0 = autonomous — **superseded for the fill loop by the question bank; still used by MCP tools** |
-| `RECORD_FEEDBACK(q, a, event)` | semantic + FTS5 dual-write | event = `"approve"` or `"edit"` — **superseded for the fill loop by the question bank; still used by MCP tools** |
-
-Confidence: 0.0 → +1/3 per approve → 1.0 after 3 = AUTONOMOUS. Edit resets to 0.0.
+The tri-partite vaults (`factual_core` profile JSON, `exact_tech` FTS5 over `ingredients.json`, `semantic_behavior`
+ChromaDB, `learned_answers` FTS5), `routers/memory_router.py` and the MCP `memory_access` tool were removed: the
+question bank already answered everything they did. Their data is archived in `data/backups/retired-memory-2026-10-11/`;
+the code is in the history of branch `chore/retire-legacy-memory`. Answer retrieval now = question bank +
+`application_profile` (short fields) and `ingredients.json` via `longform/` (long answers).
 
 ## Data paths
 
 | What | Where |
 |------|-------|
 | SQLite (jobs, qbank_entry/qbank_wording, profile) | `data/jobs.db` |
-| Semantic vectors | `data/semantic_behavior/` |
 | Ingredient bank | `data/answer_style/ingredients.json` |
 | LangGraph checkpoints | `data/jobs_graph.db` |
 
@@ -120,12 +116,12 @@ PYTHONPATH=src python3 -m pytest tests/career_agent/ -q
 - **Captcha = detect + escalate only.** Remote-solve via Tailscale live-view (human solves on phone). Never solve programmatically.
 - **Account creation is automated but credential-gated.** `credential_provider.py` generates a password, saves it to `~/.career_agent/credentials.json`, and registers the account (Darwinbox: email→OTP→password→T&C→sign-up). On repeat visits it loads the saved credential and logs in. Credentials are local-only — never committed, never in model context.
 - **No PII committed.** Profile JSON lives outside repo. Secrets in `.env` / env vars only.
-- **Exact Tech source is verbatim.** Never paraphrase or summarise `ingredients.json` source fields.
+- **`ingredients.json` source is verbatim.** Never paraphrase or summarise its `source` fields.
 
 ## Module map
 
 ```
-apply.py                  — CLI entrypoint; builds MemoryRouter; runs graph or walk
+apply.py                  — CLI entrypoint; builds QBankMemory; runs graph or walk
 orchestrator/
   graph.py                — LangGraph StateGraph + all 7 nodes
   step_engine.py          — plain-Python walk() fallback
@@ -141,12 +137,8 @@ browser/
   credential_provider.py  — email/password fill for existing accounts
   form_model.py           — Field dataclass
 memory/
-  factual_core.py         — load_profile, get_profile_chunk
-  exact_tech.py           — ExactTechVault (FTS5, verbatim source)
-  semantic_behavior.py    — SemanticBehaviorVault (ChromaDB ONNX)
-  learned_answers.py      — AnswerMemory (FTS5 fast-path, jobs.db)
-routers/
-  memory_router.py        — MemoryRouter, memory_access() dispatcher
+  qbank*.py               — question bank: store, match, rules, compose, admin
+  facts.py                — prototype: typed fact store + question→plan executor (bench only, not wired in)
 integrations/
   telegram/collector.py   — field prompts; JD context on company-Q labels
   telegram/approver.py    — submit/skip gate

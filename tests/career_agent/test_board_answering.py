@@ -44,21 +44,6 @@ def test_ladder_order_bank_rules_judge(monkeypatch):
     assert [f.ref for f in needs] == ["c"]
 
 
-def test_ladder_ignores_memory_router(monkeypatch):
-    import career_agent.orchestrator.screen_review as sr
-    monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
-
-    class Router:
-        def dispatch(self, *a):
-            raise AssertionError("semantic tier must not be consulted")
-
-    d, needs = answer_fields([_f("a", "Other")], {"memory_router": Router(), "profile": None})
-    assert d == [] and [f.ref for f in needs] == ["a"]
-
-
-
-
-
 def test_unlabelled_widget_gets_a_readable_name_for_the_human():
     from career_agent.boards.run import _readable
     f = Field("#react-select-form-input--qualification.location.locationId-input", "text", "", False, [], None, None)
