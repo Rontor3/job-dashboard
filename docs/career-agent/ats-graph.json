@@ -872,7 +872,7 @@
       ],
       "archetype": "form",
       "entry": {
-        "selector": "a:text-is(\"Apply\"), button:text-is(\"Apply\")",
+        "selector": "a:text-matches(\"^Apply( to this role)?$\", \"i\"), button:text-matches(\"^Apply( to this role)?$\", \"i\")",
         "submits": "no"
       },
       "final": [
