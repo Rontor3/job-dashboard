@@ -149,3 +149,16 @@ def test_record_answers_keeps_them_per_application_only():
     record_answers([_f("a", "CTC"), _f("b", "Blank")], {"a": " 22 ", "b": "  "}, {"qa": qa})
     assert qa.log == [("answered", "a", "22")]
     record_answers([_f("a", "CTC")], {"a": "22"}, {})      # no recorder: nothing to do, no error
+
+
+def test_an_answer_the_user_gave_this_application_survives_the_bank(monkeypatch):
+    import career_agent.orchestrator.screen_review as sr
+    import career_agent.orchestrator.answering as ans
+    monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
+    monkeypatch.setattr(ans, "_prior_human_answers",
+                        lambda fields, qa: [FillDecision(f.ref, f.kind, f.label, "Kariyamanna Agrahara", "fill", "human_prior")
+                                            for f in fields if f.label == "Street"])
+    d, needs = answer_fields([_f("s", "Street"), _f("a", "Known"), _f("c", "Other")],
+                             {"learn": Learn(), "profile": None, "qa": QA()})
+    assert {x.ref: x.value for x in d} == {"s": "Kariyamanna Agrahara", "a": "42"}
+    assert [f.ref for f in needs] == ["c"]

@@ -310,7 +310,7 @@ _CLICKABLES_JS = r"""() => {
     // the revealed menu OPTION next, instead of re-toggling.
     let aff = e.getAttribute('data-aff');
     if (!aff) { aff = 'a' + (window.__affN++); e.setAttribute('data-aff', aff); }
-    out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]' });
+    out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]', modal: inModal(e) });
   }
   return out.slice(0, 200);
 }"""
@@ -412,6 +412,11 @@ def _best_apply(cands, exclude=(), prefer=()):
     site, in click order — an exact match outranks every phrase (still never a denied
     name). Or None. Pure — the ranking core, unit-tested."""
     prefer = [p.strip().lower() for p in prefer]
+    # An open dialog is what the page is asking right now (Himalayas' "I'm ready to apply"): when it offers a way on,
+    # take it there. A learned route's "Apply now" still showing behind it was clicked again and again instead.
+    in_modal = [c for c in cands if c.get("modal")]
+    if in_modal and _best_apply([{**c, "modal": False} for c in in_modal], exclude, prefer) is not None:
+        cands = [{**c, "modal": False} for c in in_modal]
     best, best_rank = None, len(_APPLY_ALLOW)
     for c in cands:
         if c.get("ref") in exclude:
@@ -607,19 +612,19 @@ def _known_clicks(url: str) -> list:
         return []
     if not hint:
         return []
-    clicks = list(hint["reach_clicks"])
+    clicks = [c for i, c in enumerate(hint["reach_clicks"]) if i == 0 or c != hint["reach_clicks"][i - 1]]   # a repeat was a wasted click
     trail_note(step="graph_hint", site=hint["id"], clicks=clicks)
     print(f"[ats] known route for {hint['id']}: {' -> '.join(clicks)}", flush=True)
     return clicks
 
 
-def reach_application_form(page, max_hops=4):
+def reach_application_form(page, max_hops=6):
     active, status = _reach(page, max_hops)
     trail_note(step="reach_end", status=status, url=_bare(active.url))
     return active, status
 
 
-def _reach(page, max_hops=4):
+def _reach(page, max_hops=6):
     """Drill from any landing (JD / search / SPA) to the real application form by
     following the Apply affordance until real applicant fields appear. Bounded and
     loop-safe (a no-progress hop stops it). Login/OTP/captcha gates are returned

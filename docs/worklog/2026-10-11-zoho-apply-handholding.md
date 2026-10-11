@@ -55,3 +55,16 @@ Full pytest 1561 passed; career_agent 555; five live dry runs (`--review --no-te
   line with no way to read them; matches wrap in full, arrows/Enter pick, the box's title holds the whole question.
 - Verified: frontend 171 tests + typecheck + build, agent 21 + typecheck, live check of the collapsed error and the
   popover size.
+
+## Follow-up: the queued run that "got stuck"
+- First queued run: 0 filled, no_advance_control, stopped on Himalayas' "I'm ready to apply" dialog. The learned route
+  was "Apply now, Apply now, I'm ready to apply, I'm interested": with the dialog open the agent clicked the page's
+  "Apply now" behind it (a learned click outranks every phrase), burning one of 4 hops. Now an open dialog that
+  offers a way on is chosen first; a repeated click is never learned (and is dropped when read); 6 hops.
+- Second queued run reached Submit but Street / Additional Info / hands-on LLM years were empty although the user had
+  answered them: `answer_fields` recalled them, then `recalled, remaining = learn.recall(...)` replaced the list, so
+  they were neither filled nor asked. Now merged.
+- Field stamps: wiping and renumbering on each scan (this morning's fix for duplicates) moved Street from f4 to f5
+  between deciding and typing. Stamps now come from one page-wide counter and stay with their element.
+- Verified: career_agent 558, full pytest, two live dry runs from the Himalayas page: route "Apply now → I'm ready to
+  apply → I'm interested", 23 filled, nothing left for the user except the CAPTCHA.

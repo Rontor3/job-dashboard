@@ -39,7 +39,12 @@ def _site(nodes: dict, host: str) -> dict:
 
 
 def _clicks(trail: list) -> list[str]:
-    return [e["click"] for e in trail if e.get("step") == "hop"]
+    """The route's clicks, a repeat dropped: the same button twice in a row was a click that changed nothing."""
+    out: list[str] = []
+    for e in trail:
+        if e.get("step") == "hop" and (not out or out[-1] != e["click"]):
+            out.append(e["click"])
+    return out
 
 
 def _path(trail: list) -> list[str]:

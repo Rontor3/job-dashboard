@@ -47,3 +47,10 @@ def test_site_hint_needs_learned_clicks(tmp_path, monkeypatch):
     assert ats_lookup.site_hint("https://www.a.example/jobs/1")["id"] == "site:a"
     assert ats_lookup.site_hint("https://b.example/x") is None            # known site, nothing learned yet
     assert ats_lookup.site_hint("https://c.example/x") is None
+
+
+def test_a_click_repeated_in_a_row_is_learned_once():
+    from career_agent.memory.ats_promote import _clicks
+    trail = [{"step": "hop", "click": "Apply now"}, {"step": "hop", "click": "Apply now"},
+             {"step": "hop", "click": "I'm ready to apply"}, {"step": "hop", "click": "I'm interested"}]
+    assert _clicks(trail) == ["Apply now", "I'm ready to apply", "I'm interested"]

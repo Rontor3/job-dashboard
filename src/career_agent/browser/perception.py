@@ -316,10 +316,18 @@ _INPUT_JS = r"""
   // Stamp a unique handle on every field so it's addressable even with no id and
   // no name (custom widgets share [name=""] otherwise). Prefer #id when present
   // (stable, readable); else use the stamped [data-cref="fN"].
-  let _ci = 0;
-  // A rescan numbers fields from f0 again: drop the last scan's stamps first, or a field that has since gone keeps
-  // "f23" next to the new f23 and a value meant for one lands in the other (Zoho's signature box stayed empty).
-  for (const e of deepQuery('[data-cref]')) e.removeAttribute('data-cref');
+  // A stamp is the element's for the life of the page, numbered from one page-wide counter, so it is never reused:
+  // a decision made before a rescan (Zoho adds its consent block once the email is typed) still names its own box.
+  // Restarting at f0 each scan gave two elements "f23"; wiping and renumbering moved Street from f4 to f5 between
+  // deciding and typing, so its value went into another box.
+  if (window.__crefN === undefined) window.__crefN = 0;
+  const _now = new Set();                        // stamped in THIS scan
+  const stamp = (el) => {
+    let c = el.getAttribute('data-cref');
+    if (!c) { c = 'f' + (window.__crefN++); el.setAttribute('data-cref', c); }
+    _now.add(el);
+    return c;
+  };
   for (const el of deepQuery('input,select,textarea')) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
@@ -360,7 +368,7 @@ _INPUT_JS = r"""
     // A combobox is interacted with by clicking, not typing, so readOnly is
     // normal there and must NOT drop it as if disabled.
     const isCombo = role === 'combobox' || haspopup === 'listbox' || isUxiSelect;
-    const cref = 'f' + (_ci++);
+    const cref = stamp(el);
     el.setAttribute('data-cref', cref);          // unique, id/name-independent handle
     // A read-only text box that opens a calendar: it cannot be typed into, so it is its own kind ('datepicker')
     // and is kept even though it is readonly. Signals are structural (date-ish name/class/placeholder/popup role).
@@ -397,13 +405,13 @@ _INPUT_JS = r"""
   // (Indeed's single-select employer question). Same kind as the input comboboxes; the filler opens it and picks.
   for (const el of deepQuery('[role="combobox"]')) {
     const tag = el.tagName.toLowerCase();
-    if (['input', 'select', 'textarea', 'button'].includes(tag) || el.hasAttribute('data-cref')) continue;
+    if (['input', 'select', 'textarea', 'button'].includes(tag) || _now.has(el)) continue;
     // a text box's own suggestion popup (Zoho's lyte-autocomplete wraps both): the box is the field, not a second one
     const widget = el.parentElement && el.parentElement.parentElement;
     if (widget && widget.querySelector('input[data-cref]:not([type=hidden])')) continue;
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
-    const cref = 'f' + (_ci++);
+    const cref = stamp(el);
     el.setAttribute('data-cref', cref);
     const lab = labelFor(el);
     const row = {
@@ -429,7 +437,7 @@ _INPUT_JS = r"""
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     const container = el.closest('[role="radiogroup"]') || el.parentElement;
     if (!container.hasAttribute('data-cref-group')) {
-      container.setAttribute('data-cref-group', 'g' + (_ci++));
+      container.setAttribute('data-cref-group', 'g' + (window.__crefN++));
     }
     const heading = container.previousElementSibling;
     const headingText = heading ? visibleText(heading) : '';
@@ -438,7 +446,7 @@ _INPUT_JS = r"""
     // heading is the fallback required signal, same convention groupLabel()
     // already strips elsewhere.
     const hasAsterisk = /[✱*✶†✳＊]\s*$/.test(headingText);
-    const cref = 'f' + (_ci++);
+    const cref = stamp(el);
     el.setAttribute('data-cref', cref);
     out.push({
       ref: idRef(el, cref),
@@ -489,7 +497,7 @@ _INPUT_JS = r"""
           if (t) label = t;
         }
       }
-      const cref = 'f' + (_ci++);
+      const cref = stamp(el);
       el.setAttribute('data-cref', cref);
       out.push({
         ref: idRef(el, cref),

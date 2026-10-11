@@ -161,3 +161,14 @@ def test_email_code_wall_spots_pages_waiting_for_an_emailed_code():
     assert email_code_wall("https://x.com/login", "Check your email for a sign-in link")
     assert not email_code_wall("https://x.com/jobs/verify-skills", "Senior ML Engineer. Apply now")
     assert not email_code_wall("https://x.com/apply", "First name  Last name  Email  Resume")
+
+
+def test_an_open_dialog_s_way_on_beats_a_learned_click_behind_it():
+    from career_agent.browser.page_prep import _best_apply
+    cands = [{"name": "Apply now", "role": "button", "ref": "a1", "modal": False},
+             {"name": "Generate cover letter with AI", "role": "button", "ref": "a2", "modal": True},
+             {"name": "I'm ready to apply", "role": "link", "ref": "a3", "modal": True}]
+    assert _best_apply(cands, prefer=["Apply now", "I'm ready to apply"])["ref"] == "a3"
+    # a dialog with no way on (a cookie banner) leaves the page's own Apply in charge
+    banner = [{"name": "Apply now", "role": "button", "ref": "a1"}, {"name": "Accept cookies", "role": "button", "ref": "a9", "modal": True}]
+    assert _best_apply(banner)["ref"] == "a1"
