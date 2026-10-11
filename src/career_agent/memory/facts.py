@@ -292,7 +292,8 @@ Examples (fact names here are illustrative; use the ones listed above):
   "Secondary email"                 {"missing": {"key": "secondary_email", "type": "text", "ask": "A second email address"}}"""
 
 
-def claude_cli_llm(model: str = "haiku", timeout: int = 120):
+def claude_cli_llm(model: str = "haiku", timeout: int = 120,
+                   system: str = "You translate job-application form fields into JSON plans. Reply with JSON only."):
     """llm(prompt) -> text through the logged-in Claude Code CLI (the subscription, not the API). No tools, one turn,
     run from a temp dir so no project instructions load. Raises on a failed call (expired login, timeout)."""
     import subprocess
@@ -300,8 +301,7 @@ def claude_cli_llm(model: str = "haiku", timeout: int = 120):
 
     def llm(prompt: str) -> str:
         r = subprocess.run(["claude", "-p", "--model", model, "--max-turns", "1", "--tools", "",
-                            "--system-prompt", "You translate job-application form fields into JSON plans. "
-                                               "Reply with JSON only."],
+                            "--system-prompt", system],
                            input=prompt, capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
         if r.returncode != 0 or not r.stdout.strip():
             raise RuntimeError((r.stderr or r.stdout or "claude -p failed").strip()[:200])
