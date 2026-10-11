@@ -266,8 +266,23 @@ def m_guarded(env, i, case):
     return value if value and (value in options or len(value.split()) <= 6) else None
 
 
+def m_compiled(env, i, case):
+    """Facts told once; the model compiles the question into a plan over fact names; the plan runs deterministically."""
+    from career_agent.browser.form_model import Field
+    from career_agent.memory import facts as F
+    from career_agent.memory.qbank_match import is_junk
+    _, kind, label, options, job, _, _ = case
+    if is_junk(Field(ref="x", kind=kind, label=label, required=False, options=list(options))):
+        env["notes"][i] = "junk label"
+        return None
+    if "facts" not in env:
+        env["facts"] = F.build(env["conn"], env["contact"], env["skills"])
+    value, env["notes"][i] = F.answer(label, kind, options, job, env["facts"], env["llm"], cache=env["plans"])
+    return value
+
+
 METHODS = {"current_nollm": m_current_nollm, "current": m_current, "topk": m_topk,
-           "factsheet": m_factsheet, "hybrid": m_hybrid, "guarded": m_guarded}
+           "factsheet": m_factsheet, "hybrid": m_hybrid, "guarded": m_guarded, "compiled": m_compiled}
 
 
 def main() -> None:
@@ -287,6 +302,7 @@ def main() -> None:
     contact = get_application_profile(conn) or {}
     env = {"conn": conn, "contact": contact, "embed": qbank.default_embed,
            "profile": load_candidate_profile(conn, contact=contact), "llm": Counted(make_default_llm()),
+           "notes": {}, "plans": {},
            "skills": json.loads((ROOT / "data" / "answer_style" / "ingredients.json").read_text())["skills_pool"]}
 
     rows, summary = [], {}
@@ -303,7 +319,8 @@ def main() -> None:
             res = outcome(value, gold, case[6])
             stats[res] += 1
             rows.append({"method": name, "group": case[0], "question": case[2][:90],
-                         "answer": "" if value is None else value, "outcome": res})
+                         "answer": "" if value is None else value, "outcome": res,
+                         "note": env["notes"].pop(i, "")})
             print(f"{name:14} {res:12} {case[2][:60]!r} -> {value!r}")
         stats["llm_calls"], stats["seconds"] = env["llm"].calls, round(time.monotonic() - t0, 1)
         summary[name] = stats
