@@ -356,7 +356,7 @@ def answer(question, kind, options, job, facts, llm, cache=None):
         value = run(out["plan"], facts)
     except (PlanError, KeyError, TypeError, ValueError, AttributeError) as e:
         return None, f"plan failed: {e} | {json.dumps(out['plan'])}"
-    text = render(value, options, label=question)
+    text = render(value, options, label=None if kind == "checkbox" else question)    # a tick box is a yes/no field
     if text is None:
         return None, f"yes/no result does not fit this field | {json.dumps(out['plan'])}"
     return text, json.dumps(out["plan"])

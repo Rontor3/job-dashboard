@@ -49,6 +49,14 @@ def test_yes_no_only_into_a_yes_no_field():
     assert F.render(False, ["Yes", "No"], label="Visa sponsorship") == "No"     # yes/no options say it is one
 
 
+def test_a_tick_box_takes_a_yes_no_plan():
+    plan = '{"plan": {"fact": "willing_to_relocate"}}'
+    facts = {"willing_to_relocate": F._fact("bool", True, ""), "today": FACTS["today"]}
+    label = "This role doesn't match your location preferences. Check here if you're open to relocating"
+    assert F.answer(label, "checkbox", [], {}, facts, lambda p: plan)[0] == "Yes"      # live YC miss, 2026-10-12
+    assert F.answer(label, "text", [], {}, facts, lambda p: plan)[0] is None          # a text box wants a word
+
+
 def test_qbank_memory_falls_back_to_a_plan(qbank_conn, fake_embed):
     from career_agent.browser.form_model import Field
     from career_agent.memory.qbank_memory import QBankMemory
