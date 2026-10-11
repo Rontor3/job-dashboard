@@ -5,12 +5,12 @@ import re
 
 
 def _terms(unit) -> set[str]:
-    return ({str(unit.get("title", "")).lower(), *(t.lower() for t in unit.get("tech", [])),
-             *(t.lower() for t in unit.get("tags", []))} - {""})
+    # title + tech only: tags are generic words ("real-time", "production", "fraud") that any answer may use
+    return ({str(unit.get("title", "")).lower(), *(t.lower() for t in unit.get("tech", []))} - {""})
 
 
 def distinct_terms(kb, pid) -> set[str]:
-    """Terms (title, tech, tags) that belong to this project and to no other unit."""
+    """Terms (title, tech) that belong to this project and to no other unit."""
     others: set[str] = set()
     for oid, unit in kb.units.items():
         if oid != pid:
@@ -31,6 +31,23 @@ def leak_check(answer, chunks, kb) -> list[str]:
         if any(hit(t, low) and not hit(t, seen) for t in distinct_terms(kb, unit["id"])):
             leaks.append(unit["id"])
     return leaks
+
+
+_PROJECT_NAME = re.compile(
+    r"(?:\bin (?:the|my)|\bon (?:the|my)|\bat (?:the|my)|\bthe|\bmy)\s+['\"“‘]?([A-Z][\w&.-]*(?: [A-Z0-9][\w&.-]*){0,4})['\"”’]?\s+(?:project|system|platform|pipeline|app|chatbot)\b"
+    r"|\bproject\s+(?:called|named)\s+['\"“‘]?([A-Z][\w&.-]*(?: [A-Z0-9][\w&.-]*){0,4})['\"”’]?"
+    r"|['\"“‘]([A-Z][\w&.-]*(?: [A-Z0-9][\w&.-]*){0,4})['\"”’]\s+project")
+
+
+def invented_projects(answer, chunks) -> list[str]:
+    """Names the answer gives to a project that appear nowhere in the material it was given (the writer made them up)."""
+    seen = " ".join(c.text for c in chunks).lower()
+    out = []
+    for m in _PROJECT_NAME.finditer(answer or ""):
+        name = next(g for g in m.groups() if g)
+        if name.lower() not in seen and name not in out:
+            out.append(name)
+    return out
 
 
 def fit_length(answer, limit) -> tuple[str, bool]:

@@ -33,7 +33,7 @@ def _company(ctx) -> list[Chunk]:
 
 
 def _second_card(kb, ctx) -> list[Chunk]:
-    ranked = [pid for pid, _ in kb.rank_projects(f"{ctx.question} {ctx.jd_text}") if pid != ctx.project_id]
+    ranked = [pid for pid, _ in kb.rank_projects(ctx.question, ctx.jd_text) if pid != ctx.project_id]
     card = kb.card(ranked[0]) if ranked else None
     return [card] if card else []
 
@@ -74,6 +74,7 @@ RECIPES = {
     "challenge": lambda kb, ctx: _project(kb, ctx, ("hardest", "result")),
     "working_style": lambda kb, ctx: _stories(kb, "story_how_you_work"),
     "skills_list": _skills,
+    "approach": lambda kb, ctx: _project(kb, ctx) + kb.practice_chunks(ctx.question),  # the real example first (never trimmed), then the practice backbone
     "other": _other,
 }
 
@@ -85,7 +86,7 @@ def _within_budget(chunks: list[Chunk], budget: int) -> list[Chunk]:
     return kept
 
 
-def retrieve(plan, kb: KnowledgeBase, *, question="", jd_text="", company_text="", budget_chars=6000) -> list[Chunk]:
+def retrieve(plan, kb: KnowledgeBase, *, question="", jd_text="", company_text="", budget_chars=9500) -> list[Chunk]:
     ctx = Ctx(plan.project_id, question, jd_text, company_text)
     chunks, seen = [], set()
     for need in plan.needs:
