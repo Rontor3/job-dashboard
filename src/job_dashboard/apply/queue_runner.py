@@ -86,6 +86,7 @@ class QueueRunner:
     def __init__(self, db_path: str, launch, result_dir: str | None = None, watcher=None):
         self.db_path, self.launch = db_path, launch
         self.watcher = watcher                     # SubmitWatcher: told where a parked form was left open
+        self.agent_run = None                      # apply_engine=agent: job_id -> final apply_run row (tests fake it)
         self.result_dir = result_dir or paths.tmp(".")
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -151,6 +152,28 @@ class QueueRunner:
         # answers' approvals (autonomy.autosubmit_policy); otherwise it is left open for your review.
         return argv + ["--review", "--autosubmit-policy"]
 
+    def _run_agent(self, conn, job_id: int) -> None:
+        """The in-app agent drives the run (spec 2026-10-11); its tools write the verdict and the Inbox card."""
+        from job_dashboard.apply.agent_launch import queue_verdict, run_with_agent
+        try:
+            row = (self.agent_run or run_with_agent)(job_id)
+        except Exception as e:
+            print(f"[queue] agent launch failed for job {job_id}: {type(e).__name__}: {e}", flush=True)
+            q.mark(conn, job_id, "failed", "launch_error")
+            announce(conn, job_id, "failed", "launch_error")
+            return
+        state, reason = queue_verdict(row)
+        q.mark(conn, job_id, state, reason)
+        if row.get("reason") == "agent_timeout":
+            announce(conn, job_id, "failed", "agent_timeout")
+        if self.watcher and state == "parked" and row.get("tab_open") and row.get("tab_target_id"):
+            # the tab stays open: notice when you submit it there (or when an unconfirmed submit did go through)
+            try:
+                self.watcher.register(conn, job_id, row.get("url") or "", row.get("run_key"), row["tab_target_id"],
+                                      "auto" if reason == "submit_unconfirmed" else "manual")
+            except Exception as e:
+                print(f"[queue] could not register a submit watch for job {job_id}: {e}", flush=True)
+
     def _run_one(self, conn, job_id: int) -> None:
         job = _job(conn, job_id)
         url = job_target(job) if job else None
@@ -158,6 +181,9 @@ class QueueRunner:
             q.mark(conn, job_id, "failed", "job_missing")
             return
         q.mark(conn, job_id, "running")
+        if qa_store.get_setting(conn, "apply_engine") == "agent":
+            self._run_agent(conn, job_id)
+            return
         result_path = os.path.join(self.result_dir, f"apply_result_{job_id}.json")
         if os.path.exists(result_path):
             os.remove(result_path)

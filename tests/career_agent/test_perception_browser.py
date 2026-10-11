@@ -201,3 +201,15 @@ def test_a_label_wrapping_a_select_is_the_question_not_the_option_list(page):
     page.set_content("<label>Source* <select id=s><option>Select</option><option>LinkedIn</option><option>Referral</option></select></label>")
     (f,) = [x for x in snapshot_form(page) if x.kind == "select"]
     assert f.label == "Source*" and f.options == ["LinkedIn", "Referral"]
+
+
+def test_react_selects_hidden_required_input_is_not_a_field(page):
+    from career_agent.browser.perception import snapshot_form
+    page.set_content(
+        '<label id="q-label" for="q">Please confirm receipt of the privacy notice.*</label>'
+        '<div><div class="select__placeholder" id="ph">Select...</div>'
+        '<input id="q" role="combobox" aria-labelledby="q-label" aria-required="true" aria-haspopup="true"></div>'
+        '<input required tabindex="-1" aria-hidden="true" value="" style="opacity:0;height:10px;width:100px">')
+    fields = [f for f in snapshot_form(page, scroll=False, shot=False) if f.kind != "button"]
+    assert len(fields) == 1 and fields[0].kind == "combobox"
+    assert fields[0].label.startswith("Please confirm receipt of the privacy notice.")

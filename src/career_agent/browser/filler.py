@@ -99,8 +99,10 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                     scope = lb
                     break
         # react-select renders options as divs with "-option-" ids,
-        # not role=option; a type-ahead shows none until you type.
-        opt_sel = "[role=option], [id*='-option-']"
+        # not role=option; a type-ahead shows none until you type. Only
+        # options on screen count: a list rendered but still hidden (Mercor's
+        # country box opens on typing) can't be clicked.
+        opt_sel = "[role=option]:visible, [id*='-option-']:visible"
 
         def _options():
             return [t.strip() for t in scope.locator(opt_sel).all_text_contents() if t.strip()]
@@ -133,10 +135,51 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
         pass
 
 
-def _pick_radio(page, target, want: str) -> None:
+_RADIO_TEXTS_JS = r"""(name) => [...document.getElementsByName(name)].filter(r => r.type === 'radio').map(r => {
+  const own = (r.labels && r.labels[0] && r.labels[0].innerText || '').trim();
+  if (own) return own;
+  for (let a = r.parentElement, i = 0; a && i < 4; a = a.parentElement, i++) {
+    if (a.querySelectorAll('input[type=radio]').length > 1) break;
+    const t = (a.innerText || '').trim();
+    if (t) return t;
+  }
+  return r.value || '';
+})"""
+
+
+def _pick_in_group(page, target, want: str, group: str) -> bool:
+    """Tick the radio of group `group` whose own text is `want`. Only that group's radios are candidates: a page of
+    Yes/No questions has a "Yes" in every group, and an unscoped "Yes" lands on the first question every time."""
+    try:
+        texts = [t.strip().lower() for t in target.evaluate(_RADIO_TEXTS_JS, group)]
+    except Exception:
+        return False
+    w = want.strip().lower()
+    idx = next((i for i, t in enumerate(texts) if t == w), None)
+    if idx is None:
+        idx = next((i for i, t in enumerate(texts) if t.startswith(w) or w.startswith(t) and t), None)
+    if idx is None:
+        return False
+    q = group.replace('"', '\\"')
+    radio = target.locator(f'input[type=radio][name="{q}"]').nth(idx)
+    for go in (lambda: radio.check(force=True, timeout=_SOFT_TIMEOUT_MS),
+               lambda: radio.locator("xpath=../..").click(timeout=_SOFT_TIMEOUT_MS)):
+        try:
+            pace(page)
+            go()
+            if radio.is_checked():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _pick_radio(page, target, want: str, group: str | None = None) -> None:
     """Select the radio option labelled `want`. Styled radios hide the real <input> (opacity 0, readonly)
     and often carry the question text in their aria-label, so try, in order: label match, the input by
     its value, then clicking the visible option wrapper / text."""
+    if group and _pick_in_group(page, target, want, group):
+        return
     q = want.replace('"', '\\"')
     attempts = (
         lambda: target.get_by_label(want, exact=True).check(timeout=_SOFT_TIMEOUT_MS),
@@ -289,7 +332,7 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
             except Exception:
                 pass
         elif d.action == "check_group":
-            _pick_radio(page, target, str(d.value))
+            _pick_radio(page, target, str(d.value), sel[6:] if sel.startswith("group:") else None)
         elif d.action == "uncheck":
             # a marketing opt-in the site pre-ticked: make sure it ends up unticked (idempotent)
             try:

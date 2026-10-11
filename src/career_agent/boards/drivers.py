@@ -24,6 +24,10 @@ def _in_dialog(page, ref):
             loc = target.get_by_role("button", name=sel[7:], exact=True)
         else:
             loc = target.locator(sel)
+        # count() doesn't wait: a page button under an open modal is aria-hidden, so get_by_role finds nothing, and
+        # evaluate() would wait out its timeout for each one (62 of them on Wellfound: 90s a read)
+        if not loc.count():
+            return False
         return bool(loc.first.evaluate(f"e => !!e.closest({_DIALOG!r})", timeout=1500))
     except Exception:
         return False

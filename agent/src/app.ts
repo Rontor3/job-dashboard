@@ -7,6 +7,7 @@
 //   GET  /agent/sessions/:id/events          SSE: a snapshot, then agent events (any number of clients)
 //   POST /agent/sessions/:id/messages        {content, requestId, context?, images?} — exactly once per requestId
 //   POST /agent/sessions/:id/stop            abort the running work
+//   POST /agent/runs                         {job_id} the apply queue starts a background apply run (runs.ts)
 //   …and the slash commands (commands.ts)
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
@@ -18,6 +19,7 @@ import { streamSSE } from "hono/streaming";
 import type { ApiClient } from "./api.ts";
 import type { ModelSource } from "./model.ts";
 import { installCommands } from "./commands.ts";
+import { startApplyRun } from "./runs.ts";
 import { applyProfile, findProfile } from "./team.ts";
 import { activate, conversationOf, createSession, ensureActive, nameIfNew, sessionItem, sessionsState } from "./sessions.ts";
 
@@ -100,6 +102,12 @@ export function createAgentApp(deps: AgentDeps): Hono {
   installCommands(app, { harness, client, live, ctx, reload: deps.reload, session, submit });
 
   app.get("/agent/health", (c) => c.json({ ok: true }));
+
+  app.post("/agent/runs", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { job_id?: unknown };
+    if (typeof body.job_id !== "number" || !Number.isInteger(body.job_id)) return c.json({ detail: "job_id must be an integer" }, 422);
+    return c.json({ session: await startApplyRun(harness, client, live, ctx, body.job_id) });
+  });
 
   app.get("/agent/sessions", async (c) => {
     if (!(await sessionsState(harness, ctx)).active) await ensureActive(harness, await live.sync(client), ctx);

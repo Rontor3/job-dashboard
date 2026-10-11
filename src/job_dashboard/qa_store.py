@@ -25,6 +25,11 @@ DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail 
                     "browser_indeed_enabled": "0", "browser_ycstartups_enabled": "0",
                     "gmail_confirmation_check": "0",    # look for the "application sent" EMAIL as proof (subjects only; off by default)
                     "autosubmit_daily_cap": "5",       # most automatic submits in any 24h (autonomy.autosubmit_policy)
+                    "autosubmit_skip_first_site": "0", # 1 = the first submit on a new site needn't be yours (verification only)
+                    # Agent-driven apply (spec 2026-10-11): which engine the queue uses, the default job priority, and
+                    # the priorities at which an answer the agent wrote itself holds submit for your review.
+                    "apply_engine": "script", "apply_priority_default": "normal", "apply_hold_priorities": "high,dream",
+                    "apply_max_open_tabs": "5",        # paused runs whose tab stays open; the next pause closes the oldest
                     # Apply queue: standing per-board authorization to auto-submit (0/1).
                     **{f"autosubmit_{b}": "0" for b in ("naukri", "linkedin", "indeed", "iimjobs", "instahyre",
                                                         "wellfound", "workatastartup", "career_site")}}
@@ -33,7 +38,7 @@ _COLS = (
     "qkey", "label", "kind", "purpose", "answer", "source", "status",
     "confidence", "basis", "context_json", "unsupported_claims",
     "retrieval_kind", "retrieved_qkey", "retrieval_score", "candidates_json",
-    "outcome", "page",
+    "outcome", "page", "agent_written", "citation",
 )
 
 
@@ -55,6 +60,11 @@ def ensure(conn) -> None:
         UNIQUE(run_key, ref))""")
     if "page" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
         conn.execute("ALTER TABLE application_qa ADD COLUMN page INTEGER")      # which form page asked it
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]
+    if "agent_written" not in cols:      # 1 = the agent composed this answer itself: not your words
+        conn.execute("ALTER TABLE application_qa ADD COLUMN agent_written INTEGER NOT NULL DEFAULT 0")
+    if "citation" not in cols:           # JSON: where a grounded answer came from
+        conn.execute("ALTER TABLE application_qa ADD COLUMN citation TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_job_status ON application_qa(job_id, status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_qkey ON application_qa(qkey)")
     conn.execute("CREATE TABLE IF NOT EXISTS agent_settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -93,7 +103,7 @@ def record(conn, *, job_id, run_key: str, ref: str, label: str, **fields) -> Non
 
 def _row(cur, r) -> dict:
     d = dict(zip([c[0] for c in cur.description], r))
-    for k in ("context_json", "unsupported_claims", "candidates_json"):
+    for k in ("context_json", "unsupported_claims", "candidates_json", "citation"):
         if d.get(k):
             try:
                 d[k] = json.loads(d[k])

@@ -102,6 +102,11 @@ def _config_write(_conn, key, _fld, value):
 
 
 def _job_read(conn, job_id, fld):
+    if fld == "priority":
+        from job_dashboard.apply import run_store
+        run_store.ensure(conn)
+        row = conn.execute("SELECT priority FROM jobs WHERE id=?", (job_id,)).fetchone()
+        return None if row is None else row[0]
     if fld == "status":
         row = conn.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
         return None if row is None else row[0]
@@ -111,7 +116,14 @@ def _job_read(conn, job_id, fld):
 
 def _job_write(conn, job_id, fld, value):
     from job_dashboard.db import set_apply_details, set_job_status
-    if fld == "status":
+    if fld == "priority":
+        from job_dashboard.apply import run_store
+        if value is None:
+            conn.execute("UPDATE jobs SET priority=NULL WHERE id=?", (int(job_id),))
+            conn.commit()
+        else:
+            run_store.set_priority(conn, int(job_id), value)
+    elif fld == "status":
         set_job_status(conn, int(job_id), value)
     else:
         set_apply_details(conn, int(job_id), value or {})

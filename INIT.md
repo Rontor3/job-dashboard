@@ -203,6 +203,10 @@ Read these back and ask whether to keep them. The defaults are conservative on p
 | Auto-submit per board (`autosubmit_naukri`, `_linkedin`, `_indeed`, `_iimjobs`, `_instahyre`, `_wellfound`, `_workatastartup`, `_career_site`) | all **off** | without it the agent fills the form and stops before Submit (dry run) |
 | Graduated autonomy | an answer needs **3** untouched approvals; the first submit on any new kind of site always goes through you | applies even when auto-submit is on |
 | `autosubmit_daily_cap` | 5 a day | most automatic submits in any 24 hours |
+| `apply_engine` | `script` | `agent`: the in-app agent drives each application through its apply tools (spec `docs/superpowers/specs/2026-10-11-agent-driven-apply-design.md`) |
+| Job priority (`apply_priority_default`, `apply_hold_priorities`) | `normal`; `high,dream` hold | at a held priority, any answer the agent wrote itself (not the user's words) holds submit for review |
+| `apply_max_open_tabs` | 5 | paused agent runs whose tab stays open; the next pause closes the oldest |
+| `autosubmit_skip_first_site` | **off** | on: the first submit on a new kind of site needn't be yours. Only for a verification the user approved; switch it back off |
 | Rate limits (`RATE_LIMIT_DOMAIN_DAY`, `RATE_LIMIT_HOUR`, `RATE_LIMIT_PACE`) | 5 per domain per day, 10 an hour, `medium` | how often the agent may hit a site |
 | Claude assist (`CAREER_AGENT_CLAUDE_ASSIST=1` in `.env`) | **off** | when the agent is stuck, a headless `claude -p` gets a **screenshot of the page** and the list of clickable controls, and picks one click (5 calls per run at most). It can never type, submit, log in or touch captchas. It uses the user's **own Claude login** and sends the screenshot to Anthropic, so ask explicitly; don't nudge. |
 | Generated ATS passwords | random, saved to `data/secrets/credentials.json` | the agent creates and reuses site accounts; the passwords never enter any model's context |

@@ -122,9 +122,35 @@ def auto_submits_last_day(conn) -> int:
     return conn.execute("SELECT COUNT(*) FROM submit_history WHERE how='auto' AND confirmed_at > ?", (since,)).fetchone()[0]
 
 
-def autonomy_report(conn, run_key: str, decisions) -> dict:
-    """{ok, blockers: [(label, why)], confident, total}: may this filled form go out without a human?"""
+# Agent-driven runs (spec 2026-10-11): an answer the agent cited from one of these is grounded, not a guess. A CONFIDENT
+# question-bank recall is grounded too; a LIKELY one, like an answer the agent wrote itself, is not your words.
+GROUNDED_SOURCES = STABLE_SOURCES | {"qbank", "ingredients", "jd", "option"}
+AGENT_WRITTEN_SOURCES = {"agent", "qbank_likely"}
+
+
+def autonomy_report(conn, run_key: str, decisions, agent_mode: bool = False, hold: bool = False) -> dict:
+    """{ok, blockers: [(label, why)], confident, total, agent_written}: may this filled form go out without a human?
+    `agent_mode`: grounded, cited answers count as confirmed; answers the agent wrote itself block only when `hold`
+    (the job's priority asks for your review), and are listed in `agent_written` either way."""
     ensure(conn)
+    if agent_mode:
+        blockers, written, total, grounded = [], [], 0, 0
+        for d in decisions:
+            get = (lambda k: d.get(k)) if isinstance(d, dict) else (lambda k: getattr(d, k, None))
+            if get("value") is None:
+                continue
+            total += 1
+            source, label = get("source"), get("label") or get("ref")
+            if source in AGENT_WRITTEN_SOURCES:
+                written.append(label)
+                if hold:
+                    blockers.append((label, "written by the agent, not your words; this job's priority asks for your review"))
+            elif source in GROUNDED_SOURCES:
+                grounded += 1
+            else:
+                blockers.append((label, f"{source or 'unknown source'}: not a grounded answer"))
+        return {"ok": not blockers, "blockers": blockers, "confident": grounded,
+                "total": total, "agent_written": written}
     entry_of = {ref: q for ref, q in conn.execute("SELECT ref, retrieved_qkey FROM application_qa WHERE run_key=?", (run_key,))}
     blockers, total = [], 0
     for d in decisions:
@@ -150,7 +176,7 @@ def autonomy_report(conn, run_key: str, decisions) -> dict:
 DEFAULT_DAILY_CAP = 5
 
 
-def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
+def autosubmit_policy(conn, url: str, run_key: str, decisions, agent_mode: bool = False, hold: bool = False) -> dict:
     """May this filled form be submitted without a human? {allow, reasons, report, site, switch}. `reasons` says why not.
     All must hold: the switch for the site the agent is ON NOW (not the page it started from) is on; every answer is
     autonomous; that kind of site has had a confirmed submit before (the first one is always yours); the daily cap of
@@ -162,7 +188,7 @@ def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
         switch_on = qa_store.get_setting(conn, switch_key) == "1"
     except KeyError:
         switch_on = False
-    report = autonomy_report(conn, run_key, decisions)
+    report = autonomy_report(conn, run_key, decisions, agent_mode=agent_mode, hold=hold)
     site = ats_key(url)
     try:
         cap = int(qa_store.get_setting(conn, "autosubmit_daily_cap"))
@@ -175,7 +201,11 @@ def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
     if not report["ok"]:
         reasons.append(f"{len(report['blockers'])} answer(s) not yet autonomous: "
                        + "; ".join(f"{label} ({why})" for label, why in report["blockers"][:4]))
-    if not has_confirmed_submit(conn, site):
+    try:
+        skip_first = qa_store.get_setting(conn, "autosubmit_skip_first_site") == "1"
+    except KeyError:
+        skip_first = False
+    if not has_confirmed_submit(conn, site) and not skip_first:
         reasons.append(f"first submit on {site} must go through you")
     if used >= cap:
         reasons.append(f"daily cap reached ({used}/{cap} automatic submits in 24h)")

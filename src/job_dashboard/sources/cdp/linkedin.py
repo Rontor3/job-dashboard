@@ -1,10 +1,14 @@
 """LinkedIn Jobs adapter. Reads only the responses LinkedIn's own SPA makes when a search page
 loads (voyagerJobsDashJobCards + the jobPostingDetailDescription prefetch); no clicks.
-Extraction logic verified in docs/career-agent/job-source-research/linkedin_fetch_sketch.py."""
+Extraction logic verified in docs/career-agent/job-source-research/linkedin_fetch_sketch.py.
+
+2026-10-11: LinkedIn moved job search to server-driven UI (/jobs/search-results/, a React Server Components
+stream instead of voyager JSON). When a load captures no cards, the cards and the job page are read from the
+rendered page instead (still no clicks)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlparse
 
 from job_dashboard.models import JobListing
 
@@ -14,6 +18,9 @@ SITE = "linkedin"
 BASE = "https://www.linkedin.com/jobs/search/"
 # 48h verified working (1,093 results vs 900 for 24h, 1,428 for 7d). Max 30 days (retention rule).
 TPR = {24: "r86400", 48: "r172800", 168: "r604800", 720: "r2592000"}
+PAGE_SIZE = 25                       # cards per search page
+# The search-results page ignores a text location: "location=India" alone returns "No results found".
+GEO = {"India": "102713980"}
 
 
 def job_url(jid: str) -> str:
@@ -22,6 +29,8 @@ def job_url(jid: str) -> str:
 
 def search_url(term, hours=None, start=0, location="India", sort="DD") -> str:
     u = f"{BASE}?keywords={quote(term)}&location={quote(location)}"
+    if location in GEO:
+        u += f"&geoId={GEO[location]}"
     if sort:
         u += f"&sortBy={sort}"
     if hours:
@@ -105,8 +114,51 @@ TERMS = ["machine learning engineer", "ai engineer", "data scientist", "llm engi
 _NEEDLES = ("voyagerJobsDashJobCards", "voyagerJobsDashJobPostingDetailSections")
 
 
+_CARDS_JS = r"""() => { const seen = new Set();
+  return [...document.querySelectorAll('[componentkey^="job-card-component-ref-"]')].filter(e => {
+    const k = e.getAttribute('componentkey'); if (seen.has(k)) return false; seen.add(k); return true; })
+  .map(e => [e.getAttribute('componentkey').split('-').pop(), e.innerText.split('\n').map(x => x.trim()).filter(Boolean)]); }"""
+_VIEW_JS = r"""() => { const apply = [...document.querySelectorAll('a,button')]
+    .filter(e => /^\s*(easy apply|apply)\s*$/i.test(e.innerText || ''));
+  return {text: document.body.innerText, apply: apply.map(e => [(e.innerText || '').trim(), e.href || ''])}; }"""
+_DESC_END = ("\nAbout the company", "\nInterested in working with us", "\n… more\n", "\nShow more\nMore jobs")
+
+
+def dom_cards(rows) -> dict:
+    """[(job id, card text lines)] from the search-results page -> cards shaped like parse_cards'."""
+    out = {}
+    for jid, lines in rows if isinstance(rows, list) else []:
+        lines = [x for x in lines if x not in ("·", "Viewed", "Promoted")]
+        if len(lines) < 3 or not str(jid).isdigit():
+            continue
+        title = lines[1] if lines[0].startswith("Selected, ") or lines[0].endswith("(Verified job)") else lines[0]
+        rest = lines[2:] if title == lines[1] else lines[1:]
+        out[str(jid)] = dict(id=str(jid), title=title, company=rest[0], location=rest[1] if len(rest) > 1 else None,
+                             salary=None, listed_ms=None, easy_apply_card="Easy Apply" in lines, reposted=None)
+    return out
+
+
+def dom_detail(view) -> dict:
+    """The job page's "About the job" text and its Apply control -> a detail shaped like parse_details'."""
+    if not isinstance(view, dict):
+        return {}
+    text, out = view.get("text") or "", {}
+    i = text.find("About the job")
+    if i >= 0:
+        body = text[i + len("About the job"):]
+        cut = min([j for j in (body.find(m) for m in _DESC_END) if j > 0] or [len(body)])
+        out["description"] = body[:cut].strip() or None
+    for label, href in view.get("apply") or []:
+        if label.lower() == "easy apply":
+            out["onsite_apply"] = True
+        elif href:
+            target = parse_qs(urlparse(href).query).get("url", [href])[0]
+            out.update(onsite_apply=False, apply_url=target)
+    return out
+
+
 def _load(session, url):
-    """One page load -> (cards, details) from the responses LinkedIn's SPA made itself."""
+    """One page load -> (cards, details) from the responses LinkedIn's SPA made itself, else from the page."""
     cards, details = {}, {}
     with session.capture(*_NEEDLES) as cap:
         session.goto(url)
@@ -118,6 +170,12 @@ def _load(session, url):
                     old.update({k: v for k, v in c.items() if v not in (None, "") and old.get(k) in (None, "")})
         for jid, d in parse_details(body).items():
             details.setdefault(jid, {}).update({k: v for k, v in d.items() if v is not None})
+    if not cards and "/jobs/view/" not in url:
+        cards = dom_cards(session.read(_CARDS_JS))
+    if "/jobs/view/" in url:
+        jid = url.rstrip("/").rsplit("/", 1)[-1]
+        if not (details.get(jid) or {}).get("description"):
+            details.setdefault(jid, {}).update({k: v for k, v in dom_detail(session.read(_VIEW_JS)).items() if v is not None})
     return cards, details
 
 
@@ -134,7 +192,7 @@ def run(session, ctx):
         for term in ctx.terms:
             consecutive_known, queue = 0, pending.setdefault(term, [])
             for p in range(ctx.max_pages):
-                cards, details = _load(session, search_url(term, hours, start=50 * p))
+                cards, details = _load(session, search_url(term, hours, start=PAGE_SIZE * p))
                 if not cards:
                     break
                 ctx.stats["pages"] += 1

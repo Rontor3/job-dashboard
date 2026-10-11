@@ -40,6 +40,35 @@ class QueueMove(BaseModel):
 class QueueSettings(BaseModel):
     telegram_wait_minutes: Optional[int] = None
     gmail_confirmation_check: Optional[bool] = None       # look for the "application sent" email as proof (subjects only)
+    # Agent-driven apply (spec 2026-10-11): the engine, job priorities, paused tabs, and the verification-only override.
+    apply_engine: Optional[str] = None                    # script | agent
+    apply_priority_default: Optional[str] = None          # low | normal | high | dream
+    apply_hold_priorities: Optional[list[str]] = None     # priorities at which an agent-written answer holds submit
+    apply_max_open_tabs: Optional[int] = None
+    autosubmit_skip_first_site: Optional[bool] = None
+    autosubmit_daily_cap: Optional[int] = None
+
+
+_APPLY_KEYS = ("apply_engine", "apply_priority_default", "apply_hold_priorities", "apply_max_open_tabs",
+               "autosubmit_skip_first_site", "autosubmit_daily_cap")
+
+
+def _apply_value(key, v):
+    """The stored string for one apply setting, or a 422 reason."""
+    from job_dashboard.apply.run_store import PRIORITIES
+    if key == "apply_engine" and v not in ("script", "agent"):
+        raise HTTPException(status_code=422, detail="apply_engine must be script or agent")
+    if key == "apply_priority_default" and v not in PRIORITIES:
+        raise HTTPException(status_code=422, detail=f"apply_priority_default must be one of {', '.join(PRIORITIES)}")
+    if key == "apply_hold_priorities":
+        if any(p not in PRIORITIES for p in v):
+            raise HTTPException(status_code=422, detail=f"apply_hold_priorities: each one of {', '.join(PRIORITIES)}")
+        return ",".join(v)
+    if key in ("apply_max_open_tabs", "autosubmit_daily_cap") and not 1 <= v <= 50:
+        raise HTTPException(status_code=422, detail=f"{key} must be 1-50")
+    if isinstance(v, bool):
+        return "1" if v else "0"
+    return str(v)
 
 
 class ReconcileBody(BaseModel):
@@ -214,7 +243,8 @@ def build_queue_router(db_path, runner) -> APIRouter:
         conn = db()
         try:
             return {"telegram_wait_minutes": int(qa_store.get_setting(conn, "telegram_wait_minutes")),
-                    "gmail_confirmation_check": qa_store.get_setting(conn, "gmail_confirmation_check") == "1"}
+                    "gmail_confirmation_check": qa_store.get_setting(conn, "gmail_confirmation_check") == "1",
+                    **{k: qa_store.get_setting(conn, k) for k in _APPLY_KEYS}}
         finally:
             conn.close()
 
@@ -229,8 +259,13 @@ def build_queue_router(db_path, runner) -> APIRouter:
             if body.gmail_confirmation_check is not None:
                 changes.apply(conn, "setting", "gmail_confirmation_check", "value",
                               "1" if body.gmail_confirmation_check else "0")
+            for key in _APPLY_KEYS:
+                v = getattr(body, key)
+                if v is not None:
+                    changes.apply(conn, "setting", key, "value", _apply_value(key, v))
             return {"telegram_wait_minutes": int(qa_store.get_setting(conn, "telegram_wait_minutes")),
-                    "gmail_confirmation_check": qa_store.get_setting(conn, "gmail_confirmation_check") == "1"}
+                    "gmail_confirmation_check": qa_store.get_setting(conn, "gmail_confirmation_check") == "1",
+                    **{k: qa_store.get_setting(conn, k) for k in _APPLY_KEYS}}
         finally:
             conn.close()
 

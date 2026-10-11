@@ -111,6 +111,8 @@ def init_db(path):
     ensure_application_tables(conn)
     from job_dashboard.apply.queue import ensure as ensure_apply_queue
     ensure_apply_queue(conn)
+    from job_dashboard.apply.run_store import ensure as ensure_apply_run
+    ensure_apply_run(conn)
     from job_dashboard.tracker import ensure as ensure_tracker
     ensure_tracker(conn)
     from job_dashboard.mail_scan import ensure as ensure_mail

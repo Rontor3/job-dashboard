@@ -11,9 +11,9 @@ import re
 from .clicks import wait
 
 _TEXT_OK = re.compile(
-    r"thank you for (applying|your (application|interest))"
+    r"(thank you|thanks) for (applying|your (application|interest))"
     r"|(your )?application (has been |was |is )?(successfully )?(submitted|received|sent|complete(d)?)"
-    r"|successfully (submitted|applied)|we(?:'ve| have) received your application"
+    r"|successfully (submitted|applied)|(?:we(?:'ve| have) )?(?:officially )?received your application"
     r"|you(?:'ve| have)? (just )?applied\b|application sent\b"
     r"|[✓✔]\s*applied\b", re.I)                       # the Apply button turned into a ticked "Applied" (same page, no form)
 _TEXT_NO = re.compile(r"not (been )?(submitted|sent)|could not (submit|send)|submission failed|please (correct|fix)|required field|try again", re.I)
@@ -23,7 +23,8 @@ _SIGNALS_JS = r"""() => {
   const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
   const fields = Array.from(document.querySelectorAll('input,select,textarea,[role=combobox]')).filter(vis)
     .filter(e => !['hidden','submit','button','checkbox','radio','search'].includes(e.type) && !/search/i.test((e.getAttribute('aria-label') || e.name || e.placeholder || '')));
-  return { text: (document.body && document.body.innerText || '').slice(0, 4000), fields: fields.length, url: location.href };
+  // the tab title too: Greenhouse's confirmation says "Thank you for applying" only there
+  return { text: (document.title + '\n' + (document.body && document.body.innerText || '')).slice(0, 4000), fields: fields.length, url: location.href };
 }"""
 
 

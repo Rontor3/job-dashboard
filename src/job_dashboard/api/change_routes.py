@@ -27,6 +27,7 @@ HUMAN_ONLY = [(m, re.compile(p + r"$")) for m, p in (
     ("POST", r"/api/confirmations/\d+/confirm"),
     ("PUT", r"/api/secrets/[A-Z0-9_]+"),
     ("PUT", r"/api/current-resume"),
+    ("POST", r"/api/apply-sessions/\d+/resume"),
 )]
 
 

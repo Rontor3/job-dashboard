@@ -109,6 +109,32 @@ def dismiss_consent(page) -> bool:
     return False
 
 
+_LOGIN_DIALOG = re.compile(r"^\s*(log ?in|sign ?in)( window)?\b|\b(sign|log) in to (apply|continue)\b", re.I)
+
+
+def _is_login_dialog(dialog) -> bool:
+    try:
+        label = (dialog.get_attribute("aria-label") or "") + "\n" + (dialog.inner_text(timeout=1000) or "")[:400]
+    except Exception:
+        return False
+    return any(_LOGIN_DIALOG.search(part) for part in label.split("\n") if part.strip())
+
+
+def login_dialog_open(page) -> bool:
+    """A visible sign-in dialog over the page (Indeed asks for one before "Apply on company site")."""
+    try:
+        dialog = page.locator("[role=dialog]:visible, [role=alertdialog]:visible").first
+        return dialog.count() > 0 and _is_login_dialog(dialog)
+    except Exception:
+        return False
+
+
+# The agent-driven harness answers dialogs itself (browser/dialogs.py): on its browser thread this is set, and only
+# idle prompts are closed here; everything else is left on screen for the agent.
+import contextvars as _cv
+LEAVE_DIALOGS = _cv.ContextVar("leave_dialogs", default=False)
+
+
 def dismiss_dialogs(page) -> bool:
     """Dismiss an idle/blocking modal (e.g. Oracle 'Continue Working'). Never a destructive/submit control, and
     never a button OUTSIDE the modal: a page that merely carries a (hidden) dialog element has its own "Continue"
@@ -122,6 +148,15 @@ def dismiss_dialogs(page) -> bool:
         if _best_apply([{"name": " ".join(n.split())} for n in names]) is not None:
             trail_note(step="modal_kept", why="offers an apply control")
             return False
+        if _is_login_dialog(dialog):
+            trail_note(step="modal_kept", why="a sign-in dialog: an account wall, not noise")
+            return False
+        if LEAVE_DIALOGS.get():
+            from .dialogs import classify, read
+            d = read(page)
+            if d and classify(d) != "idle":
+                trail_note(step="modal_kept", why="left for the agent")
+                return False
     except Exception:
         return False
     via = _click_first(page, _DIALOG_DISMISS, within=dialog)       # inside the modal only

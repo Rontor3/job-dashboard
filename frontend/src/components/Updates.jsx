@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { addManyToQueue, addToQueue } from "../api.js";
+import { addManyToQueue, addToQueue, resumeApplyRun, showApplyTab, skipApplyRun } from "../api.js";
 import { useOptionalAgent } from "../agent/AgentProvider.tsx";
 import { dismissNotification, fetchNotifications, readNotifications } from "../agent/client.ts";
 
@@ -53,6 +53,14 @@ function Update({ n, onOpenJob, onShowJobs, onDismiss, onChange }) {
               </button>
               {agent && ids.length > 1 && <button className="btn btn-sm" onClick={review}>Review with the agents first</button>}
               {onShowJobs && <button className="btn btn-sm btn-quiet" onClick={() => onShowJobs(ids)}>Show them</button>}
+            </>}
+            {n.kind === "parked" && n.data?.live && n.job_id && <>
+              <button className="btn btn-sm btn-primary" disabled={busy}
+                onClick={() => act(resumeApplyRun(n.job_id), "Resuming: the agent picks it up where it paused.")}>Resume</button>
+              {n.data.tab_open && <button className="btn btn-sm" disabled={busy}
+                onClick={() => act(showApplyTab(n.job_id), "It's the front tab in the agent's Chrome.")}>Show tab</button>}
+              <button className="btn btn-sm btn-quiet" disabled={busy}
+                onClick={() => act(skipApplyRun(n.job_id), "Skipped; the tab is closed.")}>Skip</button>
             </>}
             {n.kind === "failed" && n.job_id && (
               <button className="btn btn-sm" disabled={busy}

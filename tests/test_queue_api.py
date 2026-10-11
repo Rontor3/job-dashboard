@@ -126,13 +126,14 @@ def test_agent_launch_waits_for_a_busy_agent_then_returns_its_exit_code(monkeypa
 
 def test_telegram_wait_setting_roundtrip_and_bounds(tmp_path):
     c, *_ = _client(tmp_path)
-    assert c.get("/api/queue/settings").json() == {"telegram_wait_minutes": 10, "gmail_confirmation_check": False}
+    got = c.get("/api/queue/settings").json()
+    assert (got["telegram_wait_minutes"], got["gmail_confirmation_check"], got["apply_engine"]) == (10, False, "script")
     assert c.put("/api/queue/settings", json={"telegram_wait_minutes": 25}).status_code == 200
     assert c.get("/api/queue/settings").json()["telegram_wait_minutes"] == 25
     assert c.put("/api/queue/settings", json={"telegram_wait_minutes": 500}).status_code == 422
     assert c.put("/api/queue/settings", json={"telegram_wait_minutes": -1}).status_code == 422
     # the Gmail confirmation lookup is off until switched on, is switched independently, and can be switched off again
-    assert c.put("/api/queue/settings", json={"gmail_confirmation_check": True}).json() == {"telegram_wait_minutes": 25, "gmail_confirmation_check": True}
+    assert {"telegram_wait_minutes": 25, "gmail_confirmation_check": True}.items() <= c.put("/api/queue/settings", json={"gmail_confirmation_check": True}).json().items()
     assert c.put("/api/queue/settings", json={"gmail_confirmation_check": False}).json()["gmail_confirmation_check"] is False
 
 

@@ -6,6 +6,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { section } from "@earendil-works/pi-durable";
 import { agentDir, REPO_ROOT } from "./env.ts";
+import { skillsSection } from "./skills.ts";
 
 export const BASE_PROMPT = () => join(REPO_ROOT, "docs", "agent", "system.md");
 export const USER_PROMPT = () => join(agentDir(), "user.md");
@@ -30,4 +31,5 @@ export const sections = (base = BASE_PROMPT, user = USER_PROMPT, about = ABOUT_M
   section("playbook", () => readCached(base()) ?? "You help the user set up and tailor their job-application agent.", { tag: false }),
   section("user_instructions", () => readCached(user())),
   section("about_the_user", () => readCached(about()) ?? "Nothing learned yet. Start with their target job when it comes up."),
+  skillsSection(),
 ];

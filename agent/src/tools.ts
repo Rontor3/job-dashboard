@@ -1,8 +1,9 @@
 // The v1 tools (spec: profile and identity, the question bank and Needs-you, preferences and settings, jobs,
 // setup state). Each is one or two HTTP calls to FastAPI with the session and tool-call ids as headers, so every
 // change lands in the change log with Undo. A tool is `replay: "safe"` only when it sets a value: rerunning it
-// after a crash lands on the same state and logs nothing new. There is deliberately no tool that submits an
-// application, reads a secret value, or touches files outside the data FastAPI exposes.
+// after a crash lands on the same state and logs nothing new. There is deliberately no tool that reads a secret value
+// or touches files outside the data FastAPI exposes. The only submit is `apply_submit` (tools-apply.ts), which the
+// server allows only under the user's standing auto-submit switch.
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ToolExecutionApi, type ToolExecutionResult } from "@earendil-works/pi-durable";
 import { SECRET_KEYS, WIDGET_TOOLS, type ChangeSummary } from "@jobdash/agent-protocol";
@@ -10,6 +11,7 @@ import type { Context } from "@earendil-works/chord";
 import type { ApiClient, ApiResult } from "./api.ts";
 import { keyOf } from "./sessions.ts";
 import type { Team } from "./team.ts";
+import { applyTools } from "./tools-apply.ts";
 import { teamTools } from "./tools-team.ts";
 
 const MAX_RESULT = 12_000;
@@ -55,6 +57,7 @@ const pick = (o: Record<string, unknown>, keys: string[]) => Object.fromEntries(
 export function makeTools(client: ApiClient, team: Team = {}) {
   return [
     ...teamTools(client, team),
+    ...applyTools(client),
     // ── Profile and identity ──────────────────────────────────────────────────────────────────────────────
     defineTool({
       name: "get_profile",
@@ -192,14 +195,16 @@ export function makeTools(client: ApiClient, team: Team = {}) {
     // ── Jobs ──────────────────────────────────────────────────────────────────────────────────────────────
     defineTool({
       name: "search_jobs",
-      description: "Search scraped jobs. status: saved|applied|interviewing|offer|rejected|dismissed; sort: embed|learned|date.",
+      description: "Search scraped jobs. status: saved|applied|interviewing|offer|rejected|dismissed; source: a board "
+        + "(linkedin, wellfound, himalayas, ...); india: true for jobs open to someone in India.",
       parameters: Type.Object({
         query: Type.Optional(Type.String()), status: Type.Optional(Type.String()),
+        source: Type.Optional(Type.String()), india: Type.Optional(Type.Boolean()),
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
       }),
       replay: "safe",
       execute: async (a, api, ctx) => asResult(
-        await caller(client, api, ctx)("GET", `/api/jobs${q({ q: a.query, status: a.status, limit: a.limit ?? 15 })}`),
+        await caller(client, api, ctx)("GET", `/api/jobs${q({ q: a.query, status: a.status, source: a.source, india: a.india, limit: a.limit ?? 15 })}`),
         (d) => ({ total: d.total, jobs: d.jobs.map((j: any) => pick(j, JOB_FIELDS)) })),
     }),
     defineTool({

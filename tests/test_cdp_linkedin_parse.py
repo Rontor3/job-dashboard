@@ -49,3 +49,29 @@ def test_search_url_window_and_paging():
     u = li.search_url("data scientist", 48, start=25)
     assert "keywords=data%20scientist" in u and "f_TPR=r172800" in u and "sortBy=DD" in u and "start=25" in u
     assert "start=" not in li.search_url("x", 24)
+
+
+def test_search_url_carries_the_geo_id_the_new_search_page_needs():
+    assert "geoId=102713980" in li.search_url("ml", 48)
+
+
+def test_dom_cards_from_the_server_rendered_search_page():
+    rows = [["4477884895", ["Selected, Applied Scientist II (Verified job)", "Applied Scientist II", "Amazon", "Bengaluru",
+                            "39 connections work here", "Viewed", "·", "Posted 1 day ago"]],
+            ["4477800996", ["Machine Learning Engineer", "Cerebras", "Bengaluru (Hybrid)", "·", "Easy Apply"]],
+            ["bad", ["x", "y", "z"]]]
+    cards = li.dom_cards(rows)
+    assert set(cards) == {"4477884895", "4477800996"}
+    a, b = cards["4477884895"], cards["4477800996"]
+    assert (a["title"], a["company"], a["location"], a["easy_apply_card"]) == ("Applied Scientist II", "Amazon", "Bengaluru", False)
+    assert (b["title"], b["company"], b["easy_apply_card"]) == ("Machine Learning Engineer", "Cerebras", True)
+    assert li.dom_cards("") == {}
+
+
+def test_dom_detail_reads_about_the_job_and_the_apply_target():
+    view = {"text": "Cerebras\nApply\nAbout the job\n\nBuild models.\nShip them.\n\nAbout the company\nWe make chips.",
+            "apply": [["Apply", "https://www.linkedin.com/safety/go/?url=https%3A%2F%2Fjobs.ashbyhq.com%2Fc%2F1&trk=x"]]}
+    d = li.dom_detail(view)
+    assert d["description"] == "Build models.\nShip them."
+    assert d["onsite_apply"] is False and d["apply_url"] == "https://jobs.ashbyhq.com/c/1"
+    assert li.dom_detail({"text": "About the job\nDo ML.", "apply": [["Easy Apply", ""]]})["onsite_apply"] is True

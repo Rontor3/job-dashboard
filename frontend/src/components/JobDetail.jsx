@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchJob, patchStatus, agentLink } from "../api.js";
+import { fetchJob, patchStatus, agentLink, fetchApplyRun, setJobPriority } from "../api.js";
 import { cleanJd } from "../cleanJd.js";
 import { XIcon, ArrowUpRightIcon } from "./icons.jsx";
 import ResumePanel from "./ResumePanel.jsx";
@@ -14,6 +14,7 @@ export default function JobDetail({ id, onApply, onStatusChange, onClose }) {
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   const [details, setDetails] = useState(false);
+  const [priority, setPriority] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -22,6 +23,7 @@ export default function JobDetail({ id, onApply, onStatusChange, onClose }) {
     fetchJob(id)
       .then((j) => { if (!cancelled) setJob(j); })
       .catch((e) => { if (!cancelled) setError(String(e)); });
+    fetchApplyRun(id).then((r) => { if (!cancelled) setPriority(r?.priority || "normal"); }).catch(() => {});
     return () => { cancelled = true; };
   }, [id]);
 
@@ -67,6 +69,20 @@ export default function JobDetail({ id, onApply, onStatusChange, onClose }) {
         </a>
       </div>
       {details && <ApplyDetails jobId={id} onApply={onApply} />}
+
+      {priority && (
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, color: "var(--ink-soft)", margin: "8px 0" }}
+          title="At High and Dream, an answer the agent wrote itself (not your words) waits for your review before submit.">
+          <span style={{ fontWeight: 500 }}>Priority:</span>
+          <select value={priority} aria-label="Priority"
+            onChange={(e) => { const v = e.target.value; setJobPriority(id, v).then(() => setPriority(v)).catch((err) => setError(String(err))); }}>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="dream">Dream</option>
+          </select>
+        </label>
+      )}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "12px 0" }}>
         <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-soft)" }}>Response:</span>

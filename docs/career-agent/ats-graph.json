@@ -920,20 +920,26 @@
       "notes": "Job board with two modes: (1) redirect jobs — JD page only, no form, stops with no_advance_control; (2) embedded apply form — himalayas own form, requires account login first (auth_wall), submit button may use non-standard label.",
       "vendor": null,
       "reach_path": [
-        "click button 'Apply now' (frame 0) -> himalayas.app/companies/jumpcloud/jobs/staff-data-scientist-machine-learning-india",
+        "click button 'Apply now' (frame 0) -> himalayas.app/companies/wadhwani-ai/jobs/senior-machine-learning-scientist-machine-learnin",
         "modal kept open (offers an apply control)",
-        "click link 'I'm ready to apply' (frame 0) -> jobs.lever.co/jumpcloud/60f9796e-9f63-416e-8c7b-8e16cd2ee3dc/apply"
+        "click button 'Apply now' (frame 0) -> himalayas.app/companies/wadhwani-ai/jobs/senior-machine-learning-scientist-machine-learnin",
+        "modal kept open (offers an apply control)",
+        "click link 'I'm ready to apply' (frame 0) -> wadhwaniai.zohorecruit.in/jobs/Careers/146520000004617744",
+        "click button 'I'm interested' (frame 0) -> wadhwaniai.zohorecruit.in/jobs/Careers/146520000004617744"
       ],
-      "lands_on": "jobs.lever.co",
+      "lands_on": "wadhwaniai.zohorecruit.in",
       "reach_end": "form",
       "errors_seen": [
         "advance_failed",
+        "needs_answers",
         "no_advance_control",
         "reached_submit_dry_run"
       ],
       "reach_clicks": [
         "Apply now",
-        "I'm ready to apply"
+        "Apply now",
+        "I'm ready to apply",
+        "I'm interested"
       ]
     },
     {
@@ -978,6 +984,14 @@
       "errors_seen": [
         "reached_submit_dry_run",
         "stuck"
+      ]
+    },
+    {
+      "id": "site:wadhwaniai.zohorecruit.in",
+      "type": "site",
+      "label": "wadhwaniai.zohorecruit.in",
+      "domains": [
+        "wadhwaniai.zohorecruit.in"
       ]
     }
   ],
@@ -1275,6 +1289,11 @@
     {
       "from": "site:himalayas",
       "to": "site:jobs.lever.co",
+      "rel": "ROUTES_TO"
+    },
+    {
+      "from": "site:himalayas",
+      "to": "site:wadhwaniai.zohorecruit.in",
       "rel": "ROUTES_TO"
     }
   ]

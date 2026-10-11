@@ -59,6 +59,7 @@ def create_app(
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_embed=None,
     hiring_role_fn=None, queue_launch=None, mail_scanner=None, in_worker=False, profile_llm=None, profile_linkedin=None,
+    apply_sessions=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -123,6 +124,12 @@ def create_app(
     app.include_router(build_profile_router(db_path, profile_llm, profile_linkedin, qa_embed))
     app.include_router(build_feedback_router(db_path, qa_embed))
     app.include_router(build_company_router(db_path))
+    # Agent-driven apply runs: the live page per job, on one browser thread (tests pass a service with a fake page).
+    from job_dashboard.api.apply_session_routes import build_apply_session_router
+    from job_dashboard.apply.session_actor import BrowserActor
+    from job_dashboard.apply.session_service import ApplySessions
+    app.state.apply_sessions = apply_sessions or ApplySessions(db_path, BrowserActor())
+    app.include_router(build_apply_session_router(db_path, app.state.apply_sessions))
 
     @contextmanager
     def db():

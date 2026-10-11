@@ -156,7 +156,13 @@ class CdpTabs:
     def __enter__(self):
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.connect_over_cdp(self.cdp_url)
+        try:
+            self._browser = self._pw.chromium.connect_over_cdp(self.cdp_url)
+        except Exception:
+            # __exit__ doesn't run when __enter__ raises: a Playwright left started on this thread makes every later
+            # pass fail with "Sync API inside the asyncio loop"
+            self._pw.stop()
+            raise
         return self
 
     def __exit__(self, *a):

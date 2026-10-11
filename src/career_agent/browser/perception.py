@@ -336,6 +336,10 @@ _INPUT_JS = r"""
     // navigation controls, not application form fields (Phenom/Mastercard has
     // a jobs-search bar in the header whose selects navigate the page if filled).
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
+    // React-Select's validation stand-in (Greenhouse): an aria-hidden, untabbable text input next to the real
+    // combobox. It's no field of its own; listed, it showed as a required "Select..." nobody could fill.
+    if (tag === 'input' && ['text', ''].includes(type) && el.getAttribute('aria-hidden') === 'true'
+        && el.getAttribute('tabindex') === '-1') continue;
     // Skip genuinely invisible fields (display:none, on the element or an
     // ancestor) — accessible combobox widgets (Workday) pair a visible trigger
     // button with an invisible shadow <input> carrying the same accessible
@@ -388,11 +392,25 @@ _INPUT_JS = r"""
       if (lg && lg.textContent.trim()) return lg.textContent.trim().slice(0, 200);
       return groupLabel(el);
     };
+    // A radio whose name is the whole question, shared by every radio in its group (LinkedIn Easy Apply: aria-label
+    // = question, an empty <label>, "Yes"/"No" in a sibling <p>): its option is the nearest text that is its own.
+    const radioOption = () => {
+      const peers = el.name ? [...document.getElementsByName(el.name)].filter(r => r !== el && r.type === 'radio') : [];
+      if (!peers.length || !peers.every(r => labelFor(r) === labelFor(el))) return '';
+      for (let a = el.parentElement, i = 0; a && i < 4; a = a.parentElement, i++) {
+        if (a.querySelectorAll('input[type=radio]').length > 1) break;
+        const t = (a.innerText || '').trim();
+        if (t) return t.slice(0, 200);
+      }
+      return '';
+    };
     out.push({
       ref: idRef(el, cref),
-      kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value : labelFor(el), description: describedBy(el), required: !!el.required || el.getAttribute('aria-required') === 'true' || !!el.closest('.mandatoryField'),
+      kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value
+        : (type === 'radio' && radioOption()) || labelFor(el), description: describedBy(el), required: !!el.required || el.getAttribute('aria-required') === 'true' || !!el.closest('.mandatoryField'),
       options, group: (kind === 'radio') ? (el.name || null) : null,
-      group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : (isDatePart ? dateGroup() : ''),
+      group_label: (kind === 'radio' || kind === 'checkbox')
+        ? (groupLabel(el) || (type === 'radio' && radioOption() ? labelFor(el) : '')) : (isDatePart ? dateGroup() : ''),
       disabled: !!el.disabled || (!!el.readOnly && !isCombo && !isPicker && !['radio','checkbox'].includes(type)),   // React sets readonly on radios
       role, haspopup,
       input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
@@ -407,8 +425,10 @@ _INPUT_JS = r"""
     const tag = el.tagName.toLowerCase();
     if (['input', 'select', 'textarea', 'button'].includes(tag) || _now.has(el)) continue;
     // a text box's own suggestion popup (Zoho's lyte-autocomplete wraps both): the box is the field, not a second one
+    // (only a real wrapper with exactly one box: on a plain page the grandparent is <html> and holds every field)
     const widget = el.parentElement && el.parentElement.parentElement;
-    if (widget && widget.querySelector('input[data-cref]:not([type=hidden])')) continue;
+    if (widget && !['HTML', 'BODY', 'FORM'].includes(widget.tagName)
+        && widget.querySelectorAll('input[data-cref]:not([type=hidden])').length === 1) continue;
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
     const cref = stamp(el);
@@ -685,18 +705,22 @@ def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:
         pass   # non-scrollable page / framed page — proceed anyway
 
 
-def snapshot_form(page, verify_shot: str | None = None) -> list[Field]:
+def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True, shot: bool = True) -> list[Field]:
     """Scroll through the page to trigger all lazy-rendered fields, snapshot
-    the DOM, then optionally save a screenshot for visual verification."""
-    _slow_scroll_pass(page)
+    the DOM, then optionally save a screenshot for visual verification.
+    The agent harness re-reads a page many times: it scrolls only the first time and takes no debug screenshot."""
+    if scroll:
+        _slow_scroll_pass(page)
     from .page_prep import suppress_noise
     fields = suppress_noise(to_form_model(collect_raw(page)))
     # Screenshot after snapshot so a human (or next run) can verify nothing
     # visible was missed. Saved to the data root's tmp/ by default; caller can override.
-    shot = verify_shot or paths.tmp("career_agent_perception.png")
+    if not shot:
+        return fields
+    path = verify_shot or paths.tmp("career_agent_perception.png")
     try:
-        page.screenshot(path=shot, full_page=True, timeout=5000)   # debug record: never wait 30s on a stuck frame
-        print(f"[perc] snapshot: {len(fields)} fields — verify screenshot → {shot}", flush=True)
+        page.screenshot(path=path, full_page=True, timeout=5000)   # debug record: never wait 30s on a stuck frame
+        print(f"[perc] snapshot: {len(fields)} fields — verify screenshot → {path}", flush=True)
     except Exception:
         print(f"[perc] snapshot: {len(fields)} fields", flush=True)
     return fields

@@ -34,12 +34,12 @@ def page_for(term_pages, details=(), view=None):
 
 def test_new_jobs_use_prefetched_description_and_skip_known():
     u0 = li.search_url("ml", 48)
-    page = page_for({u0: ["1", "2"], li.search_url("ml", 48, start=50): []}, details=["1", "2"])
+    page = page_for({u0: ["1", "2"], li.search_url("ml", 48, start=li.PAGE_SIZE): []}, details=["1", "2"])
     c = ctx(known={"2"})
     with make_session(page) as s:
         out = li.run(s, c)
     assert [j.external_id for j in out] == ["1"] and c.stats["skipped_known"] == 1
-    assert page.visited == [u0, li.search_url("ml", 48, start=50)]      # no detail loads
+    assert page.visited == [u0, li.search_url("ml", 48, start=li.PAGE_SIZE)]      # no detail loads
 
 
 def test_stops_term_after_n_consecutive_known():
@@ -53,7 +53,7 @@ def test_stops_term_after_n_consecutive_known():
 
 def test_card_without_prefetch_gets_detail_load():
     u0 = li.search_url("ml", 48)
-    page = page_for({u0: ["9"], li.search_url("ml", 48, start=50): []}, details=[],
+    page = page_for({u0: ["9"], li.search_url("ml", 48, start=li.PAGE_SIZE): []}, details=[],
                     view={"9": [det("9", "from view page")]})
     with make_session(page) as s:
         out = li.run(s, ctx())
@@ -62,7 +62,7 @@ def test_card_without_prefetch_gets_detail_load():
 
 def test_card_with_no_description_anywhere_is_skipped_not_known():
     u0 = li.search_url("ml", 48)
-    page = page_for({u0: ["9"], li.search_url("ml", 48, start=50): []}, details=[])
+    page = page_for({u0: ["9"], li.search_url("ml", 48, start=li.PAGE_SIZE): []}, details=[])
     c = ctx()
     with make_session(page) as s:
         assert li.run(s, c) == []
@@ -71,7 +71,7 @@ def test_card_with_no_description_anywhere_is_skipped_not_known():
 
 def test_backfill_uses_30_day_window_and_no_early_stop():
     u = li.search_url("ml", 720)
-    page = page_for({u: ["1", "2", "3", "4"], li.search_url("ml", 720, start=50): []}, details=["1"])
+    page = page_for({u: ["1", "2", "3", "4"], li.search_url("ml", 720, start=li.PAGE_SIZE): []}, details=["1"])
     c = ctx(mode="backfill", known={"1", "2", "3", "4"}, stop_after_known=3)
     with make_session(page) as s:
         li.run(s, c)
@@ -90,7 +90,7 @@ def test_blocked_propagates_and_cap_returns_partial():
 
 def test_same_job_from_two_terms_collapses():
     pages = {li.search_url(t, 48): ["1"] for t in ("a", "b")}
-    pages.update({li.search_url(t, 48, start=50): [] for t in ("a", "b")})
+    pages.update({li.search_url(t, 48, start=li.PAGE_SIZE): [] for t in ("a", "b")})
     with make_session(page_for(pages, details=["1"])) as s:
         assert len(li.run(s, ctx(terms=["a", "b"]))) == 1
 
@@ -105,7 +105,7 @@ def test_cap_marks_ctx_capped():
 
 def test_detail_loads_run_after_all_search_pages_round_robin():
     a, b = li.search_url("a", 48), li.search_url("b", 48)
-    pages = {a: ["1", "2"], b: ["3"], li.search_url("a", 48, start=50): [], li.search_url("b", 48, start=50): []}
+    pages = {a: ["1", "2"], b: ["3"], li.search_url("a", 48, start=li.PAGE_SIZE): [], li.search_url("b", 48, start=li.PAGE_SIZE): []}
     view = {i: [det(i)] for i in "123"}
     page = page_for(pages, details=[], view=view)
     with make_session(page) as s:
@@ -143,7 +143,7 @@ def test_incremental_uses_ctx_hours():
 
 def test_known_repost_bumps_posted_date_but_is_not_a_new_job():
     u0 = li.search_url("ml", 48)
-    page = page_for({u0: ["1", "2"], li.search_url("ml", 48, start=50): []}, details=["2"])
+    page = page_for({u0: ["1", "2"], li.search_url("ml", 48, start=li.PAGE_SIZE): []}, details=["2"])
     bumped = []
     c = ctx(known={"1"})
     c.redate = lambda jid, url, iso: bumped.append((jid, url, iso)) or True
@@ -157,7 +157,7 @@ def test_known_repost_bumps_posted_date_but_is_not_a_new_job():
 def test_off_target_title_gets_no_detail_load_and_is_counted():
     u0 = li.search_url("ml", 48)
     bad = card("7"); bad["jobPostingTitle"] = "Chip Conveyor Service Engineer"
-    page = FakePage({u0: [(CARD_URL, {"included": [bad, card("8")]})], li.search_url("ml", 48, start=50): [],
+    page = FakePage({u0: [(CARD_URL, {"included": [bad, card("8")]})], li.search_url("ml", 48, start=li.PAGE_SIZE): [],
                      li.job_url("7"): [(DET_URL, {"included": [det("7")]})],
                      li.job_url("8"): [(DET_URL, {"included": [det("8")]})]})
     c = ctx(); seen = []
@@ -173,7 +173,7 @@ def test_bare_later_card_does_not_erase_company_and_location():
     full = card("1"); full["secondaryDescription"] = {"text": "Bengaluru"}
     bare = {"$type": "a.JobPostingCard", "jobPostingUrn": "urn:li:fsd_jobPosting:1", "jobPostingTitle": "Data Scientist 1"}
     page = FakePage({u0: [(CARD_URL, {"included": [full]}), (CARD_URL, {"included": [bare]}), (DET_URL, {"included": [det("1")]})],
-                     li.search_url("ml", 48, start=50): []})
+                     li.search_url("ml", 48, start=li.PAGE_SIZE): []})
     with make_session(page) as s:
         out = li.run(s, ctx())
     assert [(j.company, j.location) for j in out] == [("Co", "Bengaluru")]

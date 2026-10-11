@@ -35,7 +35,8 @@ def _playwright_connect(cdp_url: str):
     pw = sync_playwright().start()
     try:
         browser = pw.chromium.connect_over_cdp(cdp_url)
-        page = browser.contexts[0].new_page()
+        from job_dashboard.agent_browser import background_tab
+        page = background_tab(browser.contexts[0])
     except Exception:
         pw.stop()
         raise
@@ -163,6 +164,10 @@ class CdpSession:
 
     def html(self) -> str:
         return self._page.content()
+
+    def read(self, js: str):
+        """Read-only JS over the loaded page (a function with no arguments), e.g. what a server-rendered list shows."""
+        return self._page.evaluate(js)
 
     def _check(self, status):
         if status in (401, 403, 429) or BAD_URL.search(self._page.url or ""):

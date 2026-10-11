@@ -58,3 +58,12 @@ def test_ticked_applied_button_confirms_but_nav_link_does_not():
     from career_agent.browser.confirmation import confirmation_from_signals as c
     assert c({"text": "Home | Jobs | Applied | Messages | ✓  Applied | About", "fields": 0})[0]
     assert not c({"text": "Home | Jobs | Applied | Messages | Apply now", "fields": 0})[0]
+
+
+def test_greenhouse_confirmation_wording_and_title_confirm():
+    from career_agent.browser.confirmation import confirmation_from_signals as c
+    page = ("Thank you for applying\nThanks for your interest in Dscout!\n\nWe've officially received your application, "
+            "so you are all set for the moment.\n\nTrack your application")
+    assert c({"text": page, "fields": 0})[0]
+    assert c({"text": "Thank you for applying\nView more jobs", "fields": 0})[0]          # the title alone
+    assert not c({"text": "Thanks for your interest! Apply below\nFirst name\nEmail", "fields": 6})[0]

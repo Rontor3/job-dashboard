@@ -60,6 +60,10 @@ def _executable() -> str | None:
 def launch_args(port: int, start_url: str | None = None) -> list[str]:
     return [f"--remote-debugging-port={port}", f"--user-data-dir={paths.BROWSER_PROFILE}",
             "--no-first-run", "--no-default-browser-check", "--remote-allow-origins=*",
+            # The agent works in background tabs so it never steals your focus: keep those tabs (and the window, when
+            # it's behind other apps) running at full speed instead of throttled.
+            "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
             *([start_url] if start_url else [])]
 
 
@@ -77,6 +81,19 @@ def ensure_window(url: str) -> None:
             urllib.request.urlopen(urllib.request.Request(f"{url}/json/new?about:blank", method="PUT"), timeout=3).close()
     except Exception:
         pass
+
+
+def background_tab(context):
+    """A new tab in the agent Chrome's window, opened behind the one you're on: Chrome doesn't switch to it or raise
+    the window, so you and the agent can work at the same time. Playwright's new_page() would bring it to the front."""
+    try:
+        cdp = context.browser.new_browser_cdp_session()
+        with context.expect_page(timeout=5000) as made:
+            cdp.send("Target.createTarget", {"url": "about:blank", "background": True})
+        return made.value
+    except Exception as e:
+        print(f"[browser] background tab unavailable ({type(e).__name__}); opening a normal one", flush=True)
+        return context.new_page()
 
 
 def ensure_running(url: str | None = None, wait_s: float = 10, popen=subprocess.Popen,

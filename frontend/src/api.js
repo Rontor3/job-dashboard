@@ -276,3 +276,15 @@ export const saveFacts = (answers) => fetch("/api/profile/facts", jsonBody("POST
 export const interpretAnswer = (question, text, entry_id, choices) =>
   fetch("/api/answers/interpret", jsonBody("POST", { question, text, entry_id, choices })).then(json);
 export const snoozeInbox = (keys, days = 30) => fetch("/api/inbox/snooze", jsonBody("POST", { keys, days })).then(json);
+
+// Agent-driven apply runs (spec 2026-10-11): a job's priority and its paused run.
+const postJson = (url, body) => fetch(url, {
+  method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}),
+}).then(json);
+export const fetchApplyRun = (id) => fetch(`/api/apply-sessions/${id}`).then(json);
+export const setJobPriority = (id, level) => fetch(`/api/jobs/${id}/priority`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ level }),
+}).then(json);
+export const resumeApplyRun = (id) => postJson(`/api/apply-sessions/${id}/resume`);
+export const showApplyTab = (id) => postJson(`/api/apply-sessions/${id}/show`);
+export const skipApplyRun = (id) => postJson(`/api/apply-sessions/${id}/skip`, { reason: "skipped_by_you", detail: "" });

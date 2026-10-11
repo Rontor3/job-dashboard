@@ -51,6 +51,12 @@ class QARecorder:
         self._rec(d.ref, d.label, kind=d.kind, answer=str(d.value),
                   source=d.source, status=status)
 
+    def agent_answer(self, d, citation, written):
+        """Agent-driven runs: where a grounded answer came from, or that the agent composed it (not the user's words)."""
+        self._rec(d.ref, d.label, agent_written=1 if written else 0,
+                  **({"citation": citation if isinstance(citation, (dict, list)) else {"note": str(citation)}}
+                     if citation else {}))
+
     def needs(self, f):
         opts = [str(o) for o in (getattr(f, "options", None) or [])][:30]
         self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, status="needs_answer",
