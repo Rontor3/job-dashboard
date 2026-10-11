@@ -166,3 +166,11 @@ def test_a_format_sentence_left_over_from_helper_text_is_dropped_too():
     from career_agent.memory.qbank_match import without_format_hint as w
     assert w("Available from Format: yyyy.mm.dd") == "Available from"
     assert w("Joining date, use the format dd/mm/yyyy") == "Joining date"
+
+
+def test_a_duration_is_given_in_the_unit_the_question_asks_for():
+    from career_agent.memory.qbank_match import in_asked_unit
+    assert in_asked_unit("What is your notice period? (in days)", "1 month") == "30"
+    assert in_asked_unit("Notice period (in weeks)", "immediately") == "0"
+    assert in_asked_unit("Notice period", "1 month") == "1 month"
+    assert in_asked_unit("Notice period (in days)", "negotiable") == "negotiable"

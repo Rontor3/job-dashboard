@@ -60,8 +60,8 @@ _RULES: list[tuple[str, str]] = [
     (r"\byear of graduation\b|\bgraduation year\b|\byear you.{0,15}graduat", "graduation_year"),
     # Bare "qualification" is gated (see _WEAK_BARE_WORD_RULES) — "minimum
     # qualification for this job" (a certify-you-meet-requirements question)
-    # is not asking for a degree name.
-    (r"\bdegree\b", "degree"),
+    # is not asking for a degree name. Nor is "how many years of LLM experience (excluding your degree)".
+    (r"^(?!.*\bhow many years\b).*\bdegree\b", "degree"),
     (r"\buniversity\b|\bschool\b|\bcollege\b|\binstitution\b", "school"),
     (r"\bgpa\b|\bgrade\b|\bcgpa\b|\bpercentage\b", "gpa"),
     (r"\bskills?\b|\bkey skills\b|\btechnolog", "skills"),
@@ -144,7 +144,8 @@ _RESUME_RE = re.compile(r"\bresume\b|\bcv\b", re.I)
 
 _ATTEST = re.compile(
     r"\bi (certify|agree|consent|acknowledge|authorize|have read|accept)\b|\bbackground check\b"
-    r"|\bterms\b|\bprivacy policy\b|\btrue and (complete|correct)\b",
+    r"|\bterms\b|\bprivacy policy\b|\btrue and (complete|correct)\b"
+    r"|\b(provide|give|grant) (your |my )?consent\b",
     re.I,
 )
 
@@ -177,7 +178,7 @@ def guess_purpose(label: str, kind: str) -> str | None:
                 return None if purpose in _TEXT_VALUE_PURPOSES else purpose
         return None
     for pattern, purpose in _RULES:
-        if re.search(pattern, text):
+        if re.search(pattern, text) and purpose != "resume_upload":   # a text box that mentions a CV uploads nothing
             return purpose
     # Weak single-word rules only as a short field name ("Name", "Current
     # Position") — gated on word count so they don't also catch the same word

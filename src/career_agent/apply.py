@@ -50,6 +50,8 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
             _stuck_count += 1
             if _stuck_count >= 2:
                 print(f"[graph] same {len(pending)} field(s) stuck in human_gate — stopping", flush=True)
+                # an interrupted graph returns no stop reason; without one the run read as "error"
+                result = {**(result or {}), **snapshot.values, "stopped_reason": "needs_answers"}
                 break
         else:
             _stuck_count = 0
@@ -84,7 +86,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Career agent — multi-page application walk")
     ap.add_argument("--url", required=True)
     ap.add_argument("--db", default=str(paths.DB))
-    ap.add_argument("--resume-version", default="Rakshit_Singh_draft1")
+    ap.add_argument("--resume-version", default="")
     ap.add_argument("--submit", action="store_true")
     ap.add_argument("--review", action="store_true",
                     help="fill every answer, stop before the submit click and leave the tab open for you")
@@ -225,7 +227,7 @@ def _apply(args, box: dict) -> None:
     option_matcher = None
     if not args.no_llm:
         try:
-            from .orchestrator.judgment import JudgmentContext, profile_to_text, judge
+            from .orchestrator.judgment import JudgmentContext, grounding_text, judge
             from .browser.ats_lookup import lookup as _ats_lookup
             from .memory import qbank as _qbank
             from job_dashboard.db import get_job
@@ -241,7 +243,8 @@ def _apply(args, box: dict) -> None:
                 hints = _vendor.get("fix_hints") or []
                 if hints:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
-            ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
+            from job_dashboard.match.profile_text import current_resume_text
+            ctx = JudgmentContext(job=job, profile_text=grounding_text(profile, contact, current_resume_text(resume_pdf)),
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             if args.longform or os.getenv("CAREER_AGENT_LONGFORM") == "1":

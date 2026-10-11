@@ -57,3 +57,19 @@ def test_graduation_year_precedes_bare_degree():
     the bare `degree` rule."""
     assert guess_purpose("Year of graduation from your undergrad degree.", "text") == "graduation_year"
     assert guess_purpose("Degree", "text") == "degree"
+
+
+def test_a_years_question_that_mentions_the_degree_is_not_the_degree():
+    assert guess_purpose("How many years of AI / ML experience (excluding time spent pursuing your degree)", "textarea") != "degree"
+    assert guess_purpose("Highest degree obtained", "text") == "degree"
+
+
+def test_a_please_provide_your_consent_box_is_an_attestation():
+    assert guess_purpose("Please provide your Consent*", "checkbox") == "attestation"
+    assert guess_purpose("Email", "checkbox") != "attestation"
+
+
+def test_only_a_file_input_is_a_resume_upload():
+    consent = "information contained in my resume/CV and job application. Please enter your full name below as your signature"
+    assert guess_purpose(consent, "textarea") == "full_name"
+    assert guess_purpose("Upload Resume", "file") == "resume_upload"

@@ -53,6 +53,55 @@ def profile_to_text(profile) -> str:
     return "\n".join(parts)
 
 
+_FACTS = (("years_experience", "Total professional experience (years)"), ("location", "Current location"),
+          ("notice_period", "Notice period"), ("current_ctc", "Current CTC"),
+          ("salary_expectation", "Expected salary"), ("willing_to_relocate", "Willing to relocate"),
+          ("work_authorization", "Work authorization"))
+
+
+def grounding_text(profile, contact: dict, resume_text: str = "") -> str:
+    """What the answer tiers may say about the candidate: the facts they saved on the dashboard (these win), the
+    structured profile, and the résumé they upload. With no résumé layout the profile alone is nearly empty, and
+    the drafter used to fill the gap from essay snippets (it reported half a year of work for two years)."""
+    facts = [f"{name}: {contact[k]}" for k, name in _FACTS if (contact or {}).get(k) not in (None, "")]
+    parts = ["SAVED FACTS (the candidate's own, current — they win over anything below):\n" + "\n".join(facts)] if facts else []
+    structured = profile_to_text(profile)
+    if structured:
+        parts.append(structured)
+    if resume_text and not getattr(profile, "experiences", None):
+        parts.append("RÉSUMÉ:\n" + resume_text[:3500])
+    return "\n\n".join(parts)
+
+
+_NUMERIC_Q = re.compile(
+    r"^\s*(how many|how much|how long)\b|\(\s*in (days|weeks|months|years|lpa|inr|usd|eur|%|percent)\s*\)"
+    r"|\bnumber of years\b|\byears of\b.*\bexperience\b", re.I)
+
+
+def asks_for_number(label: str) -> bool:
+    """'How many years of LLM experience…', 'notice period (in days)': a figure, not an essay."""
+    return bool(_NUMERIC_Q.search(label or ""))
+
+
+def judge_number(label, profile_text, llm) -> str | None:
+    """A short figure grounded in the candidate's facts, or None when they don't support one."""
+    prompt = (
+        "Answer this job application question with a number only (digits, optionally one unit word), "
+        "from the candidate material below. Count only what the material states; if it doesn't support "
+        "a figure, reply NONE. No sentences.\n\n"
+        f"QUESTION: {label}\n\nCANDIDATE:\n{(profile_text or '')[:2500]}\n\nAnswer:")
+    try:
+        reply = _THINK.sub("", llm(prompt) or "").strip().strip(".")
+    except Exception:
+        return None
+    if not reply or reply.upper() == "NONE" or len(reply) > 20 or not re.search(r"\d", reply):
+        return None
+    return reply
+
+
+_THINK = re.compile(r"<think>.*?</think>", re.S)
+
+
 def map_option(label, options, profile_text, llm) -> str | None:
     """Ask the llm to pick exactly one of `options` for the field, or NONE.
     Validates the reply against `options` (never returns a non-option)."""
@@ -174,8 +223,11 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
         # Rule: non-required, non-text/textarea fields have no asterisk → skip, not escalate
         if not f.required and f.kind not in ("text", "textarea"):
             continue
+
         if _is_sensitive(f):
             still_need.append(f); continue
+        if not f.required and not _looks_like_question(f.label):
+            continue                        # an optional "Additional Info" box: leave it empty, don't ask
         if calls >= cap:
             still_need.append(f); continue
         if f.kind in _SELECT_KINDS:
@@ -194,6 +246,14 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 still_need.append(f)
             else:
                 answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
+            continue
+        if f.kind in ("textarea", "text") and asks_for_number(f.label):
+            calls += 1
+            val = judge_number(f.label, profile_text, llm)
+            if val is None:
+                still_need.append(f)
+            else:
+                answered.append(FillDecision(f.ref, f.kind, f.label, val, "fill", "judgment"))
             continue
         if f.kind in ("textarea", "text") and (f.purpose is None or f.purpose in PROSE_PURPOSES):
             if (_NOT_A_QUESTION.search(f.label or "")

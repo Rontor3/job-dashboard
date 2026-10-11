@@ -193,6 +193,17 @@ def _shows_value(target, sel) -> bool:
     except Exception:
         return True                         # cannot tell -> do not retry blindly
 
+def _force_toggle(target, sel, want: bool) -> None:
+    """A tick box drawn over its own <input> (Zoho's lyte-checkbox) never counts as clickable, so check() times out;
+    a forced click on the input is what the widget listens to. Only when the state isn't already `want`."""
+    try:
+        loc = target.locator(sel).first
+        if loc.is_checked() != want:
+            loc.click(force=True, timeout=_SOFT_TIMEOUT_MS)
+    except Exception:
+        pass
+
+
 def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
     for d in decisions:
         if d.value is None:
@@ -289,14 +300,14 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                     if target.is_checked(sel):
                         target.click(sel, timeout=_SOFT_TIMEOUT_MS)
                 except Exception:
-                    pass
+                    _force_toggle(target, sel, want=False)
         elif d.action == "check":
             # tick a single checkbox (a required attestation draft). Binding is
             # the SUBMIT, which stays human-gated — see screen_review.
             try:
                 target.check(sel, timeout=_SOFT_TIMEOUT_MS)
             except Exception:
-                pass
+                _force_toggle(target, sel, want=True)
         # review: intentionally left for the human.
 
 

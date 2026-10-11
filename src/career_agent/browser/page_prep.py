@@ -262,13 +262,22 @@ _REAL_FIELDS_JS = r"""() => {
       catch(e) { return ''; }
     }).join(' ');
   };
+  // A component wrapper's label attribute (Zoho Recruit's cx-prop-label): its inputs carry no label of their own.
+  const ownerLabel = e => {
+    for (const a of ['cx-prop-label', 'lt-prop-label', 'data-label'])
+      for (let p = e.parentElement, i = 0; p && i < 10; i++, p = p.parentElement) {
+        const v = p.getAttribute(a);
+        if (v && !/^(value|label|name|text|id)$/i.test(v.trim())) return v;
+      }
+    return '';
+  };
   // file inputs are styled invisible (display:none) but are real upload fields
   const ins = shadowAll(document.body, 'input,select,textarea').filter(e =>
     e.type === 'file' || vis(e));
   const seen = new Set();
   for (const e of ins) {
     if (['hidden','submit','button'].includes(e.type)) continue;
-    const hay = ((e.getAttribute('aria-label')||'')+' '+labelText(e)+' '+(e.name||'')+' '+(e.id||'')
+    const hay = ((e.getAttribute('aria-label')||'')+' '+labelText(e)+' '+ownerLabel(e)+' '+(e.name||'')+' '+(e.id||'')
                  +' '+(e.placeholder||'')+' '+(e.type||'')).toLowerCase();
     let k = null;
     if (e.type==='email' || /\be-?mail\b/.test(hay)) k='email';
@@ -663,6 +672,8 @@ def _reach(page, max_hops=4):
         # No Apply left to follow: are we already ON a form step (wizard whose
         # first screen is a screening question, so is_application_form missed it)?
         if _is_wizard_step(active):
+            return active, "form"
+        if _fillable_count(active) >= 3:    # a form we can't name yet: guessing <url>/apply would reload it away
             return active, "form"
         nxt = _try_url_variants(active)
         if nxt is not None:

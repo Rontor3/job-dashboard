@@ -191,6 +191,26 @@ def resolve_value(conn, entry, *, question, escape, job, contact, options=(), _d
     return a if a and a.strip() else None
 
 
+_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+_ASKED_UNIT = re.compile(r"\(\s*in (days|weeks|months)\s*\)|\bin (days|weeks|months)\b", re.I)
+_DURATION = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(day|week|month|year)s?\s*$", re.I)
+
+
+def in_asked_unit(question: str, value: str) -> str:
+    """'1 month' for 'notice period (in days)' -> '30'; 'immediately' -> '0'. Anything else is left as it is."""
+    m = _ASKED_UNIT.search(question or "")
+    if not m or not value:
+        return value
+    unit = (m.group(1) or m.group(2)).lower().rstrip("s")
+    if re.fullmatch(r"\s*(immediate(ly)?|none|0)\s*", value, re.I):
+        return "0"
+    d = _DURATION.match(value)
+    if not d:
+        return value
+    n = float(d.group(1)) * _UNIT_DAYS[d.group(2).lower()] / _UNIT_DAYS[unit]
+    return str(int(n)) if n == int(n) else f"{n:.1f}"
+
+
 def fit_option(label, value, options, synonyms, llm=None):
     """Canonical value -> one of the page's options, or None (flag). No static
     options (text box, or a combobox whose options load live) -> the value."""
@@ -254,6 +274,10 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
         if value is None:
             m.band, m.note = NONE, "no answer for entry"
             return m, None
+    if not f.options:
+        value = in_asked_unit(question, value)
+        if qbank.norm(question) in ("city", "town", "city town") and "," in value:
+            value = value.split(",")[0].strip()          # "Bangalore, India" in a box that has Country beside it
     shape = infer_shape(entry["shape"], getattr(f, "input_type", ""),
                         getattr(f, "autocomplete", ""), f.label)
     if not shape_ok(shape, value, escape):

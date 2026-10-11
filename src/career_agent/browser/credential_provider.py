@@ -52,6 +52,24 @@ def _fill_otp_generic(page, code: str) -> bool:
 _ALPHABET = string.ascii_letters + string.digits + _SPECIALS
 
 
+def identity_names() -> tuple[str, str]:
+    """(first, last) for a new account: CAREER_AGENT_FIRST_NAME / _LAST_NAME, else the saved profile's full name
+    (first word / the rest). Never a placeholder name: a missing one stays empty for the form to flag."""
+    first = (os.getenv("CAREER_AGENT_FIRST_NAME") or "").strip()
+    last = (os.getenv("CAREER_AGENT_LAST_NAME") or "").strip()
+    if first and last:
+        return first, last
+    try:
+        import sqlite3
+        from job_dashboard import paths
+        from job_dashboard.apply.store import get_application_profile
+        with sqlite3.connect(paths.DB) as conn:
+            words = ((get_application_profile(conn) or {}).get("full_name") or "").split()
+    except Exception:                                      # noqa: BLE001 — no database yet
+        words = []
+    return first or (words[0] if words else ""), last or " ".join(words[1:])
+
+
 def generate_password(length: int = 16) -> str:
     """16-char random password meeting most ATS policies (upper+lower+digit+special)."""
     # ponytail: simple guarantee loop; cost is negligible for short passwords
@@ -1062,10 +1080,8 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
     if cred is None:
         username = _email_on_page(page) or email or _default_email()
         password = generate_password()
-        extra = {
-            "first_name": os.getenv("CAREER_AGENT_FIRST_NAME", "Rakshit"),
-            "last_name": os.getenv("CAREER_AGENT_LAST_NAME", "Singh"),
-        }
+        first, last = identity_names()
+        extra = {"first_name": first, "last_name": last}
         # For SPECIALS, save now (they manage their own flow); generic path saves after confirm
         cred = {"username": username, "password": password, "label": gate, **extra}
     cred = {**cred, "phone": phone}          # profile phone for the account form's required fields; never saved

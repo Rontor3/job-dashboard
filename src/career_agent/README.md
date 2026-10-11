@@ -78,7 +78,7 @@ The agent reads your profile from `data/jobs.db` (the main dashboard database). 
 - LinkedIn URL, work authorization status, visa sponsorship
 - Demographic answers (EEOC)
 
-Also populate your résumé in the dashboard under `Rakshit_Singh_draft1` (or pass `--resume-pdf` at runtime).
+Also populate your résumé in the dashboard under a named version (or pass `--resume-pdf` at runtime).
 
 ### 5. Set up Telegram (for interactive runs)
 

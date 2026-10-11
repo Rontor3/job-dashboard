@@ -24,6 +24,21 @@ _NO = {"no", "false"}
 # the résumé there (I-3).
 _NON_RESUME_FILE = re.compile(
     r"cover letter|portfolio|photo|picture|transcript|certificate|writing sample", re.I)
+# An uploader that reads the résumé and rewrites the form from it (Zoho's "Autofill Application",
+# rec-easyresume_file): uploading there replaced answers we had filled ("linkedin.com/in/x, https://linkedin.com/in").
+_AUTOFILL_FILE = re.compile(r"easy.?resume|autofill|auto.?populate|parse|quick.?apply", re.I)
+
+
+def _is_autofill_upload(f, form) -> bool:
+    """The form's own résumé-parsing uploader, when it also has a real "Upload résumé" field to use instead."""
+    if f.kind != "file":
+        return False
+    text = f"{f.label or ''} {f.description or ''}"
+    if _AUTOFILL_FILE.search(text):
+        return True
+    unnamed = " " not in (f.label or "").strip()        # only an internal name like rec-easyresume_file
+    return unnamed and any(g is not f and g.kind == "file" and g.purpose == "resume_upload"
+                           and " " in (g.label or "").strip() for g in form)
 
 
 def _normalize(value):
@@ -138,6 +153,8 @@ def map_screen(form, profile, resume_pdf=None):
                 decisions.append(FillDecision(f.ref, f.kind, f.label, True, "check", "attestation"))
             else:
                 decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
+            continue
+        if _is_autofill_upload(f, form):
             continue
         if f.purpose == "resume_upload" or f.kind == "file":
             is_resume = f.purpose == "resume_upload" or not _NON_RESUME_FILE.search(f.label or "")

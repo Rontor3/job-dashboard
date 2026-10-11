@@ -138,6 +138,15 @@ _INPUT_JS = r"""
   // Query a selector across the light DOM AND every open shadow root
   // (LinkedIn / web-component ATS render their form fields inside shadow DOM,
   // which a plain document.querySelectorAll never reaches).
+  // An id is a handle only when it names one element: Zoho gives several boxes id="inputId", and the first of them
+  // is a hidden dial-code search — every value meant for Zip, City or State was typed there.
+  const idRef = (el, cref) => {
+    if (!el.id) return `[data-cref="${cref}"]`;
+    const root = el.getRootNode();
+    let n = 0;
+    try { n = root.querySelectorAll(`#${CSS.escape(el.id)}`).length; } catch (e) { n = 2; }
+    return n === 1 ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`;
+  };
   const deepQuery = (sel) => {
     const res = [];
     const walk = (root) => {
@@ -169,6 +178,38 @@ _INPUT_JS = r"""
   // BEFORE native <label>, and placeholder is a genuine last resort (so a React
   // combobox no longer reports "Select..."). Sibling/container text is kept only
   // as a fallback for forms with no formal association at all (e.g. Greenhouse).
+  // A component wrapper that carries its field's question as an attribute and nothing the browser can see as a
+  // label (Zoho Recruit: <crux-text-component cx-prop-label="First Name"> around a bare <input name="rec-form_…">).
+  const OWNER_ATTRS = ['cx-prop-label', 'lt-prop-label', 'data-label'];
+  const ownerLabel = (el) => {
+    for (const a of OWNER_ATTRS) {                           // attribute order first: Zoho nests lt-prop-label="value"
+      let p = el.parentElement;
+      for (let i = 0; p && i < 10; i++, p = p.parentElement) {
+        const v = (p.getAttribute(a) || '').trim();
+        // a section's label (Zoho's consent block wraps two tick boxes, a remarks box and the consent box) names
+        // none of them: only a wrapper of this one field (a phone's dial code + number counts as one) does
+        const controls = p.querySelectorAll('input:not([type=hidden]),textarea,select').length;
+        if (v && controls <= 3 && !/^(value|label|name|text|id)$/i.test(v)) return v.slice(0, 200);
+      }
+    }
+    return '';
+  };
+  // A <label> element next to the wrapper that holds only this field, not linked to it (Zoho: "Please provide your
+  // Consent *" after the tick box; "…enter your full name below as your signature…" before the remarks box). A tick
+  // box's text follows it, anything else's precedes it.
+  const nearLabel = (el) => {
+    const isLabel = (n) => n && (n.tagName === 'LABEL' || /(^|[-_ ])label/i.test(n.className || ''));
+    // a long statement ends with what it asks ("…Please enter your full name below as your signature…"): keep the end
+    const text = (n) => { const t = (n.textContent || '').replace(/\s+/g, ' ').trim(); return t.length > 300 ? t.slice(-300) : t; };
+    const tick = ['checkbox', 'radio'].includes((el.type || '').toLowerCase());
+    let w = el;
+    for (let i = 0; w && i < 6; i++, w = w.parentElement) {
+      if (i && w.querySelectorAll('input:not([type=hidden]),textarea,select').length > 1) break;
+      const order = tick ? [w.nextElementSibling, w.previousElementSibling] : [w.previousElementSibling, w.nextElementSibling];
+      for (const n of order) if (isLabel(n) && !n.querySelector('input,textarea,select') && text(n)) return text(n);
+    }
+    return '';
+  };
   const labelFor = (el) => {
     const root = el.getRootNode();
     const lb = idRefsText(el, 'aria-labelledby');            // 1
@@ -187,6 +228,8 @@ _INPUT_JS = r"""
     if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (t) return t; } }
     const title = (el.getAttribute('title') || '').trim();   // 4
     if (title) return title;
+    const owned = ownerLabel(el);                            // component frameworks (Zoho's Lyte: cx-prop-label)
+    if (owned) return owned;
     // ---- fallbacks below are NOT accname; only for forms with no association ----
     // Limit sibling walk to 3 and use textContent (no layout forcing) capped at
     // 200 chars — calling innerText on a large sibling (e.g. a job-description div)
@@ -202,6 +245,8 @@ _INPUT_JS = r"""
       const lbl = container.querySelector('label,legend,.label,[class*=label]');
       if (lbl) { const t = (lbl.textContent || '').trim().slice(0, 200); if (t) return t; }
     }
+    const near = nearLabel(el);                              // a <label> beside the field's own wrapper
+    if (near) return near;
     return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
   };
   // Accessible DESCRIPTION — the helper text (aria-describedby). This is the piece
@@ -272,6 +317,9 @@ _INPUT_JS = r"""
   // no name (custom widgets share [name=""] otherwise). Prefer #id when present
   // (stable, readable); else use the stamped [data-cref="fN"].
   let _ci = 0;
+  // A rescan numbers fields from f0 again: drop the last scan's stamps first, or a field that has since gone keeps
+  // "f23" next to the new f23 and a value meant for one lands in the other (Zoho's signature box stayed empty).
+  for (const e of deepQuery('[data-cref]')) e.removeAttribute('data-cref');
   for (const el of deepQuery('input,select,textarea')) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
@@ -287,7 +335,11 @@ _INPUT_JS = r"""
     // resume/judgment value that has nothing to do with what's actually on
     // screen. getComputedStyle (not offsetParent, which needs layout to have
     // already run and can false-positive on a fast-loading iframe) is the check.
-    if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
+    const shown = (n) => !!n && (n.checkVisibility ? n.checkVisibility() : getComputedStyle(n).display !== 'none');
+    // An upload widget hides its <input type=file> behind a styled "Browse" button (Zoho): the widget shows, so the
+    // input is a real field.
+    const uploadShown = () => { let p = el.parentElement; for (let i = 0; p && i < 4; i++, p = p.parentElement) if (shown(p) && p.getBoundingClientRect().height > 4) return true; return false; };
+    if (!shown(el) && !(type === 'file' && uploadShown())) continue;
     const role = (el.getAttribute('role') || '').toLowerCase();
     const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
     // Workday's own type-ahead multiselect (data-uxi-widget-type="selectinput")
@@ -329,8 +381,8 @@ _INPUT_JS = r"""
       return groupLabel(el);
     };
     out.push({
-      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
-      kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value : labelFor(el), description: describedBy(el), required: !!el.required || el.getAttribute('aria-required') === 'true',
+      ref: idRef(el, cref),
+      kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value : labelFor(el), description: describedBy(el), required: !!el.required || el.getAttribute('aria-required') === 'true' || !!el.closest('.mandatoryField'),
       options, group: (kind === 'radio') ? (el.name || null) : null,
       group_label: (kind === 'radio' || kind === 'checkbox') ? groupLabel(el) : (isDatePart ? dateGroup() : ''),
       disabled: !!el.disabled || (!!el.readOnly && !isCombo && !isPicker && !['radio','checkbox'].includes(type)),   // React sets readonly on radios
@@ -346,13 +398,16 @@ _INPUT_JS = r"""
   for (const el of deepQuery('[role="combobox"]')) {
     const tag = el.tagName.toLowerCase();
     if (['input', 'select', 'textarea', 'button'].includes(tag) || el.hasAttribute('data-cref')) continue;
+    // a text box's own suggestion popup (Zoho's lyte-autocomplete wraps both): the box is the field, not a second one
+    const widget = el.parentElement && el.parentElement.parentElement;
+    if (widget && widget.querySelector('input[data-cref]:not([type=hidden])')) continue;
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);
     const lab = labelFor(el);
     const row = {
-      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+      ref: idRef(el, cref),
       kind: 'combobox', label: lab, description: describedBy(el),
       required: el.getAttribute('aria-required') === 'true' || /[*]\s*$|\(\*\)/.test(lab),
       options: [], group: null, group_label: '',
@@ -386,7 +441,7 @@ _INPUT_JS = r"""
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);
     out.push({
-      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+      ref: idRef(el, cref),
       kind: 'radio', label: visibleText(el),
       required: container.getAttribute('aria-required') === 'true' || hasAsterisk,
       options: [], group: container.getAttribute('data-cref-group'),
@@ -437,7 +492,7 @@ _INPUT_JS = r"""
       const cref = 'f' + (_ci++);
       el.setAttribute('data-cref', cref);
       out.push({
-        ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+        ref: idRef(el, cref),
         kind: 'combobox', label, required,
         options: [], group: null, disabled: !!el.disabled,
         role: (el.getAttribute('role') || '').toLowerCase(), haspopup: popupHaspopup,

@@ -110,7 +110,7 @@ def blocks_to_profile(blocks, contact, split=None) -> CandidateProfile:
     return prof
 
 
-def load_candidate_profile(conn, version="Rakshit_Singh_draft1", contact=None, split=None):
+def load_candidate_profile(conn, version="", contact=None, split=None):
     from job_dashboard.db import get_resume_layout
     layout = get_resume_layout(conn, version)
     blocks = (layout or {}).get("layout", [])

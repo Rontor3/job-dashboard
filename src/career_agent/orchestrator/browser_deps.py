@@ -33,11 +33,13 @@ class BrowserDeps:
         if uploads:
             # Upload resume first; many ATS platforms parse it and auto-fill
             # name/email/phone/LinkedIn — wait for that before we overwrite.
+            # A résumé upload makes many sites parse it and fill name/email/LinkedIn themselves: wait for that to
+            # finish, then write ours over it. Their parse is a guess (Zoho made "linkedin.com/in/x, https://
+            # linkedin.com/in" of a LinkedIn URL); ours is what the candidate saved.
             apply_decisions(page, uploads, matcher=self.option_matcher)
             wait(page, 2500)
-            prefilled = read_back(page, rest)
-            rest = [d for d in rest if not prefilled.get(d.ref)]
         apply_decisions(page, rest, matcher=self.option_matcher)
+        _retype_what_did_not_stick(page, rest)
         if revalidate:
             from ..browser.filler import revalidate_invalid
             revalidate_invalid(page)
@@ -87,3 +89,40 @@ class BrowserDeps:
 
     def url(self, page):
         return page.url
+
+
+def _retype_what_did_not_stick(page, decisions) -> list[str]:
+    """A typed value the page doesn't show (a framework that ignores a programmatic fill, a box re-rendered after we
+    typed) was reported as filled anyway. Read every text fill back; retype a blank one with real keystrokes once,
+    and name what is still blank in the log. Returns those labels."""
+    from ..browser.filler import read_back, frame_target
+    texts = [d for d in decisions if d.action == "fill" and d.value not in (None, "")]
+    shown = read_back(page, texts)
+    lost, fresh = [], None
+    for d in texts:
+        if str(shown.get(d.ref, "")).strip():
+            continue                                   # it holds a value
+        try:
+            target, sel = frame_target(page, d.ref)
+            if target.locator(sel).count() == 0:
+                # the page re-drew this part after we typed (Zoho re-renders its consent block when the box is
+                # ticked): the old element is gone, so find the same question again
+                if fresh is None:
+                    from ..browser.perception import collect_raw, to_form_model
+                    fresh = to_form_model(collect_raw(page))
+                twin = next((f for f in fresh if f.label == d.label and f.kind == d.kind), None)
+                if twin is None:
+                    continue
+                d = type(d)(twin.ref, d.kind, d.label, d.value, d.action, d.source)
+                target, sel = frame_target(page, d.ref)
+            box = target.locator(sel).first
+            box.click(timeout=3000)
+            box.press_sequentially(str(d.value), delay=15, timeout=15000)
+            box.press("Tab")
+        except Exception:
+            pass
+        if not str(read_back(page, [d]).get(d.ref, "")).strip():
+            lost.append(d.label)
+    if lost:
+        print(f"[fill] did not stick: {lost}", flush=True)
+    return lost

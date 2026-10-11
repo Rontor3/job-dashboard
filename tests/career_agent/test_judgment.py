@@ -103,7 +103,7 @@ def test_judge_never_answers_a_search_box():
     called = {"n": 0}
     def llm(prompt): called["n"] += 1; return "some answer"
     answered, still_need, flagged = judge([search], ctx, llm)
-    assert "#s" in {f.ref for f in still_need}     # escalated, not answered
+    assert "#s" not in {d.ref for d in answered}   # never answered (an optional one is left empty)
     assert called["n"] == 0                        # llm never called for a search box
 
 
@@ -234,3 +234,34 @@ def test_judge_never_fills_canned_fallback_answer():
     finally:
         J.draft_screening_answer = orig
     assert not answered and still == [f]
+
+
+def test_a_how_many_question_gets_a_figure_not_an_essay():
+    from career_agent.orchestrator.judgment import asks_for_number
+    seen = {}
+
+    def llm(prompt):
+        seen["prompt"] = prompt
+        return "2"
+    f = _f("r1", "How many years of AI / ML experience (excluding time spent pursuing your degree)", kind="textarea")
+    ctx = JudgmentContext(job={"title": "ML", "company": "X"}, profile_text="SAVED FACTS:\nTotal professional experience (years): 2")
+    answered, still, _ = judge([f], ctx, llm)
+    assert [d.value for d in answered] == ["2"] and not still
+    assert "number only" in seen["prompt"]
+    assert asks_for_number("What is your expected CTC range? (in LPA)")
+    assert not asks_for_number("Why do you want to work here?")
+
+
+def test_a_figure_the_material_does_not_support_goes_to_the_user():
+    f = _f("r1", "How many years of hands-on LLM experience?", kind="textarea")
+    for reply in ("NONE", "I have worked on several projects involving models", ""):
+        answered, still, _ = judge([f], JudgmentContext(job={}), lambda p, r=reply: r)
+        assert not answered and still == [f]
+
+
+def test_grounding_text_puts_saved_facts_first_and_falls_back_to_the_resume():
+    from career_agent.orchestrator.judgment import grounding_text
+    text = grounding_text(CandidateProfile(), {"years_experience": 2, "current_ctc": "55 LPA", "gender": "x"},
+                          resume_text="Machine Learning Engineer | Adobe")
+    assert text.index("Total professional experience (years): 2") < text.index("RÉSUMÉ:")
+    assert "Current CTC: 55 LPA" in text and "gender" not in text
