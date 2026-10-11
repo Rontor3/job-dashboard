@@ -266,7 +266,7 @@ def m_guarded(env, i, case):
     return value if value and (value in options or len(value.split()) <= 6) else None
 
 
-def m_compiled(env, i, case):
+def m_compiled(env, i, case, compiler="local"):
     """Facts told once; the model compiles the question into a plan over fact names; the plan runs deterministically."""
     from career_agent.browser.form_model import Field
     from career_agent.memory import facts as F
@@ -277,20 +277,31 @@ def m_compiled(env, i, case):
         return None
     if "facts" not in env:
         env["facts"] = F.build(env["conn"], env["contact"], env["skills"])
-    value, env["notes"][i] = F.answer(label, kind, options, job, env["facts"], env["llm"], cache=env["plans"])
+    llm = env["llm"] if compiler == "local" else env.setdefault("haiku", Counted(F.claude_cli_llm("haiku")))
+    value, env["notes"][i] = F.answer(label, kind, options, job, env["facts"], llm, cache=env["plans"])
     return value
 
 
+def m_compiled_haiku(env, i, case):
+    """Same facts and executor; Claude Haiku (logged-in CLI, schema only — no values) writes the plans."""
+    return m_compiled(env, i, case, compiler="haiku")
+
+
 METHODS = {"current_nollm": m_current_nollm, "current": m_current, "topk": m_topk,
-           "factsheet": m_factsheet, "hybrid": m_hybrid, "guarded": m_guarded, "compiled": m_compiled}
+           "factsheet": m_factsheet, "hybrid": m_hybrid, "guarded": m_guarded, "compiled": m_compiled,
+           "compiled_haiku": m_compiled_haiku}
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", default=str(ROOT / "data" / "jobs.db"))
+    ap.add_argument("--data", default=str(ROOT / "data"), help="the data dir (a worktree has none: point at the checkout's)")
+    ap.add_argument("--db", default=None)
     ap.add_argument("--methods", default=",".join(METHODS))
-    ap.add_argument("--out", default=str(ROOT / "data" / "reports" / "answer_methods_bench.csv"))
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
+    data = Path(args.data)
+    args.db = args.db or str(data / "jobs.db")
+    args.out = args.out or str(data / "reports" / "answer_methods_bench.csv")
     from career_agent.memory import qbank
     from career_agent.memory.candidate_profile import load_candidate_profile
     from job_dashboard.apply.store import get_application_profile
@@ -303,7 +314,7 @@ def main() -> None:
     env = {"conn": conn, "contact": contact, "embed": qbank.default_embed,
            "profile": load_candidate_profile(conn, contact=contact), "llm": Counted(make_default_llm()),
            "notes": {}, "plans": {},
-           "skills": json.loads((ROOT / "data" / "answer_style" / "ingredients.json").read_text())["skills_pool"]}
+           "skills": json.loads((data / "answer_style" / "ingredients.json").read_text())["skills_pool"]}
 
     rows, summary = [], {}
     for name in args.methods.split(","):

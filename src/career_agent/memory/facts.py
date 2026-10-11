@@ -285,6 +285,23 @@ Examples (fact names here are illustrative; use the ones listed above):
   "Secondary email"                 {"missing": {"key": "secondary_email", "type": "text", "ask": "A second email address"}}"""
 
 
+def claude_cli_llm(model: str = "haiku", timeout: int = 120):
+    """llm(prompt) -> text through the logged-in Claude Code CLI (the subscription, not the API). No tools, one turn,
+    run from a temp dir so no project instructions load. Raises on a failed call (expired login, timeout)."""
+    import subprocess
+    import tempfile
+
+    def llm(prompt: str) -> str:
+        r = subprocess.run(["claude", "-p", "--model", model, "--max-turns", "1", "--tools", "",
+                            "--system-prompt", "You translate job-application form fields into JSON plans. "
+                                               "Reply with JSON only."],
+                           input=prompt, capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
+        if r.returncode != 0 or not r.stdout.strip():
+            raise RuntimeError((r.stderr or r.stdout or "claude -p failed").strip()[:200])
+        return r.stdout
+    return llm
+
+
 def compile_question(question, kind, options, job, facts, llm) -> dict:
     """{'plan': expr} | {'missing': {'key', 'type', 'ask'}} | {'not_a_question': True} | {} on a bad reply."""
     opt = f"\nIts options: {list(options)}" if options else ""
@@ -293,9 +310,13 @@ def compile_question(question, kind, options, job, facts, llm) -> dict:
         "facts' names and types, not their values; the plan is executed later.\n\n"
         f"Job: {job.get('company') or '?'} ({job.get('location') or '?'})\nField ({kind}): {question}{opt}\n\n"
         f"Stored facts:\n{schema(facts)}\n\n{OPS_HELP}\n\n"
-        "Rules: a yes/no question must yield true/false. Use ONLY facts that answer exactly what is asked; a "
-        "related-but-different fact (an alternate number is not the phone, a percentage is not a CGPA) means the "
-        "fact is missing. Experience in a skill not in the skills grid is 0 (lookup with default 0).\n"
+        "Rules: a yes/no question must yield true/false. Use ONLY facts that answer what is asked. A general fact "
+        "answers a narrower version of it: a stored non-compete answer covers 'that would affect your work at "
+        "<company>'; per-company lists answer the question for this job's company; the phone answers 'mobile' or "
+        "'WhatsApp number'; an availability, preference or location list answers a yes/no about willingness (combine "
+        "with and). A DIFFERENT quantity is missing: an alternate/second number is not the phone, a percentage is not "
+        "a CGPA, a confidentiality/IP agreement is not a non-compete. Experience in a skill not in the skills grid is "
+        "0 (lookup with default 0).\n"
         'Reply with JSON only, one of:\n{"plan": ...}\n{"missing": {"key": "snake_case", "type": "bool|number|text|'
         'date|money", "ask": "the fact to ask the candidate, once"}}\n{"not_a_question": true}   (a captcha, a '
         "search box, a placeholder, an unreadable label)")
