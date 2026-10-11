@@ -30,7 +30,24 @@ def _links(kb) -> list[Chunk]:
     return [Chunk("fact:links", "fact", f"The applicant's own links: {text}")] if text else []
 
 
-def material_for(ask: dict, question: str, kb, corpus) -> list[Chunk]:
+def project_for(asks: list[dict], question: str, corpus) -> str | None:
+    """it6: when the question wants ONE thing, the single project that best covers ALL its own-experience asks (sum over
+    asks of that project's best passage score) — not each ask's nearest project, which split 1012 across two."""
+    import numpy as np
+    own = [a for a in asks if a["source"] == "CANDIDATE"] or asks
+    total: dict = {}
+    for a in own:
+        s = corpus.scores(f"{a['part']} {question}")
+        best: dict = {}
+        for i, c in enumerate(corpus.items):
+            if c.kind == "passage" and c.project_id and s[i] > best.get(c.project_id, -1.0):
+                best[c.project_id] = float(s[i])
+        for pid, v in best.items():
+            total[pid] = total.get(pid, 0.0) + v
+    return max(total, key=total.get) if total else None
+
+
+def material_for(ask: dict, question: str, kb, corpus, project_id: str | None = None) -> list[Chunk]:
     query = f"{ask['part']} {question}"
     src = ask["source"]
     if src == "GENERAL":
@@ -40,13 +57,11 @@ def material_for(ask: dict, question: str, kb, corpus) -> list[Chunk]:
     if src == "PREFERENCE":
         return corpus.search(query, 2, kinds={"story"}, floor=0.05)
     # it2: the ask on its own AND in context, fused (the whole question alone dilutes a narrow ask like "primary model")
-    out = corpus.search_multi([ask["part"], query], 6, kinds={"passage"}, per_unit=3, floor=0.2)
-    if _ONE_THING.search(question) and out:            # "describe A product / THE most complex system": one project only
-        best = max({c.project_id for c in out if c.project_id},
-                   key=lambda p: sum(1.0 / (i + 1) for i, c in enumerate(out) if c.project_id == p), default=None)
-        out = [c for c in out if c.project_id == best][:4] if best else out[:4]
+    if project_id:                                       # the question wants ONE thing: that project's passages only
+        out = [c for c in corpus.search_multi([ask["part"], query], 12, kinds={"passage"}, per_unit=12, floor=0.0)
+               if c.project_id == project_id][:4]
     else:
-        out = out[:4]
+        out = corpus.search_multi([ask["part"], query], 4, kinds={"passage"}, per_unit=2, floor=0.2)
     if _OUTCOME.search(ask["part"]) or _STACK.search(ask["part"]):   # results and the tech stack live on the project cards
         for pid in dict.fromkeys(c.project_id for c in out if c.project_id):
             card = kb.card(pid)
@@ -94,7 +109,8 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
     return (f"You write a job applicant's answer, in the first person, to this application question:\n\"{question}\"\n\n"
             "Answer EVERY ask below, in the order given, as connected prose (no headings, no numbering, no preamble).\n"
             "Rules:\n"
-            "- If an ask is a yes/no question, start that part with a plain Yes or No taken from the material.\n"
+            "- If an ask is a yes/no question, start that part with Yes or No. When the true answer is a qualified yes (a PoC, "
+            "an internal tool, batch rather than real-time), write 'Yes — ' and then the true scope in the same sentence.\n"
             "- Name the specifics the ask wants (model, tools, numbers, the link) when the material states them.\n"
             "- About the applicant, say ONLY what that ask's MATERIAL states: no invented projects, numbers, users, links or outcomes.\n"
             "- Keep every fact with the PROJECT it is listed under; never credit one project with another's work.\n"
@@ -135,7 +151,8 @@ def uncovered(text: str, asks: list[dict], llm) -> list[int]:
 def answer_asks(question: str, *, job, kb, corpus, llm, limit=None) -> dict:
     from .segments import invented_links, sub_asks
     asks = sub_asks(question, llm)
-    blocks = [(a, material_for(a, question, kb, corpus)) for a in asks]
+    pid = project_for(asks, question, corpus) if _ONE_THING.search(question) else None
+    blocks = [(a, material_for(a, question, kb, corpus, pid if a["source"] == "CANDIDATE" else None)) for a in asks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
     try:
         raw = llm(build_prompt(question, asks, blocks, limit, kb))
