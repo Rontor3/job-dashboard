@@ -178,6 +178,8 @@
 .pi-editor textarea { min-height: calc(1.5em + 12px); max-height: 40vh; }
 /* The popover fits the room it has: its thread takes what's left between the header and the composer. */
 .agent-popover .agent-thread { flex: 1 1 auto; min-height: 60px; max-height: none; overflow-y: auto; }
+/* Drag the corner to make it bigger; the size is remembered. */
+.agent-popover { resize: both; min-width: 320px; min-height: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
 .pi-forked { text-align: center; margin: 6px 0; color: var(--ink-soft); font-size: 12.5px; }
 /* A long title gives way before the company and place do; on narrow screens they take their own line. */
 .job-text .job-title { max-width: 68%; }
@@ -187,3 +189,13 @@
   .job-text .job-title { max-width: 100%; }
   .job-text .job-meta { min-width: 0; width: 100%; }
 }
+/* The question picker: every match in full, wrapped, never cut to one line. */
+.entry-picker { position: relative; }
+.entry-picker input { font-size: 12px; padding: 6px 10px; border: 0.5px solid var(--hairline); border-radius: 8px;
+  background: var(--canvas); color: var(--ink); width: 100%; box-sizing: border-box; text-overflow: ellipsis; }
+.entry-picker-list { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px;
+  list-style: none; max-height: 280px; overflow-y: auto; background: var(--card); border: 0.5px solid var(--hairline-strong);
+  border-radius: 8px; box-shadow: var(--shadow-md); }
+.entry-picker-list li { padding: 6px 8px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; white-space: normal;
+  overflow-wrap: anywhere; cursor: pointer; }
+.entry-picker-list li.on { background: color-mix(in srgb, var(--green) 12%, transparent); }

@@ -40,7 +40,14 @@ for (let attempt = 0; ; attempt++) {             // process-compose starts us on
 const harness = await Harness.open(await openNodeSqliteStorage(join(agentDir(), "sessions.db")), {
   models: live.models,
   registry,
-  settings: { compaction: { enabled: true } },
+  settings: {
+    compaction: { enabled: true },
+    // A hosted endpoint can stall for a minute (a cold start, a gateway hiccup: a forked branch's first request timed
+    // out four times in 54s on the default 2s/4s/8s). Wait longer between attempts, and give one attempt the same
+    // budget the rest of the app gives a model call (LLM_TIMEOUT, 180s by default).
+    retry: { maxRetries: 4, baseDelayMs: 5000, maxAgentDelayMs: 60000 },
+    stream: { timeoutMs: (Number(setting("LLM_TIMEOUT")) || 180) * 1000 },
+  },
 }, ctx);
 team.consult = makeConsult(harness, client, live, ctx);
 harness.resume();                                 // finish any run a crash or restart interrupted

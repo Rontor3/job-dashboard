@@ -43,3 +43,15 @@ Full pytest 1561 passed; career_agent 555; five live dry runs (`--review --no-te
 - `data/current_resume.pdf` is a 2023 student résumé with no Adobe role; it is what employers receive.
 - perception.py / page_prep.py / credential_provider.py were already over 500 lines and grew slightly; split them.
 - Hill-climbing over many jobs needs a current résumé, target roles and the user's go-ahead to submit.
+
+## Follow-up: popover timeouts, size, the question picker
+- "Request timed out." ×4 in a side branch: one generation, four attempts in 54 s (pi's default retries 2s/4s/8s)
+  during a short endpoint outage; the same endpoint answers a 60k-token request in 5 s. The agent now retries at
+  5/10/20/40 s and gives an attempt LLM_TIMEOUT (180 s); the thread shows a run of failed attempts as one line
+  ("The model didn't answer (tried 4 times): …").
+- Popover: a real size (440 × up to 560, not a max-height its thread shrank under), resizable from the corner,
+  size remembered.
+- Question picker ("Another wording of…"): our own list in place of a `<datalist>`, which cut long questions to one
+  line with no way to read them; matches wrap in full, arrows/Enter pick, the box's title holds the whole question.
+- Verified: frontend 171 tests + typecheck + build, agent 21 + typecheck, live check of the collapsed error and the
+  popover size.

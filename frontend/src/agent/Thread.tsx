@@ -211,7 +211,24 @@ export function Thread({ entries, partial, running, toolsRunning, live = [], foc
     const m = e.model?.[0];
     if (e.kind === "pi.tool-result" && m?.toolCallId) results.set(m.toolCallId, m);
   }
-  const renderEntry = (e: Entry, msg: Message | undefined) => {
+  // A model error is retried (pi waits 5s, 10s, 20s, 40s), and every failed attempt is an assistant entry of its own:
+  // one question showed "Request timed out." four times. Show the last of a run, with the count.
+  const failed = (e: Entry | undefined) => {
+    const m = e?.kind === "pi.assistant" ? e.model?.[0] as (Message & { errorMessage?: string }) | undefined : undefined;
+    if (!m?.errorMessage) return false;
+    const blocks = Array.isArray(m.content) ? m.content : [];
+    return !blocks.some((b) => (b.type === "text" && b.text.trim()) || b.type === "toolCall");
+  };
+  const renderEntry = (e: Entry, msg: Message | undefined, i = -1) => {
+    if (i >= 0 && failed(e)) {
+      if (failed(entries[i + 1])) return null;
+      let n = 1;
+      while (i - n >= 0 && failed(entries[i - n])) n++;
+      const why = (msg as { errorMessage?: string }).errorMessage;
+      return <div key={e.id} className="pi-note pi-error" data-entry={e.id}>
+        {n > 1 ? `The model didn't answer (tried ${n} times): ${why}` : `The model didn't answer: ${why}`} Send it again to retry.
+      </div>;
+    }
     if (e.kind === "pi.user") return <User key={e.id} entry={e} />;
     if (e.kind === "pi.assistant" && msg) return <Assistant key={e.id} id={e.id} msg={msg} results={results} live={live} view={view} />;
     if (e.kind === "pi.compaction") return <div key={e.id} className="pi-note">── context compacted: earlier messages are summarized ──</div>;
@@ -224,9 +241,9 @@ export function Thread({ entries, partial, running, toolsRunning, live = [], foc
         const msg = e.model?.[0];
         if (forkAt !== undefined && i > 0 && entries[i - 1]!.id <= forkAt && e.id > forkAt) {
           return [<div key={`fork-${e.id}`} className="pi-note pi-forked">── this branch starts here; above is shared with the session it came from ──</div>,
-            renderEntry(e, msg)];
+            renderEntry(e, msg, i)];
         }
-        return renderEntry(e, msg);
+        return renderEntry(e, msg, i);
       })}
 
       {partial && <Assistant msg={partial} results={results} live={live} view={view} />}
