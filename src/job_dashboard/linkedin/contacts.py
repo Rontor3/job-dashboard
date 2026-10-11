@@ -110,7 +110,7 @@ def extract_role(post: dict, post_fn=None) -> dict:
                   f"Poster headline: {post.get('poster_headline') or ''}\n"
                   f"Post: {(post.get('text') or '')[:3000]}")
         resp = post_fn(f"{host}/api/generate", {
-            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt,
+            "model": os.getenv("OLLAMA_MODEL", "gemma4:26b"), "prompt": prompt,
             "stream": False, "format": "json", "options": {"temperature": 0.1}})
         got = json.loads(resp["response"])
         for k in guess:
@@ -243,7 +243,7 @@ def judge_post(post: dict, resume_text: str, constraints: str = "", post_fn=None
             resume=resume_text[:6000], poster=post.get("poster_name") or "",
             headline=post.get("poster_headline") or "", post=(post.get("text") or "")[:3000])
         got = json.loads(post_fn(f"{host}/api/generate", {
-            "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt, "stream": False,
+            "model": os.getenv("OLLAMA_MODEL", "gemma4:26b"), "prompt": prompt, "stream": False,
             "format": "json", "keep_alive": "30m",
             "options": {"temperature": 0.1, "num_ctx": 12288}})["response"])
         if isinstance(got.get("title"), str) and got["title"].strip():
