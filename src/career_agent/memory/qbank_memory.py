@@ -10,16 +10,35 @@ from __future__ import annotations
 
 from ..orchestrator.mapper import FillDecision, _action_for_kind
 from . import qbank
-from .qbank_match import CONFIDENT, DEFAULT_HIGH, NONE, Match, answer_field
+from .qbank_match import CONFIDENT, DEFAULT_HIGH, LIKELY, NONE, Match, answer_field, is_junk
+
+_NOT_FOR_PLANS = ("file", "button", "textarea")     # uploads, clicks and essays are never a fact
 
 
 class QBankMemory:
-    def __init__(self, conn, *, embed=None, llm=None, job=None, contact=None, high=DEFAULT_HIGH):
+    def __init__(self, conn, *, embed=None, llm=None, job=None, contact=None, high=DEFAULT_HIGH,
+                 facts_llm=None, skills=()):
         self.conn, self.llm, self.high = conn, llm, high
         self.embed = embed or qbank.default_embed
         self.job, self.contact = job or {}, contact or {}
         qbank.seed_if_empty(conn, self.embed)
         self._cache: dict = {}
+        # Facts + plans (spec 2026-10-11): when the bank has no answer, a plan written by facts_llm from the fact
+        # schema runs over the stored facts. Off unless a model is given. ponytail: plans cached per run only
+        # (in memory), persist them in a plan table when this graduates from the live test.
+        self.facts_llm, self._skills, self._facts, self._plans = facts_llm, list(skills), None, {}
+
+    def _from_facts(self, f):
+        from ..orchestrator.sensitive import is_sensitive
+        from . import facts as F
+        if (self.facts_llm is None or f.kind in _NOT_FOR_PLANS or f.purpose == "attestation"
+                or is_junk(f) or is_sensitive(f)):
+            return None
+        if self._facts is None:
+            self._facts = F.build(self.conn, self.contact, self._skills)
+        value, note = F.answer(f.label, f.kind, f.options or [], self.job, self._facts, self.facts_llm,
+                               cache=self._plans)
+        return (Match(LIKELY, kind="plan", note=f"plan from your facts: {note}"), value) if value else None
 
     def _answer(self, f):
         # trace_all() runs before recall() on the same fields: compute once
@@ -32,6 +51,12 @@ class QBankMemory:
             except Exception as e:
                 print(f"[warn] qbank lookup failed for {f.label!r}: {e}")
                 self._cache[key] = (Match(band=NONE), None)
+            m, value = self._cache[key]
+            if m.band == NONE or value is None:
+                try:
+                    self._cache[key] = self._from_facts(f) or self._cache[key]
+                except Exception as e:                  # CLI down, login expired: the bank's answer (none) stands
+                    print(f"[warn] facts plan failed for {f.label!r}: {type(e).__name__}: {e}")
         return self._cache[key]
 
     def explain(self, f) -> dict:

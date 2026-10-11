@@ -43,6 +43,25 @@ def test_model_shorthand():
     assert not F.uses_fact({"op": "cmp", "cmp": "==", "args": ["Siemens", "Siemens"]}, FACTS)
 
 
+def test_yes_no_only_into_a_yes_no_field():
+    assert F.render(True, (), label="Pursuing/ Completed *") is None            # wants a word, not Yes
+    assert F.render(True, (), label="Have you completed a degree?") == "Yes"
+    assert F.render(False, ["Yes", "No"], label="Visa sponsorship") == "No"     # yes/no options say it is one
+
+
+def test_qbank_memory_falls_back_to_a_plan(qbank_conn, fake_embed):
+    from career_agent.browser.form_model import Field
+    from career_agent.memory.qbank_memory import QBankMemory
+    plan = '{"plan": {"op": "cmp", "cmp": "==", "args": [{"fact": "location", "field": "country"}, "India"]}}'
+    mem = QBankMemory(qbank_conn, embed=fake_embed, contact={"location": "Mumbai, India"}, facts_llm=lambda p: plan)
+    f = Field(ref="r", kind="radio_group", label="Do you live in India right now?", required=True, options=["Yes", "No"])
+    decisions, still = mem.recall([f])
+    assert [(d.value, d.source) for d in decisions] == [("Yes", "qbank_likely")] and still == []
+    assert "plan from your facts" in mem.explain(f)["basis"]
+    off = QBankMemory(qbank_conn, embed=fake_embed, contact={"location": "Mumbai, India"})   # flag off: unchanged
+    assert off.recall([f])[0] == []
+
+
 def test_never_guesses():
     with pytest.raises(F.PlanError):                                             # 25 LPA vs "3500" of what?
         F.run({"op": "cmp", "cmp": ">", "args": ["current_ctc", 3500]}, FACTS)

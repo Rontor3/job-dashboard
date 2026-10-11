@@ -106,6 +106,10 @@ def main() -> None:
     ap.add_argument("--claude-assist", action="store_true",
                     help="at a dead end (no advance / stuck) ask Claude (headless `claude -p`) for ONE click, "
                          "max 5 per run; also on if CAREER_AGENT_CLAUDE_ASSIST=1. Never submits/captchas/logins.")
+    ap.add_argument("--facts", action="store_true",
+                    help="when the question bank has no answer, Claude Haiku (logged-in `claude -p`, fact names only, "
+                         "never values) writes a plan over your stored facts; filled as 'likely' for review. "
+                         "Also on if CAREER_AGENT_FACTS=1. Spec 2026-10-11-facts-and-plans.")
     ap.add_argument("--longform", action="store_true",
                     help="long free-text answers via the need-based pipeline (plan -> retrieve -> write -> verify); "
                          "also on if CAREER_AGENT_LONGFORM=1. Falls back to the old drafter on any failure.")
@@ -277,10 +281,19 @@ def _apply(args, box: dict) -> None:
             _qllm = make_default_llm()
         except Exception as e:
             print(f"[warn] qbank LLM pick unavailable ({type(e).__name__}: {e})")
+    _facts_llm, _skills = None, []
+    if args.facts or os.getenv("CAREER_AGENT_FACTS") == "1":
+        from .memory.facts import claude_cli_llm
+        _facts_llm = claude_cli_llm("haiku")
+        try:
+            _skills = json.loads((_RunPath(args.db).parent / "answer_style" / "ingredients.json").read_text())["skills_pool"]
+        except Exception as e:
+            print(f"[warn] skills pool unavailable ({type(e).__name__}: {e})")
     try:
         learn = QBankMemory(conn, llm=_qllm, contact=contact,
                             job=(get_job(conn, args.job_id) if args.job_id else None) or {},
-                            high=qa_store.qbank_confident_min(conn) / 100)
+                            high=qa_store.qbank_confident_min(conn) / 100,
+                            facts_llm=_facts_llm, skills=_skills)
     except Exception as e:
         print(f"[warn] question bank unavailable ({type(e).__name__}: {e})")
         learn = None

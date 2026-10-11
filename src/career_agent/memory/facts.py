@@ -242,9 +242,16 @@ def run(plan, facts):
 
 
 # ── formatter ────────────────────────────────────────────────────────────────
-def render(value, options=()):
-    """A value in the shape the field takes; None when it fits none of the field's options."""
+_ASKS = re.compile(r"\?|^\s*(are|is|do|does|did|have|has|will|would|can|could|should|were|was)\b", re.I)
+
+
+def render(value, options=(), label=None):
+    """A value in the shape the field takes; None when it fits none of the field's options, or when a yes/no
+    result would go into a field that is not a yes/no question ("Pursuing / Completed" wants a word, not Yes)."""
     if isinstance(value, bool):
+        yes_no_opts = {o.strip().lower() for o in options} & {"yes", "no", "true", "false"}
+        if label is not None and not yes_no_opts and not _ASKS.search(label):
+            return None
         text = "Yes" if value else "No"
     elif isinstance(value, float):
         text = str(int(value)) if value == int(value) else str(value)
@@ -349,5 +356,7 @@ def answer(question, kind, options, job, facts, llm, cache=None):
         value = run(out["plan"], facts)
     except (PlanError, KeyError, TypeError, ValueError, AttributeError) as e:
         return None, f"plan failed: {e} | {json.dumps(out['plan'])}"
-    text = render(value, options)
+    text = render(value, options, label=question)
+    if text is None:
+        return None, f"yes/no result does not fit this field | {json.dumps(out['plan'])}"
     return text, json.dumps(out["plan"])
