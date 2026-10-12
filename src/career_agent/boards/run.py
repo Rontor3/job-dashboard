@@ -245,6 +245,14 @@ def run_board(page, board, ctx):
         return res
 
     blocked = _blocked(page, board)
+    if blocked and ctx.get("human_wait_s"):
+        from ..browser.gate_probe import wait_for_human
+        job_url = page.url
+        if wait_for_human(page, lambda: _blocked(page, board), ctx["human_wait_s"], what=blocked.replace("_", " ")):
+            if page.url.split("?")[0] != job_url.split("?")[0]:
+                page.goto(job_url, wait_until="domcontentloaded")      # a login may have left the job page
+                page.wait_for_timeout(2000)
+            blocked = _blocked(page, board)
     if blocked:
         return stop(blocked, page)
     driver = DRIVERS[board["archetype"]]

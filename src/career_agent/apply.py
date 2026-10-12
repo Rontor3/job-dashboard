@@ -110,6 +110,9 @@ def main() -> None:
                     help="(on by default) when the question bank has no answer, Claude Haiku (logged-in `claude -p`, "
                          "fact names only, never values) writes a plan over your stored facts; it runs locally and the "
                          "fill is 'likely' (listed for review). Spec 2026-10-11-facts-and-plans.")
+    ap.add_argument("--human-wait", type=int, default=0, metavar="SECONDS",
+                    help="you are at the screen: on a human check (Cloudflare, a board challenge) or a logged-out "
+                         "board, wait up to SECONDS for YOU to clear it, then continue. 0 = stop at once (unattended)")
     ap.add_argument("--no-facts", action="store_true",
                     help="skip the facts-and-plans step (also CAREER_AGENT_FACTS=0)")
     ap.add_argument("--longform", action="store_true",
@@ -425,7 +428,7 @@ def _apply(args, box: dict) -> None:
         if _board:
             out = _run_board(_board, page, args, autosubmit_policy=_policy_fn, on_submit=_on_submit,
                              profile=profile, human=human, resume_pdf=resume_pdf,
-                             judge_fn=judge_fn, learn=learn,
+                             judge_fn=judge_fn, learn=learn, human_wait_s=args.human_wait,
                              option_matcher=option_matcher, qa=qa_rec, run_dir=_run_dir, assist=_assist)
             if out.get("stopped_reason") == "left_board":
                 # The flow moved off the board (e.g. "Apply on company site"): the career-site engine takes over
@@ -542,7 +545,7 @@ def _apply(args, box: dict) -> None:
             "thread_id": tid, "page": page, "profile": profile, "deps": deps,
             "human": human, "collector": collector, "resume_pdf": resume_pdf,
             "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
-            "on_link": on_link,
+            "on_link": on_link, "human_wait_s": args.human_wait,
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text
             "run_dir": run_dir, "qa": qa_rec, "assist": _assist,
             "autosubmit_policy": _policy_fn, "on_submit": _on_submit,

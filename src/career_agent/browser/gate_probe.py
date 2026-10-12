@@ -149,3 +149,23 @@ def is_cleared_for(gate: str):
     if g.startswith("recaptcha"):
         return lambda page: bool(_gather_signals(page).get("grecaptcha_response_present"))
     return is_cleared
+
+
+
+def wait_for_human(page, still_blocked, seconds: float, poll_s: float = 3.0, what: str = "a check") -> bool:
+    """A human is at the screen: wait (up to `seconds`) for THEM to clear the gate — a human check, a login.
+    Polls `still_blocked()`; touches nothing on the page. True once it is clear. 0 seconds = no wait (unattended)."""
+    import time
+    if seconds <= 0:
+        return False
+    print(f"[gate] waiting up to {int(seconds)}s for you to clear {what} on {page.url[:80]}", flush=True)
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        try:
+            page.wait_for_timeout(poll_s * 1000)
+            if not still_blocked():
+                print("[gate] cleared by you - continuing", flush=True)
+                return True
+        except Exception:
+            return False
+    return False

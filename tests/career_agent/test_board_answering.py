@@ -168,6 +168,18 @@ def test_a_yes_no_question_never_gets_a_sentence():
     assert value is None and "yes/no" in note
 
 
+def test_wait_for_human_returns_when_the_person_clears_the_gate():
+    from career_agent.browser.gate_probe import wait_for_human
+
+    class Page:
+        url = "https://example.com/job"
+        def wait_for_timeout(self, ms): pass
+
+    checks = iter([True, True, False])                          # blocked, blocked, then cleared by the person
+    assert wait_for_human(Page(), lambda: next(checks), 30, poll_s=0) is True
+    assert wait_for_human(Page(), lambda: True, 0) is False     # unattended (0 s): never waits
+
+
 def test_site_search_box_is_not_a_question():
     from career_agent.browser.form_model import guess_purpose
     assert guess_purpose("Search title or skill...", "text") is None             # Pelicon's job search, live 2026-10-12

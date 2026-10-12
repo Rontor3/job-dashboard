@@ -257,6 +257,10 @@ def perceive_node(state: AgentState, config) -> dict:
             gate = deps.gate(page)
             if HANDLERS.get(gate, "escalate") == "proceed":
                 break
+    if gate in _EARLY_BLOCK and c.get("human_wait_s"):
+        from ..browser.gate_probe import wait_for_human
+        if wait_for_human(page, lambda: deps.gate(page) in _EARLY_BLOCK, c["human_wait_s"], what=gate.replace("_", " ")):
+            gate = deps.gate(page)
     if gate in _EARLY_BLOCK:
         notice = _notify_gate(c, gate, f"⛔ {gate} on {page.url[:80]} — agent stopped, needs your attention")
         return {"stopped_reason": f"gate:{gate}",
