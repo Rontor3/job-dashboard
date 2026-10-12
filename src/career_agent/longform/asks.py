@@ -49,13 +49,17 @@ def project_for(asks: list[dict], question: str, corpus) -> str | None:
     return max(total, key=total.get) if total else None
 
 
-def material_for(ask: dict, question: str, kb, corpus, project_id: str | None = None, allowed=None) -> list[Chunk]:
+def material_for(ask: dict, question: str, kb, corpus, project_id: str | None = None, allowed=None,
+                 research=None) -> list[Chunk]:
     query = f"{ask['part']} {question}"
     src = ask["source"]
     if src == "GENERAL":
         return corpus.close(query, 2, kinds={"practice"})
     if src == "COMPANY":
-        return corpus.search(query, 2, kinds={"company"}, floor=0.0)
+        # what the company builds and is known for (longform/research.py) leads; one piece of the posting for the role
+        facts = [Chunk(f"research:{i}", "company", f"{f.text} (source: {f.source_url})")
+                 for i, f in enumerate((getattr(research, "facts", None) or [])[:5])]
+        return facts + corpus.search(query, 1 if facts else 2, kinds={"company"}, floor=0.0)
     if src == "PREFERENCE":
         return corpus.search(query, 2, kinds={"story"}, floor=0.05)
     # it2: the ask on its own AND in context, fused (the whole question alone dilutes a narrow ask like "primary model")
@@ -130,6 +134,8 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
             "- When an ask wants a link, give the link itself as that ask's answer (e.g. 'My work is on GitHub: <url>').\n"
             "- Refer to projects by their titles, never by internal ids.\n"
             "- A GENERAL ask (how would you / what would you investigate) is answered from sound standard practice.\n"
+            "- A COMPANY ask (why this company / what interests you) names one or two specific things the company builds "
+            "or has done, from its material, in your own words, and ties them to your work; never restate the job post.\n"
             "- If something an ask needs is not stated, give the closest true thing that is, without inventing the rest.\n"
             "- Never mention 'the material', 'provided information' or what is missing from it. Never repeat a sentence. "
             "Never open with 'Closest example' or any lead-in.\n"
@@ -156,15 +162,21 @@ def uncovered(text: str, asks: list[dict], llm) -> list[int]:
     return [n for n in range(1, len(asks) + 1) if got and not str(got.get(str(n)) or "").strip()]
 
 
-def answer_asks(question: str, *, job, kb, corpus, llm, limit=None) -> dict:
+def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=None) -> dict:
+    """`research` is a ResearchBundle, or a callable returning one (looked up only when an answer needs it)."""
+    from .outreach import OUTREACH, answer_outreach, copied_run
     from .segments import invented_links, sub_asks
+    get_research = research if callable(research) else (lambda: research)
+    if OUTREACH.search(question):
+        return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm, limit=limit)
     asks = sub_asks(question, llm)
+    research = get_research() if any(a["source"] == "COMPANY" for a in asks) else None
     pid = project_for(asks, question, corpus) if _ONE_THING.search(question) else None
     # it10 capped a note-to-the-team at the 2 projects that fit the posting: tied with it9 on the same judge
     # (0.94/0.89 both) -> reverted, simpler wins a tie
     allowed = None
     blocks = [(a, material_for(a, question, kb, corpus, pid if a["source"] == "CANDIDATE" else None,
-                               allowed if a["source"] == "CANDIDATE" else None)) for a in asks]
+                               allowed if a["source"] == "CANDIDATE" else None, research)) for a in asks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
     try:
         raw = llm(build_prompt(question, asks, blocks, limit, kb))
@@ -172,6 +184,18 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None) -> dict:
         return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"], "confidence": None}
     text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
     flags, notes = [], []
+    posting = [c.text for c in corpus.items if c.kind == "company"]
+    copied = copied_run(text, posting) if research is not None else None
+    if copied:                                               # a 'why us' that restates the job post: one rewrite
+        try:
+            again = llm(build_prompt(question, asks, blocks, limit, kb).replace(
+                "\n\nAnswer:", f"\n\nDo not reuse the job post's wording such as \"{copied}\".\n\nAnswer:"))
+            again = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", again or "")).strip())
+            if again:
+                text = again
+                notes.append("rewrote_job_post_wording")
+        except Exception:
+            pass
     try:                                                     # it3: coverage repair, one grounded addition per missed ask
         for n in uncovered(text, asks, llm) if text else []:
             ask, mat = blocks[n - 1]

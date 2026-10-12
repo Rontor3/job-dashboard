@@ -89,6 +89,17 @@ def make_longform(conn, job, contact, llm, research, ingredients_path, job_id=No
     """The callable judgment.py uses: run(question, field) -> result dict. The knowledge base is loaded once."""
     from career_agent.memory.qbank import default_embed       # the on-device MiniLM the question bank already uses
     kb = KnowledgeBase.load(conn, ingredients_path, contact, embed=default_embed)
+    found: dict = {}
+
+    def research_of(j):
+        """Company research, looked up once per company and only when an answer needs it (longform/research.py)."""
+        def get():
+            key = (j or {}).get("company") or ""
+            if key not in found:
+                from .research import research_for
+                found[key] = research if getattr(research, "facts", None) else research_for(conn, j)
+            return found[key]
+        return get
 
     def run(question, field=None, current_job=None):
         j = current_job if isinstance(current_job, dict) and current_job else job   # apply.py may swap the job later
@@ -98,7 +109,8 @@ def make_longform(conn, job, contact, llm, research, ingredients_path, job_id=No
             # answer_longform 1.00 / 0.56 (scripts/longform_iterate.py, Haiku judge, 2026-10-12)
             from .asks import answer_asks
             from .corpus import Corpus
-            return answer_asks(question, job=j, kb=kb, corpus=Corpus(kb, j), llm=llm, limit=field_limit(field))
+            return answer_asks(question, job=j, kb=kb, corpus=Corpus(kb, j), llm=llm, limit=field_limit(field),
+                               research=research_of(j))
         prior = prior_project(conn, jid, question) if jid else None
         return answer_longform(question, job=j, kb=kb, llm=llm, research=research, prior=prior, limit=field_limit(field))
     run.kb = kb
