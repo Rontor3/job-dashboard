@@ -24,6 +24,10 @@ _NO = {"no", "false"}
 # the résumé there (I-3).
 _NON_RESUME_FILE = re.compile(
     r"cover letter|portfolio|photo|picture|transcript|certificate|writing sample", re.I)
+# An opt-in to receive things (never ticked unless the form requires it), as opposed to consent to apply.
+_MARKETING = re.compile(r"newsletter|marketing|promotion|offers?\b|job alerts?|similar (jobs|roles)|notif|"
+                        r"\bsms\b|whatsapp|text messages?|updates? (about|on|from)|talent (community|network|pool)|"
+                        r"future (opportunities|openings|roles)|keep me (informed|updated)", re.I)
 
 
 def _normalize(value):
@@ -130,11 +134,10 @@ def map_screen(form, profile, resume_pdf=None):
             # Never fill or escalate; pretend they don't exist.
             continue
         if f.purpose == "attestation":
-            # Tick REQUIRED attestations (T&C / e-signature) in the DRAFT — a tick
-            # on an unsubmitted form binds nothing; the human-approved SUBMIT is
-            # the consent point. Optional attestations (e.g. marketing opt-in) are
-            # left unticked.
-            if f.required:
+            # Tick privacy / terms / certify consent in the DRAFT, marked required or not (the user's standing yes,
+            # 2026-10-13: an unmarked privacy box kept Tibil's Apply greyed out) — a tick on an unsubmitted form binds
+            # nothing; the human-approved SUBMIT is the consent point. Marketing opt-ins stay unticked.
+            if f.required or not _MARKETING.search(f"{f.label} {getattr(f, 'description', '')}"):
                 decisions.append(FillDecision(f.ref, f.kind, f.label, True, "check", "attestation"))
             else:
                 decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))

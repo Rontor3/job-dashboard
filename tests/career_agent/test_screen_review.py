@@ -71,6 +71,16 @@ def test_required_attestation_ticked_optional_left():
     assert d["#mk"].action == "attestation"                        # optional marketing -> not ticked
 
 
+def test_unmarked_privacy_consent_is_ticked_but_opt_ins_are_not():
+    # live Tibil (FabricHQ) 2026-10-13: an unmarked "I have read and agreed to the Privacy Policy" kept Apply greyed
+    P = CandidateProfile(contact={})
+    pp = Field("#pp", "checkbox", "I have read and agreed to the Privacy Policy", False, [], None, "attestation")
+    wa = Field("#wa", "checkbox", "I agree to receive job alerts on WhatsApp", False, [], None, "attestation")
+    d = {x.ref: x for x in map_screen([pp, wa], P)[0]}
+    assert d["#pp"].action == "check" and d["#pp"].value is True
+    assert d["#wa"].action == "attestation"
+
+
 def test_non_resume_file_field_escalates():
     # I-3: a cover-letter upload must NOT receive the résumé PDF
     P = CandidateProfile(contact={})
