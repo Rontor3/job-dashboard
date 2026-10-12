@@ -23,7 +23,10 @@ DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail 
                     "autosubmit_daily_cap": "5",       # most automatic submits in any 24h (autonomy.autosubmit_policy)
                     # Apply queue: standing per-board authorization to auto-submit (0/1).
                     **{f"autosubmit_{b}": "0" for b in ("naukri", "linkedin", "indeed", "iimjobs", "instahyre",
-                                                        "wellfound", "workatastartup", "career_site")}}
+                                                        "wellfound", "workatastartup", "career_site")},
+                    # 1 = you waive the "first submit on this kind of site is yours" rule for that board (0 = keep it)
+                    **{f"trust_first_{b}": "0" for b in ("naukri", "linkedin", "indeed", "iimjobs", "instahyre",
+                                                         "wellfound", "workatastartup", "career_site")}}
 
 _COLS = (
     "qkey", "label", "kind", "purpose", "answer", "source", "status",

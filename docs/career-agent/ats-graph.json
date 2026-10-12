@@ -979,6 +979,89 @@
         "reached_submit_dry_run",
         "stuck"
       ]
+    },
+    {
+      "id": "site:smartapply.indeed.com",
+      "type": "site",
+      "label": "smartapply.indeed.com",
+      "domains": [
+        "smartapply.indeed.com"
+      ],
+      "errors_seen": [
+        "no_advance_control"
+      ]
+    },
+    {
+      "id": "site:stepout.ai",
+      "type": "site",
+      "label": "stepout.ai",
+      "domains": [
+        "stepout.ai"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:accenture.com",
+      "type": "site",
+      "label": "accenture.com",
+      "domains": [
+        "accenture.com"
+      ],
+      "errors_seen": [
+        "no_advance_control"
+      ]
+    },
+    {
+      "id": "site:aondigicon.com",
+      "type": "site",
+      "label": "aondigicon.com",
+      "domains": [
+        "aondigicon.com"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:naghavifin.com",
+      "type": "site",
+      "label": "naghavifin.com",
+      "domains": [
+        "naghavifin.com"
+      ],
+      "errors_seen": [],
+      "reach_path": [
+        "click link 'Apply Now' (frame 0) -> naghavifin.com/application-form-for-internship/"
+      ],
+      "lands_on": "naghavifin.com",
+      "reach_clicks": [
+        "Apply Now"
+      ],
+      "reach_end": "form"
+    },
+    {
+      "id": "site:salesforce.com",
+      "type": "site",
+      "label": "salesforce.com",
+      "domains": [
+        "salesforce.com"
+      ],
+      "errors_seen": [
+        "stuck"
+      ]
+    },
+    {
+      "id": "site:hitachids.com",
+      "type": "site",
+      "label": "hitachids.com",
+      "domains": [
+        "hitachids.com"
+      ],
+      "errors_seen": [
+        "no_advance_control"
+      ]
     }
   ],
   "edges": [

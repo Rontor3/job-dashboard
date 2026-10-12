@@ -117,9 +117,10 @@ function Question({ q, onReviewed }) {
       </div>
       {edit ? (
         <div style={{ margin: "4px 0", display: "flex", flexDirection: "column", gap: 6 }}>
-          <textarea aria-label={`Edit answer: ${q.label}`} value={edit.text} rows={Math.min(8, Math.max(2, edit.text.split("\n").length))}
+          <textarea aria-label={`Edit answer: ${q.label}`} value={edit.text} rows={Math.min(24, Math.max(10, Math.ceil(edit.text.length / 60) + edit.text.split("\n").length))}
                     onChange={(e) => setEdit({ ...edit, text: e.target.value, err: null })}
-                    style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6, border: "0.5px solid var(--hairline)", fontFamily: "inherit", resize: "vertical" }} />
+                    style={{ width: "100%", boxSizing: "border-box", minHeight: 240, maxHeight: "70vh", fieldSizing: "content", fontSize: 14, lineHeight: 1.55,
+                             padding: "10px 12px", borderRadius: 8, border: "1px solid var(--hairline)", fontFamily: "inherit", resize: "vertical" }} />
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
             <select aria-label="Where to save the corrected answer" value={edit.saveAs}
                     onChange={(e) => setEdit({ ...edit, saveAs: e.target.value })}

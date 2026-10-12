@@ -388,10 +388,18 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         import hashlib
         from career_agent.orchestrator.run_history import summarize_run
 
-        thread_id = hashlib.sha1(job_url.encode()).hexdigest()[:16]
         checkpoint_db = str(REPO_ROOT / "data" / "jobs_graph.db")
-        steps = summarize_run(thread_id, checkpoint_db, run_dir=str(run_dir))
+        # The run is keyed by the URL it was started on: the external apply link when there is one (a LinkedIn job
+        # whose Apply opens a Google Form), else the job page. Try both so neither kind loses its history.
+        urls = [u for u in ((detail.get("apply_url") if detail.get("apply_kind") == "external" else None), job_url) if u]
+        steps = []
+        for u in dict.fromkeys(urls):
+            steps = summarize_run(hashlib.sha1(u.encode()).hexdigest()[:16], checkpoint_db, run_dir=str(run_dir))
+            if steps:
+                break
         if not steps:
+            if any(by_page.values()):                       # no page trail, but the run did record its questions
+                return _with_eligibility(run_dir, _with_questions(job_id, [], by_page))
             raise HTTPException(status_code=404, detail="no agent run found for this job")
         for s in steps:
             s["screenshot"] = (f"/api/jobs/{job_id}/agent-runs/screenshot/{s['step']}"

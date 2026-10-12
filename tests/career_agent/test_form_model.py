@@ -60,3 +60,19 @@ def test_all_returned_purposes_are_known():
                         ("I agree to terms", "checkbox"), ("Resume", "file")]:
         p = guess_purpose(label, kind)
         assert p is None or p in KNOWN_PURPOSES
+
+
+def test_a_long_essay_prompt_is_not_a_profile_field():
+    from career_agent.browser.form_model import guess_purpose
+    q = ("4. Describe an AI agent or agentic workflow you've built. What tools could it use, how did you manage "
+         "state/context, and what happened when the model made a wrong decision? *")
+    assert guess_purpose(q, "textarea") is None
+    assert guess_purpose("State", "text") == "state"
+
+
+def test_phone_number_including_country_code_is_the_whole_number():
+    from career_agent.browser.form_model import guess_purpose
+    assert guess_purpose("Phone number (including country code) *", "text") == "phone"
+    assert guess_purpose("Mobile number with country code", "text") == "phone"
+    assert guess_purpose("Country code", "text") == "phone_country_code"
+    assert guess_purpose("Phone country code", "select") == "phone_country_code"

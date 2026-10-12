@@ -76,13 +76,15 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
     saveQueueSettings(n).catch(() => {});
   };
 
+  // turning ON asks inline, not with window.confirm: a browser attached for automation dismisses native dialogs,
+  // which left the switch impossible to turn on
+  const [askOn, setAskOn] = useState(null);
   const toggle = (board) => {
-    const on = !auto[board];
-    if (on && !window.confirm(
-      `Turn auto-submit ON for ${BOARD_LABEL[board] || board}?\n\nThe agent will SUBMIT applications there without you reviewing them, `
-      + "only when every answer is confident. You can turn it off at any time.")) return;
-    setAutosubmit(board, on).then(setAuto);
+    if (!auto[board]) { setAskOn(board); return; }
+    setAskOn(null);
+    setAutosubmit(board, false).then(setAuto);
   };
+  const confirmOn = (board) => { setAskOn(null); setAutosubmit(board, true).then(setAuto); };
   const onBoards = Object.keys(auto || {}).filter((b) => auto[b]).map((b) => BOARD_LABEL[b] || b);
 
   return (
@@ -157,7 +159,7 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
             Submits only when every answer is confident. Off = fill and leave for your review.
           </p>
           {Object.keys(auto).map((b) => (
-            <div key={b} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "3px 0" }}>
+            <div key={b} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, padding: "3px 0", position: "relative" }}>
               <span>{BOARD_LABEL[b] || b}</span>
               <button role="switch" aria-checked={!!auto[b]} aria-label={`Auto-submit on ${BOARD_LABEL[b] || b}`} onClick={() => toggle(b)}
                 style={{ minWidth: 46, fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: "var(--radius-pill)", cursor: "pointer",
@@ -165,6 +167,18 @@ export default function QueuePanel({ queue, onChange, onOpenJob }) {
                          background: auto[b] ? "#F6E7C8" : "transparent", color: auto[b] ? "#7A5206" : "var(--ink-faint)" }}>
                 {auto[b] ? "ON" : "OFF"}
               </button>
+              {askOn === b && (
+                <div role="alertdialog" aria-label={`Confirm auto-submit on ${BOARD_LABEL[b] || b}`}
+                  style={{ position: "absolute", right: 0, zIndex: 2, marginTop: 28, maxWidth: 240, fontSize: 11, padding: 8,
+                           background: "var(--card)", border: "1px solid #C99A2E", borderRadius: 8 }}>
+                  The agent will SUBMIT applications there without you reviewing them, only when every answer is confident.
+                  You can turn it off at any time.
+                  <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
+                    <button onClick={() => confirmOn(b)} style={{ ...small, border: "1px solid #C99A2E", padding: "2px 8px" }}>Turn ON</button>
+                    <button onClick={() => setAskOn(null)} style={{ ...small, padding: "2px 8px" }}>Cancel</button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

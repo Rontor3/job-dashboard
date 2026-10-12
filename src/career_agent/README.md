@@ -11,7 +11,7 @@ Autonomous job-application filler. Given a job URL, it navigates to the ATS, fil
 | Python 3.11 | `python3 --version` |
 | Playwright + Chromium | Installed via pip + `playwright install chromium` |
 | Google Chrome (real browser) | For CDP mode — Profile 3 is the agent's browser identity |
-| Ollama + `qwen3:14b` | For judgment-tier free-text answers. `ollama pull qwen3:14b` |
+| Ollama + `gemma4:26b` | For judgment-tier free-text answers. `ollama pull gemma4:26b` |
 | Tailscale (optional) | For remote captcha solve — phone + Mac on same tailnet |
 | Telegram bot (optional) | For field escalations + submit approval on your phone |
 
@@ -47,7 +47,7 @@ TAILSCALE_HOST=100.x.x.x    # your Mac's Tailscale IP
 
 # LLM (judgment tier)
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=qwen3:14b
+OLLAMA_MODEL=gemma4:26b
 
 # Optional overrides
 # CAREER_AGENT_HEADED=true       # show browser window (default: true)
@@ -151,9 +151,10 @@ apply.py
 **Answer ladder (fill order):**
 
 1. Question bank (`memory/qbank*.py`, jobs.db `qbank_entry`/`qbank_wording`) — exact wording → embedding shortlist → LLM picks an entry or NONE; values come from the bank, `application_profile` or a rule
-2. Rule-based mapper (`screen_review.py`) — standard Yes/No, EEOC, contact fields
-3. LLM judgment — `qwen3:14b` local; Claude Pro for high-stakes novel fields (capped 4/app); long answers via `longform/`
-4. Human gate — Telegram prompt → you type the answer → agent resumes
+2. Facts and plans (`memory/facts.py`) — when the bank has no answer, Claude Haiku writes a plan over your stored facts (names only, never values); it runs locally and fills as "likely"
+3. Rule-based mapper (`screen_review.py`) — standard Yes/No, EEOC, contact fields
+4. LLM judgment — `gemma4:26b` local; Claude Pro for high-stakes novel fields (capped 4/app); long answers via `longform/asks.py`
+5. Human gate — Telegram prompt → you type the answer → agent resumes
 
 **Captcha handling:** the agent detects captchas (`gate_probe.py`) and escalates via a Tailscale live-view link sent to Telegram. You solve it on your phone; the agent detects the token and continues. The agent never solves captchas programmatically.
 

@@ -111,8 +111,10 @@ def main() -> None:
                          "never values) writes a plan over your stored facts; filled as 'likely' for review. "
                          "Also on if CAREER_AGENT_FACTS=1. Spec 2026-10-11-facts-and-plans.")
     ap.add_argument("--longform", action="store_true",
-                    help="long free-text answers via the need-based pipeline (plan -> retrieve -> write -> verify); "
-                         "also on if CAREER_AGENT_LONGFORM=1. Falls back to the old drafter on any failure.")
+                    help="(on by default) long free-text answers via the need-based pipeline "
+                         "(plan -> retrieve -> write -> verify); falls back to the old drafter on any failure.")
+    ap.add_argument("--no-longform", action="store_true",
+                    help="use the old single-prompt drafter instead (also CAREER_AGENT_LONGFORM=0)")
     ap.add_argument("--no-telegram", action="store_true",
                     help="force CLI collector (stdin) even if Telegram is configured")
     ap.add_argument("--screenshot", default=None,
@@ -246,7 +248,7 @@ def _apply(args, box: dict) -> None:
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
-            if args.longform or os.getenv("CAREER_AGENT_LONGFORM") == "1":
+            if not args.no_longform and os.getenv("CAREER_AGENT_LONGFORM") != "0":
                 from .longform.pipeline import make_longform_or_none
                 ctx.longform = make_longform_or_none(conn, job, contact, llm, ctx.research,
                                                      _RunPath(args.db).parent / "answer_style" / "ingredients.json",
@@ -354,7 +356,7 @@ def _apply(args, box: dict) -> None:
                            context_fn=lambda: _escalation_context(conn, args.job_id, jd_seen.get("text")))
         collector, on_link = human.collector, None
     from .browser.page_prep import (prepare, classify_entry, enter_application, email_auth, is_application_form,
-                                    new_tab_since, reach_application_form)
+                                    is_closed_posting, new_tab_since, reach_application_form)
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
     _tabs = TabLedger(context, page)             # the tabs this run opens: closed when they have served
@@ -400,9 +402,11 @@ def _apply(args, box: dict) -> None:
                 pass
         prepare(page)                          # clear cookie/idle overlays
         kind = classify_entry(page, status=resp.status if resp else None)
-        if kind == "closed":                   # expired / removed / 404 shell -> skip
+        if kind == "closed" or (is_closed_posting(page) and not is_application_form(page)):
+            # expired / removed / "not accepting applications": the tracker marks it closed and its tab is shut
             print("[skip] this posting is closed or no longer available.")
             box["out"] = {"url": args.url, "stopped_reason": "closed"}
+            _close_dead_tab(page)
             return
         # Job boards (Naukri, LinkedIn, Indeed, ...) apply on the board itself and
         # must never go through the career-site drill below (see boards/run.py).
@@ -650,6 +654,14 @@ def _record_run_tab(context, page, args):
         d = _RunPath(args.db).parent / "agent_runs" / str(args.job_id)
         d.mkdir(parents=True, exist_ok=True)
         (d / "tab.json").write_text(json.dumps({"tab_id": tab_id_for(context, page.url)}))
+    except Exception:
+        pass
+
+
+def _close_dead_tab(page):
+    """The tab of a closed posting has nothing left to do: close it (best effort)."""
+    try:
+        page.close()
     except Exception:
         pass
 

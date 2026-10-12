@@ -58,7 +58,7 @@ apply.py
 
 1. **Question bank** — `memory/qbank*.py` (jobs.db `qbank_entry`/`qbank_wording`) — exact wording → embedding shortlist → LLM picks an entry id or NONE (never writes a value). Confident = fill; likely = fill + listed for review before submit; none = falls through. Answers are typed once on the dashboard's Answers tab. Maintenance: `PYTHONPATH=src python3 scripts/qbank.py seed|cleanup|calibrate`. Shared ladder: `orchestrator/answering.py::answer_fields` (graph + boards); every field is recorded to application_qa.
 2. **Rule-based mapper** — `orchestrator/screen_review.py` — standard_answers + profile_resolver
-3. **LLM judgment** — qwen3:14b local / Claude Pro (cap 6/app) — novel free-text fields
+3. **LLM judgment** — gemma4:26b local / Claude Pro (cap 6/app) — novel free-text fields
 4. **Human gate** — Telegram collector → `interrupt()` → `Command(resume=answers)`
 
 ## Retired memory (superseded 2026-10-11)
