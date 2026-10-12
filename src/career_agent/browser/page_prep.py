@@ -656,6 +656,9 @@ def _reach(page, max_hops=4):
                     break
                 if is_application_form(active):
                     return active, "form"
+                late = classify_entry(active)      # a slow sign-in page (passport.amazon.jobs) draws after we looked
+                if late in ("email_auth", "password"):
+                    return active, late
                 aff = find_apply_affordance(active, exclude=clicked, prefer=prefer)
                 if aff is not None:
                     break
@@ -682,13 +685,21 @@ def _reach(page, max_hops=4):
 
 def _try_url_variants(page):
     """ATS-route fallback when no Apply affordance is found: Lever /apply, Ashby
-    /application. Returns the page if a form appears, else None."""
+    /application. Returns the page if a form appears, else None — back on the page it started from, never left on a
+    guessed URL's 404."""
+    start = page.url
     for variant in _apply_url_variants(page.url):
         try:
             page.goto(variant, wait_until="domcontentloaded")
             page.wait_for_timeout(2000)
             if is_application_form(page):
                 return page
+        except Exception:
+            pass
+    if page.url != start:
+        try:
+            page.goto(start, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
         except Exception:
             pass
     return None
