@@ -72,6 +72,12 @@ def test_log_in_or_create_account_email_page_is_an_account_wall():
         p.set_content("<h1>Log in to IBM</h1><label>IBMid <input type=text name=username></label>"
                       "<button>Continue</button><a href='#'>Create an IBMid</a>")
         assert classify_entry(p) == "email_auth"
+        # live Virtusa 2026-10-13: a 'subscribe for similar jobs' box next to a header Login link got the user's email
+        from career_agent.browser.credential_provider import _is_email_first
+        p.set_content("<nav><a href='#'>Login</a></nav><h1>GEN AI</h1><button>Apply for this position</button>"
+                      "<div><p>Subscribe for similar jobs</p><input type=email placeholder='name@email.com'>"
+                      "<button>Submit</button></div>")
+        assert classify_entry(p) != "email_auth" and not _is_email_first(p)
         b.close()
 
 

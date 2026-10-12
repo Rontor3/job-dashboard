@@ -206,7 +206,8 @@ def classify_entry(page, status=None) -> str:
     if d["hasPw"]:
         return "password"
     # An email-first gate is a tiny page; a long form that merely mentions "signing"/"sign in" is not.
-    if d["hasEmail"] and (d["verify"] or d["authBtn"]) and d["fillable"] <= 4:
+    from .credential_provider import alert_box_only
+    if d["hasEmail"] and (d["verify"] or d["authBtn"]) and d["fillable"] <= 4 and not alert_box_only(page):
         return "email_auth"
     if d["fillable"] >= 2:
         return "form"                       # a form is present -> never 'closed'

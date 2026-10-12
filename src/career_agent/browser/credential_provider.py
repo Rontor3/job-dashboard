@@ -197,10 +197,29 @@ def _has_visible_email_field(page) -> bool:
         return False
 
 
+_ALERT_BOXES_ONLY_JS = r"""() => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+  const em = Array.from(document.querySelectorAll('input')).filter(e => vis(e) && (e.type === 'email' ||
+    /mail/i.test((e.name||'') + (e.id||'') + (e.placeholder||'') + (e.getAttribute('aria-label')||''))));
+  const alertBox = e => { let c = e; for (let i = 0; i < 4 && c.parentElement; i++) c = c.parentElement;
+    return /subscri|job alert|newsletter|similar jobs|notify me|stay (updated|informed)|talent (community|network)/i.test(c.innerText || ''); };
+  return em.length > 0 && em.every(alertBox);
+}"""
+
+
+def alert_box_only(page) -> bool:
+    """Every visible email box sits in a job-alert / newsletter block (live Virtusa 2026-10-13: the account step
+    typed the user's email into 'subscribe for similar jobs'). Such a page is never a login."""
+    try:
+        return page.evaluate(_ALERT_BOXES_ONLY_JS) is True
+    except Exception:
+        return False
+
+
 def _is_email_first(page) -> bool:
     """True if page has visible email field but NO visible password field (email-first form)."""
     try:
-        if not _has_visible_email_field(page):
+        if not _has_visible_email_field(page) or alert_box_only(page):
             return False
         has_pw = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
         return not has_pw
