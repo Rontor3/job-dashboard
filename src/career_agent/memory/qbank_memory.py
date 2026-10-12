@@ -37,7 +37,7 @@ class QBankMemory:
         if self._facts is None:
             self._facts = F.build(self.conn, self.contact, self._skills)
         value, note = F.answer(f.label, f.kind, f.options or [], self.job, self._facts, self.facts_llm,
-                               cache=self._plans)
+                               cache=self._plans, hint=f"{f.ref} {getattr(f, 'input_type', '') or ''}")
         return (Match(LIKELY, kind="plan", note=f"plan from your facts: {note}"), value) if value else None
 
     def _answer(self, f):

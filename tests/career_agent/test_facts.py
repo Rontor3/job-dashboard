@@ -79,3 +79,15 @@ def test_never_guesses():
         F.run({"op": "lookup", "args": [{"fact": "skills"}, "ros"]}, FACTS)      # absent, no default given
     with pytest.raises(F.PlanError):                                             # level not given
         F.run({"op": "level_at_least", "args": [{"op": "lookup", "args": [{"fact": "languages"}, "hindi"]}, "fluent"]}, FACTS)
+
+
+def test_live_keka_formatting():
+    """Values the facts tier wrote into a live Keka form (2026-10-12), now in the shape each field wants."""
+    assert F.render({"python": 3.0, "sql": 2.0, "ros": 0}, label="Skills") == "python, sql"     # names, not '3.0, 2.0'
+    ctc = F.money("25 LPA")
+    assert F.render(ctc, label="Current Salary", hint="Current Salary currentSalary.amount") == "2500000"
+    assert F.render(ctc, label="Current CTC (in lakhs)", hint="Current CTC (in lakhs)") == "25"
+    assert F.render(ctc, label="What is your current CTC?", hint="What is your current CTC?") == "25 LPA"
+    facts = {"dob": F._fact("date", date(2001, 3, 17), ""), "today": FACTS["today"]}
+    assert F.answer("JanFebMarAprMayJunJulAugSepOctNovDec", "select", [], {}, facts,
+                    lambda p: '{"plan": {"fact": "dob"}}')[0] is None             # glued option words are not a label

@@ -245,9 +245,25 @@ def run(plan, facts):
 _ASKS = re.compile(r"\?|^\s*(are|is|do|does|did|have|has|will|would|can|could|should|were|was)\b", re.I)
 
 
-def render(value, options=(), label=None):
+_OPTION_RUN = re.compile(r"(?:[A-Z][a-z]{1,8}|\d{1,4}){4,}")     # "JanFebMar...": options glued into a label
+_AMOUNT = re.compile(r"amount|₹|\binr\b|rupee|in rs\b|annual (salary|ctc) in", re.I)
+_LAKH = re.compile(r"lakh|\blpa\b|\blac\b", re.I)
+
+
+def _money_text(m: dict, hint: str) -> str:
+    """Money in the unit the FIELD wants: lakhs when it says so, a plain amount for an amount box (Keka's
+    currentSalary.amount next to its own currency dropdown), else the stored wording ('25 LPA')."""
+    if _LAKH.search(hint):
+        return render(round(m["amount"] / 1e5, 2))
+    if _AMOUNT.search(hint):
+        return render(float(round(m["amount"])))
+    return m.get("text") or render(float(m["amount"]))
+
+
+def render(value, options=(), label=None, hint=""):
     """A value in the shape the field takes; None when it fits none of the field's options, or when a yes/no
-    result would go into a field that is not a yes/no question ("Pursuing / Completed" wants a word, not Yes)."""
+    result would go into a field that is not a yes/no question ("Pursuing / Completed" wants a word, not Yes).
+    `hint` = the field's label + name/ref + input type, read for the unit a money field wants."""
     if isinstance(value, bool):
         yes_no_opts = {o.strip().lower() for o in options} & {"yes", "no", "true", "false"}
         if label is not None and not yes_no_opts and not _ASKS.search(label):
@@ -255,8 +271,13 @@ def render(value, options=(), label=None):
         text = "Yes" if value else "No"
     elif isinstance(value, float):
         text = str(int(value)) if value == int(value) else str(value)
+    elif isinstance(value, dict) and "amount" in value and "currency" in value:
+        text = _money_text(value, hint or label or "")
+    elif isinstance(value, dict) and "text" not in value:
+        # a grid (skills -> years, languages -> level): the field wants the NAMES (live Keka bug wrote '3.0, 2.0, ...')
+        text = ", ".join(k for k, v in value.items() if v not in (None, 0, 0.0, "", False))
     elif isinstance(value, dict):
-        text = value.get("text") or ", ".join(str(v) for v in value.values() if v)
+        text = value["text"]
     elif isinstance(value, list):
         text = ", ".join(map(str, value))
     elif isinstance(value, date):
@@ -335,9 +356,12 @@ def compile_question(question, kind, options, job, facts, llm) -> dict:
         return {}
 
 
-def answer(question, kind, options, job, facts, llm, cache=None):
-    """(value or None, note). The plan is cached per wording: the model runs once per new phrasing."""
+def answer(question, kind, options, job, facts, llm, cache=None, hint=""):
+    """(value or None, note). The plan is cached per wording: the model runs once per new phrasing. `hint`: the
+    field's name/ref/input type, read by the formatter (the unit a money box wants)."""
     from .qbank import norm
+    if _OPTION_RUN.fullmatch((question or "").strip()):
+        return None, "unreadable label (a run of option words)"      # live Keka: "JanFeb...Dec" got the birth year
     key = norm(question)
     out = cache.get(key) if cache is not None else None
     if out is None:
@@ -356,7 +380,8 @@ def answer(question, kind, options, job, facts, llm, cache=None):
         value = run(out["plan"], facts)
     except (PlanError, KeyError, TypeError, ValueError, AttributeError) as e:
         return None, f"plan failed: {e} | {json.dumps(out['plan'])}"
-    text = render(value, options, label=None if kind == "checkbox" else question)    # a tick box is a yes/no field
+    text = render(value, options, label=None if kind == "checkbox" else question,    # a tick box is a yes/no field
+                  hint=f"{question} {hint}")
     if text is None:
         return None, f"yes/no result does not fit this field | {json.dumps(out['plan'])}"
     return text, json.dumps(out["plan"])
