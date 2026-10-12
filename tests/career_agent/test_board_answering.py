@@ -134,3 +134,21 @@ def test_record_answers_keeps_them_per_application_only():
     record_answers([_f("a", "CTC"), _f("b", "Blank")], {"a": " 22 ", "b": "  "}, {"qa": qa})
     assert qa.log == [("answered", "a", "22")]
     record_answers([_f("a", "CTC")], {"a": "22"}, {})      # no recorder: nothing to do, no error
+
+
+def test_phone_box_drops_the_code_when_the_form_asks_for_it_separately():
+    # live Keka form 2026-10-12: a country-code select AND a phone box; the box got '+91 7565052330'
+    from career_agent.browser.form_model import Field
+    from career_agent.orchestrator.answering import has_dial_field, national_number
+    code = Field("c", "select", "mobilePhone.countryCode", False, options=["+1", "+44", "+91", "+971"])
+    phone = Field("p", "text", "Mobile Phone", False)
+    assert has_dial_field([code, phone])
+    assert national_number("+91 7565052330", phone, True) == "7565052330"
+    assert national_number("+91", code, True) == "+91"                        # the code field keeps its value
+    assert national_number("+91 7565052330", phone, False) == "+91 7565052330"   # no code field: whole number
+
+
+def test_site_search_box_is_not_a_question():
+    from career_agent.browser.form_model import guess_purpose
+    assert guess_purpose("Search title or skill...", "text") is None             # Pelicon's job search, live 2026-10-12
+    assert guess_purpose("Search and add skills", "text") == "skills"            # a tag input that collects an answer

@@ -162,6 +162,9 @@ _WEAK_BARE_WORD_RULES: list[tuple[str, str]] = [
 ]
 
 _RESUME_RE = re.compile(r"\bresume\b|\bcv\b", re.I)
+# A site's search box ("Search title or skill...", "Find jobs", "Filter by location") — but not a tag input that
+# collects an answer ("Search and add skills", "Search to select your city").
+_SITE_SEARCH = re.compile(r"(search|find|filter)\b(?!\s*(and|&|to)\s+(add|select|choose|pick))", re.I)
 
 _ATTEST = re.compile(
     r"\bi (certify|agree|consent|acknowledge|authorize|have read|accept)\b|\bbackground check\b"
@@ -188,6 +191,8 @@ def guess_purpose(label: str, kind: str) -> str | None:
         return None
     if re.match(r"(if|in case)\s+(yes|so|no|not|applicable|you answered|you selected)\b", text):
         return None            # a follow-up to an earlier answer ("If yes, give the name, job title…") is not a profile field
+    if _SITE_SEARCH.match(text):
+        return None            # the site's own search box ("Search title or skill...") — never a form question
     if kind == "file":
         return "resume_upload" if _RESUME_RE.search(text) else None
     if kind == "checkbox":

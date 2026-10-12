@@ -34,6 +34,32 @@ def normalize_amount(value, label: str, input_type: str = ""):
     return value if unit else f"{plain(num)} LPA"
 
 
+_DIAL_FIELD = re.compile(r"country.{0,12}code|dial(l?ing)?\s*code|calling\s*code|phone\s*(code|prefix)|countrycode", re.I)
+_DIAL_OPTION = re.compile(r"^\s*\+\d{1,3}\b|\(\+\d{1,3}\)")
+_LEADING_DIAL = re.compile(r"^\s*\+\d{1,3}[\s\-.]*(?=\d)")
+
+
+def has_dial_field(fields) -> bool:
+    """The form asks for the country code in a field of its own (by label/ref, or a select whose options are +NN)."""
+    return any(_DIAL_FIELD.search(f"{f.label or ''} {f.ref or ''}") or
+               sum(bool(_DIAL_OPTION.search(o)) for o in (f.options or [])) >= 3 for f in fields)
+
+
+_PHONE_LABEL = re.compile(r"phone|mobile|whats ?app|contact (no|number)|\btel\b", re.I)
+
+
+def _is_phone(field) -> bool:
+    return getattr(field, "input_type", "") == "tel" or bool(_PHONE_LABEL.search(field.label or ""))
+
+
+def national_number(value, field, dial_field: bool):
+    """With a separate country-code field, the phone box takes the number alone: '+91 7565052330' -> '7565052330'
+    (live Keka form, 2026-10-12, got the +91 twice). The dial-code field itself is left as it is."""
+    if not dial_field or _DIAL_FIELD.search(f"{field.label or ''} {field.ref or ''}"):
+        return value
+    return _LEADING_DIAL.sub("", value) if isinstance(value, str) else value
+
+
 def _prior_human_answers(fields, qa) -> list:
     """What the human already answered for this same application (an earlier run asked, they replied): used as-is,
     so a re-run does not ask again. Checkboxes: only a 'yes' is acted on."""
@@ -84,6 +110,9 @@ def answer_fields(fields, ctx):
     itype = {f.ref: getattr(f, "input_type", "") or "" for f in fields}
     decisions = [replace(d, value=normalize_amount(d.value, d.label, itype.get(d.ref, "")))
                  if d.action == "fill" and d.value is not None else d for d in decisions]
+    dial, by_ref = has_dial_field(fields), {f.ref: f for f in fields}
+    decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))
+                 if d.action == "fill" and d.ref in by_ref and _is_phone(by_ref[d.ref]) else d for d in decisions]
     if qa:
         for d in decisions:
             qa.decision(d)

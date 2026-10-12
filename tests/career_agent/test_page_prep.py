@@ -153,6 +153,25 @@ def test_dismiss_dialogs_never_clicks_the_pages_own_continue():
         b.close()
 
 
+def test_consent_ok_never_matches_the_cookies_policy_link():
+    """Live Veritech run 2026-10-12: 'OK' matched 'Cookies Policy' (c-ok-ies) and the agent left for the policy page."""
+    import os
+    if os.getenv("RUN_BROWSER_TESTS") != "1":
+        import pytest; pytest.skip("browser")
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import dismiss_consent
+
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page()
+        pg.set_content("<p>We use cookies.</p><a href='#policy' onclick=\"document.title='policy'\">Cookies Policy</a>"
+                       "<button onclick=\"document.title='ok'\">OK</button>")
+        assert dismiss_consent(pg) is True and pg.title() == "ok"
+        pg.set_content("<p>We use cookies.</p><a href='#policy' onclick=\"document.title='policy'\">Cookies Policy</a>")
+        dismiss_consent(pg)
+        assert pg.title() != "policy"                                    # no banner button: the policy link is left alone
+        b.close()
+
+
 def test_resume_autofill_is_always_chosen_over_manual_and_learned_routes():
     from career_agent.browser.page_prep import _best_apply
     c = lambda n: {"name": n, "role": "button", "ref": n}

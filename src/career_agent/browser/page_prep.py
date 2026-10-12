@@ -67,12 +67,15 @@ _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Di
 
 
 def _click_first(page, names, within=None):
+    """Click the first control named like one of `names`. A short name ("OK", "Stay") must match exactly, and a link
+    only on its exact name: substring matching once took "Cookies Policy" (c-OK-ies) for "OK" and left the
+    application for the cookie-policy page (live Veritech run, 2026-10-12)."""
     root = within or page
     for name in names:
         try:
-            btn = root.get_by_role("button", name=name, exact=False).first
+            btn = root.get_by_role("button", name=name, exact=len(name) <= 4).first
             if btn.count() == 0:
-                btn = root.get_by_role("link", name=name, exact=False).first
+                btn = root.get_by_role("link", name=name, exact=True).first
             if btn.count() > 0:
                 btn.click(timeout=3000)
                 page.wait_for_timeout(400)

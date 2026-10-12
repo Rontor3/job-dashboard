@@ -107,12 +107,15 @@ def main() -> None:
                     help="at a dead end (no advance / stuck) ask Claude (headless `claude -p`) for ONE click, "
                          "max 5 per run; also on if CAREER_AGENT_CLAUDE_ASSIST=1. Never submits/captchas/logins.")
     ap.add_argument("--facts", action="store_true",
-                    help="when the question bank has no answer, Claude Haiku (logged-in `claude -p`, fact names only, "
-                         "never values) writes a plan over your stored facts; filled as 'likely' for review. "
-                         "Also on if CAREER_AGENT_FACTS=1. Spec 2026-10-11-facts-and-plans.")
+                    help="(on by default) when the question bank has no answer, Claude Haiku (logged-in `claude -p`, "
+                         "fact names only, never values) writes a plan over your stored facts; it runs locally and the "
+                         "fill is 'likely' (listed for review). Spec 2026-10-11-facts-and-plans.")
+    ap.add_argument("--no-facts", action="store_true",
+                    help="skip the facts-and-plans step (also CAREER_AGENT_FACTS=0)")
     ap.add_argument("--longform", action="store_true",
-                    help="(on by default) long free-text answers via the need-based pipeline "
-                         "(plan -> retrieve -> write -> verify); falls back to the old drafter on any failure.")
+                    help="(on by default) long free-text answers ask by ask (longform/asks.py; "
+                         "CAREER_AGENT_LONGFORM_LOGIC=need for the older plan -> retrieve -> write pipeline); "
+                         "falls back to the old drafter on any failure.")
     ap.add_argument("--no-longform", action="store_true",
                     help="use the old single-prompt drafter instead (also CAREER_AGENT_LONGFORM=0)")
     ap.add_argument("--no-telegram", action="store_true",
@@ -284,7 +287,12 @@ def _apply(args, box: dict) -> None:
         except Exception as e:
             print(f"[warn] qbank LLM pick unavailable ({type(e).__name__}: {e})")
     _facts_llm, _skills = None, []
-    if args.facts or os.getenv("CAREER_AGENT_FACTS") == "1":
+    import shutil as _shutil
+    if args.no_facts or args.no_llm or os.getenv("CAREER_AGENT_FACTS") == "0":
+        pass                                              # off on request; --no-llm skips every model tier
+    elif _shutil.which("claude") is None:
+        print("[warn] facts-and-plans off: the `claude` CLI is not installed (the bank and rules still answer)")
+    else:
         from .memory.facts import claude_cli_llm
         _facts_llm = claude_cli_llm("haiku")
         try:
