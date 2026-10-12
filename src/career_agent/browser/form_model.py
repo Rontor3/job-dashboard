@@ -50,6 +50,8 @@ _RULES: list[tuple[str, str]] = [
      r"|\bstart a conversation with\b|\binterests? you\b", "motivation"),
     # Dial-code selects ("Phone country code") must precede both the phone and
     # country rules — they want "+91", not the number or the country name.
+    # "Phone number (including country code)" asks for the whole number, not just the dial code
+    (r"\b(phone|mobile|contact|telephone|whatsapp|cell)\b.{0,12}\b(number|no\.?)\b.{0,25}\b(incl\w*|with|along with|and)\b.{0,10}\b(country|dial\w*|calling) code\b", "phone"),
     (r"\bcountry (dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
     # Sponsorship/work-auth must precede employer — "require employer sponsorship"
     # contains \bemployer\b and would otherwise be misclassified as a company-name field.
@@ -197,6 +199,8 @@ def guess_purpose(label: str, kind: str) -> str | None:
         return None
     for pattern, purpose in _RULES:
         if re.search(pattern, text):
+            if kind == "textarea" and len(text.split()) >= 15 and purpose not in ("motivation", "summary"):
+                return None    # an essay prompt: a word like "state" inside it ("how did you manage state/context") names no profile field
             return purpose
     # Weak single-word rules only as a short field name ("Name", "Current
     # Position") — gated on word count so they don't also catch the same word

@@ -74,8 +74,8 @@ def fill_top_down(page, deps, fields, decisions, needs, ctx, *, answer_fn=None, 
         k = order[0]
         d = plan[k]
         done.add(k)
-        if skip_prefilled and d.action in ("fill", "select", "combobox") and _holds_value(page, d):
-            continue                                                  # the site already filled it (résumé parse)
+        if skip_prefilled and d.kind != "textarea" and d.action in ("fill", "select", "combobox") and _holds_value(page, d):
+            continue          # the site already filled it (résumé parse); a long answer is ours, never the parser's: write it
         _apply_one(deps, page, d)
         applied.append(d)
         try:
@@ -87,7 +87,10 @@ def fill_top_down(page, deps, fields, decisions, needs, ctx, *, answer_fn=None, 
             continue
         sig = new_sig
         try:
-            cur = list(deps.snapshot(page))
+            try:
+                cur = list(deps.snapshot(page, scroll=False))    # re-read in place: no scroll to the top and back
+            except TypeError:                                      # a deps object without the keyword (tests)
+                cur = list(deps.snapshot(page))
         except Exception:
             continue
         keys = field_keys(cur)

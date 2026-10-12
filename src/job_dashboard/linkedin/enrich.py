@@ -53,7 +53,7 @@ def _candidate_urls(contacts: dict, role: dict, search) -> list[str]:
 def _ollama(prompt: str, post_fn) -> dict:
     host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     resp = post_fn(f"{host}/api/generate", {
-        "model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"), "prompt": prompt,
+        "model": os.getenv("OLLAMA_MODEL", "gemma4:26b"), "prompt": prompt,
         "stream": False, "format": "json", "options": {"temperature": 0.1, "num_ctx": 16384}})
     return json.loads(resp["response"])
 

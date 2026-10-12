@@ -9,6 +9,7 @@ export const STATUSES = [
   { key: "saved", label: "Queued", color: "var(--series-4)" },
   { key: "rejected", label: "Rejected", color: "var(--series-5)" },
   { key: "offer", label: "Selected", color: "var(--series-6)" },
+  { key: "closed", label: "Closed", color: "var(--ink-faint)" },
 ];
 
 const SIZE = 168;

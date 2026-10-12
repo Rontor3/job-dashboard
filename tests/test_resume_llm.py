@@ -167,7 +167,7 @@ def _ollama_is_up() -> bool:
 
 @pytest.mark.skipif(not _ollama_is_up(), reason="Ollama not running at DEFAULT_HOST")
 def test_ollama_llm_live_smoke():
-    """Real HTTP call to a running Ollama qwen2.5:14b — no mocks.
+    """Real HTTP call to a running Ollama gemma4:26b — no mocks.
 
     Only asserts the adapter never raises and returns a list. The actual
     text is printed to stdout (run with -s) so a human can eyeball the

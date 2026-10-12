@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from job_dashboard.db import set_job_status
 
-TRACKED = ("saved", "applied", "failed", "interviewing", "offer", "rejected")
+TRACKED = ("saved", "applied", "failed", "interviewing", "offer", "rejected", "closed")
 _KEYS = ("id", "title", "company", "location", "source", "status", "embed_score", "llm_score", "verdict",
          "industry", "company_type", "interview_round", "queue_state", "queue_reason")
 
@@ -47,5 +47,5 @@ def tracker_jobs(conn) -> dict:
     buckets = {"saved": [], "applied": [], "failed": [], "interviewing": [], "offer": [], "archived": []}
     for r in rows:
         d = dict(zip(_KEYS, r))
-        buckets["archived" if d["status"] == "rejected" else d["status"]].append(d)
+        buckets["archived" if d["status"] in ("rejected", "closed") else d["status"]].append(d)
     return buckets

@@ -1,7 +1,7 @@
 """Ollama adapter producing :class:`LlmProposal` objects for keyword_map.
 
 ``make_ollama_llm`` returns an ``LlmFn`` (see ``keyword_map.LlmFn``) that
-prompts a local Ollama model (default ``qwen2.5:14b``) to truthfully reword
+prompts a local Ollama model (default ``gemma4:26b``) to truthfully reword
 one resume bullet per salient, uncovered JD keyword. This module NEVER
 enforces integrity itself — ``keyword_map._integrity_violation`` re-validates
 every proposal this returns against the block's own source text. The prompt
@@ -24,7 +24,7 @@ from job_dashboard.resume.keyword_map import LlmProposal, extract_keywords
 from job_dashboard.resume.segments import Segment
 
 DEFAULT_HOST = "http://localhost:11434"
-DEFAULT_MODEL = "qwen2.5:14b"
+DEFAULT_MODEL = "gemma4:26b"
 
 # Bound on how many JD keywords we'll spend model calls on per invocation.
 _MAX_KEYWORDS = 8

@@ -151,3 +151,24 @@ def test_dismiss_dialogs_never_clicks_the_pages_own_continue():
         pg.set_content("<div role=dialog><p>Notice</p><button onclick=\"this.parentElement.remove()\">Dismiss</button></div>" + page_continue)
         assert dismiss_dialogs(pg) is True and pg.title() != "advanced"
         b.close()
+
+
+def test_resume_autofill_is_always_chosen_over_manual_and_learned_routes():
+    from career_agent.browser.page_prep import _best_apply
+    c = lambda n: {"name": n, "role": "button", "ref": n}
+    opts = [c("Apply Manually"), c("Autofill with Resume"), c("Use My Last Application")]
+    assert _best_apply(opts)["name"] == "Autofill with Resume"
+    assert _best_apply(opts, prefer=["Apply Manually"])["name"] == "Autofill with Resume"      # beats a learned manual route
+    assert _best_apply([c("Apply with LinkedIn"), c("Apply Now")])["name"] == "Apply Now"      # OAuth buttons stay denied
+    assert _best_apply([c("Upload your resume to autofill"), c("Apply")])["name"] == "Upload your resume to autofill"
+    assert _best_apply([c("Apply Manually")]) is None or _best_apply([c("Apply Manually")])["name"] == "Apply Manually"
+
+
+def test_a_not_accepting_banner_under_the_title_marks_a_full_page_closed():
+    from career_agent.browser.page_prep import _looks_closed
+    page = ("Home | Jobs | Objectways | Senior Data Engineer | Bengaluru · 30 applicants | Hybrid | Full-time | "
+            "Not currently accepting applications | Show match details " + "About the job. " * 400)
+    assert _looks_closed(page)
+    assert _looks_closed("This job has expired. " + "x " * 800)
+    jd = "Senior Data Engineer. " + "We build pipelines. " * 200 + " Note: if the role is filled we will keep your CV."
+    assert not _looks_closed(jd)                                   # mentioned deep in a JD, not a banner

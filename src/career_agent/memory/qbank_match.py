@@ -207,6 +207,32 @@ def fit_option(label, value, options, synonyms, llm=None):
     return hit
 
 
+def _yes_no_from_facts(f, question, facts, llm):
+    """A Yes/No question the bank holds no Yes/No answer for ("Do you speak English?" vs the stored English level
+    "Fluent" and languages "Hindi, English"): the model reads ONLY those saved answers and says Yes, No, or NONE when
+    they do not settle it. Never for a sensitive field or without a model; the caller marks the fill LIKELY."""
+    from ..orchestrator.judgment import _is_sensitive
+    opts = f.options or []
+    if llm is None or not facts or {qbank.norm(o) for o in opts} != {"yes", "no"} or _is_sensitive(f):
+        return None
+    saved = "\n".join(f"- {q} -> {v}" for q, v, _ in facts)
+    try:
+        reply = llm("A job application asks the candidate a Yes/No question. Using ONLY the saved answers below, "
+                    "reply with exactly Yes, No, or NONE if they do not settle it.\n"
+                    f"Form question: {question}\nSaved answers:\n{saved}\nReply:")
+    except Exception:
+        return None
+    word = re.sub(r"[^a-z]", "", (re.sub(r"<think>.*?</think>", "", reply or "", flags=re.S).strip().split() or [""])[0].lower())
+    return {"yes": "Yes", "no": "No"}.get(word)
+
+
+def _yes_no_from_value(f, question, entry, value, llm):
+    """The matched entry holds a non-Yes/No answer: read it. Never for a bool entry (its Yes/No is stated)."""
+    if entry.get("atype") == "bool":
+        return None
+    return _yes_no_from_facts(f, question, [(entry["question"], str(value), 1.0)], llm)
+
+
 def _compose_from_facts(conn, f, question, entry, embed, llm, job, contact):
     """(value, 'fact1; fact2') written by the model from the bank's related facts, or (None, None).
     Only when the matched entry holds no value of its own; never for sensitive or free-essay fields."""
@@ -240,6 +266,15 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
     if m.entry_id is None:
         value, composed = _compose_from_facts(conn, f, question, None, embed, llm, job, contact)
         fitted = fit_option(f.label, value, f.options, None, llm) if value else None
+        if fitted is None and not value and not f.purpose:
+            from . import qbank_compose
+            facts = qbank_compose.related_facts(
+                conn, question, embed=embed, min_relevance=qbank_compose.UNMATCHED_RELEVANCE,
+                resolve=lambda e: resolve_value(conn, e, question=e["question"], escape=None, job=job, contact=contact))
+            fitted = _yes_no_from_facts(f, question, facts, llm)
+            if fitted is not None:
+                m.band, m.kind, m.note = LIKELY, "composed", f"Yes/No read from your saved answers: {'; '.join(q for q, _, _ in facts)}"
+                return m, fitted
         if fitted is None:
             return m, None
         m.band, m.kind, m.note = LIKELY, "composed", f"composed from your saved facts: {composed}"
@@ -259,6 +294,10 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
         m.band, m.note = LIKELY, f"shape {shape} failed"
     fitted = fit_option(f.label, value, f.options, entry["synonyms"], llm)
     if fitted is None:
+        fitted = _yes_no_from_value(f, question, entry, value, llm)
+        if fitted is not None:
+            m.band, m.note = LIKELY, f"Yes/No read from your saved answer '{entry['question']}': {value}"
+            return m, fitted
         m.band, m.note = NONE, "no option fits"
     elif composed:
         m.band, m.note = LIKELY, f"composed from your saved facts: {composed}"     # written, not looked up: review it

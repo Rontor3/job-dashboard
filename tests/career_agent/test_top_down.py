@@ -107,3 +107,28 @@ def test_uncheck_clears_a_preticked_marketing_box_and_check_ticks_the_other():
         apply_decisions(page, [FillDecision("#m", "checkbox", "m", False, "uncheck", "qbank")])   # idempotent
         assert not page.is_checked("#m")
         b.close()
+
+
+def test_rereads_while_filling_do_not_scroll_the_page():
+    import inspect
+    from career_agent.orchestrator.browser_deps import BrowserDeps
+    from career_agent.browser.perception import snapshot_form
+    assert inspect.signature(BrowserDeps.snapshot).parameters["scroll"].default is True       # the first read still scrolls
+    assert inspect.signature(snapshot_form).parameters["scroll"].default is True
+
+
+def test_a_textarea_already_holding_text_is_still_written_but_a_parsed_short_field_is_skipped(monkeypatch):
+    from types import SimpleNamespace as NS
+    from career_agent.orchestrator import top_down as td
+    from career_agent.browser.form_model import Field
+    from career_agent.orchestrator.mapper import FillDecision
+    f1 = Field("#essay", "textarea", "Why this role?", True, [], None, None)
+    f2 = Field("#email", "text", "Email", True, [], None, "email")
+    ds = [FillDecision("#essay", "textarea", "Why this role?", "NEW", "fill", "judgment"),
+          FillDecision("#email", "text", "Email", "a@b.co", "fill", "resume")]
+    applied = []
+    deps = NS(fill=lambda page, d, revalidate=False: applied.extend(x.ref for x in d), snapshot=lambda page, scroll=False: [f1, f2])
+    page = NS(evaluate=lambda js, *a: "", wait_for_timeout=lambda ms: None)
+    monkeypatch.setattr(td, "_holds_value", lambda page, d: True)       # both boxes already hold text
+    out, _ = td.fill_top_down(page, deps, [f1, f2], ds, [], None, skip_prefilled=True)
+    assert applied == ["#essay"]

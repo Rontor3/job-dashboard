@@ -135,11 +135,24 @@ _CLOSED_RE = re.compile(
     re.I)
 
 
+# A banner right under the job title on a full-length page ("Not currently accepting applications"): the posting is
+# alive as text but dead as an application. Only the top of the page counts, so a JD that mentions it later does not.
+_CLOSED_TOP_RE = re.compile(
+    r"(not|no longer|isn'?t|is not)( currently| presently| actively)? accepting (new )?applications?"
+    r"|applications? (are |is |have )?(now |been )?(closed|ended)|(job|position|role|vacancy|posting|requisition)"
+    r"[^.\n]{0,25}\b(is |has been |was )?(now )?(closed|filled|expired|removed|no longer (open|available|active))\b"
+    r"|this job (has )?expired|(job|posting) (has )?expired|(position|role) has been filled", re.I)
+
+
 def _looks_closed(text: str) -> bool:
-    """True if the page is a dead-posting shell (expired/removed/404). Guarded to
-    a short body so a long JD that merely mentions '404' isn't flagged."""
+    """True if the page is a dead-posting shell (expired/removed/404), or says near its top that applications are
+    closed. The whole-body phrases are guarded to a short body so a long JD that merely mentions '404' isn't flagged."""
     t = (text or "").strip()
-    if not t or len(t) > 600:
+    if not t:
+        return False
+    if _CLOSED_TOP_RE.search(t[:2500]):
+        return True
+    if len(t) > 600:
         return False
     return _CLOSED_RE.search(t) is not None
 
@@ -394,6 +407,13 @@ def _is_ad_frame(url: str, title: str = "", name: str = "") -> bool:
             or n.startswith(("aswift_", "google_ads_")))
 
 
+# "Autofill with Resume", "Apply with my CV", "Upload your resume to autofill": the site reads the résumé and fills the
+# form, so it is always the entry to take over "Apply manually" (and over any learned manual route).
+_RESUME_AUTOFILL = re.compile(
+    r"\b(auto-?\s?fill|apply|fill|import|populate|pre-?fill)\b.{0,25}\b(with|using|from|via|by)\b.{0,15}\b(my |your |a )?(resume|cv|r[ée]sum[ée])\b"
+    r"|\b(upload|attach|add)\b.{0,20}\b(resume|cv|r[ée]sum[ée])\b.{0,25}\bauto-?\s?fill\b", re.I)
+
+
 def _best_apply(cands, exclude=(), prefer=()):
     """cands: [{'name', 'role', 'ref'?}]. Return the best Apply control
     (highest-priority allow phrase, not denied), skipping any whose ref is in
@@ -406,6 +426,10 @@ def _best_apply(cands, exclude=(), prefer=()):
         if c.get("ref") in exclude:
             continue
         name = (c.get("name") or "").strip().lower()
+        if name and len(name) <= 80 and _RESUME_AUTOFILL.search(name):
+            if -10**6 < best_rank:
+                best, best_rank = c, -10**6                    # beats every phrase and every learned route
+            continue
         if not name or len(name) > 80 or any(d in name for d in _APPLY_DENY):
             continue
         if name in prefer:

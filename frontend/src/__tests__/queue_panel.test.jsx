@@ -60,21 +60,25 @@ test("Start is disabled with nothing queued", () => {
 });
 
 test("auto-submit switches load, show their state, and turning one ON asks first", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const confirm = vi.spyOn(window, "confirm");
   render(<QueuePanel queue={{ items: [] }} onChange={() => {}} />);
   const naukri = await screen.findByLabelText("Auto-submit on Naukri");
   expect(naukri).toHaveAttribute("role", "switch");
   expect(naukri).toHaveAttribute("aria-checked", "false");
   expect(screen.getByLabelText("Auto-submit on Company sites")).toHaveAttribute("aria-checked", "true");
   fireEvent.click(naukri);
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("SUBMIT applications there without you reviewing"));
+  expect(confirm).not.toHaveBeenCalled();                                    // never a native dialog
+  expect(screen.getByRole("alertdialog")).toHaveTextContent(/SUBMIT applications there without you reviewing/);
+  expect(calls.some(([u, m]) => u.includes("autosubmit") && m === "PUT")).toBe(false);   // nothing yet
+  fireEvent.click(screen.getByRole("button", { name: "Turn ON" }));
   await waitFor(() => expect(calls.at(-1)).toEqual(["/api/queue/autosubmit", "PUT", { board: "naukri", on: true }]));
 });
 
 test("declining the confirmation leaves auto-submit off; turning one OFF needs no confirmation", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const confirm = vi.spyOn(window, "confirm");
   render(<QueuePanel queue={{ items: [] }} onChange={() => {}} />);
   fireEvent.click(await screen.findByLabelText("Auto-submit on Naukri"));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(calls.some(([u, m]) => u.includes("autosubmit") && m === "PUT")).toBe(false);
   confirm.mockClear();
   fireEvent.click(screen.getByLabelText("Auto-submit on Company sites"));            // ON -> OFF

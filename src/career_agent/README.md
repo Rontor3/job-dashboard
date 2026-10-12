@@ -11,7 +11,7 @@ Autonomous job-application filler. Given a job URL, it navigates to the ATS, fil
 | Python 3.11 | `python3 --version` |
 | Playwright + Chromium | Installed via pip + `playwright install chromium` |
 | Google Chrome (real browser) | For CDP mode — Profile 3 is the agent's browser identity |
-| Ollama + `qwen3:14b` | For judgment-tier free-text answers. `ollama pull qwen3:14b` |
+| Ollama + `gemma4:26b` | For judgment-tier free-text answers. `ollama pull gemma4:26b` |
 | Tailscale (optional) | For remote captcha solve — phone + Mac on same tailnet |
 | Telegram bot (optional) | For field escalations + submit approval on your phone |
 
@@ -47,7 +47,7 @@ TAILSCALE_HOST=100.x.x.x    # your Mac's Tailscale IP
 
 # LLM (judgment tier)
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=qwen3:14b
+OLLAMA_MODEL=gemma4:26b
 
 # Optional overrides
 # CAREER_AGENT_HEADED=true       # show browser window (default: true)
@@ -153,7 +153,7 @@ apply.py
 1. FTS5 recall from `learned_answers` (exact/keyword match on prior approved answers)
 2. Semantic match via ChromaDB (`behavioral_qa`) — confident answers (score ≥ 1.0) go autonomous
 3. Rule-based mapper (`screen_review.py`) — standard Yes/No, EEOC, contact fields
-4. LLM judgment — `qwen3:14b` local; Claude Pro for high-stakes novel fields (capped 4/app)
+4. LLM judgment — `gemma4:26b` local; Claude Pro for high-stakes novel fields (capped 4/app)
 5. Human gate — Telegram prompt → you type the answer → agent resumes
 
 **Captcha handling:** the agent detects captchas (`gate_probe.py`) and escalates via a Tailscale live-view link sent to Telegram. You solve it on your phone; the agent detects the token and continues. The agent never solves captchas programmatically.

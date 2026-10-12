@@ -396,7 +396,7 @@ def fill_node(state: AgentState, config) -> dict:
     # Everything else: from the top, one blank after the other; the form is re-read whenever an answer reveals more.
     from .top_down import fill_top_down
     try:
-        live = deps.snapshot(page)
+        live = deps.snapshot(page, scroll=False)      # the step's first read already scrolled the whole page
     except Exception:
         live = fillable
     applied, needs = fill_top_down(page, deps, live, rest, needs, {**c, "page_index": state.get("steps", 0)},
@@ -527,7 +527,7 @@ def advance_node(state: AgentState, config) -> dict:
         # File upload may have just enabled a previously-disabled advance button.
         # Re-snapshot once before giving up.
         page.wait_for_timeout(1500)
-        form = deps.snapshot(page)
+        form = deps.snapshot(page, scroll=False)
         has_advance = has_control(form, advance_names(form))
         has_submit = has_control(form, SUBMIT_NAMES)
         if not has_advance and not has_submit:

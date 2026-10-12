@@ -83,3 +83,33 @@ def test_never_raises_on_unhashable_project_id():
     result = parse_plan(json.dumps({"needs": ["intro", ["x"], 5]}), IDS)
     assert result is not None
     assert result.needs == ("intro",)
+
+
+def test_the_model_chooses_a_project_only_among_the_top_ranked(kb):
+    from career_agent.longform.needs import build_plan_prompt, plan_needs, shortlist
+    q = "Tell us about a project using OCR and document vision"
+    short = shortlist(q, "", kb)
+    assert len(short) == 3 and short[0] == "p-ocr"
+    prompt = build_plan_prompt(q, "", kb, short)
+    assert all(pid in prompt for pid in short) and sum(f"- {u['id']}:" in prompt for u in kb.projects()) == 3
+    outside = next(u["id"] for u in kb.projects() if u["id"] not in short)
+    reply = '{"needs": ["one_project"], "project_id": "%s", "reason": "x"}' % outside
+    assert plan_needs(q, "", kb, lambda p: reply).project_id == "p-ocr"          # outside the shortlist -> the ranking decides
+    ok = '{"needs": ["one_project"], "project_id": "%s", "reason": "x"}' % short[1]
+    assert plan_needs(q, "", kb, lambda p: ok).project_id == short[1]            # inside it -> the model's pick stands
+
+
+def test_a_hypothetical_question_is_planned_as_an_approach():
+    from career_agent.longform.needs import heuristic_needs
+    for q in ("3. Suppose an AI agent needs to remember a business's information across 6 months. How would you design it?",
+              "6. You inherit a production RAG agent with 90% retrieval recall but poor answer quality. What would you investigate first?",
+              "How would you turn a prototype into a dependable product?"):
+        assert "approach" in heuristic_needs(q)
+    assert "approach" not in heuristic_needs("What is the most technically complex system you have built?")
+
+
+def test_an_unambiguous_hypothetical_is_always_planned_as_an_approach(kb):
+    from career_agent.longform.needs import plan_needs
+    q = "You inherit a production RAG agent with poor answer quality. What would you investigate first?"
+    wrong = '{"needs": ["challenge"], "project_id": null, "reason": "x"}'                 # the model called it a past challenge
+    assert plan_needs(q, "", kb, lambda p: wrong).needs[0] == "approach"

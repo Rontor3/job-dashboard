@@ -122,7 +122,7 @@ def _ollama_is_up() -> bool:
 
 @pytest.mark.skipif(not _ollama_is_up(), reason="Ollama not running at DEFAULT_HOST")
 def test_live_smoke_real_qwen_draft_references_a_bundle_fact():
-    """Real HTTP call to a running Ollama qwen2.5:14b -- no mocks.
+    """Real HTTP call to a running Ollama gemma4:26b -- no mocks.
 
     Small fake research bundle (1-2 facts); asserts a non-empty body and
     prints the letter for human review of the report.

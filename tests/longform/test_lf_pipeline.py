@@ -70,13 +70,15 @@ def test_prose_reply_is_kept_but_flagged_unparsed(kb):
     assert out["answer"] == "I love fraud detection." and "unparsed_reply" in out["flags"]
 
 
-def test_prior_project_is_read_from_the_recorded_draft():
+def test_prior_project_is_read_only_from_a_draft_the_user_kept():
     conn = sqlite3.connect(":memory:")
     qa_store.ensure(conn)
     assert prior_project(conn, 7, "Describe a project") is None
     qa_store.record(conn, job_id=7, run_key="r", ref="x", label="Describe a project", kind="textarea", status="filled",
                     context_json={"project_id": "p-ocr", "needs": ["one_project"]})
-    assert prior_project(conn, 7, "Describe a project") == "p-ocr"
+    assert prior_project(conn, 7, "Describe a project") is None                  # the pipeline's own pick does not stick
+    conn.execute("UPDATE application_qa SET outcome='kept' WHERE job_id=7"); conn.commit()
+    assert prior_project(conn, 7, "Describe a project") == "p-ocr"               # one you accepted does
     assert prior_project(conn, 8, "Describe a project") is None
 
 
@@ -88,6 +90,7 @@ def test_make_longform_loads_once_and_reuses_the_prior_choice(tmp_path, kb):
     qa_store.ensure(conn)
     qa_store.record(conn, job_id=7, run_key="r", ref="x", label="Describe a project", kind="textarea", status="filled",
                     context_json={"project_id": "p-ocr"})
+    conn.execute("UPDATE application_qa SET outcome='kept'"); conn.commit()                  # the user accepted that draft
     llm = scripted({"needs": ["one_project"], "project_id": "p-graph"}, [reply("About OCR scoring.")])
     run = make_longform(conn, JOB, {"years_experience": "3"}, llm, None, FIXTURE)
     out = run("Describe a project", NS(label="Describe a project"))
@@ -102,6 +105,7 @@ def test_sticky_choice_works_when_the_job_dict_has_no_id(kb):
     qa_store.ensure(conn)
     qa_store.record(conn, job_id=7, run_key="r", ref="x", label="Describe a project", kind="textarea", status="filled",
                     context_json={"project_id": "p-ocr"})
+    conn.execute("UPDATE application_qa SET outcome='kept'"); conn.commit()                  # the user accepted that draft
     llm = scripted({"needs": ["one_project"], "project_id": "p-graph"}, [reply("About OCR scoring.")])
     job = {"title": "t", "company": "c", "description": "d"}               # what job_dashboard.db.get_job returns: no id
     run = make_longform(conn, job, {"years_experience": "3"}, llm, None, FIXTURE, job_id=7)
@@ -129,6 +133,7 @@ def test_prior_project_matches_the_normalized_question_and_needs_a_real_key():
     qa_store.ensure(conn)
     qa_store.record(conn, job_id=7, run_key="r", ref="x", label="Describe a project", kind="textarea", status="filled",
                     context_json={"project_id": "p-ocr"})
+    conn.execute("UPDATE application_qa SET outcome='kept'"); conn.commit()                  # the user accepted that draft
     assert prior_project(conn, 7, "  Describe  a project *") == "p-ocr"
     qa_store.record(conn, job_id=7, run_key="r2", ref="y", label="Describe a project", kind="textarea", status="filled",
                     context_json={"prompt": "mentions project_id in the text", "needs": ["intro"]})
@@ -139,3 +144,10 @@ def test_the_result_carries_plan_provenance(kb):
     llm = scripted({"needs": ["looking_for"], "reason": "asks about goals"}, [reply("Hard ML problems.")])
     out = answer_longform("What are you looking for?", job=JOB, kb=kb, llm=llm)
     assert out["plan_source"] and "plan_reason" in out
+
+
+def test_a_draft_denying_the_experience_is_held_not_filled():
+    import re as _re
+    from career_agent.longform.pipeline import re as pipeline_re
+    assert pipeline_re.match(r"\s*(i\s+(have\s+not|haven'?t|do\s+not|don'?t|did\s+not|didn'?t)|no,)\b",
+                             "I have not deployed an LLM application", _re.I)

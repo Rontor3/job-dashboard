@@ -10,9 +10,9 @@ class BrowserDeps:
     def __init__(self, option_matcher=None):
         self.option_matcher = option_matcher   # rung-3 value->option llm (comboboxes)
 
-    def snapshot(self, page):
+    def snapshot(self, page, scroll: bool = True):
         from ..browser.perception import snapshot_form
-        return snapshot_form(page)
+        return snapshot_form(page, scroll=scroll)
 
     def gate(self, page):
         from ..browser.gate_probe import classify_gate

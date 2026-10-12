@@ -375,7 +375,9 @@ _INPUT_JS = r"""
       container.setAttribute('data-cref-group', 'g' + (_ci++));
     }
     const heading = container.previousElementSibling;
-    const headingText = heading ? visibleText(heading) : '';
+    // the group's own accessible name first (Google Forms: aria-labelledby -> the question), else the preceding sibling
+    const named = ((idRefsText(container, 'aria-labelledby') || container.getAttribute('aria-label') || '') + '').replace(/\s+/g, ' ').trim();
+    const headingText = named || (heading ? visibleText(heading) : '');
     // aria-required lies on some custom widgets (Typeform sets it "false" even
     // on a visually-required question) — a trailing asterisk in the question
     // heading is the fallback required signal, same convention groupLabel()
@@ -619,10 +621,13 @@ def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:
         pass   # non-scrollable page / framed page — proceed anyway
 
 
-def snapshot_form(page, verify_shot: str | None = None) -> list[Field]:
+def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True) -> list[Field]:
     """Scroll through the page to trigger all lazy-rendered fields, snapshot
-    the DOM, then optionally save a screenshot for visual verification."""
-    _slow_scroll_pass(page)
+    the DOM, then optionally save a screenshot for visual verification.
+    `scroll=False` re-reads the DOM where it stands (progressive-disclosure re-reads while filling: the page must
+    not jump to the top and back down after every field)."""
+    if scroll:
+        _slow_scroll_pass(page)
     from .page_prep import suppress_noise
     fields = suppress_noise(to_form_model(collect_raw(page)))
     # Screenshot after snapshot so a human (or next run) can verify nothing
