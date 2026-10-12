@@ -55,6 +55,22 @@ def test_classify_entry():
             b.close()
 
 
+def test_log_in_or_create_account_email_page_is_an_account_wall():
+    # live passport.amazon.jobs 2026-10-12: one email box + Continue, "Log in or create account" -> read as 'none',
+    # so the credential provider never ran
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import classify_entry
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); p = b.new_page()
+        p.set_content("<h1>Log in or create account</h1><label>Email* <input type=email name=email></label>"
+                      "<button>Continue</button><a href='#'>Learn more</a>")
+        assert classify_entry(p) == "email_auth"
+        p.set_content("<h1>Data Scientist</h1><p>About the job ... We log in to many systems.</p>"
+                      "<label>Get job alerts <input type=email name=alert></label><button>Subscribe</button>")
+        assert classify_entry(p) != "email_auth"          # a job-alert box on a posting is not an account wall
+        b.close()
+
+
 def test_enter_application_reaches_form():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.page_prep import enter_application

@@ -157,7 +157,12 @@ def poll_otp(
         print("[gmail-otp] No token — falling back to file reader")
         return None
 
-    service = _build_service()
+    try:
+        service = _build_service()
+    except Exception as e:      # expired / revoked token: the run goes on and the code is asked of the human
+        print(f"[gmail-otp] Gmail unavailable ({type(e).__name__}); re-authorize: "
+              "python -m career_agent.integrations.gmail_otp authorize", flush=True)
+        return None
     # Look back 1800s (OTP validity window) so we pick up emails from prior
     # Continue clicks when Phenom rate-limits new OTP sends.
     since = after_epoch or (int(time.time()) - 1800)
@@ -228,6 +233,6 @@ def available() -> bool:
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "authorize":
-        authorize()
+        authorize(sys.argv[sys.argv.index("--account") + 1] if "--account" in sys.argv[:-1] else None)
     else:
         print("Usage: python -m career_agent.integrations.gmail_otp authorize")

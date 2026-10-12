@@ -194,7 +194,7 @@ def classify_entry(page, status=None) -> str:
           const fillable = ins.filter(e => !['hidden','submit','button','password'].includes(e.type)
             && !/search/i.test(e.getAttribute('aria-label')||e.name||'')).length;
           return { hasPw, hasEmail: !!email,
-            verify: /verify|one-time|we'll send|continue with email|create .*profile|create an account|confirm your identity|start application|begin.*apply|sign.?in/i.test(txt),
+            verify: /verify|one-time|we'll send|continue with email|create .*profile|create (an |your )?account|confirm your identity|start application|begin.*apply|sign.?in|sign.?up|log.?in or|register/i.test(txt),
             fillable };
         }""")
     except Exception:
