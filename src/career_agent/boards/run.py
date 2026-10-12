@@ -54,7 +54,10 @@ def _form_already_open(page) -> bool:
                              && !/search|recaptcha/i.test((e.getAttribute('aria-label') || '') + (e.name || '') + (e.id || ''));
           const dlg = Array.from(document.querySelectorAll('[role=dialog],[aria-modal=true]')).some(d => vis(d) && Array.from(d.querySelectorAll('*')).some(e => field(e) && vis(e)));
           const names = new Set(Array.from(document.querySelectorAll('textarea,select,[role=combobox],input')).filter(e => field(e) && vis(e)).map(e => e.name || e.id || Math.random()));
-          return dlg || names.size >= 2;
+          // a page still offering an Apply control is the posting, not the form (header search/location boxes count as fields)
+          const applyOffered = Array.from(document.querySelectorAll('button,a,[role=button]')).some(e => vis(e)
+            && /^(easy )?apply\\b/i.test(((e.innerText || '').trim() || e.getAttribute('aria-label') || '').trim()));
+          return dlg || (names.size >= 2 && !applyOffered);
         }"""))
     except Exception:
         return False

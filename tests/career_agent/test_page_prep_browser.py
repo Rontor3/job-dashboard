@@ -139,3 +139,19 @@ def test_email_auth_email_to_otp_to_form():
         assert p.locator('#em').input_value() == "me@example.com"
         assert p.locator('input[name="pin-code-1"]').input_value() == "1"
         b.close()
+
+
+def test_a_job_page_with_an_apply_button_is_not_an_open_form():
+    # live LinkedIn 2026-10-13 (IBM, Ecolab, Trinity): header search + location boxes read as "the form is already
+    # open", so the board clicked the job carousel's Next instead of the external Apply
+    from playwright.sync_api import sync_playwright
+    from career_agent.boards.run import _form_already_open
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); p = b.new_page()
+        p.set_content("<header><input role=combobox aria-label='Title, skill or company' name=kw>"
+                      "<input role=combobox aria-label='City, state, or zip code' name=loc></header>"
+                      "<h1>Data Engineer</h1><button>Apply</button><button>Save</button><button>Next</button>")
+        assert _form_already_open(p) is False
+        p.set_content("<form><input name=first><input name=last><button>Next</button></form>")
+        assert _form_already_open(p) is True
+        b.close()
