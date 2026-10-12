@@ -245,6 +245,7 @@ def run(plan, facts):
 _ASKS = re.compile(r"\?|^\s*(are|is|do|does|did|have|has|will|would|can|could|should|were|was)\b", re.I)
 
 
+_YES_NO_Q = re.compile(r"^\s*(are|is|do|does|did|have|has|will|would|can|could|were|was)\b|^\s*\w+(\s+\w+){0,3}\?\s*$", re.I)
 _OPTION_RUN = re.compile(r"(?:[A-Z][a-z]{1,8}|\d{1,4}){4,}")     # "JanFebMar...": options glued into a label
 _AMOUNT = re.compile(r"amount|₹|\binr\b|rupee|in rs\b|annual (salary|ctc) in", re.I)
 _LAKH = re.compile(r"lakh|\blpa\b|\blac\b", re.I)
@@ -382,6 +383,8 @@ def answer(question, kind, options, job, facts, llm, cache=None, hint=""):
         return None, f"plan failed: {e} | {json.dumps(out['plan'])}"
     text = render(value, options, label=None if kind == "checkbox" else question,    # a tick box is a yes/no field
                   hint=f"{question} {hint}")
+    if text and not options and kind != "checkbox" and _YES_NO_Q.search(question or "") and len(text.split()) > 6:
+        return None, f"a yes/no question got a sentence | {json.dumps(out['plan'])}"   # Worksbot 'Authorized to work?'
     if text is None:
         return None, f"yes/no result does not fit this field | {json.dumps(out['plan'])}"
     return text, json.dumps(out["plan"])

@@ -285,7 +285,12 @@ _INPUT_JS = r"""
     // resume/judgment value that has nothing to do with what's actually on
     // screen. getComputedStyle (not offsetParent, which needs layout to have
     // already run and can false-positive on a fast-loading iframe) is the check.
-    if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
+    // Exception: a custom upload widget hides its <input type=file> behind a styled, visible <label> ("Click to select
+    // mandatory resume file" — Pelicon, live 2026-10-12). Uploading needs only the input, so it is kept when its label
+    // shows; without this the résumé was never attached.
+    const hiddenFileWithLabel = type === 'file' && el.labels && [...el.labels].some(l => l.checkVisibility
+      ? l.checkVisibility() : getComputedStyle(l).display !== 'none');
+    if (!hiddenFileWithLabel && (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none')) continue;
     const role = (el.getAttribute('role') || '').toLowerCase();
     const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
     // Workday's own type-ahead multiselect (data-uxi-widget-type="selectinput")

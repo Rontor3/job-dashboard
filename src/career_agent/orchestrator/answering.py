@@ -14,7 +14,7 @@ _LAKH_HINT = re.compile(r"lpa|lakh|lac\b|lacs", re.I)
 _ABSOLUTE_HINT = re.compile(r"\binr\b|₹|rupee|\brs\b|digits?|local currency|absolute|exact amount", re.I)
 
 
-def normalize_amount(value, label: str, input_type: str = ""):
+def normalize_amount(value, label: str, input_type: str = "", absolute: bool = False):
     """Write a CTC the way the box wants it. Stored values are in lakhs ('25', '35 LPA'); a bare number under 1000
     is lakhs. A label asking for LPA/lakhs gets the plain lakh number, one asking for INR / digits / local currency
     (or a number input) gets rupees, 'per month' gets a twelfth; an unmarked text box gets '25 LPA' so it is unambiguous."""
@@ -28,7 +28,7 @@ def normalize_amount(value, label: str, input_type: str = ""):
     monthly = bool(re.search(r"month", label or "", re.I))
     if _LAKH_HINT.search(label or ""):
         return plain(num / 12 if monthly else num)
-    if monthly or _ABSOLUTE_HINT.search(label or "") or input_type == "number":
+    if monthly or absolute or _ABSOLUTE_HINT.search(label or "") or input_type == "number":
         rupees = num * 100000
         return str(round(rupees / 12 if monthly else rupees))
     return value if unit else f"{plain(num)} LPA"
@@ -37,6 +37,16 @@ def normalize_amount(value, label: str, input_type: str = ""):
 _DIAL_FIELD = re.compile(r"country.{0,12}code|dial(l?ing)?\s*code|calling\s*code|phone\s*(code|prefix)|countrycode", re.I)
 _DIAL_OPTION = re.compile(r"^\s*\+\d{1,3}\b|\(\+\d{1,3}\)")
 _LEADING_DIAL = re.compile(r"^\s*\+\d{1,3}[\s\-.]*(?=\d)")
+
+
+_CURRENCY = re.compile(r"currency", re.I)
+_CURRENCY_OPTIONS = {"inr", "usd", "eur", "gbp", "aed", "sgd", "₹", "$"}
+
+
+def has_currency_field(fields) -> bool:
+    """The form picks the currency in a field of its own (by label/ref, or a select offering INR/USD/...)."""
+    return any(_CURRENCY.search(f"{f.label or ''} {f.ref or ''}") or
+               len({o.strip().lower() for o in (f.options or [])} & _CURRENCY_OPTIONS) >= 2 for f in fields)
 
 
 def has_dial_field(fields) -> bool:
@@ -108,7 +118,9 @@ def answer_fields(fields, ctx):
         answered, needs, _ = judge_fn(needs)
         decisions += answered
     itype = {f.ref: getattr(f, "input_type", "") or "" for f in fields}
-    decisions = [replace(d, value=normalize_amount(d.value, d.label, itype.get(d.ref, "")))
+    # a form with its own currency field wants the salary as an amount (Keka: Current Salary + INR select got "25 LPA")
+    cur = has_currency_field(fields)
+    decisions = [replace(d, value=normalize_amount(d.value, d.label, itype.get(d.ref, ""), absolute=cur))
                  if d.action == "fill" and d.value is not None else d for d in decisions]
     dial, by_ref = has_dial_field(fields), {f.ref: f for f in fields}
     decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))

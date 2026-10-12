@@ -148,6 +148,26 @@ def test_phone_box_drops_the_code_when_the_form_asks_for_it_separately():
     assert national_number("+91 7565052330", phone, False) == "+91 7565052330"   # no code field: whole number
 
 
+def test_salary_is_an_amount_when_the_form_has_a_currency_field():
+    # live Keka form 2026-10-12: 'Current Salary' + an INR currency select got '25 LPA'
+    from career_agent.browser.form_model import Field
+    from career_agent.orchestrator.answering import has_currency_field, normalize_amount
+    cur = Field("c", "select", "currentSalary.currency", False, options=["INR", "USD", "EUR"])
+    assert has_currency_field([cur, Field("s", "text", "Current Salary", False)])
+    assert normalize_amount("25 LPA", "Current Salary", "", absolute=True) == "2500000"
+    assert normalize_amount("25 LPA", "Current Salary", "") == "25 LPA"          # no currency field: unambiguous text
+
+
+def test_a_yes_no_question_never_gets_a_sentence():
+    # live Worksbot 2026-10-12: 'Authorized to work?' got the whole multi-country authorization text
+    from datetime import date
+    from career_agent.memory import facts as F
+    facts = {"work_authorization": F._fact("text", "India: citizen, authorized. US: open to roles offering visa sponsorship",
+                                           ""), "today": F._fact("date", date(2026, 10, 12), "")}
+    value, note = F.answer("Authorized to work?", "text", [], {}, facts, lambda p: '{"plan": {"fact": "work_authorization"}}')
+    assert value is None and "yes/no" in note
+
+
 def test_site_search_box_is_not_a_question():
     from career_agent.browser.form_model import guess_purpose
     assert guess_purpose("Search title or skill...", "text") is None             # Pelicon's job search, live 2026-10-12
