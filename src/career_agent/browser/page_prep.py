@@ -190,10 +190,14 @@ def classify_entry(page, status=None) -> str:
           const hasPw = ins.some(e => e.type === 'password')
                         || /create a password|sign in with password/i.test(txt)
                         || /you do not have access/i.test(txt);
-          const email = ins.find(e => e.type === 'email' || /mail/i.test(e.name||e.id||''));
+          const hint = e => (e.name||'')+' '+(e.id||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.placeholder||'')+' '+(e.autocomplete||'');
+          const email = ins.find(e => e.type === 'email' || /mail|user|login/i.test(hint(e)));
           const fillable = ins.filter(e => !['hidden','submit','button','password'].includes(e.type)
             && !/search/i.test(e.getAttribute('aria-label')||e.name||'')).length;
-          return { hasPw, hasEmail: !!email,
+          // a sign-in step's own button (IBMid: "Continue"), not a job-alert box's "Subscribe"
+          const authBtn = Array.from(document.querySelectorAll('button,input[type=submit],[role=button]')).filter(vis)
+            .some(e => /^(continue|next|sign ?in|log ?in|login)$/i.test((e.innerText || e.value || '').trim()));
+          return { hasPw, hasEmail: !!email, authBtn,
             verify: /verify|one-time|we'll send|continue with email|create .*profile|create (an |your )?account|confirm your identity|start application|begin.*apply|sign.?in|sign.?up|log.?in or|register/i.test(txt),
             fillable };
         }""")
@@ -202,7 +206,7 @@ def classify_entry(page, status=None) -> str:
     if d["hasPw"]:
         return "password"
     # An email-first gate is a tiny page; a long form that merely mentions "signing"/"sign in" is not.
-    if d["hasEmail"] and d["verify"] and d["fillable"] <= 4:
+    if d["hasEmail"] and (d["verify"] or d["authBtn"]) and d["fillable"] <= 4:
         return "email_auth"
     if d["fillable"] >= 2:
         return "form"                       # a form is present -> never 'closed'

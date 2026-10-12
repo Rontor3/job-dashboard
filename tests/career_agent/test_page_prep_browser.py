@@ -68,6 +68,10 @@ def test_log_in_or_create_account_email_page_is_an_account_wall():
         p.set_content("<h1>Data Scientist</h1><p>About the job ... We log in to many systems.</p>"
                       "<label>Get job alerts <input type=email name=alert></label><button>Subscribe</button>")
         assert classify_entry(p) != "email_auth"          # a job-alert box on a posting is not an account wall
+        # live login.ibm.com 2026-10-13: "Log in to IBM", a username box and Continue
+        p.set_content("<h1>Log in to IBM</h1><label>IBMid <input type=text name=username></label>"
+                      "<button>Continue</button><a href='#'>Create an IBMid</a>")
+        assert classify_entry(p) == "email_auth"
         b.close()
 
 
