@@ -341,7 +341,9 @@ def run_board(page, board, ctx):
                     page.wait_for_timeout(1500)
                     continue
             if nxt is None:
+                _tabs_before = list(page.context.pages)
                 if assist and assist.recover(page, "no_advance_control"):
+                    page = new_tab_since(page, _tabs_before)   # e.g. "Apply on company website" opened the employer's tab
                     continue
                 break
             label, final = nxt
@@ -356,8 +358,13 @@ def run_board(page, board, ctx):
                     before_submit = {}
             from ..browser.clicks import page_signature, wait_for_change
             before_click = page_signature(page)
+            _tabs_before = list(page.context.pages)
             driver.click(page, label, ctx)
             page.wait_for_timeout(2500)
+            if new_tab_since(page, _tabs_before) is not page:
+                page = new_tab_since(page, _tabs_before)          # the step continues in a new tab
+                unanswered = 0
+                continue
             if page_signature(page) == before_click and not wait_for_change(page, before_click):
                 # The page has not answered the click. Clicking again is how a step gets skipped (the second click
                 # lands on the page that was merely slow): allow one more wait-and-retry, then stop as stuck.

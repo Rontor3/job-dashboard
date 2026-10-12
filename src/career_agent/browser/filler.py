@@ -133,10 +133,41 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
         pass
 
 
-def _pick_radio(page, target, want: str) -> None:
+_RADIO_TEXT_JS = """e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label')
+                    || e.value || '').replace(/\\s+/g, ' ').trim()"""
+
+
+def _pick_in_group(page, target, group: str, want: str) -> None:
+    """Select `want` among the radios named `group` only — never another question's Yes/No. Matches the option's
+    own text (exact, then prefix), clicks it, and confirms it is checked; a site's pre-filled pick is overwritten."""
+    radios = target.locator(f'input[type=radio][name="{group}"]')
+    texts = [radios.nth(i).evaluate(_RADIO_TEXT_JS).lower() for i in range(radios.count())]
+    w = want.strip().lower()
+    idx = next((i for i, t in enumerate(texts) if t == w), None)
+    if idx is None:
+        idx = next((i for i, t in enumerate(texts) if t.startswith(w) or (t and w.startswith(t))), None)
+    if idx is None:
+        return                                  # no such option in this question: leave it for the human
+    r = radios.nth(idx)
+    for go in (lambda: r.check(force=True, timeout=_SOFT_TIMEOUT_MS),
+               lambda: r.locator("xpath=ancestor::label[1]").click(timeout=_SOFT_TIMEOUT_MS),
+               lambda: r.dispatch_event("click")):
+        try:
+            pace(page)
+            go()
+            if r.is_checked():
+                return
+        except Exception:
+            continue
+
+
+def _pick_radio(page, target, want: str, group: str | None = None) -> None:
     """Select the radio option labelled `want`. Styled radios hide the real <input> (opacity 0, readonly)
     and often carry the question text in their aria-label, so try, in order: label match, the input by
     its value, then clicking the visible option wrapper / text."""
+    group = (group or "").replace('"', '\\"')
+    if group and target.locator(f'input[type=radio][name="{group}"]').count():
+        return _pick_in_group(page, target, group, want)
     q = want.replace('"', '\\"')
     attempts = (
         lambda: target.get_by_label(want, exact=True).check(timeout=_SOFT_TIMEOUT_MS),
@@ -278,7 +309,7 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
             except Exception:
                 pass
         elif d.action == "check_group":
-            _pick_radio(page, target, str(d.value))
+            _pick_radio(page, target, str(d.value), d.ref[6:] if d.ref.startswith("group:") else None)
         elif d.action == "uncheck":
             # a marketing opt-in the site pre-ticked: make sure it ends up unticked (idempotent)
             try:
