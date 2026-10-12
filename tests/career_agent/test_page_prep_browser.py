@@ -75,8 +75,9 @@ def test_log_in_or_create_account_email_page_is_an_account_wall():
         # live Virtusa 2026-10-13: a 'subscribe for similar jobs' box next to a header Login link got the user's email
         from career_agent.browser.credential_provider import _is_email_first
         p.set_content("<nav><a href='#'>Login</a></nav><h1>GEN AI</h1><button>Apply for this position</button>"
-                      "<div><p>Subscribe for similar jobs</p><input type=email placeholder='name@email.com'>"
-                      "<button>Submit</button></div>")
+                      "<aside><h3>Get notified for similar jobs</h3><p>Sign up to receive job alerts</p>"
+                      "<div><div><div><div><div><input type=email placeholder='name@email.com'></div></div></div></div>"
+                      "<button>Submit</button></div></aside>")
         assert classify_entry(p) != "email_auth" and not _is_email_first(p)
         b.close()
 

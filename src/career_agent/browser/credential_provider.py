@@ -201,8 +201,10 @@ _ALERT_BOXES_ONLY_JS = r"""() => {
   const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
   const em = Array.from(document.querySelectorAll('input')).filter(e => vis(e) && (e.type === 'email' ||
     /mail/i.test((e.name||'') + (e.id||'') + (e.placeholder||'') + (e.getAttribute('aria-label')||''))));
-  const alertBox = e => { let c = e; for (let i = 0; i < 4 && c.parentElement; i++) c = c.parentElement;
-    return /subscri|job alert|newsletter|similar jobs|notify me|stay (updated|informed)|talent (community|network)/i.test(c.innerText || ''); };
+  const ALERT = /subscri|job alert|newsletter|similar jobs|notif(y|ied)|stay (updated|informed)|talent (community|network)/i;
+  // the box's own section: climb while the block is still small (never the whole page, whose text mentions anything)
+  const alertBox = e => { for (let c = e.parentElement, i = 0; c && i < 10; c = c.parentElement, i++) {
+      const t = c.innerText || ''; if (t.length > 600) return false; if (ALERT.test(t)) return true; } return false; };
   return em.length > 0 && em.every(alertBox);
 }"""
 
