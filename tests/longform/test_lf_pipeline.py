@@ -82,7 +82,8 @@ def test_prior_project_is_read_only_from_a_draft_the_user_kept():
     assert prior_project(conn, 8, "Describe a project") is None
 
 
-def test_make_longform_loads_once_and_reuses_the_prior_choice(tmp_path, kb):
+def test_make_longform_loads_once_and_reuses_the_prior_choice(tmp_path, kb, monkeypatch):
+    monkeypatch.setenv("CAREER_AGENT_LONGFORM_LOGIC", "need")   # this test pins the need-based pipeline
     from career_agent.memory import qbank
     from tests.longform.conftest import FIXTURE
     conn = sqlite3.connect(":memory:")
@@ -97,7 +98,8 @@ def test_make_longform_loads_once_and_reuses_the_prior_choice(tmp_path, kb):
     assert out["project_id"] == "p-ocr"                                  # the user's earlier choice sticks
 
 
-def test_sticky_choice_works_when_the_job_dict_has_no_id(kb):
+def test_sticky_choice_works_when_the_job_dict_has_no_id(kb, monkeypatch):
+    monkeypatch.setenv("CAREER_AGENT_LONGFORM_LOGIC", "need")   # this test pins the need-based pipeline
     from career_agent.memory import qbank
     from tests.longform.conftest import FIXTURE
     conn = sqlite3.connect(":memory:")
@@ -112,7 +114,8 @@ def test_sticky_choice_works_when_the_job_dict_has_no_id(kb):
     assert run("Describe a project", NS(label="Describe a project"))["project_id"] == "p-ocr"
 
 
-def test_the_hook_uses_the_job_it_is_passed(kb):
+def test_the_hook_uses_the_job_it_is_passed(kb, monkeypatch):
+    monkeypatch.setenv("CAREER_AGENT_LONGFORM_LOGIC", "need")   # this test pins the need-based pipeline
     from career_agent.memory import qbank
     from tests.longform.conftest import FIXTURE
     conn = sqlite3.connect(":memory:")

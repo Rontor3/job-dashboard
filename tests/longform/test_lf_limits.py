@@ -33,7 +33,8 @@ def test_field_limit():
     assert field_limit(None) is None
 
 
-def test_the_hook_trims_to_the_field_maxlength():
+def test_the_hook_trims_to_the_field_maxlength(monkeypatch):
+    monkeypatch.setenv("CAREER_AGENT_LONGFORM_LOGIC", "need")   # this test pins the need-based pipeline
     from career_agent.memory import qbank
     from job_dashboard import qa_store
     from tests.longform.conftest import FIXTURE

@@ -97,13 +97,62 @@ METHODS = {"live": m_live, "segmented": m_segmented, "briefed": m_briefed, "tech
            "asks": m_asks}
 
 
+def titled(chunks, kb):
+    """The judge sees each passage with its project title, as the writer does; otherwise 'on the X project' is judged
+    unsupported only because a bare passage never names its project (it9 diagnosis)."""
+    from dataclasses import replace
+
+    from career_agent.longform.asks import _title
+    return [replace(c, text=f"[Project: {_title(kb, c.project_id)}] {c.text}") if c.project_id else c for c in chunks]
+
+
+def resolve_chunks(ids, kb, corpus):
+    """Chunk objects back from stored ids: corpus records, project cards, the profile-links chunk."""
+    from career_agent.longform.asks import _links
+    out = corpus.by_id(*ids) + [kb.card(i.split(":", 1)[1]) for i in ids if i.startswith("card:")]
+    return [c for c in out + (_links(kb) if "fact:links" in ids else []) if c]
+
+
+def rescore(data: Path, tags: list[str], methods: set) -> None:
+    """Re-judge stored answers with the CURRENT judge (same cached asks), so rounds judged before a judge fix compare fairly."""
+    from career_agent.longform.corpus import Corpus
+    from career_agent.memory.qbank import default_embed
+    from job_dashboard.apply.store import get_application_profile
+    conn = sqlite3.connect(f"file:{data / 'jobs.db'}?mode=ro", uri=True)
+    kb = KnowledgeBase.load(conn, data / "answer_style" / "ingredients.json", get_application_profile(conn) or {}, embed=default_embed)
+    out_dir = data / "reports" / "longform_iter"
+    items = json.loads((out_dir / "items.json").read_text())
+    jg = judge()
+    for tag in tags:
+        res: dict = {}
+        with (out_dir / f"{tag}.rescored.jsonl").open("w") as fh:
+            for line in (out_dir / f"{tag}.jsonl").read_text().splitlines():
+                r = json.loads(line)
+                if r["method"] not in methods:
+                    continue
+                chunks = resolve_chunks(r["chunks"], kb, Corpus(kb, {}))
+                sc = M.score_answer(r["question"], r["answer"] or "", titled(chunks, kb), jg, items=items[str(r["qa_id"])]) if r["answer"] else {}
+                r.update(answer_relevancy=sc.get("answer_relevancy", 0.0), faithfulness=sc.get("faithfulness"))
+                fh.write(json.dumps(r) + "\n")
+                res.setdefault(r["method"], []).append(r)
+                print(f"{tag} {r['method']:9} qa={r['qa_id']} AR={r['answer_relevancy']} F={r['faithfulness']}", flush=True)
+        for m, rs in res.items():
+            mean = lambda xs: round(sum(xs) / len(xs), 3) if xs else None
+            print(f"RESCORED {tag} {m}: answer_relevancy={mean([x['answer_relevancy'] or 0 for x in rs])} "
+                  f"faithfulness={mean([x['faithfulness'] for x in rs if x['faithfulness'] is not None])}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
+    ap.add_argument("--rescore", default="", help="comma-separated tags to re-judge instead of running")
     ap.add_argument("--methods", default="routed")
     ap.add_argument("--set", choices=["tuning", "heldout", "all"], default="tuning")
-    ap.add_argument("--tag", required=True)
+    ap.add_argument("--tag", default="")
     args = ap.parse_args()
+    if args.rescore:
+        rescore(Path(args.data), args.rescore.split(","), set(args.methods.split(",")))
+        return
     from career_agent.longform.corpus import Corpus
     from career_agent.memory.qbank import default_embed
     from job_dashboard.apply.store import get_application_profile
@@ -137,7 +186,7 @@ def main() -> None:
                     out = METHODS[name](q, job, kb, corpus, llm)
                 except Exception as e:
                     out = {"answer": None, "chunks": [], "note": f"crash {type(e).__name__}: {e}"[:200]}
-                sc = M.score_answer(q, out["answer"] or "", out["chunks"], jg, items=items) if out["answer"] else {}
+                sc = M.score_answer(q, out["answer"] or "", titled(out["chunks"], kb), jg, items=items) if out["answer"] else {}
                 rec = {"tag": args.tag, "method": name, "qa_id": qid, "question": q, "answer": out["answer"],
                        "answer_relevancy": sc.get("answer_relevancy"), "faithfulness": sc.get("faithfulness"),
                        "addressed": sc.get("addressed"), "items": [i["item"] for i in items],

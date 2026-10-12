@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 
-_MAX_CHUNK = 600
+_MAX_CHUNK = 1500         # was 600: passages run to 700 chars, so facts at a passage's end were judged 'unsupported'
 
 
 def _clean(raw) -> str:

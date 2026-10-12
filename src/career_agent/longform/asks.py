@@ -26,8 +26,10 @@ _ONE_THING = re.compile(r"\b(describe|share|tell us about|give)\s+(a|an|one|the)
 
 def _links(kb) -> list[Chunk]:
     facts = getattr(kb, "_facts", {}) or {}
-    text = "; ".join(f"{k.split('_')[0].title()}: {facts[k]}" for k in _LINK_KEYS if str(facts.get(k) or "").strip())
-    return [Chunk("fact:links", "fact", f"The applicant's own links: {text}")] if text else []
+    what = {"github_url": "GitHub profile, where the applicant's code and projects are", "linkedin_url": "LinkedIn profile",
+            "portfolio_url": "portfolio site"}
+    text = "; ".join(f"{what[k]}: {facts[k]}" for k in _LINK_KEYS if str(facts.get(k) or "").strip())   # it9: say what each is
+    return [Chunk("fact:links", "fact", f"The applicant's own links — {text}")] if text else []
 
 
 def project_for(asks: list[dict], question: str, corpus) -> str | None:
@@ -47,7 +49,7 @@ def project_for(asks: list[dict], question: str, corpus) -> str | None:
     return max(total, key=total.get) if total else None
 
 
-def material_for(ask: dict, question: str, kb, corpus, project_id: str | None = None) -> list[Chunk]:
+def material_for(ask: dict, question: str, kb, corpus, project_id: str | None = None, allowed=None) -> list[Chunk]:
     query = f"{ask['part']} {question}"
     src = ask["source"]
     if src == "GENERAL":
@@ -58,10 +60,13 @@ def material_for(ask: dict, question: str, kb, corpus, project_id: str | None = 
         return corpus.search(query, 2, kinds={"story"}, floor=0.05)
     # it2: the ask on its own AND in context, fused (the whole question alone dilutes a narrow ask like "primary model")
     if project_id:                                       # the question wants ONE thing: that project's passages only
-        out = [c for c in corpus.search_multi([ask["part"], query], 12, kinds={"passage"}, per_unit=12, floor=0.0)
-               if c.project_id == project_id][:4]
+        ranked = corpus.search_multi([ask["part"], query], 12, kinds={"passage"}, per_unit=12, floor=0.0)
+        out = [c for c in ranked if c.project_id == project_id][:4]
+        # it7 borrowed another project's best passage when the chosen one had nothing near the top for an ask: fixed 922
+        # but cost answer relevancy elsewhere (0.95 -> 0.90 averaged over two judgings) -> reverted
     else:
-        out = corpus.search_multi([ask["part"], query], 4, kinds={"passage"}, per_unit=2, floor=0.2)
+        out = corpus.search_multi([ask["part"], query], 12 if allowed else 4, kinds={"passage"}, per_unit=2, floor=0.2)
+        out = [c for c in out if c.project_id in allowed][:4] if allowed else out
     if _OUTCOME.search(ask["part"]) or _STACK.search(ask["part"]):   # results and the tech stack live on the project cards
         for pid in dict.fromkeys(c.project_id for c in out if c.project_id):
             card = kb.card(pid)
@@ -105,7 +110,8 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
         mat = "\n".join(f"  PROJECT \"{_title(kb, pid)}\":\n" + "\n".join(f"    - {c.text}" for c in cs)   # it3: titles, not ids
                         for pid, cs in by_project.items()) or "  (nothing stored for this ask)"
         parts.append(f"ASK {n} ({ask['source']}): {ask['part']}\n MATERIAL:\n{mat}")
-    size = f"Keep the whole answer under {limit} characters." if limit else "About 60-90 words per ask; no padding."
+    size = (f"Keep the whole answer under {limit} characters." if limit else
+            "About 60-90 words per ask; no padding.")   # it8 tried 40-60: faithfulness +0.05 but coverage -0.06 -> it9 back to 60-90
     return (f"You write a job applicant's answer, in the first person, to this application question:\n\"{question}\"\n\n"
             "Answer EVERY ask below, in the order given, as connected prose (no headings, no numbering, no preamble).\n"
             "Rules:\n"
@@ -114,6 +120,8 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
             "- Name the specifics the ask wants (model, tools, numbers, the link) when the material states them.\n"
             "- About the applicant, say ONLY what that ask's MATERIAL states: no invented projects, numbers, users, links or outcomes.\n"
             "- Keep every fact with the PROJECT it is listed under; never credit one project with another's work.\n"
+            "- State facts in the material's own wording. Do not add qualities or effects it does not state ('reliable', "
+            "'efficient', 'accurate', 'ensured', 'prevented', 'improved X') — say what was built and what it did.\n"
             "- Keep the material's own status words. A PoC / prototype / internal tool is NOT 'shipped to production', 'customer-"
             "facing', 'real-time' or 'used by N users' unless the material says so; if the question asks for that, state the true "
             "status plainly (e.g. 'a working PoC deployed on an internal server').\n"
@@ -152,14 +160,18 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None) -> dict:
     from .segments import invented_links, sub_asks
     asks = sub_asks(question, llm)
     pid = project_for(asks, question, corpus) if _ONE_THING.search(question) else None
-    blocks = [(a, material_for(a, question, kb, corpus, pid if a["source"] == "CANDIDATE" else None)) for a in asks]
+    # it10 capped a note-to-the-team at the 2 projects that fit the posting: tied with it9 on the same judge
+    # (0.94/0.89 both) -> reverted, simpler wins a tie
+    allowed = None
+    blocks = [(a, material_for(a, question, kb, corpus, pid if a["source"] == "CANDIDATE" else None,
+                               allowed if a["source"] == "CANDIDATE" else None)) for a in asks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
     try:
         raw = llm(build_prompt(question, asks, blocks, limit, kb))
     except Exception as e:
-        return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"]}
+        return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"], "confidence": None}
     text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
-    flags = []
+    flags, notes = [], []
     try:                                                     # it3: coverage repair, one grounded addition per missed ask
         for n in uncovered(text, asks, llm) if text else []:
             ask, mat = blocks[n - 1]
@@ -168,13 +180,21 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None) -> dict:
             add = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", add or "")).strip())
             if add:
                 text = _dedupe_sentences(f"{text} {add}")
-                flags.append(f"repaired:{n}")
+                notes.append(f"repaired:{n}")
     except Exception:
         pass
+    if limit and text:                                     # the field's maxlength is a hard cap, whatever the prompt said
+        from .verify import fit_length
+        text, trimmed = fit_length(text, limit)
+        if trimmed:
+            notes.append("trimmed_to_limit")
     # it4 tried a fidelity self-check pass by the writer: no faithfulness gain, coverage fell -> removed (see git history)
     known = [str(v) for v in (getattr(kb, "_facts", {}) or {}).values() if isinstance(v, str)]
     bad = invented_links(text, chunks, known)
     if bad:                                                   # a made-up link is never filled
         flags.append("invented_link:" + ",".join(bad))
-        return {"answer": None, "chunks": chunks, "flags": flags}
-    return {"answer": text or None, "chunks": chunks, "flags": flags, "asks": [a["part"] for a in asks]}
+        return {"answer": None, "chunks": chunks, "flags": flags, "confidence": None, "basis": "held: invented link"}
+    # judgment.py fills when confidence clears its gate and no flag is raised; repairs are notes, not problems
+    return {"answer": text or None, "chunks": chunks, "flags": flags, "notes": notes, "confidence": 85 if text else None,
+            "basis": "ask by ask from your projects: " + "; ".join(a["part"] for a in asks),
+            "used": [c.id for c in chunks], "asks": [a["part"] for a in asks], "unsupported_company_claims": []}

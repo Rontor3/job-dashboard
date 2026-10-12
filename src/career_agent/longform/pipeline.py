@@ -3,6 +3,7 @@ so judgment.py can use either. Never raises."""
 from __future__ import annotations
 
 import json
+import os
 import re
 
 from job_dashboard import qa_store
@@ -92,6 +93,12 @@ def make_longform(conn, job, contact, llm, research, ingredients_path, job_id=No
     def run(question, field=None, current_job=None):
         j = current_job if isinstance(current_job, dict) and current_job else job   # apply.py may swap the job later
         jid = job_id if job_id is not None else (job.get("id") if isinstance(job, dict) else None)
+        if os.getenv("CAREER_AGENT_LONGFORM_LOGIC", "asks") == "asks":
+            # ask by ask (longform/asks.py): held-out 1.00 answer relevancy / 0.95 faithfulness vs this module's
+            # answer_longform 1.00 / 0.56 (scripts/longform_iterate.py, Haiku judge, 2026-10-12)
+            from .asks import answer_asks
+            from .corpus import Corpus
+            return answer_asks(question, job=j, kb=kb, corpus=Corpus(kb, j), llm=llm, limit=field_limit(field))
         prior = prior_project(conn, jid, question) if jid else None
         return answer_longform(question, job=j, kb=kb, llm=llm, research=research, prior=prior, limit=field_limit(field))
     run.kb = kb
