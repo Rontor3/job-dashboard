@@ -80,6 +80,7 @@ def fill_top_down(page, deps, fields, decisions, needs, ctx, *, answer_fn=None, 
         d = plan[k]
         done.add(k)
         if skip_prefilled and d.kind != "textarea" and d.action in ("fill", "select", "combobox") and _holds_value(page, d):
+            print(f"[fill] kept site's value: {d.label[:50]!r} = {str(_value(page, d))[:40]!r}", flush=True)
             continue          # the site already filled it (résumé parse); a long answer is ours, never the parser's: write it
         _apply_one(deps, page, d)
         try:

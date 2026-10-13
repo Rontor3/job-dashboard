@@ -73,7 +73,8 @@ def answer_fields(fields, ctx):
     remaining = [f for f in remaining if f.ref not in done]
     learn = ctx.get("learn")
     if learn:
-        recalled, remaining = learn.recall(remaining)
+        more, remaining = learn.recall(remaining)
+        recalled += more                          # never instead of: the human's own answers were taken out above
     from .screen_review import map_screen
     decisions, needs = map_screen(remaining, ctx["profile"], ctx.get("resume_pdf"))
     decisions += recalled

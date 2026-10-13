@@ -594,9 +594,8 @@ def _apply(args, box: dict) -> None:
             if isinstance(_out, dict) and _final:                 # lets the dashboard's submit watcher find this tab again
                 _out.setdefault("run_key", qa_rec.run_key)
                 _out.setdefault("final_tab_id", tab_id_for(context, _final))
-            # --review: the tab the result points at stays, and so does the working page — a parked run's result
-            # still holds the START url, and a page whose url moved on (redirect, query added) was closed under the human
-            _tabs.close_all_but(keep=[page] if args.review else [], keep_urls=[_final] if args.review else [])
+            # the tab the result points at stays; the working variable only when the result names no URL
+            _tabs.close_all_but(keep=[page] if (args.review and not _final) else [], keep_urls=[_final] if args.review else [])
         except Exception:
             pass
         close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
