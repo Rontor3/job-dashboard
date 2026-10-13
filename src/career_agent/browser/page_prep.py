@@ -74,8 +74,8 @@ def _click_first(page, names, within=None):
             if btn.count() == 0:
                 btn = root.get_by_role("link", name=name, exact=False).first
             if btn.count() > 0:
-                btn.click(timeout=3000)
-                page.wait_for_timeout(400)
+                from .clicks import act
+                act(page, lambda: btn.click(timeout=3000), max_wait_ms=3000)
                 return name
         except Exception:
             pass
@@ -549,42 +549,37 @@ def _frame_is_ad(fr) -> bool:
 
 
 def _hop(page, aff):
-    """Click an Apply affordance (in its own frame), follow a new tab if one
-    opens, and settle — polling for the form to mount (SPA) for ~6s. Returns the
-    active page."""
+    """Click an Apply affordance (in its own frame) through `act`: follow a new tab if one opens, wait until the page
+    is quiet, log what the click produced into the trail. Returns the active page."""
     ctx = page.context
-    before = len(ctx.pages)
     fidx = aff.get("frame", 0)
     clicker = page.frames[fidx] if fidx < len(page.frames) else page
     ref, name, role = aff.get("ref"), aff["name"], aff["role"]
     loc = (clicker.locator(ref).first if ref
            else clicker.get_by_role(role, name=name, exact=True).first)
-    from .clicks import pace
-    pace(page)
-    try:
-        loc.click(timeout=5000, no_wait_after=True)
-    except Exception:
-        # Covered by a consent/chatbot overlay, or a JS-handler <a> with no href:
-        # dispatch the click straight to the element (bypasses the overlay).
+    from .clicks import act
+
+    def click():
         try:
-            loc.dispatch_event("click")
+            loc.click(timeout=5000, no_wait_after=True)
         except Exception:
+            # Covered by a consent/chatbot overlay, or a JS-handler <a> with no href:
+            # dispatch the click straight to the element (bypasses the overlay).
             try:
-                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000, no_wait_after=True)
+                loc.dispatch_event("click")
             except Exception:
-                return page
-    page.wait_for_timeout(3000)   # settle: page/SPA may navigate after apply click
-    active = ctx.pages[-1] if len(ctx.pages) > before else page
-    for _ in range(6):
+                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000, no_wait_after=True)
+    try:
+        obs = act(page, click, max_wait_ms=12000)   # click once, follow a new tab, wait until the page is quiet
+    except Exception:
+        return page                     # no click landed
+    for note in obs.intercepts:
+        trail_note(step="intercept", note=note)
+    active = obs.page
+    for _ in range(3):                  # quiet but the form not mounted yet (SPA route resolving): short grace
         try:
-            active.wait_for_load_state("domcontentloaded", timeout=2000)
-        except Exception:
-            # page closed (e.g. OAuth popup dismissed) — switch to newest live page
-            active = ctx.pages[-1] if ctx.pages else page
-            break
-        if _real_field_count(active) >= 2:
-            break
-        try:
+            if _real_field_count(active) >= 2:
+                break
             active.wait_for_timeout(1000)
         except Exception:
             active = ctx.pages[-1] if ctx.pages else page
@@ -751,7 +746,8 @@ def _advance(page, names=("NEXT", "Next", "Continue", "Verify", "Submit")):
         try:
             el = page.get_by_role("button", name=n, exact=False).first
             if el.count() > 0:
-                el.click(timeout=5000, no_wait_after=True); page.wait_for_timeout(1200); return True
+                from .clicks import act
+                act(page, lambda: el.click(timeout=5000, no_wait_after=True)); return True
         except Exception:
             pass
     return False
@@ -763,6 +759,7 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
     NEVER fills a password / ticks T&C.
     Returns classify_entry of where it lands ('form' on success, else a reason)."""
     from ..browser.gate_probe import classify_gate
+    from .clicks import wait_until_stable
     try:
         page.fill('input[type=email], input[name*="mail" i]', email)
     except Exception:
@@ -772,19 +769,17 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
         if on_captcha is None or not on_captcha(page, gate):
             return "captcha"
     _advance(page, ("NEXT", "Next", "Continue", "Verify", "Submit",
-                    "Apply now", "Apply", "Start", "Get started"))
-    page.wait_for_timeout(2000)
+                    "Apply now", "Apply", "Start", "Get started"))     # settles via act
     if page.query_selector('input[name="pin-code-1"], input[aria-label*="verification code digit" i]'):
         code = otp_reader() if otp_reader else None
         if not code:
             return "otp_timeout"
         if str(code).startswith("http"):    # magic link — navigate instead of OTP
             page.goto(code, wait_until="domcontentloaded")
-            page.wait_for_timeout(2000)
+            wait_until_stable(page)
         else:
             _fill_otp(page, code)
             _advance(page)
-            page.wait_for_timeout(1500)
     else:
         # No OTP boxes visible — ZF/Phenom-style: may show "check your email" or
         # navigate directly to the form via a magic link the user clicks.
@@ -793,7 +788,7 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
             code = otp_reader() if otp_reader else None
             if code and str(code).startswith("http"):
                 page.goto(code, wait_until="domcontentloaded")
-                page.wait_for_timeout(2000)
+                wait_until_stable(page)
     return classify_entry(page)
 
 

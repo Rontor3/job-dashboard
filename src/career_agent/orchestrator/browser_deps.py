@@ -3,7 +3,7 @@ holds the logic)."""
 from __future__ import annotations
 
 
-from ..browser.clicks import pace, page_signature as _page_signature, settle_after_click as _settle_after_click
+from ..browser.clicks import act
 
 
 class BrowserDeps:
@@ -60,17 +60,14 @@ class BrowserDeps:
                     # no_wait_after: the click itself is the success. Waiting for the navigation it starts can
                     # time out on a slow page, and a retry would then click "Continue" a SECOND time on the next
                     # page (skipping a whole step of the form). Once the click went through, nothing below may retry.
-                    pace(page)
-                    before = _page_signature(page)
+                    before_url = page.url
+                    loc = fr.get_by_role(role, name=label, exact=False).first
                     try:
-                        fr.get_by_role(role, name=label, exact=False).first.click(timeout=3000, no_wait_after=True)
+                        obs = act(page, lambda: loc.click(timeout=3000, no_wait_after=True))
                     except Exception:
-                        continue
-                    try:
-                        _settle_after_click(page, before)
-                    except Exception:
-                        pass
-                    print(f"[click] {label!r}: {before[0][-60:]} -> {page.url[-60:]}", flush=True)
+                        continue                        # the click itself failed: nothing happened, try the next frame
+                    print(f"[click] {label!r}: {before_url[-60:]} -> {page.url[-60:]}"
+                          f"{' | ' + '; '.join(obs.intercepts) if obs.intercepts else ''}", flush=True)
                     return
             if attempt == 0:
                 # Button may be temporarily absent during an AJAX refresh — wait and retry once
