@@ -167,7 +167,20 @@ _INPUT_JS = r"""
   // BEFORE native <label>, and placeholder is a genuine last resort (so a React
   // combobox no longer reports "Select..."). Sibling/container text is kept only
   // as a fallback for forms with no formal association at all (e.g. Greenhouse).
+  // A file input labelled only by its button word ("Attach", "Upload") is named by the group around it:
+  // <div role="group" aria-labelledby="upload-label-cover_letter"> ... "Cover Letter".
+  const _BUTTON_WORD = /^(attach|upload|browse|choose( a)? file|select( a)? file|add( a)? file|drop files?)\b/i;
   const labelFor = (el) => {
+    const own = labelFor0(el);
+    if (el.type === 'file' && (!own || _BUTTON_WORD.test(own))) {
+      const g = el.closest('[role=group],fieldset');
+      const gn = g && (idRefsText(g, 'aria-labelledby') || (g.getAttribute('aria-label') || '').trim()
+                       || ((g.querySelector('legend') || {}).textContent || '').trim());
+      if (gn) return gn.slice(0, 200);
+    }
+    return own;
+  };
+  const labelFor0 = (el) => {
     const root = el.getRootNode();
     const lb = idRefsText(el, 'aria-labelledby');            // 1
     if (lb) return lb;
@@ -286,6 +299,11 @@ _INPUT_JS = r"""
     // screen. getComputedStyle (not offsetParent, which needs layout to have
     // already run and can false-positive on a fast-loading iframe) is the check.
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
+    // Hidden from assistive tech AND unreachable by keyboard: a widget's internal stand-in, not a field a person fills
+    // (react-select keeps one <input required aria-hidden tabindex=-1> beside an empty required dropdown so the form
+    // won't submit; labelled only by the "Select..." placeholder next to it). File inputs are exempt: those are often
+    // hidden behind their "Attach" button and still are the field.
+    if (type !== 'file' && el.getAttribute('aria-hidden') === 'true' && el.tabIndex < 0) continue;
     const role = (el.getAttribute('role') || '').toLowerCase();
     const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
     // Workday's own type-ahead multiselect (data-uxi-widget-type="selectinput")

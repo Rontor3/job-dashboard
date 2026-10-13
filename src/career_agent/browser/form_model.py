@@ -182,6 +182,10 @@ _TEXT_VALUE_PURPOSES = {
 }
 
 
+# A closed question to the applicant: its answer is yes/no (or an option), not a profile value.
+_YES_NO_Q = re.compile(r"(are|do|does|did|have|has|had|is|was|were|will|would|can|could|should)\s+you\b")
+
+
 def guess_purpose(label: str, kind: str) -> str | None:
     text = (label or "").strip().lower()
     if not text:
@@ -197,8 +201,11 @@ def guess_purpose(label: str, kind: str) -> str | None:
             if re.search(pattern, text):
                 return None if purpose in _TEXT_VALUE_PURPOSES else purpose
         return None
+    yes_no = bool(_YES_NO_Q.match(text))
     for pattern, purpose in _RULES:
         if re.search(pattern, text):
+            if yes_no and purpose in _TEXT_VALUE_PURPOSES:
+                return None    # "Are you an employee at X? (if yes, add your X email…)" is answered yes/no, never with the email
             if kind == "textarea" and len(text.split()) >= 15 and purpose not in ("motivation", "summary"):
                 return None    # an essay prompt: a word like "state" inside it ("how did you manage state/context") names no profile field
             return purpose

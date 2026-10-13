@@ -154,7 +154,16 @@ def judge_combobox_value(label, profile_text, llm) -> str | None:
         reply = (llm(prompt) or "").strip()
     except Exception:
         return None
-    return reply or None
+    return short_answer(reply)
+
+
+def short_answer(reply: str) -> str | None:
+    """The answer part of a model's reply for a dropdown. Models append notes despite the prompt
+    ("Yes\n\n(This assumes the job is posted in India…)"); only the first line, without a trailing parenthetical
+    or quotes, is the answer — and a line still too long to be an option is no answer at all."""
+    line = next((ln.strip() for ln in (reply or "").splitlines() if ln.strip()), "")
+    line = re.sub(r"\s*\(.*$", "", line).strip(" \"'*.`")
+    return line if line and len(line) <= 60 else None
 
 
 def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_draft=None):

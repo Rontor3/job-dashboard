@@ -187,11 +187,36 @@ def _resync_sel(target, sel: str, label: str) -> str:
         return sel
 
 
-def _shows_value(target, sel) -> bool:
+# What a field COMMITTED, not what was typed into it. A react-select style dropdown keeps a search <input> whose value
+# is the text being typed; the chosen option is rendered beside it (single/multi value). Typed text that matched no
+# option is not an answer, and a real choice leaves the search box empty — so read the rendered choice there.
+_VALUE_JS = r"""e => {
+  if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName)) return null;   // a <div role=combobox>: no value to read
+  if (e.tagName === 'SELECT') { const o = e.options[e.selectedIndex]; return o && o.value ? o.text.trim() : ''; }   // a placeholder option has no value
+  if (e.tagName !== 'INPUT' || (e.getAttribute('role') || '').toLowerCase() !== 'combobox') return e.value || '';
+  let c = e.parentElement;
+  for (let i = 0; i < 4 && c; i++, c = c.parentElement) {
+    if (!/value-?container|control|select__|-container/i.test(c.className || '')) continue;
+    const chosen = [...c.querySelectorAll('[class*=singleValue],[class*=single-value],[class*=multiValue],[class*=multi-value]')];
+    if (chosen.length) return chosen.map(x => (x.textContent || '').trim()).filter(Boolean).join(', ');
+    if (c.querySelector('[class*=placeholder],[class*=input-container],[class*=inputContainer]')) return '';
+  }
+  return e.value || '';
+}"""
+
+
+def field_value(target, sel) -> str | None:
+    """The committed value of one field, or None when it can't be read (gone, cross-frame, not a field)."""
     try:
-        return bool((target.locator(sel).first.input_value() or "").strip())
+        v = target.locator(sel).first.evaluate(_VALUE_JS, timeout=_SOFT_TIMEOUT_MS)
     except Exception:
-        return True                         # cannot tell -> do not retry blindly
+        return None
+    return None if v is None else str(v)
+
+
+def _shows_value(target, sel) -> bool:
+    v = field_value(target, sel)
+    return True if v is None else bool(v.strip())    # cannot tell -> do not retry blindly
 
 def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
     for d in decisions:
@@ -332,7 +357,9 @@ def read_back(page, decisions: list[FillDecision]) -> dict:
         if d.action in ("fill", "select", "combobox") and sel.startswith(("#", "[")):
             try:
                 target, s = frame_target(page, d.ref)
-                out[d.ref] = target.input_value(s)
             except Exception:
-                pass
+                continue
+            v = field_value(target, s)
+            if v is not None:
+                out[d.ref] = v
     return out
