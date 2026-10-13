@@ -34,6 +34,20 @@ def normalize_amount(value, label: str, input_type: str = ""):
     return value if unit else f"{plain(num)} LPA"
 
 
+_FIRST_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def shape_value(value, label: str, input_type: str = "", unit: str = ""):
+    """Fit an answer to the box it goes in. The box's unit (a currency/"Years" control sharing its row) counts as part
+    of its label for amounts; a number-only box (<input type=number>) takes the number alone — "30 days" -> "30",
+    which it would otherwise reject and leave blank."""
+    value = normalize_amount(value, f"{label or ''} {unit or ''}".strip(), input_type)
+    if input_type == "number":
+        m = _FIRST_NUMBER.search(str(value).replace(",", ""))
+        return m.group(0) if m else value
+    return value
+
+
 def _prior_human_answers(fields, qa) -> list:
     """What the human already answered for this same application (an earlier run asked, they replied): used as-is,
     so a re-run does not ask again. Checkboxes: only a 'yes' is acted on."""
@@ -83,7 +97,8 @@ def answer_fields(fields, ctx):
         answered, needs, _ = judge_fn(needs)
         decisions += answered
     itype = {f.ref: getattr(f, "input_type", "") or "" for f in fields}
-    decisions = [replace(d, value=normalize_amount(d.value, d.label, itype.get(d.ref, "")))
+    unit = {f.ref: getattr(f, "unit", "") or "" for f in fields}
+    decisions = [replace(d, value=shape_value(d.value, d.label, itype.get(d.ref, ""), unit.get(d.ref, "")))
                  if d.action == "fill" and d.value is not None else d for d in decisions]
     if qa:
         for d in decisions:

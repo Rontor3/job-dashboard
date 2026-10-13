@@ -66,13 +66,19 @@ def _bare(url: str) -> str:
 _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Dismiss", "Close"]
 
 
+def _name_re(name: str):
+    """A control whose name STARTS with `name` as whole words ("Reject" -> "Reject all"). A substring match let
+    "OK" hit "C-ook-ies Settings" and open the cookie preference centre instead of closing the banner."""
+    return re.compile(r"^\s*" + re.escape(name) + r"(?![a-z0-9])", re.I)
+
+
 def _click_first(page, names, within=None):
     root = within or page
     for name in names:
         try:
-            btn = root.get_by_role("button", name=name, exact=False).first
+            btn = root.get_by_role("button", name=_name_re(name)).first
             if btn.count() == 0:
-                btn = root.get_by_role("link", name=name, exact=False).first
+                btn = root.get_by_role("link", name=_name_re(name)).first
             if btn.count() > 0:
                 from .clicks import act
                 act(page, lambda: btn.click(timeout=3000), max_wait_ms=3000)

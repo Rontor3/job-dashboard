@@ -402,6 +402,13 @@ def fill_node(state: AgentState, config) -> dict:
     applied, needs = fill_top_down(page, deps, live, rest, needs, {**c, "page_index": state.get("steps", 0)},
                                    skip_prefilled=bool(uploads))
     decisions = uploads + applied
+    # A field nothing could answer but the page now holds a value in (the site parsed the résumé into it — checked
+    # AFTER the uploads and fills, which is when that happens) is not a question for the human.
+    from ..browser.filler import has_value
+    kept = [f for f in needs if has_value(page, f)]
+    if kept:
+        print(f"[fill] already filled on the page, not asked: {[' '.join(f.label.split())[:30] for f in kept]}", flush=True)
+        needs = [f for f in needs if f not in kept]
 
     print(f"[fill] step {state['steps']+1}: {len(decisions)} filled, "
           f"{len(needs)} escalated", flush=True)

@@ -118,6 +118,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             autocomplete=r.get("autocomplete", ""),
             placeholder=r.get("placeholder", ""),
             max_length=int(r.get("max_length") or 0),
+            unit=r.get("unit", ""),
         ))
 
     for name, g in radio_groups.items():
@@ -183,21 +184,21 @@ _INPUT_JS = r"""
   const labelFor0 = (el) => {
     const root = el.getRootNode();
     const lb = idRefsText(el, 'aria-labelledby');            // 1
-    if (lb) return lb;
+    if (ok(lb)) return lb;
     const al = (el.getAttribute('aria-label') || '').trim(); // 2
-    if (al) return al;
+    if (ok(al)) return al;
     // a label's OWN text: a <label> wrapping a <select> also contains the option list, which is not the question
     const ownText = (l) => { const c = l.cloneNode(true); c.querySelectorAll('select,option,input,textarea,button,[role=listbox],[role=option]').forEach(x => x.remove()); return (c.textContent || '').trim().slice(0, 200); };
     if (el.id) {                                             // 3: <label for>
       const l = root.querySelector(`label[for="${el.id}"]`);
-      if (l) { const t = ownText(l); if (t) return t; }
+      if (l) { const t = ownText(l); if (ok(t)) return t; }
     }
     const wrap = el.closest('label');                        // 3: wrapping <label>
-    if (wrap) { const t = ownText(wrap); if (t) return t; }
+    if (wrap) { const t = ownText(wrap); if (ok(t)) return t; }
     const fs = el.closest('fieldset');                       // 3: fieldset legend
-    if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (t) return t; } }
+    if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (ok(t)) return t; } }
     const title = (el.getAttribute('title') || '').trim();   // 4
-    if (title) return title;
+    if (ok(title)) return title;
     // ---- fallbacks below are NOT accname; only for forms with no association ----
     // Limit sibling walk to 3 and use textContent (no layout forcing) capped at
     // 200 chars — calling innerText on a large sibling (e.g. a job-description div)
@@ -205,15 +206,46 @@ _INPUT_JS = r"""
     let prev = el.previousElementSibling, sc = 0;
     while (prev && sc++ < 3) {
       const t = (prev.textContent || '').trim().slice(0, 200);
-      if (t) return t;
+      if (ok(t)) return t;
       prev = prev.previousElementSibling;
     }
     const container = el.closest('div,section,fieldset,li');
     if (container) {
       const lbl = container.querySelector('label,legend,.label,[class*=label]');
-      if (lbl) { const t = (lbl.textContent || '').trim().slice(0, 200); if (t) return t; }
+      if (lbl) { const t = (lbl.textContent || '').trim().slice(0, 200); if (ok(t)) return t; }
+    }
+    // a label that is only a required-star ("*") with the words beside it: the nearest small block's own text
+    // (a web component's box sits in its shadow root; its words are the host's light-DOM / slotted text: step out to the host)
+    const parentOf = n => n.parentElement || ((n.getRootNode && n.getRootNode().host) || null);
+    let up = parentOf(el);
+    for (let i = 0; i < 4 && up; i++, up = parentOf(up)) {
+      if (up.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;   // reached other fields
+      const raw = (up.innerText || up.textContent || '').trim().slice(0, 300);
+      const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
+      if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;           // the star moves to the end: still marks it required
     }
     return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
+  };
+  // a name that says something: not empty, not just a required-star / colon
+  const ok = (t) => !!t && t.replace(/[*✱:\s]/g, '').length > 0;
+  // What the box is measured in, from the controls that share its row: a read-only "INR" box or a currency <select>
+  // beside an amount, "Years" beside a number, an addon/prefix chip ("₹", "days"). Empty when the row holds other fields.
+  const unitOf = (el) => {
+    let p = el.parentElement;
+    for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
+      const others = Array.from(p.querySelectorAll('input:not([type=hidden]),select')).filter(c => c !== el);
+      if (others.length > 2) return '';
+      const bits = [];
+      for (const c of others) {
+        if (c.tagName === 'SELECT') { const o = c.options[c.selectedIndex]; if (o && o.value) bits.push(o.value); }
+        else if (c.readOnly && c.value && c.value.length <= 12) bits.push(c.value);
+      }
+      for (const a of p.querySelectorAll('[class*=addon i],[class*=prefix i],[class*=suffix i],[class*=input-group-text i],[class*=adorn i]')) {
+        const t = (a.textContent || '').trim(); if (t && t.length <= 12) bits.push(t);
+      }
+      if (bits.length) return bits.join(' ').slice(0, 30);
+    }
+    return '';
   };
   // Accessible DESCRIPTION — the helper text (aria-describedby). This is the piece
   // we used to drop; it carries hints like "type 'relocating'" that change what
@@ -353,6 +385,7 @@ _INPUT_JS = r"""
       role, haspopup,
       input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
       placeholder: (el.getAttribute('placeholder') || '').trim().slice(0, 60),
+      unit: ['text', 'number', 'tel'].includes(type) ? unitOf(el) : '',
       part_hint: [tag === 'select' && el.options.length ? el.options[0].text : '', el.name || '', el.id || ''].join(' ').trim().slice(0, 80),
       max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : 0,
     });

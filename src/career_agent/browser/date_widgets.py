@@ -69,18 +69,29 @@ _FIND_JS = r"""([Y, M, D]) => {
     if (!vis(s)) continue;
     const txt = Array.from(s.options).map(o => o.text.trim().toLowerCase());
     let idx = -1;
-    if (txt.includes('january') && txt.includes('december')) idx = txt.findIndex(t => t === full || t === abbr);
+    // a month list: twelve entries that start with the month names, full ("January") or short ("Jan", "Sept.")
+    const isMonths = months.every(m => txt.some(t => t.startsWith(m.slice(0, 3))));
+    if (isMonths) idx = txt.findIndex(t => t === full || t === abbr || t.startsWith(abbr));
     else if (txt.some(t => /^\d{4}$/.test(t))) idx = txt.findIndex(t => t === String(Y));
     if (idx >= 0 && s.selectedIndex !== idx) {
       s.selectedIndex = idx; s.dispatchEvent(new Event('input', {bubbles: true})); s.dispatchEvent(new Event('change', {bubbles: true})); used = true;
     }
   }
-  // which month is showing: "November 2026" in a header-ish element
+  // which month is showing: the calendar's own month + year <select>s, else "November 2026" in a header-ish element
   let view = null;
+  const sels = Array.from(document.querySelectorAll('select')).filter(vis);
+  const mSel = sels.find(s => months.every(m => Array.from(s.options).some(o => o.text.trim().toLowerCase().startsWith(m.slice(0, 3)))));
+  const ySel = sels.find(s => Array.from(s.options).some(o => /^\d{4}$/.test(o.text.trim())));
+  if (mSel && ySel) {
+    const mt = (mSel.options[mSel.selectedIndex] || {}).text || '', yt = (ySel.options[ySel.selectedIndex] || {}).text || '';
+    const mi = months.findIndex(m => mt.trim().toLowerCase().startsWith(m.slice(0, 3)));
+    if (mi >= 0 && /^\d{4}$/.test(yt.trim())) view = [mi + 1, parseInt(yt, 10)];
+  }
   const head = new RegExp('(' + months.join('|') + ')\\s+(\\d{4})', 'i');
   for (const e of document.querySelectorAll('[aria-live],[class*=header i],[class*=title i],[class*=caption i],[class*=label i],h1,h2,h3,h4,h5,h6,th,button,div,span')) {
     if (!vis(e) || e.children.length > 3) continue;
     const m = (e.textContent || '').trim().match(head);
+    if (view) break;
     if (m && (e.textContent || '').trim().length < 40) { view = [months.indexOf(m[1].toLowerCase()) + 1, parseInt(m[2], 10)]; break; }
   }
   return {found: false, used, view};
@@ -126,7 +137,19 @@ _CONFIRM_JS = r"""() => {
 
 
 def pick_calendar(page, target, sel: str, d: date, max_steps: int = 40) -> bool:
-    """Open the popup behind a read-only date box and click `d`. True if the box ends up with a value."""
+    """Open the popup behind a read-only date box and click `d`. True if the box ends up with a value. A popup it
+    could not use is closed again — left open, it covers the fields below it."""
+    ok = _pick_calendar(page, target, sel, d, max_steps)
+    if not ok:
+        try:
+            page.keyboard.press("Escape")
+            target.evaluate("() => document.activeElement && document.activeElement.blur()")
+        except Exception:
+            pass
+    return ok
+
+
+def _pick_calendar(page, target, sel: str, d: date, max_steps: int) -> bool:
     pace(page)
     try:
         target.click(sel, timeout=4000)

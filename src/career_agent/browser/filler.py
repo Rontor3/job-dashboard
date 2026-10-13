@@ -191,6 +191,11 @@ def _resync_sel(target, sel: str, label: str) -> str:
 # is the text being typed; the chosen option is rendered beside it (single/multi value). Typed text that matched no
 # option is not an answer, and a real choice leaves the search box empty — so read the rendered choice there.
 _VALUE_JS = r"""e => {
+  // a web component (<spl-input>, <x-select>): its real box lives in its shadow root(s)
+  const inner = r => { const d = r.querySelector('input:not([type=hidden]),select,textarea'); if (d) return d;
+                       for (const x of r.querySelectorAll('*')) if (x.shadowRoot) { const f = inner(x.shadowRoot); if (f) return f; }
+                       return null; };
+  if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) && e.shadowRoot) e = inner(e.shadowRoot) || e;
   if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName)) return null;   // a <div role=combobox>: no value to read
   if (e.tagName === 'SELECT') { const o = e.options[e.selectedIndex]; return o && o.value ? o.text.trim() : ''; }   // a placeholder option has no value
   if (e.tagName !== 'INPUT' || (e.getAttribute('role') || '').toLowerCase() !== 'combobox') return e.value || '';
@@ -212,6 +217,21 @@ def field_value(target, sel) -> str | None:
     except Exception:
         return None
     return None if v is None else str(v)
+
+
+_VALUE_KINDS = {"text", "email", "tel", "number", "url", "textarea", "select", "combobox", "date", "datepicker"}
+
+
+def has_value(page, field) -> bool:
+    """The page already holds an answer in this field (the site filled it from the résumé, or a person did).
+    False when it is empty OR cannot be read — an unreadable field is still asked about."""
+    if field.kind not in _VALUE_KINDS:
+        return False
+    try:
+        target, sel = frame_target(page, field.ref)
+    except Exception:
+        return False
+    return bool((field_value(target, sel) or "").strip())
 
 
 def _shows_value(target, sel) -> bool:

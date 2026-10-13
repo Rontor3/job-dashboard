@@ -38,6 +38,7 @@ class Field:
     autocomplete: str = ""     # HTML autocomplete token (address-line1, postal-code…) — shape clue
     placeholder: str = ""      # what the box shows when empty ("DD/MM/YYYY") — the page's own format hint
     max_length: int = 0        # HTML maxlength (0 = none)
+    unit: str = ""             # what the box is measured in, from controls sharing its row ("INR", "Years")
 
 
 # Ordered most-specific-first; first hit wins.
