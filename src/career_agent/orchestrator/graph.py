@@ -396,12 +396,19 @@ def fill_node(state: AgentState, config) -> dict:
     # Everything else: from the top, one blank after the other; the form is re-read whenever an answer reveals more.
     from .top_down import fill_top_down
     try:
-        live = deps.snapshot(page)
+        live = deps.snapshot(page, scroll=False)      # the step's first read already scrolled the whole page
     except Exception:
         live = fillable
     applied, needs = fill_top_down(page, deps, live, rest, needs, {**c, "page_index": state.get("steps", 0)},
                                    skip_prefilled=bool(uploads))
     decisions = uploads + applied
+    # A field nothing could answer but the page now holds a value in (the site parsed the résumé into it — checked
+    # AFTER the uploads and fills, which is when that happens) is not a question for the human.
+    from ..browser.filler import has_value
+    kept = [f for f in needs if has_value(page, f)]
+    if kept:
+        print(f"[fill] already filled on the page, not asked: {[' '.join(f.label.split())[:30] for f in kept]}", flush=True)
+        needs = [f for f in needs if f not in kept]
 
     print(f"[fill] step {state['steps']+1}: {len(decisions)} filled, "
           f"{len(needs)} escalated", flush=True)
@@ -527,7 +534,7 @@ def advance_node(state: AgentState, config) -> dict:
         # File upload may have just enabled a previously-disabled advance button.
         # Re-snapshot once before giving up.
         page.wait_for_timeout(1500)
-        form = deps.snapshot(page)
+        form = deps.snapshot(page, scroll=False)
         has_advance = has_control(form, advance_names(form))
         has_submit = has_control(form, SUBMIT_NAMES)
         if not has_advance and not has_submit:

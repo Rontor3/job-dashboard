@@ -66,16 +66,22 @@ def _bare(url: str) -> str:
 _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Dismiss", "Close"]
 
 
+def _name_re(name: str):
+    """A control whose name STARTS with `name` as whole words ("Reject" -> "Reject all"). A substring match let
+    "OK" hit "C-ook-ies Settings" and open the cookie preference centre instead of closing the banner."""
+    return re.compile(r"^\s*" + re.escape(name) + r"(?![a-z0-9])", re.I)
+
+
 def _click_first(page, names, within=None):
     root = within or page
     for name in names:
         try:
-            btn = root.get_by_role("button", name=name, exact=False).first
+            btn = root.get_by_role("button", name=_name_re(name)).first
             if btn.count() == 0:
-                btn = root.get_by_role("link", name=name, exact=False).first
+                btn = root.get_by_role("link", name=_name_re(name)).first
             if btn.count() > 0:
-                btn.click(timeout=3000)
-                page.wait_for_timeout(400)
+                from .clicks import act
+                act(page, lambda: btn.click(timeout=3000), max_wait_ms=3000)
                 return name
         except Exception:
             pass
@@ -135,11 +141,24 @@ _CLOSED_RE = re.compile(
     re.I)
 
 
+# A banner right under the job title on a full-length page ("Not currently accepting applications"): the posting is
+# alive as text but dead as an application. Only the top of the page counts, so a JD that mentions it later does not.
+_CLOSED_TOP_RE = re.compile(
+    r"(not|no longer|isn'?t|is not)( currently| presently| actively)? accepting (new )?applications?"
+    r"|applications? (are |is |have )?(now |been )?(closed|ended)|(job|position|role|vacancy|posting|requisition)"
+    r"[^.\n]{0,25}\b(is |has been |was )?(now )?(closed|filled|expired|removed|no longer (open|available|active))\b"
+    r"|this job (has )?expired|(job|posting) (has )?expired|(position|role) has been filled", re.I)
+
+
 def _looks_closed(text: str) -> bool:
-    """True if the page is a dead-posting shell (expired/removed/404). Guarded to
-    a short body so a long JD that merely mentions '404' isn't flagged."""
+    """True if the page is a dead-posting shell (expired/removed/404), or says near its top that applications are
+    closed. The whole-body phrases are guarded to a short body so a long JD that merely mentions '404' isn't flagged."""
     t = (text or "").strip()
-    if not t or len(t) > 600:
+    if not t:
+        return False
+    if _CLOSED_TOP_RE.search(t[:2500]):
+        return True
+    if len(t) > 600:
         return False
     return _CLOSED_RE.search(t) is not None
 
@@ -394,6 +413,13 @@ def _is_ad_frame(url: str, title: str = "", name: str = "") -> bool:
             or n.startswith(("aswift_", "google_ads_")))
 
 
+# "Autofill with Resume", "Apply with my CV", "Upload your resume to autofill": the site reads the résumé and fills the
+# form, so it is always the entry to take over "Apply manually" (and over any learned manual route).
+_RESUME_AUTOFILL = re.compile(
+    r"\b(auto-?\s?fill|apply|fill|import|populate|pre-?fill)\b.{0,25}\b(with|using|from|via|by)\b.{0,15}\b(my |your |a )?(resume|cv|r[ée]sum[ée])\b"
+    r"|\b(upload|attach|add)\b.{0,20}\b(resume|cv|r[ée]sum[ée])\b.{0,25}\bauto-?\s?fill\b", re.I)
+
+
 def _best_apply(cands, exclude=(), prefer=()):
     """cands: [{'name', 'role', 'ref'?}]. Return the best Apply control
     (highest-priority allow phrase, not denied), skipping any whose ref is in
@@ -406,6 +432,10 @@ def _best_apply(cands, exclude=(), prefer=()):
         if c.get("ref") in exclude:
             continue
         name = (c.get("name") or "").strip().lower()
+        if name and len(name) <= 80 and _RESUME_AUTOFILL.search(name):
+            if -10**6 < best_rank:
+                best, best_rank = c, -10**6                    # beats every phrase and every learned route
+            continue
         if not name or len(name) > 80 or any(d in name for d in _APPLY_DENY):
             continue
         if name in prefer:
@@ -525,42 +555,37 @@ def _frame_is_ad(fr) -> bool:
 
 
 def _hop(page, aff):
-    """Click an Apply affordance (in its own frame), follow a new tab if one
-    opens, and settle — polling for the form to mount (SPA) for ~6s. Returns the
-    active page."""
+    """Click an Apply affordance (in its own frame) through `act`: follow a new tab if one opens, wait until the page
+    is quiet, log what the click produced into the trail. Returns the active page."""
     ctx = page.context
-    before = len(ctx.pages)
     fidx = aff.get("frame", 0)
     clicker = page.frames[fidx] if fidx < len(page.frames) else page
     ref, name, role = aff.get("ref"), aff["name"], aff["role"]
     loc = (clicker.locator(ref).first if ref
            else clicker.get_by_role(role, name=name, exact=True).first)
-    from .clicks import pace
-    pace(page)
-    try:
-        loc.click(timeout=5000, no_wait_after=True)
-    except Exception:
-        # Covered by a consent/chatbot overlay, or a JS-handler <a> with no href:
-        # dispatch the click straight to the element (bypasses the overlay).
+    from .clicks import act
+
+    def click():
         try:
-            loc.dispatch_event("click")
+            loc.click(timeout=5000, no_wait_after=True)
         except Exception:
+            # Covered by a consent/chatbot overlay, or a JS-handler <a> with no href:
+            # dispatch the click straight to the element (bypasses the overlay).
             try:
-                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000, no_wait_after=True)
+                loc.dispatch_event("click")
             except Exception:
-                return page
-    page.wait_for_timeout(3000)   # settle: page/SPA may navigate after apply click
-    active = ctx.pages[-1] if len(ctx.pages) > before else page
-    for _ in range(6):
+                clicker.get_by_role(role, name=name, exact=False).first.click(timeout=5000, no_wait_after=True)
+    try:
+        obs = act(page, click, max_wait_ms=12000)   # click once, follow a new tab, wait until the page is quiet
+    except Exception:
+        return page                     # no click landed
+    for note in obs.intercepts:
+        trail_note(step="intercept", note=note)
+    active = obs.page
+    for _ in range(3):                  # quiet but the form not mounted yet (SPA route resolving): short grace
         try:
-            active.wait_for_load_state("domcontentloaded", timeout=2000)
-        except Exception:
-            # page closed (e.g. OAuth popup dismissed) — switch to newest live page
-            active = ctx.pages[-1] if ctx.pages else page
-            break
-        if _real_field_count(active) >= 2:
-            break
-        try:
+            if _real_field_count(active) >= 2:
+                break
             active.wait_for_timeout(1000)
         except Exception:
             active = ctx.pages[-1] if ctx.pages else page
@@ -727,7 +752,8 @@ def _advance(page, names=("NEXT", "Next", "Continue", "Verify", "Submit")):
         try:
             el = page.get_by_role("button", name=n, exact=False).first
             if el.count() > 0:
-                el.click(timeout=5000, no_wait_after=True); page.wait_for_timeout(1200); return True
+                from .clicks import act
+                act(page, lambda: el.click(timeout=5000, no_wait_after=True)); return True
         except Exception:
             pass
     return False
@@ -739,6 +765,7 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
     NEVER fills a password / ticks T&C.
     Returns classify_entry of where it lands ('form' on success, else a reason)."""
     from ..browser.gate_probe import classify_gate
+    from .clicks import wait_until_stable
     try:
         page.fill('input[type=email], input[name*="mail" i]', email)
     except Exception:
@@ -748,19 +775,17 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
         if on_captcha is None or not on_captcha(page, gate):
             return "captcha"
     _advance(page, ("NEXT", "Next", "Continue", "Verify", "Submit",
-                    "Apply now", "Apply", "Start", "Get started"))
-    page.wait_for_timeout(2000)
+                    "Apply now", "Apply", "Start", "Get started"))     # settles via act
     if page.query_selector('input[name="pin-code-1"], input[aria-label*="verification code digit" i]'):
         code = otp_reader() if otp_reader else None
         if not code:
             return "otp_timeout"
         if str(code).startswith("http"):    # magic link — navigate instead of OTP
             page.goto(code, wait_until="domcontentloaded")
-            page.wait_for_timeout(2000)
+            wait_until_stable(page)
         else:
             _fill_otp(page, code)
             _advance(page)
-            page.wait_for_timeout(1500)
     else:
         # No OTP boxes visible — ZF/Phenom-style: may show "check your email" or
         # navigate directly to the form via a magic link the user clicks.
@@ -769,7 +794,7 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
             code = otp_reader() if otp_reader else None
             if code and str(code).startswith("http"):
                 page.goto(code, wait_until="domcontentloaded")
-                page.wait_for_timeout(2000)
+                wait_until_stable(page)
     return classify_entry(page)
 
 

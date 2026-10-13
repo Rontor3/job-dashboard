@@ -1,0 +1,19 @@
+<!doctype html>
+<html><body>
+<h1>Step 1</h1>
+<div id="out">Fill your details</div>
+<button id="slow" onclick="go()">Continue</button>
+<button id="ask" onclick="window.confirm('Leave this step?'); document.getElementById('out').textContent='Asked'">Ask</button>
+<button id="tab" onclick="window.open(location.href + '#popup')">Open</button>
+<button id="arm" onclick="document.getElementById('send').disabled = false">Agree</button>
+<button id="send" disabled>Send</button>
+<script>
+function go() {
+  // a loader shows at once, the next step's content arrives 1.5s later in two parts
+  const out = document.getElementById('out');
+  out.innerHTML = '<div class="spinner" aria-busy="true">Loading…</div>';
+  setTimeout(() => { out.innerHTML = '<label>Email <input name="email"></label>'; }, 1500);
+  setTimeout(() => { out.insertAdjacentHTML('beforeend', '<label>Phone <input name="phone"></label>'); }, 1900);
+}
+</script>
+</body></html>

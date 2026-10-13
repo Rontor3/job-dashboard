@@ -55,7 +55,8 @@ def test_draft_parsed_false_for_empty_or_error():
 
 def test_distinct_terms_are_unique_to_the_project(kb):
     graph = distinct_terms(kb, "p-graph")
-    assert {"neo4j", "gnn", "graph entity resolution", "fraud"} <= graph and "ml" not in graph
+    assert {"neo4j", "gnn", "graph entity resolution"} <= graph and "ml" not in graph
+    assert "fraud" not in graph          # a tag is a generic word, not evidence of another project
     assert "docker" in distinct_terms(kb, "p-churn") and "pytorch" in distinct_terms(kb, "p-ocr")
 
 
@@ -81,3 +82,29 @@ def test_fit_length_trims_at_a_sentence_boundary():
     assert trimmed and text == "First sentence." and len(text) <= 40
     text, trimmed = fit_length("x" * 100, 30)
     assert trimmed and len(text) == 30
+
+
+def test_a_hypothetical_prompt_tells_the_writer_to_plan_and_cite_an_example_only_if_it_applies():
+    from career_agent.longform.write import build_prompt
+    from career_agent.longform.kb import Chunk
+    chunks = [Chunk("source:p-ocr", "source", "OCR scoring pipeline.", "p-ocr")]
+    hyp = build_prompt("How would you design X?", chunks, {"title": "t", "company": "c"}, hypothetical=True)
+    assert "INDUSTRY PRACTICE" in hyp and "ONE sentence" in hyp and "never restate" in hyp.lower()
+    assert "HYPOTHETICAL" not in build_prompt("Describe a project", chunks, {"title": "t", "company": "c"})
+
+
+def test_the_writer_is_told_not_to_bend_a_project_to_fit_and_to_flag_low_confidence():
+    from career_agent.longform.write import build_prompt
+    from career_agent.longform.kb import Chunk
+    p = build_prompt("q", [Chunk("source:p", "source", "text", "p")], {"title": "t", "company": "c"})
+    assert "do NOT bend a project to fit" in p and "confidence below 40" in p
+
+
+def test_a_project_name_that_is_not_in_the_material_is_caught():
+    from career_agent.longform.verify import invented_projects
+    from career_agent.longform.kb import Chunk
+    chunks = [Chunk("source:p", "source", "ClaimGuard scores claim documents with Claude Vision.", "p")]
+    assert invented_projects("For example, in the 'Customer Support Chatbot' project, I did X.", chunks) == ["Customer Support Chatbot"]
+    assert invented_projects("In the EVA project I measured task success.", chunks) == ["EVA"]
+    assert invented_projects("In the ClaimGuard project I validated outputs.", chunks) == []
+    assert invented_projects("I would store facts per tenant.", chunks) == []

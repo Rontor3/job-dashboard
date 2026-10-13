@@ -72,7 +72,7 @@ def _ollama_is_up() -> bool:
 
 @pytest.mark.skipif(not _ollama_is_up(), reason="Ollama not running at DEFAULT_HOST")
 def test_live_smoke_real_qwen_screening_answer():
-    """Real HTTP call to a running Ollama qwen2.5:14b -- no mocks."""
+    """Real HTTP call to a running Ollama gemma4:26b -- no mocks."""
     from job_dashboard.letter.draft import make_default_llm
 
     research = ResearchBundle(

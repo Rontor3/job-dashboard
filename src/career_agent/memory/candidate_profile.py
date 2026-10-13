@@ -1,6 +1,6 @@
 """CandidateProfile: structured facts extracted from a saved résumé version
 (resume_layouts blocks) + application_profile. Rule-based; a `split` callable
-(qwen3:14b) is used only for role-header titles a rule can't parse."""
+(gemma4:26b) is used only for role-header titles a rule can't parse."""
 from __future__ import annotations
 
 import re

@@ -3,6 +3,7 @@ so judgment.py can use either. Never raises."""
 from __future__ import annotations
 
 import json
+import re
 
 from job_dashboard import qa_store
 from job_dashboard.apply.screening import _facts_block, _general_answer
@@ -12,7 +13,7 @@ from .kb import KnowledgeBase
 from .limits import field_limit
 from .needs import plan_needs
 from .recipes import retrieve
-from .verify import fit_length, leak_check
+from .verify import fit_length, invented_projects, leak_check
 from .write import draft
 
 
@@ -27,18 +28,23 @@ def answer_longform(question, *, job, kb, llm, research=None, limit=None, prior=
     chunks = retrieve(plan, kb, question=question, jd_text=jd, company_text=_company_text(research))
     flags: list[str] = []
 
-    out = draft(question, chunks, job, llm, limit)
+    hyp = "approach" in plan.needs
+    out = draft(question, chunks, job, llm, limit, hypothetical=hyp)
     answer = out["answer"]
     if answer is not None:
         leaks = leak_check(answer, chunks, kb)
         if leaks:                                    # one redraft, naming what to leave out
             names = tuple(kb.units[p]["title"] for p in leaks)
-            retry = draft(question, chunks, job, llm, limit, avoid=names)
+            retry = draft(question, chunks, job, llm, limit, avoid=names, hypothetical=hyp)
             if retry["answer"]:
                 out, answer = retry, retry["answer"]
                 leaks = leak_check(answer, chunks, kb)
             if leaks:
                 flags.append("project_leak:" + ",".join(leaks))
+    if answer is not None:
+        fake = invented_projects(answer, chunks)
+        if fake:                                         # a project name that is in none of the material: never fill it
+            flags.append("invented_project:" + ",".join(fake))
     if answer is not None and not out.get("parsed"):
         flags.append("unparsed_reply")
     if answer is None:
@@ -55,19 +61,23 @@ def answer_longform(question, *, job, kb, llm, research=None, limit=None, prior=
         unsupported = []
     # A draft that still names another project must not be filled: confidence=None makes judge()'s min_conf
     # gate hold the field as needs-answer for the human instead.
-    confidence = None if any(f.startswith("project_leak") for f in flags) else out["confidence"]
+    # A draft that says the candidate has NOT done the thing is the model running out of material, not a fact about
+    # the candidate: never fill it, hold it for the human the same way.
+    if re.match(r"\s*(i\s+(have\s+not|haven'?t|do\s+not|don'?t|did\s+not|didn'?t)|no,)\b", answer, re.I):
+        flags.append("denies_experience")
+    confidence = None if any(f.startswith(("project_leak", "denies_experience", "invented_project")) for f in flags) else out["confidence"]
     return {"answer": answer, "flags": flags, "unsupported_company_claims": unsupported,
             "confidence": confidence, "basis": out["basis"], "prompt": out["prompt"],
             "needs": list(plan.needs), "project_id": plan.project_id, "used": [c.id for c in chunks],
-            "plan_source": plan.source, "plan_reason": plan.reason}
+            "plan_source": plan.source, "plan_reason": plan.reason, "chunks": chunks}
 
 
 def prior_project(conn, job_id, label) -> str | None:
-    """The project recorded for this job's earlier draft of this question (the user's override sticks).
-    With no override UI yet (Phase 2) this remembers the pipeline's own first pick as well."""
+    """The project of this job's earlier draft of this question, but only one the user kept (accepted in the tracker).
+    The pipeline's own earlier pick does not stick: a re-run must get the benefit of a better ranking."""
     try:
         row = conn.execute("SELECT context_json FROM application_qa WHERE job_id=? AND qkey IN (?, ?) "
-                           "AND json_extract(context_json, '$.project_id') IS NOT NULL ORDER BY id DESC LIMIT 1",
+                           "AND outcome = 'kept' AND json_extract(context_json, '$.project_id') IS NOT NULL ORDER BY id DESC LIMIT 1",
                            (job_id, qa_store.norm_key(label), qa_store.norm_key(label.rstrip(" *")))).fetchone()   # norm_key keeps a required-marker "*"
         return (json.loads(row[0]) if row and row[0] else {}).get("project_id")
     except Exception:
@@ -76,7 +86,8 @@ def prior_project(conn, job_id, label) -> str | None:
 
 def make_longform(conn, job, contact, llm, research, ingredients_path, job_id=None):
     """The callable judgment.py uses: run(question, field) -> result dict. The knowledge base is loaded once."""
-    kb = KnowledgeBase.load(conn, ingredients_path, contact)
+    from career_agent.memory.qbank import default_embed       # the on-device MiniLM the question bank already uses
+    kb = KnowledgeBase.load(conn, ingredients_path, contact, embed=default_embed)
 
     def run(question, field=None, current_job=None):
         j = current_job if isinstance(current_job, dict) and current_job else job   # apply.py may swap the job later

@@ -57,3 +57,43 @@ def test_load_reads_story_slots_and_project_stories_from_the_bank():
     assert loaded.story_slots() == ["story_looking_for"]
     assert [c.id for c in loaded.get_project("p-graph")][0] == "project:p-graph:result"
     assert [c.id for c in loaded.get_facts(("years_experience",))] == ["fact:years_experience"]
+
+
+def test_rank_projects_reads_the_source_text_and_favours_rare_words(kb):
+    assert kb.rank_projects("community detection")[0][0] == "p-graph"            # only in p-graph's verbatim source
+    assert kb.rank_projects("who deployed the claim scoring")[0][0] == "p-ocr"   # rare "scoring"/"claim" beat a generic word
+    assert kb.rank_projects("Monte Carlo simulation of weights")[0][0] == "p-portfolio"
+
+
+def test_the_question_ranks_and_the_job_description_only_breaks_ties(kb):
+    jd = "ocr document vision scoring " * 200                                   # a long description about OCR
+    assert kb.rank_projects("graph neural networks", jd)[0][0] == "p-graph"       # the question wins over a loud description
+    tied = kb.rank_projects("zzz unrelated words", "monte carlo etf weights")
+    assert tied[0][0] == "p-portfolio" and tied[0][1] <= 0.11                      # the description only nudges, at a tenth
+
+
+def test_embedding_similarity_adds_meaning_to_word_matching(kb):
+    import numpy as np
+    ids = [u["id"] for u in kb.projects()]
+    vec = {i: np.eye(len(ids))[n] for n, i in enumerate(ids)}
+    def embed(texts):                                                             # a unit's text -> its own axis; the query -> the OCR axis
+        return np.array([vec["p-ocr"] if "xyzzy" in t else next((vec[i] for i, u in kb.units.items() if u.get("title", "") and u["title"] in t), vec["p-churn"]) for t in texts])
+    kb.embed = embed
+    ranked = kb.rank_projects("xyzzy zero shared words")                           # no word overlap at all; only meaning can rank
+    assert ranked[0][0] == "p-ocr" and ranked[0][1] > 0
+
+
+def test_industry_practice_is_ranked_for_the_question_and_labelled_as_general(kb):
+    q = "How would you design the memory system for an agent that remembers a business across 6 months of conversations?"
+    top = kb.practice_chunks(q)
+    assert top and top[0].id == "practice:agent_memory" and top[0].kind == "practice"
+    assert kb.practice_chunks("zzz qqq xxx unrelated gibberish") == []
+
+
+def test_an_approach_question_gets_practice_plus_a_project_example(kb):
+    from career_agent.longform.needs import Plan
+    from career_agent.longform.recipes import retrieve
+    q = "How have you evaluated whether an LLM or RAG system improved? Give a metric or test set."
+    chunks = retrieve(Plan(("approach",), "p-ocr"), kb, question=q)
+    kinds = [c.kind for c in chunks]
+    assert "practice" in kinds and any(c.project_id == "p-ocr" for c in chunks)

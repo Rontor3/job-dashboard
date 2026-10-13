@@ -28,3 +28,8 @@ def test_submitted_wins_over_a_nonzero_exit():
     # The board confirmed the application; a crash while tidying up must not
     # turn a real submission into "failed".
     assert outcome({"submitted": True}, 1) == ("done", "submitted", "applied")
+
+
+def test_a_closed_posting_is_marked_closed_not_failed():
+    from job_dashboard.apply.outcome import outcome
+    assert outcome({"stopped_reason": "closed"}, 0) == ("parked", "closed", "closed")

@@ -201,3 +201,31 @@ def test_date_format_is_read_from_the_page_not_assumed():
     assert _date_text(d, "Joining date (dd/mm/yyyy)", F(input_type="date")) == "2026-11-04"  # a date input takes ISO whatever the label says
     assert _date_text(d, "Joining date", F()) == "2026-11-04"
     assert asks_for_date("Start", F(placeholder="DD/MM/YYYY")) and not asks_for_date("Start", F())
+
+
+def test_a_yes_no_is_read_from_a_matched_non_yes_no_answer():
+    c = sqlite3.connect(":memory:"); qbank.ensure(c)
+    qbank.upsert_entry(c, {"id": "english_proficiency", "question": "How would you rate your English language skills?",
+                           "topic": "experience", "atype": "choice"})
+    c.execute("UPDATE qbank_entry SET answer='Fluent' WHERE id='english_proficiency'"); c.commit()
+    qbank.add_wording(c, "Do you speak English?", "english_proficiency", _embed(["Do you speak English?"])[0], "seed")
+    f = _field("Do you speak English?", "radio", options=["Yes", "No"])
+    reads = lambda ans: (lambda p: ans if "Saved answers:" in p else "NONE")      # only the Yes/No step answers
+    m, v = answer_field(c, f, embed=_embed, llm=reads("Yes."), contact={})
+    assert v == "Yes" and m.band == LIKELY and "Fluent" in m.note
+    assert answer_field(c, f, embed=_embed, llm=reads("NONE"), contact={})[1] is None   # unsettled -> still a human question
+
+
+def test_an_unmatched_yes_no_is_read_from_related_saved_answers():
+    import numpy as np
+    c = sqlite3.connect(":memory:"); qbank.ensure(c)
+    qbank.upsert_entry(c, {"id": "english_proficiency", "question": "How would you rate your English language skills?",
+                           "topic": "experience", "atype": "choice"})
+    c.execute("UPDATE qbank_entry SET answer='Fluent' WHERE id='english_proficiency'"); c.commit()
+    qbank.add_wording(c, "How would you rate your English language skills?", "english_proficiency", np.array([1, 0, 0], dtype="float32"), "seed")
+    near = lambda texts: np.array([[0.55, 0.0, 0.835]] * len(texts), dtype="float32")   # related (0.55) but under the match floor
+    f = _field("Do you speak English?", "radio", options=["Yes", "No"])
+    reads = lambda ans: (lambda p: ans if "Saved answers:" in p else "NONE")
+    m, v = answer_field(c, f, embed=near, llm=reads("Yes"), contact={})
+    assert v == "Yes" and m.band == LIKELY
+    assert answer_field(c, f, embed=near, llm=reads("NONE"), contact={})[1] is None

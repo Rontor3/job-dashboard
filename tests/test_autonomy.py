@@ -83,3 +83,15 @@ def test_policy_needs_the_switch_autonomous_answers_a_history_on_that_site_and_c
     qa_store.set_setting(c, "autosubmit_daily_cap", "1")
     autonomy.record_submission(c, 2, "none", {}, "auto", url)
     assert any("daily cap reached" in r for r in autosubmit_policy(c, url, "r", decisions)["reasons"])
+
+
+def test_waiving_the_first_submit_rule_for_one_board_only_lifts_that_requirement():
+    from job_dashboard.autonomy import autosubmit_policy
+    c = _db()
+    url = "https://www.naukri.com/job-listings-x-1"
+    qa_store.set_setting(c, "autosubmit_naukri", "1")
+    assert any("first submit" in r for r in autosubmit_policy(c, url, "r", [])["reasons"])
+    qa_store.set_setting(c, "trust_first_naukri", "1")
+    assert autosubmit_policy(c, url, "r", [])["allow"]
+    qa_store.set_setting(c, "autosubmit_naukri", "0")                   # the switch itself is still required
+    assert not autosubmit_policy(c, url, "r", [])["allow"]

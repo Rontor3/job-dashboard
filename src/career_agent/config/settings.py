@@ -62,7 +62,7 @@ def load_settings() -> Settings:
         headed=_as_bool(os.getenv("CAREER_AGENT_HEADED"), True),
         cdp_url=os.getenv("CAREER_AGENT_CDP_URL") or None,
         ollama_host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-        ollama_model=os.getenv("OLLAMA_MODEL", "qwen3:14b"),
+        ollama_model=os.getenv("OLLAMA_MODEL", "gemma4:26b"),
         telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN") or None,
         telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID") or None,
         remote_solve_port=int(os.getenv("REMOTE_SOLVE_PORT", "8765")),

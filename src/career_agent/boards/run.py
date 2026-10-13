@@ -44,13 +44,18 @@ def _blocked(page, board):
 
 
 def _form_already_open(page) -> bool:
-    """An application dialog with fields and an enabled button is already on screen (the entry control sits
-    behind it, so clicking it times out). Structural: a visible dialog holding a text field."""
+    """The application form is already on screen (the entry control sits behind it, or there is none because we
+    arrived mid-way through a multi-step form). Structural: a visible dialog holding a field, or two or more
+    visible form fields on the page itself (search boxes and hidden/captcha inputs do not count)."""
     try:
-        return bool(page.evaluate("""() => Array.from(document.querySelectorAll('[role=dialog],[aria-modal=true]')).some(d => {
-            const r = d.getBoundingClientRect();
-            return r.width > 50 && r.height > 50 && d.querySelector('textarea,input:not([type=hidden]):not([type=checkbox]):not([type=radio]),select,[role=combobox]');
-        })"""))
+        return bool(page.evaluate("""() => {
+          const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+          const field = e => e.matches('textarea,select,[role=combobox],input:not([type=hidden]):not([type=checkbox]):not([type=submit]):not([type=button]):not([type=search])')
+                             && !/search|recaptcha/i.test((e.getAttribute('aria-label') || '') + (e.name || '') + (e.id || ''));
+          const dlg = Array.from(document.querySelectorAll('[role=dialog],[aria-modal=true]')).some(d => vis(d) && Array.from(d.querySelectorAll('*')).some(e => field(e) && vis(e)));
+          const names = new Set(Array.from(document.querySelectorAll('textarea,select,[role=combobox],input')).filter(e => field(e) && vis(e)).map(e => e.name || e.id || Math.random()));
+          return dlg || names.size >= 2;
+        }"""))
     except Exception:
         return False
 

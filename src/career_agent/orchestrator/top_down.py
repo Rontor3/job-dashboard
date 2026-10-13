@@ -37,12 +37,17 @@ def _signature(page) -> str:
         return ""
 
 
-def _holds_value(page, d) -> bool:
+def _value(page, d):
+    """The field's committed value after a fill, or None when it can't be read."""
     from ..browser.filler import read_back
     try:
-        return bool(str(read_back(page, [d]).get(d.ref, "")).strip())
+        return read_back(page, [d]).get(d.ref)
     except Exception:
-        return False
+        return None
+
+
+def _holds_value(page, d) -> bool:
+    return bool(str(_value(page, d) or "").strip())
 
 
 def _apply_one(deps, page, d) -> None:
@@ -74,20 +79,33 @@ def fill_top_down(page, deps, fields, decisions, needs, ctx, *, answer_fn=None, 
         k = order[0]
         d = plan[k]
         done.add(k)
-        if skip_prefilled and d.action in ("fill", "select", "combobox") and _holds_value(page, d):
-            continue                                                  # the site already filled it (résumé parse)
+        if skip_prefilled and d.kind != "textarea" and d.action in ("fill", "select", "combobox") and _holds_value(page, d):
+            print(f"[fill] kept site's value: {d.label[:50]!r} = {str(_value(page, d))[:40]!r}", flush=True)
+            continue          # the site already filled it (résumé parse); a long answer is ours, never the parser's: write it
         _apply_one(deps, page, d)
-        applied.append(d)
         try:
             page.wait_for_timeout(settle_ms)
         except Exception:
             pass
+        after = _value(page, d) if d.action in ("fill", "select", "combobox") else None
+        if after is not None and not str(after).strip():
+            # The answer did not take (no dropdown option matched what was typed, the box rejected it): it is not
+            # filled, whatever was attempted. The field goes to the human with its real label.
+            f = next((f for f in cur if f.ref == d.ref), None)
+            if f is not None:
+                needs.append(f)
+            print(f"[fill] did not take: {d.label[:50]!r} = {str(d.value)[:40]!r}", flush=True)
+        else:
+            applied.append(d)
         new_sig = _signature(page)
         if new_sig == sig:
             continue
         sig = new_sig
         try:
-            cur = list(deps.snapshot(page))
+            try:
+                cur = list(deps.snapshot(page, scroll=False))    # re-read in place: no scroll to the top and back
+            except TypeError:                                      # a deps object without the keyword (tests)
+                cur = list(deps.snapshot(page))
         except Exception:
             continue
         keys = field_keys(cur)

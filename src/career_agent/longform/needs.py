@@ -7,9 +7,10 @@ import re
 from dataclasses import dataclass
 
 NEEDS = ("intro", "one_project", "projects_overview", "why_company", "why_role", "looking_for", "challenge",
-         "working_style", "skills_list", "other")
-PROJECT_NEEDS = {"one_project", "challenge", "why_company", "why_role"}
+         "working_style", "skills_list", "approach", "other")
+PROJECT_NEEDS = {"one_project", "challenge", "why_company", "why_role", "approach"}
 MAX_NEEDS = 3
+SHORTLIST = 3            # the model chooses a project only among the top-ranked few
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,9 @@ _HEURISTICS = [
     ("challenge", r"challeng|difficult|problem you (solved|faced)|hardest"),
     ("working_style", r"how do you (like to )?work|working style|ownership"),
     ("skills_list", r"skill ?set|list (down )?(your )?skills|technical skills|tech stack"),
+    ("approach", r"how would you|how do you (design|approach|handle|decide|prioriti[sz]e)|\bsuppose\b|\bimagine\b|"
+                 r"you inherit|what would you (do|investigate|prioriti[sz]e|check)|walk (us )?through how|if you (were|had)\b|"
+                 r"how (have|do|did) you (evaluate|measure|test|monitor|validate)|metric|test set|evaluation process"),
 ]
 _COMPILED = [(need, re.compile(rx, re.I)) for need, rx in _HEURISTICS]
 
@@ -41,16 +45,26 @@ def heuristic_needs(question: str) -> tuple[str, ...]:
     return tuple(found[:MAX_NEEDS]) or ("other",)
 
 
-def build_plan_prompt(question, jd, kb) -> str:
-    projects = "\n".join(f"- {c.project_id}: {c.text}" for c in kb.list_projects())
+def shortlist(question, jd, kb, n: int = SHORTLIST) -> list[str]:
+    """Project ids ranked best-first for this question and job (BM25 over each unit's whole record)."""
+    return [pid for pid, _ in kb.rank_projects(question, jd)[:n]]
+
+
+def build_plan_prompt(question, jd, kb, candidates=None) -> str:
+    ids = list(candidates) if candidates else [u["id"] for u in kb.projects()]
+    cards = {c.project_id: c for c in kb.list_projects()}
+    projects = "\n".join(f"- {pid}: {cards[pid].text}" for pid in ids if pid in cards)
     return (
         "A job application asks one free-text question. Decide what material is needed to answer it.\n\n"
         f'QUESTION: "{question}"\n\nJOB (excerpt): {(jd or "")[:1200]}\n\nCANDIDATE PROJECTS:\n{projects}\n\n'
         f"Allowed needs (choose 1-{MAX_NEEDS}): {', '.join(NEEDS)}.\n"
         "intro = about the candidate; one_project = a specific project in depth; projects_overview = several projects; "
         "why_company / why_role = fit with this company / role; looking_for = goals; challenge = a hard problem solved; "
-        "working_style = how they work; skills_list = skills; other = anything else.\n"
-        "If a need uses a project, give the id of the ONE project that best fits the job and question.\n"
+        "working_style = how they work; skills_list = skills; "
+        "approach = a hypothetical (\"how would you\", \"suppose\", \"you inherit\") answered with a plan, not a past project; "
+        "other = anything else.\n"
+        "If a need uses a project, give the id of the ONE project from the list above that best fits the job and question "
+        "(the list is ordered best match first).\n"
         'Reply with ONLY a JSON object: {"needs": ["..."], "project_id": "<id or null>", "reason": "<one short line>"}'
     )
 
@@ -76,18 +90,20 @@ def parse_plan(reply, project_ids) -> Plan | None:
 
 def plan_needs(question, jd, kb, llm=None, prior_project=None) -> Plan:
     ids = {u["id"] for u in kb.projects()}
+    short = shortlist(question, jd, kb)
     plan = None
     if llm is not None:
         try:
-            plan = parse_plan(llm(build_plan_prompt(question, jd, kb)), ids)
+            plan = parse_plan(llm(build_plan_prompt(question, jd, kb, short)), set(short) or ids)
         except Exception:
             plan = None
     if plan is None:
         plan = Plan(heuristic_needs(question), None, "", "heuristic")
+    if "approach" in heuristic_needs(question) and "approach" not in plan.needs:     # the wording is unambiguous: a hypothetical
+        plan = Plan(("approach", *[n for n in plan.needs if n != "challenge"])[:MAX_NEEDS], plan.project_id, plan.reason, plan.source)
     pid, source = plan.project_id, plan.source
     if prior_project in ids:
         pid, source = prior_project, "prior"
     if pid is None and set(plan.needs) & PROJECT_NEEDS:
-        ranked = kb.rank_projects(f"{question} {jd}")
-        pid = ranked[0][0] if ranked else None
+        pid = short[0] if short else None            # the model named no project in the shortlist: the ranking decides
     return Plan(plan.needs, pid, plan.reason, source)

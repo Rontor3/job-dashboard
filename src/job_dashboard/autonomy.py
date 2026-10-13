@@ -175,7 +175,12 @@ def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
     if not report["ok"]:
         reasons.append(f"{len(report['blockers'])} answer(s) not yet autonomous: "
                        + "; ".join(f"{label} ({why})" for label, why in report["blockers"][:4]))
-    if not has_confirmed_submit(conn, site):
+    board = switch_key.removeprefix("autosubmit_")
+    try:
+        waived = qa_store.get_setting(conn, f"trust_first_{board}") == "1"
+    except KeyError:
+        waived = False
+    if not waived and not has_confirmed_submit(conn, site):
         reasons.append(f"first submit on {site} must go through you")
     if used >= cap:
         reasons.append(f"daily cap reached ({used}/{cap} automatic submits in 24h)")

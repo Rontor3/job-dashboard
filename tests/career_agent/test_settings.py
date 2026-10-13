@@ -11,7 +11,7 @@ def test_defaults_when_env_absent(monkeypatch):
     assert s.user_data_dir.endswith("career_agent/chrome-profile")
     assert s.headed is True
     assert s.ollama_host == "http://localhost:11434"
-    assert s.ollama_model == "qwen3:14b"
+    assert s.ollama_model == "gemma4:26b"
 
 
 def test_env_overrides(monkeypatch):

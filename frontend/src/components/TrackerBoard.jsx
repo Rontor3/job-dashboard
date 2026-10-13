@@ -13,10 +13,10 @@ const ROUNDS = [1, 2, 3, 4, 5];
 const STAGE_OPTS = [
   ["saved", "Queued"], ["applied", "Applied"], ["failed", "Failed"],
   ...ROUNDS.map((n) => [`interviewing:${n}`, `Round ${n}`]),
-  ["offer", "Selected"], ["rejected", "Rejected"],
+  ["offer", "Selected"], ["rejected", "Rejected"], ["closed", "Closed"],
 ];
 const STAGE_LABEL = { saved: "Queued", applied: "Applied", failed: "Failed", interviewing: "Interviewing",
-                      offer: "Selected", rejected: "Rejected" };
+                      offer: "Selected", rejected: "Rejected", closed: "Closed" };
 const STAGE_COLOR = {
   saved: { bg: "var(--ring-track)", fg: "var(--ink-soft)" },
   applied: { bg: "var(--gold)", fg: "var(--gold-ink)" },
@@ -24,6 +24,7 @@ const STAGE_COLOR = {
   interviewing: { bg: "var(--green-tint)", fg: "var(--green-mid)" },
   offer: { bg: "var(--green)", fg: "#FFFFFF" },
   rejected: { bg: "var(--dupe-bg)", fg: "var(--dupe-ink)" },
+  closed: { bg: "var(--ring-track)", fg: "var(--ink-faint)" },
 };
 // Row order: what needs you first (queued, failed), then the further-along ones.
 const STAGE_ORDER = ["saved", "failed", "applied", "interviewing", "offer"];
@@ -33,6 +34,7 @@ const stageValue = (job) => (job.status === "interviewing" ? `interviewing:${job
 function stageText(job) {
   if (job.status === "interviewing") return `Round ${job.interview_round || 1}`;
   if (job.status === "failed" && job.queue_reason) return `Failed — ${reasonText(job.queue_reason)}`;
+  if (job.status === "closed") return "Closed — posting no longer accepting applications";
   if (job.status === "saved" && job.queue_state === "running") return "Filling…";
   return STAGE_LABEL[job.status] || job.status;
 }

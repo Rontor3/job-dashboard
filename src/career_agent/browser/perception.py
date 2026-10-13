@@ -118,6 +118,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             autocomplete=r.get("autocomplete", ""),
             placeholder=r.get("placeholder", ""),
             max_length=int(r.get("max_length") or 0),
+            unit=r.get("unit", ""),
         ))
 
     for name, g in radio_groups.items():
@@ -167,24 +168,37 @@ _INPUT_JS = r"""
   // BEFORE native <label>, and placeholder is a genuine last resort (so a React
   // combobox no longer reports "Select..."). Sibling/container text is kept only
   // as a fallback for forms with no formal association at all (e.g. Greenhouse).
+  // A file input labelled only by its button word ("Attach", "Upload") is named by the group around it:
+  // <div role="group" aria-labelledby="upload-label-cover_letter"> ... "Cover Letter".
+  const _BUTTON_WORD = /^(attach|upload|browse|choose( a)? file|select( a)? file|add( a)? file|drop files?)\b/i;
   const labelFor = (el) => {
+    const own = labelFor0(el);
+    if (el.type === 'file' && (!own || _BUTTON_WORD.test(own))) {
+      const g = el.closest('[role=group],fieldset');
+      const gn = g && (idRefsText(g, 'aria-labelledby') || (g.getAttribute('aria-label') || '').trim()
+                       || ((g.querySelector('legend') || {}).textContent || '').trim());
+      if (gn) return gn.slice(0, 200);
+    }
+    return own;
+  };
+  const labelFor0 = (el) => {
     const root = el.getRootNode();
     const lb = idRefsText(el, 'aria-labelledby');            // 1
-    if (lb) return lb;
+    if (ok(lb)) return lb;
     const al = (el.getAttribute('aria-label') || '').trim(); // 2
-    if (al) return al;
+    if (ok(al)) return al;
     // a label's OWN text: a <label> wrapping a <select> also contains the option list, which is not the question
     const ownText = (l) => { const c = l.cloneNode(true); c.querySelectorAll('select,option,input,textarea,button,[role=listbox],[role=option]').forEach(x => x.remove()); return (c.textContent || '').trim().slice(0, 200); };
     if (el.id) {                                             // 3: <label for>
       const l = root.querySelector(`label[for="${el.id}"]`);
-      if (l) { const t = ownText(l); if (t) return t; }
+      if (l) { const t = ownText(l); if (ok(t)) return t; }
     }
     const wrap = el.closest('label');                        // 3: wrapping <label>
-    if (wrap) { const t = ownText(wrap); if (t) return t; }
+    if (wrap) { const t = ownText(wrap); if (ok(t)) return t; }
     const fs = el.closest('fieldset');                       // 3: fieldset legend
-    if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (t) return t; } }
+    if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (ok(t)) return t; } }
     const title = (el.getAttribute('title') || '').trim();   // 4
-    if (title) return title;
+    if (ok(title)) return title;
     // ---- fallbacks below are NOT accname; only for forms with no association ----
     // Limit sibling walk to 3 and use textContent (no layout forcing) capped at
     // 200 chars — calling innerText on a large sibling (e.g. a job-description div)
@@ -192,15 +206,46 @@ _INPUT_JS = r"""
     let prev = el.previousElementSibling, sc = 0;
     while (prev && sc++ < 3) {
       const t = (prev.textContent || '').trim().slice(0, 200);
-      if (t) return t;
+      if (ok(t)) return t;
       prev = prev.previousElementSibling;
     }
     const container = el.closest('div,section,fieldset,li');
     if (container) {
       const lbl = container.querySelector('label,legend,.label,[class*=label]');
-      if (lbl) { const t = (lbl.textContent || '').trim().slice(0, 200); if (t) return t; }
+      if (lbl) { const t = (lbl.textContent || '').trim().slice(0, 200); if (ok(t)) return t; }
+    }
+    // a label that is only a required-star ("*") with the words beside it: the nearest small block's own text
+    // (a web component's box sits in its shadow root; its words are the host's light-DOM / slotted text: step out to the host)
+    const parentOf = n => n.parentElement || ((n.getRootNode && n.getRootNode().host) || null);
+    let up = parentOf(el);
+    for (let i = 0; i < 4 && up; i++, up = parentOf(up)) {
+      if (up.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;   // reached other fields
+      const raw = (up.innerText || up.textContent || '').trim().slice(0, 300);
+      const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
+      if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;           // the star moves to the end: still marks it required
     }
     return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
+  };
+  // a name that says something: not empty, not just a required-star / colon
+  const ok = (t) => !!t && t.replace(/[*✱:\s]/g, '').length > 0;
+  // What the box is measured in, from the controls that share its row: a read-only "INR" box or a currency <select>
+  // beside an amount, "Years" beside a number, an addon/prefix chip ("₹", "days"). Empty when the row holds other fields.
+  const unitOf = (el) => {
+    let p = el.parentElement;
+    for (let i = 0; i < 3 && p; i++, p = p.parentElement) {
+      const others = Array.from(p.querySelectorAll('input:not([type=hidden]),select')).filter(c => c !== el);
+      if (others.length > 2) return '';
+      const bits = [];
+      for (const c of others) {
+        if (c.tagName === 'SELECT') { const o = c.options[c.selectedIndex]; if (o && o.value) bits.push(o.value); }
+        else if (c.readOnly && c.value && c.value.length <= 12) bits.push(c.value);
+      }
+      for (const a of p.querySelectorAll('[class*=addon i],[class*=prefix i],[class*=suffix i],[class*=input-group-text i],[class*=adorn i]')) {
+        const t = (a.textContent || '').trim(); if (t && t.length <= 12) bits.push(t);
+      }
+      if (bits.length) return bits.join(' ').slice(0, 30);
+    }
+    return '';
   };
   // Accessible DESCRIPTION — the helper text (aria-describedby). This is the piece
   // we used to drop; it carries hints like "type 'relocating'" that change what
@@ -286,6 +331,11 @@ _INPUT_JS = r"""
     // screen. getComputedStyle (not offsetParent, which needs layout to have
     // already run and can false-positive on a fast-loading iframe) is the check.
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
+    // Hidden from assistive tech AND unreachable by keyboard: a widget's internal stand-in, not a field a person fills
+    // (react-select keeps one <input required aria-hidden tabindex=-1> beside an empty required dropdown so the form
+    // won't submit; labelled only by the "Select..." placeholder next to it). File inputs are exempt: those are often
+    // hidden behind their "Attach" button and still are the field.
+    if (type !== 'file' && el.getAttribute('aria-hidden') === 'true' && el.tabIndex < 0) continue;
     const role = (el.getAttribute('role') || '').toLowerCase();
     const haspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
     // Workday's own type-ahead multiselect (data-uxi-widget-type="selectinput")
@@ -335,6 +385,7 @@ _INPUT_JS = r"""
       role, haspopup,
       input_type: type || '', autocomplete: (el.getAttribute('autocomplete') || '').toLowerCase(),
       placeholder: (el.getAttribute('placeholder') || '').trim().slice(0, 60),
+      unit: ['text', 'number', 'tel'].includes(type) ? unitOf(el) : '',
       part_hint: [tag === 'select' && el.options.length ? el.options[0].text : '', el.name || '', el.id || ''].join(' ').trim().slice(0, 80),
       max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : 0,
     });
@@ -375,7 +426,9 @@ _INPUT_JS = r"""
       container.setAttribute('data-cref-group', 'g' + (_ci++));
     }
     const heading = container.previousElementSibling;
-    const headingText = heading ? visibleText(heading) : '';
+    // the group's own accessible name first (Google Forms: aria-labelledby -> the question), else the preceding sibling
+    const named = ((idRefsText(container, 'aria-labelledby') || container.getAttribute('aria-label') || '') + '').replace(/\s+/g, ' ').trim();
+    const headingText = named || (heading ? visibleText(heading) : '');
     // aria-required lies on some custom widgets (Typeform sets it "false" even
     // on a visually-required question) — a trailing asterisk in the question
     // heading is the fallback required signal, same convention groupLabel()
@@ -619,10 +672,13 @@ def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:
         pass   # non-scrollable page / framed page — proceed anyway
 
 
-def snapshot_form(page, verify_shot: str | None = None) -> list[Field]:
+def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True) -> list[Field]:
     """Scroll through the page to trigger all lazy-rendered fields, snapshot
-    the DOM, then optionally save a screenshot for visual verification."""
-    _slow_scroll_pass(page)
+    the DOM, then optionally save a screenshot for visual verification.
+    `scroll=False` re-reads the DOM where it stands (progressive-disclosure re-reads while filling: the page must
+    not jump to the top and back down after every field)."""
+    if scroll:
+        _slow_scroll_pass(page)
     from .page_prep import suppress_noise
     fields = suppress_noise(to_form_model(collect_raw(page)))
     # Screenshot after snapshot so a human (or next run) can verify nothing
