@@ -370,6 +370,7 @@ def test_naukri_style_chat_zero_size_wrapper_radio_then_text_then_confirm(monkey
     import json as _json
     from career_agent.boards.profiles import board_for
     board = {**board_for("https://www.naukri.com/job-listings-x-1"),
+             "domains": ["board.test"],                    # the fixture page is served from board.test
              "entry": {"selector": "#apply-button", "submits": "maybe"},
              "questions": {"capture": "/api/apply", "path": "jobs[0].questionnaire", "parser": "naukri"},
              "confirm": [{"capture": "/api/apply", "request_match": "applyData", "status": 200}]}
