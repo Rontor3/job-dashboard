@@ -68,6 +68,19 @@ def national_number(value, field, dial_field: bool):
     if not dial_field or _DIAL_FIELD.search(f"{field.label or ''} {field.ref or ''}"):
         return value
     return _LEADING_DIAL.sub("", value) if isinstance(value, str) else value
+_FIRST_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def shape_value(value, label: str, input_type: str = "", unit: str = "", absolute: bool = False):
+    """Fit an answer to the box it goes in. The box's unit (a currency/"Years" control sharing its row) counts as part
+    of its label for amounts; a number-only box (<input type=number>) takes the number alone — "30 days" -> "30",
+    which it would otherwise reject and leave blank. `absolute`: the form has its own currency field, so a salary is
+    an amount ("25 LPA" -> "2500000")."""
+    value = normalize_amount(value, f"{label or ''} {unit or ''}".strip(), input_type, absolute=absolute)
+    if input_type == "number":
+        m = _FIRST_NUMBER.search(str(value).replace(",", ""))
+        return m.group(0) if m else value
+    return value
 
 
 def _prior_human_answers(fields, qa) -> list:
@@ -109,7 +122,8 @@ def answer_fields(fields, ctx):
     remaining = [f for f in remaining if f.ref not in done]
     learn = ctx.get("learn")
     if learn:
-        recalled, remaining = learn.recall(remaining)
+        more, remaining = learn.recall(remaining)
+        recalled += more                          # never instead of: the human's own answers were taken out above
     from .screen_review import map_screen
     decisions, needs = map_screen(remaining, ctx["profile"], ctx.get("resume_pdf"))
     decisions += recalled
@@ -120,7 +134,8 @@ def answer_fields(fields, ctx):
     itype = {f.ref: getattr(f, "input_type", "") or "" for f in fields}
     # a form with its own currency field wants the salary as an amount (Keka: Current Salary + INR select got "25 LPA")
     cur = has_currency_field(fields)
-    decisions = [replace(d, value=normalize_amount(d.value, d.label, itype.get(d.ref, ""), absolute=cur))
+    unit = {f.ref: getattr(f, "unit", "") or "" for f in fields}
+    decisions = [replace(d, value=shape_value(d.value, d.label, itype.get(d.ref, ""), unit.get(d.ref, ""), absolute=cur))
                  if d.action == "fill" and d.value is not None else d for d in decisions]
     dial, by_ref = has_dial_field(fields), {f.ref: f for f in fields}
     decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))

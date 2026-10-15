@@ -98,6 +98,8 @@ class ClaudeAssist:
         self.calls += 1
         print(f"[assist {self.calls}/{self.cap}] asking Claude — {reason} on {pp._bare(page.url)}", flush=True)
         try:
+            from ..browser.clicks import wait_until_stable
+            wait_until_stable(page)             # decide on the page that is on screen, not one still drawing
             controls = self._controls(page)
             shot = self._dir / f"assist{self.calls}.png"
             page.screenshot(path=str(shot))
@@ -122,5 +124,5 @@ class ClaudeAssist:
             pp._click_first(page, pp._DIALOG_DISMISS)
         else:
             page.go_back()
-        page.wait_for_timeout(1500)
+            wait_until_stable(page)
         return True

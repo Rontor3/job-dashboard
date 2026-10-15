@@ -164,3 +164,22 @@ def test_a_rerun_reuses_what_the_human_already_answered_for_that_job(tmp_path):
     assert by["Source*"].value == "LinkedIn" and by["Source*"].action == "select"
     assert by["I want to be considered for other job opportunities"].action == "check"
     assert "#n" not in {d.ref for d in decisions}                       # nothing known about it: not invented
+
+
+def test_the_humans_answers_survive_the_question_bank_recall(tmp_path):
+    """Answered on Telegram in one run -> filled in the next, also when the question bank (learn) is on.
+    The recall used to REPLACE the recalled list, so those fields were neither filled nor asked again."""
+    import sqlite3
+    from job_dashboard import qa_store
+    from career_agent.orchestrator.answering import answer_fields
+    from career_agent.orchestrator.qa_recorder import QARecorder
+
+    class Learn:
+        def recall(self, fields): return [], list(fields)      # the bank knows nothing about these
+
+    conn = sqlite3.connect(tmp_path / "x.db"); qa_store.ensure(conn)
+    qa_store.record(conn, job_id=7, run_key="old", ref="#a", label="Are you legally authorized to work here?*",
+                    answer="Yes", source="human", status="answered")
+    fields = [_f("#s", "Are you legally authorized to work here?*", None, kind="combobox")]
+    decisions, needs = answer_fields(fields, {"profile": P, "qa": QARecorder(conn, 7, run_key="new"), "learn": Learn()})
+    assert [(d.value, d.source) for d in decisions] == [("Yes", "human_prior")] and needs == []
