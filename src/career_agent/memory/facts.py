@@ -148,6 +148,8 @@ def build(conn, contact: dict, skills_pool=()) -> dict:
     if regions:
         facts["place_regions"] = _fact("map region->places", regions, "cities/states inside each region")
     facts["today"] = _fact("date", date.today(), "today's date")
+    facts.setdefault("join_buffer_days", _fact("number", JOIN_BUFFER_DAYS,
+                                               "days needed after the notice period ends before joining"))
     for key, (ftype, desc, plan) in derived.items():      # computed every run: never stored, never stale
         try:
             facts[key] = _fact(ftype, run(plan, facts), f"{desc} (computed)")
@@ -156,6 +158,7 @@ def build(conn, contact: dict, skills_pool=()) -> dict:
     return facts
 
 
+JOIN_BUFFER_DAYS = 15.0      # same for everyone; a stored join_buffer_days fact overrides it
 # Derived facts: formulas over base facts, defined once (no personal value here — base facts hold those).
 DERIVED = {
     "earliest_start": ("date", "earliest possible start / joining date: today + notice period + joining buffer",

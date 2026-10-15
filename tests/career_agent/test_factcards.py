@@ -49,7 +49,9 @@ def test_derived_facts_are_computed_never_stored(fake_embed):
     assert facts["earliest_start"]["value"] == today + timedelta(days=45)  # notice 30 + joining buffer 15
     assert facts["last_working_day"]["value"] == today + timedelta(days=30)
     assert facts["experience_months"]["value"] >= 38                       # Aug 2023 -> today (>= Oct 2026)
-    assert "earliest_start" not in F.build(_bank(fake_embed), {})          # no base facts -> no derived card
+    assert "earliest_start" not in F.build(_bank(fake_embed), {})          # no notice period -> no derived card
+    bare = F.build(_bank(fake_embed), {"notice_period": "30 days"})        # joining buffer: the default 15 days
+    assert bare["earliest_start"]["value"] == bare["today"]["value"] + timedelta(days=45)
 
 
 def test_bare_value_label_reads_the_field_id():
