@@ -1,4 +1,4 @@
-"""Facts told once; every short question is a plan over them (prototype — not wired into the fill loop).
+"""Facts told once; every short question is a plan over them (wired in through factcards.py).
 
   fact store   typed, atomic values: profile columns + the bank's own answers, deduplicated (an entry that only
                points at a profile column is the same fact, not a second one). Skills and languages are grids.
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 LEVELS = ["basic", "conversational", "professional", "fluent", "native"]
 # ponytail: static FX table, swap for a live rate if salary questions in other currencies get common
@@ -94,9 +94,21 @@ def build(conn, contact: dict, skills_pool=()) -> dict:
             continue
         ftype, conv = _PROFILE_TYPES.get(k, ("text", str))
         facts[k] = _fact(ftype, conv(v), k.replace("_", " "))
-    langs = {}
+    parts = str((contact or {}).get("full_name") or "").split()
+    if len(parts) >= 2:                                   # forms split the name; it is still one fact
+        facts.setdefault("first_name", _fact("text", parts[0], "first / given name"))
+        facts.setdefault("last_name", _fact("text", parts[-1], "last / family name / surname"))
+        if len(parts) > 2:
+            facts.setdefault("middle_name", _fact("text", " ".join(parts[1:-1]), "middle name"))
+    langs, regions, derived = {}, {}, dict(DERIVED)
     for e in qbank.entries(conn):
         ans, rule = e.get("answer"), e.get("rule")
+        if rule == "preference" and isinstance(e.get("synonyms"), dict):
+            for region, members in e["synonyms"].items():
+                regions.setdefault(region, []).extend(members)
+        if rule == "derived" and isinstance(e.get("slots"), dict):
+            derived[e["id"]] = (e["atype"], e["question"], e["slots"])      # a formula told once, at run time
+            continue
         if e.get("topic") == "story" or e.get("profile_ref") or ans in (None, ""):
             continue
         if rule == "years_in_skill":
@@ -126,13 +138,34 @@ def build(conn, contact: dict, skills_pool=()) -> dict:
             facts[e["id"]] = _fact("bool", as_bool(ans), e["question"])
         elif e["atype"] == "number":
             facts[e["id"]] = _fact("number", float(re.search(r"\d+(\.\d+)?", ans).group()), e["question"])
+        elif e["atype"] == "date" and as_date(ans):
+            facts[e["id"]] = _fact("date", as_date(ans), e["question"])
         else:
             facts[e["id"]] = _fact("text", ans, e["question"])
     if langs:
         facts["languages"] = _fact("map language->level", langs,
                                    f"languages spoken and level ({' < '.join(LEVELS)}); null = level not given")
+    if regions:
+        facts["place_regions"] = _fact("map region->places", regions, "cities/states inside each region")
     facts["today"] = _fact("date", date.today(), "today's date")
+    for key, (ftype, desc, plan) in derived.items():      # computed every run: never stored, never stale
+        try:
+            facts[key] = _fact(ftype, run(plan, facts), f"{desc} (computed)")
+        except (PlanError, KeyError, TypeError, ValueError):
+            pass                                          # a base fact it needs is not told yet
     return facts
+
+
+# Derived facts: formulas over base facts, defined once (no personal value here — base facts hold those).
+DERIVED = {
+    "earliest_start": ("date", "earliest possible start / joining date: today + notice period + joining buffer",
+                       {"op": "add_days", "args": [{"fact": "today"}, {"fact": "notice_period"},
+                                                   {"fact": "join_buffer_days"}]}),
+    "last_working_day": ("date", "last working day at the current employer: today + notice period",
+                         {"op": "add_days", "args": [{"fact": "today"}, {"fact": "notice_period"}]}),
+    "experience_months": ("number", "total work experience in months, since the career start",
+                          {"op": "months_between", "args": [{"fact": "career_start"}, {"fact": "today"}]}),
+}
 
 
 def schema(facts) -> str:
@@ -155,10 +188,14 @@ def _cmp(a, op, b):
     return {">=": a >= b, ">": a > b, "<=": a <= b, "<": a < b, "==": a == b, "!=": a != b}[op]
 
 
-def _contains(hay, needle):
+def _contains(hay, needle, regions=None):
+    """Substring either way, or the needle is a place inside a listed region ('Gurugram' in ['India'])."""
     n = str(needle).lower()
-    items = hay if isinstance(hay, list) else [hay]
-    return any(n in str(x).lower() or str(x).lower() in n for x in items if x not in (None, ""))
+    items = [x for x in (hay if isinstance(hay, list) else [hay]) if x not in (None, "")]
+    if any(n in str(x).lower() or str(x).lower() in n for x in items):
+        return True
+    regions = {k.lower(): v for k, v in (regions or {}).items()}
+    return any(re.search(rf"\b{re.escape(m)}\b", n) for x in items for m in regions.get(str(x).lower(), []))
 
 
 def _money_num(v):
@@ -233,7 +270,17 @@ def run(plan, facts):
         cur, per, unit = plan.get("currency", "INR"), plan.get("period", "year"), plan.get("unit", "one")
         return round(inr_year / _TO_INR[cur] / _PERIOD[per] / _UNIT[unit], 2)
     if op == "contains":
-        return _contains(args[0], args[1])
+        return _contains(args[0], args[1], (facts.get("place_regions") or {}).get("value"))
+    if op == "add_days":
+        if not isinstance(args[0], date) or not all(isinstance(a, (int, float)) for a in args[1:]):
+            raise PlanError("add_days needs a date then day counts")
+        return args[0] + timedelta(days=sum(args[1:]))
+    if op == "months_between":
+        a, b = args[:2]
+        if not (isinstance(a, date) and isinstance(b, date)):
+            raise PlanError("months_between needs two dates")
+        months = (b.year - a.year) * 12 + b.month - a.month - (b.day < a.day)
+        return round(months / 12, 1) if plan.get("unit") == "year" else float(months)
     if op == "not":
         return not args[0]
     if op in ("and", "or"):
@@ -261,15 +308,55 @@ def _money_text(m: dict, hint: str) -> str:
     return m.get("text") or render(float(m["amount"]))
 
 
+_DAYS_PER = {"day": 1, "week": 7, "month": 30}
+_WIN_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(?:-|to)?\s*(\d+(?:\.\d+)?)?\s*\+?\s*(day|week|month)s?", re.I)
+
+
+def _window(opt):
+    """'Immediately' -> (0, 0); 'Within 30 days' / 'less than 1 month' -> (0, 30); '1-2 months' -> (30, 60);
+    '60+ days' / 'more than 2 months' -> (60, inf); '30 days' -> (30, 30). None = not a time window."""
+    s = opt.lower()
+    if re.search(r"\bimmediate", s):
+        return (0.0, 0.0)
+    m = _WIN_NUM.search(s)
+    if not m:
+        return None
+    per = _DAYS_PER[m.group(3).lower()]
+    a, b = float(m.group(1)) * per, float(m.group(2)) * per if m.group(2) else None
+    if b is not None:
+        return (a, b)
+    if re.search(r"less than|within|up ?to|under|<|max", s):
+        return (0.0, a)
+    if re.search(r"more than|above|over|>|\+|or more|beyond", s):
+        return (a, float("inf"))
+    return (a, a)
+
+
+def _window_option(days, options):
+    """A day count into time-window options (notice period -> 'Within 30 days'): the narrowest window holding it.
+    Only when the options ARE windows (two or more parse); otherwise None and the normal fitting runs."""
+    wins = [(o, w) for o in options if (w := _window(o))]
+    if len(wins) < 2:
+        return None
+    holding = [(w[1] - w[0], o) for o, w in wins if w[0] <= days <= w[1]]
+    return min(holding)[1] if holding else None
+
+
 def render(value, options=(), label=None, hint=""):
     """A value in the shape the field takes; None when it fits none of the field's options, or when a yes/no
     result would go into a field that is not a yes/no question ("Pursuing / Completed" wants a word, not Yes).
     `hint` = the field's label + name/ref + input type, read for the unit a money field wants."""
     if isinstance(value, bool):
-        yes_no_opts = {o.strip().lower() for o in options} & {"yes", "no", "true", "false"}
+        want = {"yes", "y", "true", "t"} if value else {"no", "n", "false", "f"}
+        own = [o for o in options if o.strip().lower() in want]
+        if own:
+            return own[0]                                 # the field's own words: Y/N, True/False
+        yes_no_opts = {o.strip().lower() for o in options} & {"yes", "no", "true", "false", "y", "n"}
         if label is not None and not yes_no_opts and not _ASKS.search(label):
             return None
         text = "Yes" if value else "No"
+    elif isinstance(value, (int, float)) and options and (pick := _window_option(value, options)):
+        return pick
     elif isinstance(value, float):
         text = str(int(value)) if value == int(value) else str(value)
     elif isinstance(value, dict) and "amount" in value and "currency" in value:
@@ -281,6 +368,9 @@ def render(value, options=(), label=None, hint=""):
         text = value["text"]
     elif isinstance(value, list):
         text = ", ".join(map(str, value))
+    elif isinstance(value, date) and re.search(r"\byear\b", f"{label} {hint}", re.I) \
+            and not re.search(r"\b(date|dd|mm|month)\b", f"{label} {hint}", re.I):
+        text = str(value.year)                            # "Year of birth": the year, not the whole date
     elif isinstance(value, date):
         text = value.strftime("%d/%m/%Y")
     else:
@@ -300,7 +390,9 @@ OPS_HELP = """Plan language (JSON):
   {"op": "level_at_least", "args": ["english", "fluent"]}   a language's level in the languages grid
   {"op": "money", "args": [MONEY], "currency": "INR|USD|EUR|GBP", "period": "year|month", "unit": "one|thousand|lakh|million"}
   {"op": "amount", "value": 6, "currency": "INR", "unit": "lakh", "period": "year"}   a money amount the form names
-  {"op": "contains", "args": [LIST_OR_TEXT, "value"]}
+  {"op": "contains", "args": [LIST_OR_TEXT, "value"]}   a place counts as inside a listed region (Gurugram in India)
+  {"op": "add_days", "args": [DATE, DAYS, ...]}       a date plus day counts
+  {"op": "months_between", "args": [DATE, DATE], "unit": "month|year"}
   {"op": "not"|"and"|"or", "args": [...]}            literals (numbers, strings, true/false) are allowed as args
 
 Examples (fact names here are illustrative; use the ones listed above):
@@ -346,11 +438,17 @@ def compile_question(question, kind, options, job, facts, llm) -> dict:
         "with and). A DIFFERENT quantity is missing: an alternate/second number is not the phone, a percentage is not "
         "a CGPA, a confidentiality/IP agreement is not a non-compete. Experience in a skill not in the skills grid is "
         "0 (lookup with default 0).\n"
-        'Reply with JSON only, one of:\n{"plan": ...}\n{"missing": {"key": "snake_case", "type": "bool|number|text|'
-        'date|money", "ask": "the fact to ask the candidate, once"}}\n{"not_a_question": true}   (a captcha, a '
-        "search box, a placeholder, an unreadable label)")
+        "A value about the candidate that is COMPUTED from stored facts (a date, a duration, a count) and is not "
+        "yet a stored fact: reply derive, naming it so every later wording reuses it. MISSING only for what "
+        "cannot be computed; never a fact about this one application (how you found this job, dates of one "
+        "work-history row, your opinion of this role) — that is not_a_question.\n"
+        'Reply with JSON only, one of:\n{"plan": ...}\n{"derive": {"key": "snake_case", "type": "date|number|bool|'
+        'text", "desc": "what it is, generic (no company name)", "plan": ...}}\n{"missing": {"key": "snake_case", '
+        '"type": "bool|number|text|date|money", "ask": "the fact to ask the candidate once, generic (no company '
+        'name)"}}\n{"not_a_question": true}   (a captcha, a search box, a placeholder, an unreadable label, a '
+        "one-application detail)")
+    reply = _THINK.sub("", llm(prompt) or "")             # a failed call raises: the caller fails closed
     try:
-        reply = _THINK.sub("", llm(prompt) or "")
         obj, _ = json.JSONDecoder().raw_decode(reply[reply.find("{"):])
         return obj if isinstance(obj, dict) else {}
     except Exception:
@@ -369,6 +467,11 @@ def answer(question, kind, options, job, facts, llm, cache=None, hint=""):
         out = compile_question(question, kind, options, job, facts, llm)
         if cache is not None:
             cache[key] = out
+    derive = out.get("derive") if isinstance(out.get("derive"), dict) else None
+    if derive:                                            # a new derived fact: answered now, saved by the caller
+        out = {"plan": derive.get("plan")}
+        if not re.fullmatch(r"[a-z][a-z0-9_]{2,40}", str(derive.get("key") or "")) or derive["key"] in facts:
+            derive = None                                 # a bad or taken name: still a plan, just not saved
     if "not_a_question" in out:
         return None, "not a question"
     if "missing" in out:
@@ -387,4 +490,5 @@ def answer(question, kind, options, job, facts, llm, cache=None, hint=""):
         return None, f"a yes/no question got a sentence | {json.dumps(out['plan'])}"   # Worksbot 'Authorized to work?'
     if text is None:
         return None, f"yes/no result does not fit this field | {json.dumps(out['plan'])}"
-    return text, json.dumps(out["plan"])
+    return text, (f"DERIVE {json.dumps(derive)}" if derive else json.dumps(out["plan"]))
+

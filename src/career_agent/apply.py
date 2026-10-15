@@ -316,6 +316,7 @@ def _apply(args, box: dict) -> None:
     if learn is not None:
         qa_rec.tracer = learn.explain
         qa_rec.promote_embed = learn.embed         # human replies (Telegram too) join the Answers tab
+        qa_rec.promote_missing = learn.missing_for # ...as the fact Haiku named, when no fact covered the field
 
     settings = load_settings()
 

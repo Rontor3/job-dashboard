@@ -14,6 +14,7 @@ class QARecorder:
         self.tracer = None      # f -> retrieval fields (QBankMemory.explain)
         self.page = None            # form page being answered (set by answer_fields)
         self.promote_embed = None   # set -> human answers also join the Answers tab (qbank_promote)
+        self.promote_missing = None  # f -> the fact Haiku said f needs (QBankMemory.missing_for): saved as that fact
         self._labels: dict = {}
         self._meta: dict = {}   # ref -> retrieval fields, merged into that ref's row
 
@@ -70,7 +71,8 @@ class QARecorder:
             return
         try:
             from ..memory.qbank_promote import promote_answer
-            if promote_answer(self.conn, f, answer, self.promote_embed):
+            missing = self.promote_missing(f) if self.promote_missing else None
+            if promote_answer(self.conn, f, answer, self.promote_embed, missing=missing):
                 print(f"[qa] saved to Answers: {f.label[:60]!r}", flush=True)
         except Exception as e:
             print(f"[qa] could not save to Answers: {e!r}", flush=True)
