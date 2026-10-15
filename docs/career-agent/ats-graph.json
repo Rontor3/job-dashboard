@@ -920,20 +920,22 @@
       "notes": "Job board with two modes: (1) redirect jobs — JD page only, no form, stops with no_advance_control; (2) embedded apply form — himalayas own form, requires account login first (auth_wall), submit button may use non-standard label.",
       "vendor": null,
       "reach_path": [
-        "click button 'Apply now' (frame 0) -> himalayas.app/companies/jumpcloud/jobs/staff-data-scientist-machine-learning-india",
-        "modal kept open (offers an apply control)",
-        "click link 'I'm ready to apply' (frame 0) -> jobs.lever.co/jumpcloud/60f9796e-9f63-416e-8c7b-8e16cd2ee3dc/apply"
+        "click link 'Apply now' (frame 0) -> himalayas.app/signup/talent",
+        "click button 'Apply now' (frame 0) -> himalayas.app/companies/bluedot/jobs/data-scientist",
+        "modal dismissed via 'Close'"
       ],
-      "lands_on": "jobs.lever.co",
-      "reach_end": "form",
+      "lands_on": "himalayas.app",
+      "reach_end": "closed",
       "errors_seen": [
         "advance_failed",
+        "gate:cloudflare_interstitial",
         "no_advance_control",
-        "reached_submit_dry_run"
+        "reached_submit_dry_run",
+        "stuck"
       ],
       "reach_clicks": [
         "Apply now",
-        "I'm ready to apply"
+        "Apply now"
       ]
     },
     {
@@ -953,7 +955,8 @@
         "gate:recaptcha_v2_checkbox",
         "no_advance_control",
         "reached_submit_dry_run",
-        "sensitive_field"
+        "sensitive_field",
+        "stuck"
       ]
     },
     {
@@ -1062,6 +1065,179 @@
       "errors_seen": [
         "no_advance_control"
       ]
+    },
+    {
+      "id": "site:peliconsoft.com",
+      "type": "site",
+      "label": "peliconsoft.com",
+      "domains": [
+        "peliconsoft.com"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:infoveritech.com",
+      "type": "site",
+      "label": "infoveritech.com",
+      "domains": [
+        "infoveritech.com"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:omniainformation.keka.com",
+      "type": "site",
+      "label": "omniainformation.keka.com",
+      "domains": [
+        "omniainformation.keka.com"
+      ],
+      "errors_seen": [],
+      "reach_path": [
+        "click button 'Apply for this job' (frame 0) -> omniainformation.keka.com/careers/applyjob/161480"
+      ],
+      "lands_on": "omniainformation.keka.com",
+      "reach_clicks": [
+        "Apply for this job"
+      ],
+      "reach_end": "form"
+    },
+    {
+      "id": "site:worksbot.com",
+      "type": "site",
+      "label": "worksbot.com",
+      "domains": [
+        "worksbot.com"
+      ],
+      "errors_seen": [
+        "auth_wall",
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:linkedin.com",
+      "type": "site",
+      "label": "linkedin.com",
+      "domains": [
+        "linkedin.com"
+      ],
+      "errors_seen": [
+        "advance_failed",
+        "auth_wall",
+        "gate:recaptcha_v2_checkbox",
+        "no_advance_control",
+        "reached_submit_dry_run",
+        "stuck"
+      ],
+      "reach_path": [
+        "modal kept open (offers an apply control)",
+        "modal kept open (offers an apply control)",
+        "click link 'Apply Now' (frame 0) -> jobs.ecolab.com/global/en/apply"
+      ],
+      "lands_on": "jobs.ecolab.com",
+      "reach_clicks": [
+        "Apply Now"
+      ],
+      "reach_end": "form"
+    },
+    {
+      "id": "site:jobs.ecolab.com",
+      "type": "site",
+      "label": "jobs.ecolab.com",
+      "domains": [
+        "jobs.ecolab.com"
+      ]
+    },
+    {
+      "id": "site:remoteok.com",
+      "type": "site",
+      "label": "remoteok.com",
+      "domains": [
+        "remoteok.com"
+      ],
+      "errors_seen": [
+        "no_advance_control"
+      ]
+    },
+    {
+      "id": "site:remotive.com",
+      "type": "site",
+      "label": "remotive.com",
+      "domains": [
+        "remotive.com"
+      ],
+      "errors_seen": [
+        "auth_wall",
+        "gate:cloudflare_interstitial",
+        "no_advance_control"
+      ],
+      "reach_path": [
+        "click link 'Apply for this position' (frame 0) -> lemon.io/for-developers/",
+        "click link 'Apply now' (frame 0) -> me.lemon.io/escape-the-matrix"
+      ],
+      "lands_on": "me.lemon.io",
+      "reach_clicks": [
+        "Apply for this position",
+        "Apply now"
+      ],
+      "reach_end": "form"
+    },
+    {
+      "id": "site:me.lemon.io",
+      "type": "site",
+      "label": "me.lemon.io",
+      "domains": [
+        "me.lemon.io"
+      ]
+    },
+    {
+      "id": "site:jobs.ashbyhq.com",
+      "type": "site",
+      "label": "jobs.ashbyhq.com",
+      "domains": [
+        "jobs.ashbyhq.com"
+      ],
+      "errors_seen": []
+    },
+    {
+      "id": "site:abnormal.ai",
+      "type": "site",
+      "label": "abnormal.ai",
+      "domains": [
+        "abnormal.ai"
+      ],
+      "errors_seen": []
+    },
+    {
+      "id": "site:job-boards.greenhouse.io",
+      "type": "site",
+      "label": "job-boards.greenhouse.io",
+      "domains": [
+        "job-boards.greenhouse.io"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:jobs.smartrecruiters.com",
+      "type": "site",
+      "label": "jobs.smartrecruiters.com",
+      "domains": [
+        "jobs.smartrecruiters.com"
+      ],
+      "errors_seen": [],
+      "reach_path": [
+        "click link 'I'm interested' (frame 0) -> jobs.smartrecruiters.com/oneclick-ui/company/REDICASystems/publication/53912505-2826-406b-"
+      ],
+      "lands_on": "jobs.smartrecruiters.com",
+      "reach_clicks": [
+        "I'm interested"
+      ],
+      "reach_end": "form"
     }
   ],
   "edges": [
@@ -1358,6 +1534,16 @@
     {
       "from": "site:himalayas",
       "to": "site:jobs.lever.co",
+      "rel": "ROUTES_TO"
+    },
+    {
+      "from": "site:linkedin.com",
+      "to": "site:jobs.ecolab.com",
+      "rel": "ROUTES_TO"
+    },
+    {
+      "from": "site:remotive.com",
+      "to": "site:me.lemon.io",
       "rel": "ROUTES_TO"
     }
   ]
