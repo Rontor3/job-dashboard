@@ -125,11 +125,21 @@ def grounded(value, card, facts):
 
 
 def _same(a, b) -> bool:
+    """The two readers agree on the VALUE, written either way: '25 LPA' = '25' = '2500000' for money,
+    '+91 7565052330' = '7565052330' for a phone number."""
     a, b = (str(x).strip().lower() for x in (a, b))
     try:
         return float(a) == float(b)
     except ValueError:
-        return a == b
+        pass
+    if a == b:
+        return True
+    da, db = (re.sub(r"\D", "", x) for x in (a, b))
+    if min(len(da), len(db)) >= 7 and (da.endswith(db) or db.endswith(da)):
+        return True                                       # one side carries the dial code
+    ma, mb = F.money(a), F.money(b)
+    return bool(ma and mb and re.fullmatch(r"[\d.,]+\s*(lpa|lakhs?|l|inr)?", a) and
+                re.fullmatch(r"[\d.,]+\s*(lpa|lakhs?|l|inr)?", b) and ma["amount"] == mb["amount"])
 
 
 def _local(llm, question, kind, options, job, facts, cards):
@@ -173,8 +183,8 @@ def answer(question, kind, options, job, facts, cards, *, local_llm, haiku_llm, 
             (None, f"disagree local [{card}]={local_val!r} plan={plan_val!r} | {note}")
     if plan_val:
         return plan_val, f"plan only ({card}) | {note}"
-    if local_val:
-        return local_val, f"local only [{card}] (plan: {note[:60]})"
+    if local_val:                                         # one reader alone is not enough (regression 2026-10-16)
+        return None, f"local only [{card}]={local_val!r}, plan had none: escalate (plan: {note[:60]})"
     return None, f"neither: {card}; {note}"
 
 

@@ -14,6 +14,8 @@ import json
 import re
 from datetime import date, datetime, timedelta
 
+from .fact_units import fit_unit, window_option as _window_option
+
 LEVELS = ["basic", "conversational", "professional", "fluent", "native"]
 # ponytail: static FX table, swap for a live rate if salary questions in other currencies get common
 _TO_INR = {"INR": 1.0, "USD": 88.0, "EUR": 102.0, "GBP": 118.0}
@@ -166,6 +168,8 @@ DERIVED = {
                                                    {"fact": "join_buffer_days"}]}),
     "last_working_day": ("date", "last working day at the current employer: today + notice period",
                          {"op": "add_days", "args": [{"fact": "today"}, {"fact": "notice_period"}]}),
+    "days_to_join": ("days", "days from an offer until you can join: notice period + joining buffer",
+                     {"op": "add_days", "args": [{"fact": "notice_period"}, {"fact": "join_buffer_days"}]}),
     "experience_months": ("number", "total work experience in months, since the career start",
                           {"op": "months_between", "args": [{"fact": "career_start"}, {"fact": "today"}]}),
 }
@@ -274,10 +278,10 @@ def run(plan, facts):
         return round(inr_year / _TO_INR[cur] / _PERIOD[per] / _UNIT[unit], 2)
     if op == "contains":
         return _contains(args[0], args[1], (facts.get("place_regions") or {}).get("value"))
-    if op == "add_days":
-        if not isinstance(args[0], date) or not all(isinstance(a, (int, float)) for a in args[1:]):
-            raise PlanError("add_days needs a date then day counts")
-        return args[0] + timedelta(days=sum(args[1:]))
+    if op == "add_days":                                  # a date plus days, or day counts summed
+        if not all(isinstance(a, (int, float)) for a in args[1:]) or not isinstance(args[0], (date, int, float)):
+            raise PlanError("add_days needs a date (or days) then day counts")
+        return args[0] + timedelta(days=sum(args[1:])) if isinstance(args[0], date) else float(sum(args))
     if op == "months_between":
         a, b = args[:2]
         if not (isinstance(a, date) and isinstance(b, date)):
@@ -309,40 +313,6 @@ def _money_text(m: dict, hint: str) -> str:
     if _AMOUNT.search(hint):
         return render(float(round(m["amount"])))
     return m.get("text") or render(float(m["amount"]))
-
-
-_DAYS_PER = {"day": 1, "week": 7, "month": 30}
-_WIN_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(?:-|to)?\s*(\d+(?:\.\d+)?)?\s*\+?\s*(day|week|month)s?", re.I)
-
-
-def _window(opt):
-    """'Immediately' -> (0, 0); 'Within 30 days' / 'less than 1 month' -> (0, 30); '1-2 months' -> (30, 60);
-    '60+ days' / 'more than 2 months' -> (60, inf); '30 days' -> (30, 30). None = not a time window."""
-    s = opt.lower()
-    if re.search(r"\bimmediate", s):
-        return (0.0, 0.0)
-    m = _WIN_NUM.search(s)
-    if not m:
-        return None
-    per = _DAYS_PER[m.group(3).lower()]
-    a, b = float(m.group(1)) * per, float(m.group(2)) * per if m.group(2) else None
-    if b is not None:
-        return (a, b)
-    if re.search(r"less than|within|up ?to|under|<|max", s):
-        return (0.0, a)
-    if re.search(r"more than|above|over|>|\+|or more|beyond", s):
-        return (a, float("inf"))
-    return (a, a)
-
-
-def _window_option(days, options):
-    """A day count into time-window options (notice period -> 'Within 30 days'): the narrowest window holding it.
-    Only when the options ARE windows (two or more parse); otherwise None and the normal fitting runs."""
-    wins = [(o, w) for o in options if (w := _window(o))]
-    if len(wins) < 2:
-        return None
-    holding = [(w[1] - w[0], o) for o, w in wins if w[0] <= days <= w[1]]
-    return min(holding)[1] if holding else None
 
 
 def render(value, options=(), label=None, hint=""):
@@ -394,7 +364,8 @@ OPS_HELP = """Plan language (JSON):
   {"op": "money", "args": [MONEY], "currency": "INR|USD|EUR|GBP", "period": "year|month", "unit": "one|thousand|lakh|million"}
   {"op": "amount", "value": 6, "currency": "INR", "unit": "lakh", "period": "year"}   a money amount the form names
   {"op": "contains", "args": [LIST_OR_TEXT, "value"]}   a place counts as inside a listed region (Gurugram in India)
-  {"op": "add_days", "args": [DATE, DAYS, ...]}       a date plus day counts
+  {"op": "add_days", "args": [DATE, DAYS, ...]}       a date plus day counts (or day counts summed)
+  facts of type days are in DAYS: the formatter converts them when the field asks for weeks or months
   {"op": "months_between", "args": [DATE, DATE], "unit": "month|year"}
   {"op": "not"|"and"|"or", "args": [...]}            literals (numbers, strings, true/false) are allowed as args
 
@@ -487,6 +458,9 @@ def answer(question, kind, options, job, facts, llm, cache=None, hint=""):
         value = run(out["plan"], facts)
     except (PlanError, KeyError, TypeError, ValueError, AttributeError) as e:
         return None, f"plan failed: {e} | {json.dumps(out['plan'])}"
+    ref = _as_fact_ref(out["plan"], facts) if isinstance(out["plan"], str) else out["plan"]
+    ftype = facts.get(ref.get("fact"), {}).get("type") if isinstance(ref, dict) and set(ref) == {"fact"} else None
+    value = fit_unit(value, ftype, facts["today"]["value"], f"{question} {hint}")
     text = render(value, options, label=None if kind == "checkbox" else question,    # a tick box is a yes/no field
                   hint=f"{question} {hint}")
     if text and not options and kind != "checkbox" and _YES_NO_Q.search(question or "") and len(text.split()) > 6:

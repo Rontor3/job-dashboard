@@ -108,3 +108,19 @@ def test_a_derived_fact_proposed_once_is_kept(fake_embed, make_field):
     e = qbank.get_entry(c, "experience_years_now")
     assert e["rule"] == "derived" and not e.get("answer")                 # the formula is kept, not the value
     assert "experience_years_now" in F.build(c, CONTACT)
+
+
+def test_regression_fixes_units_and_agreement(fake_embed):
+    facts = F.build(_bank(fake_embed, BASE), CONTACT)
+    assert facts["days_to_join"]["value"] == 45.0                          # notice 30 + buffer 15
+    weeks = F.answer("Notice period in weeks", "text", [], {}, facts, lambda p: '{"plan": {"fact": "notice_period"}}')
+    assert weeks[0] == "4.3"                                               # days -> weeks, not '30'
+    days = F.answer("Available To Join (in days)", "text", [], {}, facts, lambda p: '{"plan": {"fact": "earliest_start"}}')
+    assert days[0] == "45"                                                 # a date -> days from today
+    assert FC._same("25 LPA", "25") and FC._same("35 LPA", "3500000") and FC._same("+91 7565052330", "7565052330")
+    assert not FC._same("25 LPA", "35") and not FC._same("Yes", "No")
+
+
+def test_one_reader_alone_does_not_fill(fake_embed):
+    value, note = _gate('{"value": "Yes", "card": "location"}', '{}', fake_embed)    # plan unreadable, local only
+    assert value is None and note.startswith("local only")
