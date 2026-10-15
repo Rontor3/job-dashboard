@@ -1,0 +1,1922 @@
+[
+ {
+  "id": "r1026",
+  "group": "real-relocate",
+  "kind": "checkbox",
+  "label": "This role doesn't match your location preferences. Check here if you're open to relocating \u2014 we'll update your profile so companies can contact you.",
+  "options": [],
+  "job": {
+   "company": "Optifye.ai",
+   "location": "Gurugram, HR, IN / Gurugram, Haryana, IN"
+  },
+  "gold": [
+   "@expr:yn(f['willing_to_relocate'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1026"
+ },
+ {
+  "id": "r1034",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "Full Name*",
+  "options": [],
+  "job": {
+   "company": "Loyalty Juggernaut",
+   "location": "Hyderabad"
+  },
+  "gold": [
+   "@expr:f['full_name']"
+  ],
+  "lenient": false,
+  "source": "application_qa:1034"
+ },
+ {
+  "id": "r1036",
+  "group": "real-contact",
+  "kind": "combobox",
+  "label": "Set Your Location*",
+  "options": [],
+  "job": {
+   "company": "Loyalty Juggernaut",
+   "location": "Hyderabad"
+  },
+  "gold": [
+   "@expr:[f['location']['city'], f['location']['text']]"
+  ],
+  "lenient": false,
+  "source": "application_qa:1036"
+ },
+ {
+  "id": "r1038",
+  "group": "real-pref",
+  "kind": "checkbox",
+  "label": "I'm open to work remotely",
+  "options": [],
+  "job": {
+   "company": "Loyalty Juggernaut",
+   "location": "Hyderabad"
+  },
+  "gold": [
+   "@expr:yn(has(f['work_arrangement'], 'remote'))"
+  ],
+  "lenient": false,
+  "source": "application_qa:1038"
+ },
+ {
+  "id": "r1039",
+  "group": "real-experience",
+  "kind": "text",
+  "label": "Years of experience*Select",
+  "options": [],
+  "job": {
+   "company": "Loyalty Juggernaut",
+   "location": "Hyderabad"
+  },
+  "gold": [
+   "@expr:num(f['years_experience'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1039"
+ },
+ {
+  "id": "r1040",
+  "group": "real-money",
+  "kind": "text",
+  "label": "Desired Salary*",
+  "options": [],
+  "job": {
+   "company": "Loyalty Juggernaut",
+   "location": "Hyderabad"
+  },
+  "gold": [
+   "@expr:moneyforms(f['salary_expectation'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1040"
+ },
+ {
+  "id": "r1042",
+  "group": "real-workauth",
+  "kind": "radio_group",
+  "label": "Do you or will you require sponsorship for a US employment visa (e.g. H-1B)?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Loyalty Juggernaut",
+   "location": "Hyderabad"
+  },
+  "gold": [
+   "@expr:yn(f['sponsorship_required'])"
+  ],
+  "lenient": true,
+  "source": "application_qa:1042"
+ },
+ {
+  "id": "r1077",
+  "group": "real-notice",
+  "kind": "radio_group",
+  "label": "Please confirm your availability for joining. If not available immediately, how early would you be able to join?",
+  "options": [
+   "Immediately",
+   "Within 15 days",
+   "Within 30 days",
+   "Within 60 days",
+   "Within 90 days"
+  ],
+  "job": {
+   "company": "Recro",
+   "location": "Bengaluru"
+  },
+  "gold": [
+   "@expr:within(f['notice_period'], opts)"
+  ],
+  "lenient": true,
+  "source": "application_qa:1077"
+ },
+ {
+  "id": "r1091",
+  "group": "real-junk",
+  "kind": "text",
+  "label": "Search and add skills",
+  "options": [],
+  "job": {
+   "company": "Simbian",
+   "location": "India"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:1091"
+ },
+ {
+  "id": "r1119",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "First Name\n                                                    *",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "@expr:f['full_name'].split()[0]"
+  ],
+  "lenient": false,
+  "source": "application_qa:1119"
+ },
+ {
+  "id": "r1122",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "Mobile Phone",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "@profile.phone"
+  ],
+  "lenient": false,
+  "source": "application_qa:1122"
+ },
+ {
+  "id": "r1124",
+  "group": "real-demographic",
+  "kind": "select",
+  "label": "Gender\n                                                        *",
+  "options": [
+   "Male",
+   "Female",
+   "Other"
+  ],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "@profile.gender"
+  ],
+  "lenient": false,
+  "source": "application_qa:1124"
+ },
+ {
+  "id": "r1127",
+  "group": "real-money",
+  "kind": "select",
+  "label": "currentSalary.currency",
+  "options": [
+   "INR",
+   "USD",
+   "EUR"
+  ],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "@bank.salary_currency"
+  ],
+  "lenient": false,
+  "source": "application_qa:1127"
+ },
+ {
+  "id": "r1129",
+  "group": "real-money",
+  "kind": "text",
+  "label": "Current Salary\n                                                    *",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "@expr:moneyforms(f['current_ctc'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1129"
+ },
+ {
+  "id": "r1131",
+  "group": "real-notice",
+  "kind": "text",
+  "label": "Available To Join (in days)",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "@expr:num(f['notice_period'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1131"
+ },
+ {
+  "id": "r1133",
+  "group": "real-skills",
+  "kind": "text",
+  "label": "Skills",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "re:(?i)^(?!.*\\d\\.\\d).*python"
+  ],
+  "lenient": true,
+  "source": "application_qa:1133"
+ },
+ {
+  "id": "r1134",
+  "group": "real-junk",
+  "kind": "select",
+  "label": "workExperience.months",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": [
+   "0",
+   "36"
+  ],
+  "lenient": true,
+  "source": "application_qa:1134"
+ },
+ {
+  "id": "r1136",
+  "group": "real-junk",
+  "kind": "select",
+  "label": "JanFebMarAprMayJunJulAugSepOctNovDec",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:1136"
+ },
+ {
+  "id": "r1167",
+  "group": "real-education-work",
+  "kind": "text",
+  "label": "Current Job Title",
+  "options": [],
+  "job": {
+   "company": "Worksbot",
+   "location": "Chennai"
+  },
+  "gold": [
+   "@bank.current_title"
+  ],
+  "lenient": false,
+  "source": "application_qa:1167"
+ },
+ {
+  "id": "r1172",
+  "group": "real-education-work",
+  "kind": "text",
+  "label": "Qualification",
+  "options": [],
+  "job": {
+   "company": "Worksbot",
+   "location": "Chennai"
+  },
+  "gold": [
+   "@bank.highest_degree",
+   "b. tech",
+   "b.tech",
+   "btech",
+   "bachelor of technology"
+  ],
+  "lenient": true,
+  "source": "application_qa:1172"
+ },
+ {
+  "id": "r1173",
+  "group": "real-education-work",
+  "kind": "text",
+  "label": "University",
+  "options": [],
+  "job": {
+   "company": "Worksbot",
+   "location": "Chennai"
+  },
+  "gold": [
+   "@bank.university"
+  ],
+  "lenient": false,
+  "source": "application_qa:1173"
+ },
+ {
+  "id": "r1175",
+  "group": "real-education-work",
+  "kind": "text",
+  "label": "Company Name",
+  "options": [],
+  "job": {
+   "company": "Worksbot",
+   "location": "Chennai"
+  },
+  "gold": [
+   "@bank.current_employer"
+  ],
+  "lenient": false,
+  "source": "application_qa:1175"
+ },
+ {
+  "id": "r1177",
+  "group": "real-workauth",
+  "kind": "text",
+  "label": "Authorized to work?",
+  "options": [],
+  "job": {
+   "company": "Worksbot",
+   "location": "Chennai"
+  },
+  "gold": [
+   "yes"
+  ],
+  "lenient": true,
+  "source": "application_qa:1177"
+ },
+ {
+  "id": "r1656",
+  "group": "real-language",
+  "kind": "combobox",
+  "label": "English",
+  "options": [
+   "Basic",
+   "Intermediate",
+   "Fluent",
+   "Native"
+  ],
+  "job": {
+   "company": "RELX",
+   "location": "Greater Delhi Area (On-site)"
+  },
+  "gold": [
+   "@bank.english_proficiency",
+   "fluent"
+  ],
+  "lenient": false,
+  "source": "application_qa:1656"
+ },
+ {
+  "id": "r1658",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "Family Name*",
+  "options": [],
+  "job": {
+   "company": "RELX",
+   "location": "Greater Delhi Area (On-site)"
+  },
+  "gold": [
+   "@expr:f['full_name'].split()[-1]"
+  ],
+  "lenient": false,
+  "source": "application_qa:1658"
+ },
+ {
+  "id": "r1668",
+  "group": "real-contact",
+  "kind": "combobox",
+  "label": "Country",
+  "options": [],
+  "job": {
+   "company": "RELX",
+   "location": "Greater Delhi Area (On-site)"
+  },
+  "gold": [
+   "@expr:f['location']['country']"
+  ],
+  "lenient": false,
+  "source": "application_qa:1668"
+ },
+ {
+  "id": "r1670",
+  "group": "real-background",
+  "kind": "radio_group",
+  "label": "Have you previously worked for this organization? If Yes, please answer the questions below. If No, please continue to the next page.",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "RELX",
+   "location": "Greater Delhi Area (On-site)"
+  },
+  "gold": [
+   "@expr:yn(has(f.get('worked_before'), job['company']))"
+  ],
+  "lenient": false,
+  "source": "application_qa:1670"
+ },
+ {
+  "id": "r1675",
+  "group": "real-consent",
+  "kind": "checkbox",
+  "label": "By checking this box, I consent to receive transactional and marketing email messages regarding employment opportunities and know I can unsubscribe at any time.",
+  "options": [],
+  "job": {
+   "company": "Ecolab",
+   "location": ""
+  },
+  "gold": [
+   "@expr:yn(f['marketing_emails'])"
+  ],
+  "lenient": true,
+  "source": "application_qa:1675"
+ },
+ {
+  "id": "r1682",
+  "group": "real-contact",
+  "kind": "select",
+  "label": "Phone Device Type*",
+  "options": [
+   "Mobile",
+   "Home",
+   "Work"
+  ],
+  "job": {
+   "company": "Ecolab",
+   "location": ""
+  },
+  "gold": [
+   "@bank.phone_type",
+   "mobile"
+  ],
+  "lenient": false,
+  "source": "application_qa:1682"
+ },
+ {
+  "id": "r1690",
+  "group": "real-education-work",
+  "kind": "checkbox",
+  "label": "I currently work here",
+  "options": [],
+  "job": {
+   "company": "Ecolab",
+   "location": ""
+  },
+  "gold": [
+   "@expr:yn(f['currently_employed'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1690"
+ },
+ {
+  "id": "r1696",
+  "group": "real-education-work",
+  "kind": "select",
+  "label": "Field of Study",
+  "options": [],
+  "job": {
+   "company": "Ecolab",
+   "location": ""
+  },
+  "gold": [
+   "@bank.field_of_study"
+  ],
+  "lenient": false,
+  "source": "application_qa:1696"
+ },
+ {
+  "id": "r1698",
+  "group": "real-education-work",
+  "kind": "text",
+  "label": "To (Actual or Expected)",
+  "options": [],
+  "job": {
+   "company": "Ecolab",
+   "location": ""
+  },
+  "gold": [
+   "@bank.graduation_year"
+  ],
+  "lenient": true,
+  "source": "application_qa:1698"
+ },
+ {
+  "id": "r1708",
+  "group": "real-not-stored",
+  "kind": "text",
+  "label": "From*",
+  "options": [],
+  "job": {
+   "company": "Ecolab",
+   "location": ""
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:1708"
+ },
+ {
+  "id": "r1723",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "Postal Code*",
+  "options": [],
+  "job": {
+   "company": "Trinity Life Sciences",
+   "location": ""
+  },
+  "gold": [
+   "@profile.postal_code"
+  ],
+  "lenient": false,
+  "source": "application_qa:1723"
+ },
+ {
+  "id": "r1745",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "+91",
+  "options": [],
+  "job": {
+   "company": "Recrew AI",
+   "location": ""
+  },
+  "gold": [
+   "@expr:[f['phone']['dial'], f['phone']['dial'].lstrip('+'), 'India (' + f['phone']['dial'] + ')']",
+   "@profile.phone"
+  ],
+  "lenient": true,
+  "source": "application_qa:1745"
+ },
+ {
+  "id": "r1746",
+  "group": "real-contact",
+  "kind": "select",
+  "label": "whatsapp_number_field_code",
+  "options": [],
+  "job": {
+   "company": "Recrew AI",
+   "location": ""
+  },
+  "gold": [
+   "@expr:[f['phone']['dial'], f['phone']['dial'].lstrip('+'), 'India (' + f['phone']['dial'] + ')']"
+  ],
+  "lenient": false,
+  "source": "application_qa:1746"
+ },
+ {
+  "id": "r1748",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "Current City\n            *",
+  "options": [],
+  "job": {
+   "company": "Recrew AI",
+   "location": ""
+  },
+  "gold": [
+   "@expr:[f['location']['city'], f['location']['text']]"
+  ],
+  "lenient": false,
+  "source": "application_qa:1748"
+ },
+ {
+  "id": "r1749",
+  "group": "real-money",
+  "kind": "text",
+  "label": "Current CTC in LPA(lakhs per annum)\n            *",
+  "options": [],
+  "job": {
+   "company": "Recrew AI",
+   "location": ""
+  },
+  "gold": [
+   "@expr:lakh(f['current_ctc'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1749"
+ },
+ {
+  "id": "r1750",
+  "group": "real-money",
+  "kind": "text",
+  "label": "Expected CTC in LPA(lakhs per annum)\n            *",
+  "options": [],
+  "job": {
+   "company": "Recrew AI",
+   "location": ""
+  },
+  "gold": [
+   "@expr:lakh(f['salary_expectation'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1750"
+ },
+ {
+  "id": "r1755",
+  "group": "real-notice",
+  "kind": "radio_group",
+  "label": "Are you currently on notice period?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Recrew AI",
+   "location": ""
+  },
+  "gold": [
+   "@expr:yn(f['serving_notice'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:1755"
+ },
+ {
+  "id": "r1756",
+  "group": "real-relocate",
+  "kind": "radio_group",
+  "label": "Are you open to relocate to Gurugram ?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Recrew AI",
+   "location": ""
+  },
+  "gold": [
+   "yes"
+  ],
+  "lenient": true,
+  "source": "application_qa:1756"
+ },
+ {
+  "id": "r1845",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "Please enter your preferred Last Name/Surname (only enter your preferred Last Name/Surname)",
+  "options": [],
+  "job": {
+   "company": "Abnormal AI",
+   "location": "Bengaluru, Karnataka, India (Hybrid)"
+  },
+  "gold": [
+   "@expr:f['full_name'].split()[-1]"
+  ],
+  "lenient": false,
+  "source": "application_qa:1845"
+ },
+ {
+  "id": "r1848",
+  "group": "real-background",
+  "kind": "combobox",
+  "label": "Are you currently an employee or contractor at Abnormal? (if Yes, please add your Abnormal email in the email section of the application page) *",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Abnormal AI",
+   "location": "Bengaluru, Karnataka, India (Hybrid)"
+  },
+  "gold": [
+   "@expr:yn(has(f.get('worked_before'), job['company']))"
+  ],
+  "lenient": false,
+  "source": "application_qa:1848"
+ },
+ {
+  "id": "r1851",
+  "group": "real-workauth",
+  "kind": "combobox",
+  "label": "Are you currently eligible to work in the country in which this job is posted?*",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Abnormal AI",
+   "location": "Bengaluru, Karnataka, India (Hybrid)"
+  },
+  "gold": [
+   "yes"
+  ],
+  "lenient": false,
+  "source": "application_qa:1851"
+ },
+ {
+  "id": "r1854",
+  "group": "real-junk",
+  "kind": "text",
+  "label": "Select...",
+  "options": [],
+  "job": {
+   "company": "Abnormal AI",
+   "location": "Bengaluru, Karnataka, India (Hybrid)"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:1854"
+ },
+ {
+  "id": "r1887",
+  "group": "real-consent",
+  "kind": "checkbox",
+  "label": "By checking this box, I consent to Twilio collecting, storing, and processing my responses to the demographic data surveys above.*",
+  "options": [],
+  "job": {
+   "company": "Twilio",
+   "location": "Remote"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:1887"
+ },
+ {
+  "id": "r1895",
+  "group": "real-not-stored",
+  "kind": "checkbox",
+  "label": "Indeed",
+  "options": [],
+  "job": {
+   "company": "Twilio",
+   "location": "Remote"
+  },
+  "gold": [
+   "no"
+  ],
+  "lenient": true,
+  "source": "application_qa:1895"
+ },
+ {
+  "id": "r2078",
+  "group": "real-contact",
+  "kind": "email",
+  "label": "Confirm your email*",
+  "options": [],
+  "job": {
+   "company": "Redica Systems",
+   "location": "Bengaluru"
+  },
+  "gold": [
+   "@profile.email"
+  ],
+  "lenient": false,
+  "source": "application_qa:2078"
+ },
+ {
+  "id": "r2096",
+  "group": "real-junk",
+  "kind": "select",
+  "label": "0 1 2 3 4 5 6 7 8 9 10 11",
+  "options": [],
+  "job": {
+   "company": "Wiom",
+   "location": "Gurugram"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:2096"
+ },
+ {
+  "id": "r2137",
+  "group": "real-contact",
+  "kind": "text",
+  "label": "Phone number (including country code) *",
+  "options": [],
+  "job": {
+   "company": "Scalio",
+   "location": "Bengaluru, Karnataka, India (On-site)"
+  },
+  "gold": [
+   "@profile.phone"
+  ],
+  "lenient": false,
+  "source": "application_qa:2137"
+ },
+ {
+  "id": "r2182",
+  "group": "real-not-stored",
+  "kind": "text",
+  "label": "In case you have selected \"Other\" for the question above, please specify your earliest start date here:",
+  "options": [],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:2182"
+ },
+ {
+  "id": "r2183",
+  "group": "real-workauth",
+  "kind": "radio_group",
+  "label": "Are you legally authorized to work in the country you are applying to?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "yes"
+  ],
+  "lenient": false,
+  "source": "application_qa:2183"
+ },
+ {
+  "id": "r2184",
+  "group": "real-experience",
+  "kind": "radio_group",
+  "label": "What is your total work experience?",
+  "options": [
+   "0-1 Yrs",
+   "1-3 Yrs",
+   "3-5 Yrs",
+   "5-8 Yrs",
+   "8+ Yrs"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:band(f['years_experience'], opts)"
+  ],
+  "lenient": false,
+  "source": "application_qa:2184"
+ },
+ {
+  "id": "r2185",
+  "group": "real-notice",
+  "kind": "radio_group",
+  "label": "What is the earliest date you would be available to start?",
+  "options": [
+   "Immediately",
+   "Within 1 month",
+   "Within 2 months",
+   "Within 3 months",
+   "Other (please specify in the box below)"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:within(f['notice_period'], opts)"
+  ],
+  "lenient": true,
+  "source": "application_qa:2185"
+ },
+ {
+  "id": "r2187",
+  "group": "real-skills",
+  "kind": "radio_group",
+  "label": "Do you have an experience in machine learning?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:yn(skill('machine learning') > 0)"
+  ],
+  "lenient": false,
+  "source": "application_qa:2187"
+ },
+ {
+  "id": "r2188",
+  "group": "real-skills",
+  "kind": "radio_group",
+  "label": "Do you have an experience in Machine learning and NLP?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:yn(skill('machine learning') > 0 and skill('nlp') > 0)"
+  ],
+  "lenient": false,
+  "source": "application_qa:2188"
+ },
+ {
+  "id": "r2189",
+  "group": "real-not-stored",
+  "kind": "radio_group",
+  "label": "Do you believe your profile aligns with the role you are applying for?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:2189"
+ },
+ {
+  "id": "r2190",
+  "group": "real-language",
+  "kind": "radio_group",
+  "label": "Rate your English communication skills on a scale of 1 to 5 (5 being the highest)",
+  "options": [
+   "1",
+   "2",
+   "3",
+   "4",
+   "5"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:str(LEVELS.index(f['languages']['english']) + 1)"
+  ],
+  "lenient": true,
+  "source": "application_qa:2190"
+ },
+ {
+  "id": "r2206",
+  "group": "real-money",
+  "kind": "text",
+  "label": "What is your expected annual salary?\u00a0*",
+  "options": [],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:moneyforms(f['salary_expectation'])"
+  ],
+  "lenient": false,
+  "source": "application_qa:2206"
+ },
+ {
+  "id": "r2208",
+  "group": "real-skills",
+  "kind": "radio_group",
+  "label": "Do you have experience deploying or managing APIs on Docker/Kubernetes?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:yn(skill('docker') > 0 or skill('kubernetes') > 0)"
+  ],
+  "lenient": true,
+  "source": "application_qa:2208"
+ },
+ {
+  "id": "r2210",
+  "group": "real-consent",
+  "kind": "checkbox",
+  "label": "You declare that you have read and understand the privacy notice of Coface.\nHere you can find details of our privacy notice.\u00a0*required",
+  "options": [],
+  "job": {
+   "company": "Coface",
+   "location": "KA, IN"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "application_qa:2210"
+ },
+ {
+  "id": "s00",
+  "group": "syn-polarity",
+  "kind": "radio_group",
+  "label": "Do you NOT require visa sponsorship to work here?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Berlin, Germany"
+  },
+  "gold": [
+   "@expr:yn(not f['sponsorship_required'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s01",
+  "group": "syn-workauth",
+  "kind": "radio_group",
+  "label": "Will your employment with us depend on an employer-sponsored work permit?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Berlin, Germany"
+  },
+  "gold": [
+   "@expr:yn(f['sponsorship_required'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s02",
+  "group": "syn-workauth",
+  "kind": "select",
+  "label": "Sponsorship needed (Y/N)",
+  "options": [
+   "Y",
+   "N"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Berlin, Germany"
+  },
+  "gold": [
+   "@expr:'Y' if f['sponsorship_required'] else 'N'"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s03",
+  "group": "syn-workauth",
+  "kind": "radio_group",
+  "label": "Are you an Indian citizen?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(has(f['citizenship'], 'india'))"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s04",
+  "group": "syn-unit",
+  "kind": "text",
+  "label": "Current fixed annual compensation (INR, full amount, no commas)",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:num(inr(f['current_ctc']))"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s05",
+  "group": "syn-unit",
+  "kind": "number",
+  "label": "What are you earning today, in lakhs per annum?",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:lakh(f['current_ctc'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s06",
+  "group": "syn-cur-vs-exp",
+  "kind": "number",
+  "label": "Salary you are looking for in this role (in Lakhs)",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:lakh(f['salary_expectation'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s07",
+  "group": "syn-unit",
+  "kind": "number",
+  "label": "Expected monthly salary in USD",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:usd_month(f['salary_expectation'])"
+  ],
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s08",
+  "group": "syn-threshold",
+  "kind": "radio_group",
+  "label": "Is your current salary more than 10 LPA?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(inr(f['current_ctc']) > 10e5)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s09",
+  "group": "syn-threshold",
+  "kind": "radio_group",
+  "label": "Would an offer of 8 lakhs per annum meet your expectation?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(inr(f['salary_expectation']) <= 8e5)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s10",
+  "group": "syn-threshold",
+  "kind": "radio_group",
+  "label": "Is your expected salary above USD 2000 per month?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(inr(f['salary_expectation']) > 2000 * 88 * 12)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s11",
+  "group": "syn-cur-vs-exp",
+  "kind": "text",
+  "label": "Present package (CTC) you draw",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:moneyforms(f['current_ctc'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s12",
+  "group": "syn-threshold",
+  "kind": "radio_group",
+  "label": "Is your notice period under 30 days?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(f['notice_period'] < 30)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s13",
+  "group": "syn-threshold",
+  "kind": "radio_group",
+  "label": "Can you join within 15 days of an offer?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(f['notice_period'] <= 15)"
+  ],
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s14",
+  "group": "syn-unit",
+  "kind": "number",
+  "label": "Notice period in weeks",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:[num(round(f['notice_period'] / 7)), num(round(f['notice_period'] / 7, 1))]"
+  ],
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s15",
+  "group": "syn-notice",
+  "kind": "number",
+  "label": "How soon can you start after an offer? (days)",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:num(f['notice_period'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s16",
+  "group": "syn-notice",
+  "kind": "radio_group",
+  "label": "Are you serving notice right now?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(f['serving_notice'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s17",
+  "group": "syn-skill-0",
+  "kind": "number",
+  "label": "Years of hands-on experience with Kubernetes",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "0"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s18",
+  "group": "syn-skill-0",
+  "kind": "text",
+  "label": "How long have you programmed in Rust (years)?",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "0"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s19",
+  "group": "syn-skill",
+  "kind": "number",
+  "label": "Total years of experience using pandas",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:num(skill('pandas'))"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s20",
+  "group": "syn-skill",
+  "kind": "text",
+  "label": "How long have you used SQL professionally, in years?",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:num(skill('sql'))"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s21",
+  "group": "syn-threshold",
+  "kind": "radio_group",
+  "label": "Do you have at least 2 years of Python experience?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(skill('python') >= 2)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s22",
+  "group": "syn-skill-0",
+  "kind": "radio_group",
+  "label": "Do you have any experience with Scala?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "no"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s24",
+  "group": "syn-threshold",
+  "kind": "radio_group",
+  "label": "Are you 21 or older?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(age(f['dob']) >= 21)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s25",
+  "group": "syn-polarity",
+  "kind": "radio_group",
+  "label": "Are you below 18 years of age?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(age(f['dob']) < 18)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s26",
+  "group": "syn-date",
+  "kind": "number",
+  "label": "Year of birth",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:str(f['dob'].year)"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s27",
+  "group": "syn-education",
+  "kind": "select",
+  "label": "Highest qualification attained",
+  "options": [
+   "High School",
+   "Bachelor's Degree",
+   "Master's Degree",
+   "PhD"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "Bachelor's Degree"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s28",
+  "group": "syn-education",
+  "kind": "text",
+  "label": "Name of your college/institute",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@bank.university"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s30",
+  "group": "syn-education",
+  "kind": "text",
+  "label": "Branch / discipline of your engineering degree",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@bank.field_of_study"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s32",
+  "group": "syn-work",
+  "kind": "text",
+  "label": "Present designation",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@bank.current_title"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s34",
+  "group": "syn-work",
+  "kind": "radio_group",
+  "label": "Are you working anywhere at the moment?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(f['currently_employed'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s35",
+  "group": "syn-background",
+  "kind": "radio_group",
+  "label": "Have you ever been on the payroll of Siemens in the past?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Siemens",
+   "location": "Bengaluru"
+  },
+  "gold": [
+   "@expr:yn(has(f.get('worked_before'), job['company']))"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s36",
+  "group": "syn-background",
+  "kind": "radio_group",
+  "label": "Is any family member of yours employed with Kraft Heinz?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Kraft Heinz",
+   "location": "KA, IN"
+  },
+  "gold": [
+   "@expr:yn(has(f.get('relatives_at_company'), job['company']))"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s38",
+  "group": "syn-pref",
+  "kind": "radio_group",
+  "label": "Open to a fully remote position?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(has(f['work_arrangement'], 'remote'))"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s39",
+  "group": "syn-background",
+  "kind": "radio_group",
+  "label": "Do you possess a valid security clearance?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(f['security_clearance'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s40",
+  "group": "syn-background",
+  "kind": "radio_group",
+  "label": "Have you been found guilty of any crime?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(f['criminal_record'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s42",
+  "group": "syn-background",
+  "kind": "radio_group",
+  "label": "Are you restricted by any non-solicitation clause from your current employer?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:yn(f['non_compete'])"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s43",
+  "group": "syn-language",
+  "kind": "select",
+  "label": "Your English fluency",
+  "options": [
+   "Beginner",
+   "Intermediate",
+   "Advanced",
+   "Native"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "Advanced"
+  ],
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s44",
+  "group": "syn-language",
+  "kind": "radio_group",
+  "label": "Can you speak Hindi?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "yes"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s45",
+  "group": "syn-language",
+  "kind": "radio_group",
+  "label": "Do you speak German?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "no"
+  ],
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s46",
+  "group": "syn-contact",
+  "kind": "text",
+  "label": "Mobile number without country code",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:f['phone']['number']"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s47",
+  "group": "syn-contact",
+  "kind": "text",
+  "label": "ISD code",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:[f['phone']['dial'], f['phone']['dial'].lstrip('+'), 'India (' + f['phone']['dial'] + ')']"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s52",
+  "group": "syn-relocate",
+  "kind": "radio_group",
+  "label": "Are you willing to move to Hyderabad for this role?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "yes"
+  ],
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s53",
+  "group": "syn-unit",
+  "kind": "number",
+  "label": "Total professional experience (in months)",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:num(f['years_experience'] * 12)"
+  ],
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s54",
+  "group": "syn-demographic",
+  "kind": "select",
+  "label": "What is your gender identity?",
+  "options": [
+   "Man",
+   "Woman",
+   "Non-binary",
+   "Prefer not to say"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": [
+   "@expr:{'male': 'Man', 'female': 'Woman'}.get(str(f['gender']).lower(), 'Prefer not to say')"
+  ],
+  "lenient": false,
+  "source": "synthetic"
+ },
+ {
+  "id": "s55",
+  "group": "syn-missing",
+  "kind": "text",
+  "label": "Passport number",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s56",
+  "group": "syn-missing",
+  "kind": "text",
+  "label": "What is your blood group?",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s58",
+  "group": "syn-missing",
+  "kind": "text",
+  "label": "PAN card number",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s59",
+  "group": "syn-missing",
+  "kind": "radio_group",
+  "label": "Do you hold a valid driving licence?",
+  "options": [
+   "Yes",
+   "No"
+  ],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "synthetic"
+ },
+ {
+  "id": "s60",
+  "group": "syn-missing",
+  "kind": "text",
+  "label": "Variable / bonus component of your current CTC (INR)",
+  "options": [],
+  "job": {
+   "company": "Acme Analytics",
+   "location": "Bengaluru, Karnataka, India"
+  },
+  "gold": null,
+  "lenient": true,
+  "source": "synthetic"
+ }
+]

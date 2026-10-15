@@ -1,0 +1,523 @@
+[
+ {
+  "text": "Are you 18 years of age or older?",
+  "out": {
+   "plan": {
+    "fact": "age_18_plus"
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Are you currently under a non-compete agreement with a prior employer that would effect your ability to work at Kraft Heinz?",
+  "out": {
+   "plan": {
+    "fact": "non_compete"
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Are any of your direct family members (spouse, mother, father, brother, sister, son or daughter) current Kraft Heinz employees?",
+  "out": {
+   "plan": {
+    "op": "contains",
+    "args": [
+     {
+      "fact": "relatives_at_company"
+     },
+     "Kraft Heinz"
+    ]
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "What is your current CTC?",
+  "out": {
+   "plan": {
+    "fact": "current_ctc"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "WhatsApp Number",
+  "out": {
+   "plan": {
+    "fact": "phone",
+    "field": "number"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Source*",
+  "out": {
+   "plan": {
+    "fact": "referral_source"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "I want to be considered for other Job Opportunities. *",
+  "out": {
+   "plan": {
+    "fact": "other_opportunities"
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Are you available for a interview?(Virtual)",
+  "out": {
+   "plan": {
+    "op": "cmp",
+    "cmp": "!=",
+    "args": [
+     {
+      "fact": "interview_availability"
+     },
+     ""
+    ]
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Pursuing/ Completed *",
+  "out": {
+   "plan": {
+    "fact": "degree_completed"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Examination Passed *",
+  "out": {
+   "missing": {
+    "key": "examination_passed",
+    "type": "text",
+    "ask": "Which professional or academic examinations have you passed?"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Country Phone Code*",
+  "out": {
+   "plan": {
+    "fact": "phone",
+    "field": "dial"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Do you currently live in India?",
+  "out": {
+   "plan": {
+    "op": "cmp",
+    "cmp": "==",
+    "args": [
+     {
+      "fact": "location",
+      "field": "country"
+     },
+     "India"
+    ]
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Are you fluent and able to conduct business in the English Language (both spoken and written)?",
+  "out": {
+   "plan": {
+    "op": "level_at_least",
+    "args": [
+     "english",
+     "fluent"
+    ]
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "What is your level of proficiency in English?*",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "languages"
+     },
+     "english"
+    ]
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Are you willing to work full-time, on-site in Bengaluru?",
+  "out": {
+   "plan": {
+    "op": "and",
+    "args": [
+     {
+      "op": "contains",
+      "args": [
+       {
+        "fact": "employment_type"
+       },
+       "full-time"
+      ]
+     },
+     {
+      "op": "contains",
+      "args": [
+       {
+        "fact": "work_arrangement"
+       },
+       "onsite"
+      ]
+     },
+     {
+      "op": "or",
+      "args": [
+       {
+        "fact": "commute_ok"
+       },
+       {
+        "fact": "willing_to_relocate"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Is your Current Salary Above USD 3500?",
+  "out": {
+   "plan": {
+    "op": "cmp",
+    "cmp": ">",
+    "args": [
+     {
+      "op": "money",
+      "args": [
+       {
+        "fact": "current_ctc"
+       }
+      ],
+      "currency": "USD",
+      "period": "month"
+     },
+     {
+      "op": "amount",
+      "value": 3500,
+      "currency": "USD",
+      "period": "month"
+     }
+    ]
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Are you okay with up to 6 LPA? If not, then do not apply.",
+  "out": {
+   "plan": {
+    "op": "cmp",
+    "cmp": "<=",
+    "args": [
+     {
+      "fact": "salary_expectation"
+     },
+     {
+      "op": "amount",
+      "value": 6,
+      "currency": "INR",
+      "unit": "lakh",
+      "period": "year"
+     }
+    ]
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Other Visa(If any)",
+  "out": {
+   "missing": {
+    "key": "other_visa",
+    "type": "text",
+    "ask": "Do you hold any visa or immigration status other than your current one? If so, which?"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Please choose your notification language *",
+  "out": {
+   "missing": {
+    "key": "notification_language",
+    "type": "text",
+    "ask": "Which language would you like to receive notifications in?"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Do you have consistent internet access?",
+  "out": {
+   "missing": {
+    "key": "consistent_internet_access",
+    "type": "bool",
+    "ask": "Do you have consistent internet access?"
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Do you have consistent access to power/electricity?",
+  "out": {
+   "missing": {
+    "key": "consistent_power_access",
+    "type": "bool",
+    "ask": "Do you have consistent access to power/electricity?"
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Do you have hands-on experience building reinforcement learning (RL) environments or agentic systems?",
+  "out": {
+   "missing": {
+    "key": "rl_or_agentic_experience",
+    "type": "bool",
+    "ask": "Do you have hands-on experience building reinforcement learning (RL) environments or agentic systems?"
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "How many years of experience do you have in Python?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "python"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of experience do you have in Linux?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "linux"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of work experience do you have with Azure OpenAI?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "azure openai"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of work experience do you have with AI for Data Scientists?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "ai for data scientists"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of experience do you have in SQL?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "sql"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of experience do you have in Generative Ai?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "generative ai"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of experience do you have in ROS?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "ros"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of experience do you have in Kinematics?",
+  "out": {
+   "plan": {
+    "op": "lookup",
+    "args": [
+     {
+      "fact": "skills"
+     },
+     "kinematics"
+    ],
+    "default": 0
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "How many years of experience do you have in AI/ML (UAV)?",
+  "out": {
+   "missing": {
+    "key": "uav_ai_ml_years",
+    "type": "number",
+    "ask": "How many years of experience do you have in AI/ML applied to UAVs (drones)?"
+   }
+  },
+  "out_type": "number"
+ },
+ {
+  "text": "Are you currently under an agreement with a prior employer covering patents or confidential/proprietary information that would effect your ability to work at Kraft Heinz?",
+  "out": {
+   "missing": {
+    "key": "prior_employer_ip_confidentiality_agreement",
+    "type": "bool",
+    "ask": "Are you currently under an agreement with a prior employer covering patents or confidential/proprietary information (such as an NDA or IP assignment) that would affect your ability to work at Kraft Heinz?"
+   }
+  },
+  "out_type": "bool"
+ },
+ {
+  "text": "Alternate Number",
+  "out": {
+   "missing": {
+    "key": "alternate_phone",
+    "type": "text",
+    "ask": "An alternate phone number (with country code)"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Percentage *",
+  "out": {
+   "missing": {
+    "key": "graduation_percentage",
+    "type": "number",
+    "ask": "What is your percentage in graduation (your university percentage, not a CGPA)?"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Visibility as candidate",
+  "out": {
+   "missing": {
+    "key": "candidate_visibility",
+    "type": "text",
+    "ask": "How visible do you want your candidate profile to be to recruiters (e.g., visible to all recruiters, visible only to this company, or hidden)?"
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Submission of Identification Copies *",
+  "out": {
+   "missing": {
+    "key": "identification_copies_submission",
+    "type": "text",
+    "ask": "Can you submit copies of your identification documents when requested? Give the option that applies to you."
+   }
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Captcha",
+  "out": {
+   "not_a_question": true
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "*",
+  "out": {
+   "not_a_question": true
+  },
+  "out_type": "text"
+ },
+ {
+  "text": "Enter keyword, designation, or companies",
+  "out": {
+   "not_a_question": true
+  },
+  "out_type": "text"
+ }
+]
