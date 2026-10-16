@@ -94,7 +94,7 @@ def ask_local(llm, question, kind, options, job, facts, cards):
         except Exception:
             continue
     if not isinstance(obj, dict):
-        return "", "local reply unreadable"
+        return "", "LOCAL-DOWN: no readable reply"           # unreachable / timed out / not JSON: not a NONE
     card = str(obj.get("card") or "").strip()
     m = re.search(r"\[([^\]]+)\]", card)                  # models echo the whole card line
     card = m.group(1) if m else (card.split()[0] if card else "")
@@ -146,6 +146,8 @@ def _local(llm, question, kind, options, job, facts, cards):
     """The local reader plus its checks: (value, card) or (None, why)."""
     from .qbank_match import fit_option
     value, card = ask_local(llm, question, kind, options, job, facts, cards)
+    if card.startswith("LOCAL-DOWN"):
+        return None, card
     if not value or value.upper() == "NONE" or card not in cards:
         return None, f"local none ({card})"
     if options:
@@ -178,6 +180,8 @@ def answer(question, kind, options, job, facts, cards, *, local_llm, haiku_llm, 
         local_val, card = fut.result() if fut else (None, "no local reader")
     if note.startswith(("MISSING", "not a question", "unreadable")):
         return None, note                                 # the schema holds no such fact: don't trust a card
+    if str(card).startswith("LOCAL-DOWN"):                # one reader missing is not agreement: fail closed
+        return None, f"local reader unavailable, escalate ({card}) | plan: {note[:60]}"
     if plan_val and local_val:
         return (plan_val, f"agree [{card}] | {note}") if _same(plan_val, local_val) else \
             (None, f"disagree local [{card}]={local_val!r} plan={plan_val!r} | {note}")

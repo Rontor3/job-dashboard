@@ -73,7 +73,7 @@ def test_gate_fills_only_when_the_readers_agree(fake_embed):
     assert _gate('{"value": "Yes", "card": "location"}', plan, fake_embed)[0] == "Yes"
     value, note = _gate('{"value": "No", "card": "location"}', plan, fake_embed)
     assert value is None and note.startswith("disagree")
-    assert _gate("NONE", plan, fake_embed)[1].startswith("plan only")      # local had nothing: checked plan alone
+    assert _gate('{"value": "NONE", "card": ""}', plan, fake_embed)[1].startswith("plan only")      # local had nothing: checked plan alone
     missing = json.dumps({"missing": {"key": "passport_valid", "type": "bool", "ask": "Valid passport?"}})
     assert _gate('{"value": "Yes", "card": "location"}', missing, fake_embed)[0] is None   # Haiku veto
     down = lambda p: (_ for _ in ()).throw(RuntimeError("login expired"))
@@ -136,3 +136,13 @@ def test_both_readers_are_told_who_applies_for_what(fake_embed):
     assert len(seen) == 2
     for p in seen:                                  # the plan prompt and the local reader both get the applicant
         assert "Applied AI Research Engineer at Appen" in p and "Data Scientist" in p and "never adds a claim" in p
+
+
+def test_a_local_reader_that_is_down_escalates_instead_of_trusting_the_plan_alone(fake_embed):
+    plan = json.dumps({"plan": {"op": "cmp", "cmp": "==", "args": [{"fact": "location", "field": "country"}, "India"]}})
+    down = lambda p: (_ for _ in ()).throw(TimeoutError("ollama read timed out"))
+    facts = F.build(_bank(fake_embed, BASE), CONTACT)
+    value, note = FC.answer("Do you live in India?", "radio_group", YN, {}, facts, FC.Cards(facts, fake_embed),
+                            local_llm=down, haiku_llm=lambda p: plan)
+    assert value is None and "local reader unavailable" in note
+    assert _gate('{"value": "NONE", "card": ""}', plan, fake_embed)[0] == "Yes"         # a real NONE still lets the checked plan answer
