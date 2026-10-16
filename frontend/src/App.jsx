@@ -11,12 +11,14 @@ import TrackerBoard from "./components/TrackerBoard.jsx";
 import ThemeToggle from "./components/ThemeToggle.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
 import ResumeLibrary from "./components/ResumeLibrary.jsx";
-import AnswersTab from "./components/AnswersTab.jsx";
+import AnswersTab, { Tuning } from "./components/AnswersTab.jsx";
+import IngredientsPanel from "./components/IngredientsPanel.jsx";
 import QueueStrip from "./components/QueueStrip.jsx";
 import JobsView from "./components/JobsView.jsx";
 
 const TABS = [["browse", "Browse"], ["jobs", "Jobs"], ["applied", "Applications"], ["hiring", "Hiring"],
-              ["resumes", "Résumés"], ["answers", "Answers"]];
+              ["resumes", "Résumés"], ["memory", "Memory"]];
+const MEMORY_PARTS = [["answers", "Answers"], ["story", "Your story"], ["tuning", "Tuning"]];
 
 // The open tab lives in the URL hash, so a reload, a bookmark or Back lands where you were.
 const TAB_KEYS = TABS.map(([k]) => k);
@@ -34,6 +36,32 @@ function useHashTab() {
     if (readHash()[0] !== t) window.history.pushState(null, "", `#${t}`);
   }, []);
   return [tab, setTab];
+}
+
+function Memory() {
+  const [part, setPartState] = useState(() => {
+    const p = readHash()[1];
+    return MEMORY_PARTS.some(([k]) => k === p) ? p : "answers";
+  });
+  const setPart = (p) => { setPartState(p); window.history.replaceState(null, "", `#memory/${p}`); };
+  return (
+    <section aria-label="Memory">
+      <h1 className="view-title">Memory</h1>
+      <p className="view-sub">What the apply agent knows about you and reuses on every application. Edit anything that's wrong.</p>
+      <div className="segmented" role="group" aria-label="Memory section">
+        {MEMORY_PARTS.map(([k, l]) => <button key={k} aria-pressed={part === k} onClick={() => setPart(k)}>{l}</button>)}
+      </div>
+      {part === "answers" && <AnswersTab />}
+      {part === "story" && (
+        <>
+          <p className="view-sub">Used to write essays and free-text answers.</p>
+          <AnswersTab only="story" />
+          <IngredientsPanel />
+        </>
+      )}
+      {part === "tuning" && <Tuning />}
+    </section>
+  );
 }
 
 export default function App() {
@@ -134,12 +162,7 @@ export default function App() {
             <ResumeLibrary />
           </section>
         )}
-        {tab === "answers" && (
-          <section aria-label="Answers">
-            <h1 className="view-title">Answers</h1>
-            <AnswersTab />
-          </section>
-        )}
+        {tab === "memory" && <Memory />}
       </main>
       {selectedId && <JobDetail id={selectedId} onApply={onApply} onStatusChange={() => reloadAll()} onClose={() => setSelectedId(null)} />}
     </div>
