@@ -31,7 +31,7 @@ test("switches between Browse and Applications tabs", async () => {
 test("top bar holds the tabs; filters show on Browse only; the tab lives in the URL", async () => {
   render(<App />);
   const nav = screen.getByRole("navigation", { name: "Sections" });
-  expect(nav.querySelectorAll("button")).toHaveLength(6);
+  expect(nav.querySelectorAll("button")).toHaveLength(7);
   expect(screen.getByRole("region", { name: "Filters" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /hiring/i }));
   expect(screen.queryByRole("region", { name: "Filters" })).toBeNull();

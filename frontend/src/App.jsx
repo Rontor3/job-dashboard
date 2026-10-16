@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { fetchJobs, fetchStats, fetchQueue, addToQueue } from "./api.js";
+import { fetchJobs, fetchStats, fetchQueue, addToQueue, fetchInbox, fetchNotifications } from "./api.js";
 import FilterBar from "./components/FilterBar.jsx";
 import Feed from "./components/Feed.jsx";
 import JobDetail from "./components/JobDetail.jsx";
@@ -15,8 +15,11 @@ import AnswersTab, { Tuning } from "./components/AnswersTab.jsx";
 import IngredientsPanel from "./components/IngredientsPanel.jsx";
 import QueueStrip from "./components/QueueStrip.jsx";
 import JobsView from "./components/JobsView.jsx";
+import Inbox from "./components/Inbox.jsx";
+import ProfileReadiness from "./components/ProfileReadiness.jsx";
+import Updates from "./components/Updates.jsx";
 
-const TABS = [["browse", "Browse"], ["jobs", "Jobs"], ["applied", "Applications"], ["hiring", "Hiring"],
+const TABS = [["inbox", "Inbox"], ["browse", "Browse"], ["jobs", "Jobs"], ["applied", "Applications"], ["hiring", "Hiring"],
               ["resumes", "Résumés"], ["memory", "Memory"]];
 const MEMORY_PARTS = [["answers", "Answers"], ["story", "Your story"], ["tuning", "Tuning"]];
 
@@ -64,6 +67,20 @@ function Memory() {
   );
 }
 
+function InboxPage({ onNeeds, onUnread, onGoJobs, onOpenJob, onShowJobs, onChange }) {
+  const [tick, setTick] = useState(0);
+  const [inboxKey, setInboxKey] = useState(0);
+  return (
+    <section aria-label="Inbox" className="inbox-page">
+      <h1 className="view-title">Inbox</h1>
+      <p className="view-sub">Only what the apply agent can't do without you, then everything it did.</p>
+      <ProfileReadiness tick={tick} onChange={() => setInboxKey((k) => k + 1)} />
+      <Inbox key={inboxKey} embedded onCount={onNeeds} onGoJobs={onGoJobs} onSubmitted={() => setTick((t) => t + 1)} />
+      <Updates onOpenJob={onOpenJob} onShowJobs={onShowJobs} onUnread={onUnread} onChange={onChange} />
+    </section>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useHashTab();
   const [filters, setFilters] = useState({ sort: "embed", india: true });
@@ -73,6 +90,9 @@ export default function App() {
   const [error, setError] = useState(null);
   const [trackerTick, setTrackerTick] = useState(0);
   const [queue, setQueue] = useState({ items: [] });
+  const [needs, setNeeds] = useState(null);
+  const [unread, setUnread] = useState(0);
+  const [focusJobs, setFocusJobs] = useState(null);
 
   const reload = useCallback(() => {
     Promise.all([fetchJobs(filters), fetchStats()])
@@ -87,6 +107,15 @@ export default function App() {
 
   const loadQueue = useCallback(() => fetchQueue().then(setQueue).catch(() => {}), []);
   useEffect(() => { loadQueue(); }, [loadQueue]);
+  const loadBadge = useCallback(() => {
+    fetchInbox().then((b) => setNeeds((b.questions?.length || 0) + (b.guesses?.length || 0) + (b.bank?.length || 0))).catch(() => {});
+    fetchNotifications().then((d) => setUnread(d?.unread || 0)).catch(() => {});
+  }, []);
+  useEffect(() => {                    // the Inbox badge stays current on every tab
+    loadBadge();
+    const t = setInterval(loadBadge, 30_000);
+    return () => clearInterval(t);
+  }, [loadBadge]);
   // Poll while the runner works so rows and the strip follow it job by job.
   useEffect(() => {
     if (!queue.running) return undefined;
@@ -117,6 +146,9 @@ export default function App() {
           {TABS.map(([k, label]) => (
             <button key={k} className="tab" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
               {label}
+              {k === "inbox" && (needs || 0) + unread > 0 && (
+                <span className={needs ? "count" : "count count-quiet"} aria-label={`${needs || 0} waiting, ${unread} new`}>{(needs || 0) + unread}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -128,6 +160,10 @@ export default function App() {
       <QueueStrip queue={queue} onChange={onQueueChange} onOpenJob={setSelectedId} />
       {error && <div role="alert" className="alert">{error}</div>}
       <main className="view" key={tab}>
+        {tab === "inbox" && (
+          <InboxPage onNeeds={setNeeds} onUnread={setUnread} onGoJobs={() => setTab("jobs")} onOpenJob={setSelectedId}
+            onShowJobs={(ids) => { setFocusJobs(ids); setTab("jobs"); }} onChange={() => { loadQueue(); reloadAll(); }} />
+        )}
         {tab === "browse" && (
           <section aria-label="Browse" data-testid="feed-slot">
             <h1 className="view-title">Browse</h1>
@@ -141,6 +177,7 @@ export default function App() {
           </section>
         )}
         {tab === "jobs" && <JobsView queue={queue} onApply={onApply} onOpen={setSelectedId} refreshTick={trackerTick}
+          focusIds={focusJobs} onClearFocus={() => setFocusJobs(null)}
           onQueued={(snap) => { setQueue(snap); reloadAll(); }} />}
         {tab === "applied" && (
           <section aria-label="Applications">

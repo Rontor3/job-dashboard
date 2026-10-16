@@ -256,3 +256,16 @@ export const sendJobFeedback = (id, verdict, reasons = []) =>
 export const fetchPreferences = () => fetch("/api/preferences").then(json);
 export const forgetPreference = (feature) =>
   fetch(`/api/preferences/${encodeURIComponent(feature)}`, { method: "DELETE" }).then(json);
+
+// Inbox: what the apply agent needs from you (feedback_routes.py), profile readiness (profile_routes.py) and the
+// updates feed (notification_routes.py).
+export const fetchInbox = () => fetch("/api/inbox").then(json);   // {questions, guesses, bank}
+export const snoozeInbox = (keys, days = 30) => fetch("/api/inbox/snooze", jsonBody("POST", { keys, days })).then(json);
+export const fetchReadiness = () => fetch("/api/profile/readiness").then(json);
+export const autofillProfile = () => fetch("/api/profile/autofill", { method: "POST" }).then(json);
+export const saveFacts = (answers) => fetch("/api/profile/facts", jsonBody("POST", { answers })).then(json);
+export const interpretAnswer = (question, text, entry_id, choices) =>
+  fetch("/api/answers/interpret", jsonBody("POST", { question, text, entry_id, choices })).then(json);
+export const fetchNotifications = () => fetch("/api/notifications").then(json);   // {items, unread}
+export const readNotifications = (ids) => fetch("/api/notifications/read", jsonBody("POST", ids ? { ids } : {})).then(json);
+export const dismissNotification = (id) => fetch(`/api/notifications/${id}/dismiss`, { method: "POST" }).then(json);
