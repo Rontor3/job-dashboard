@@ -161,6 +161,16 @@ def redact(value, contact):
     return value
 
 
+def ollama_up() -> bool:
+    import os
+    import urllib.request
+    try:
+        urllib.request.urlopen(os.getenv("OLLAMA_HOST", "http://localhost:11434") + "/api/version", timeout=5)
+        return True
+    except OSError:
+        return False
+
+
 def learn(env, case, answer) -> str:
     """The user answers an asked question once: it becomes a bank entry and every method's knowledge is rebuilt."""
     from career_agent.memory import facts as F
@@ -223,6 +233,8 @@ def main() -> None:
                 value = None
             secs = round(time.monotonic() - t1, 2)
             value = None if value in (None, "") else str(value)
+            if value is None and not ollama_up():               # a dead local model is not a method's miss
+                sys.exit(f"Ollama unreachable at {name}/{c['id']}: results so far are not saved; restart and rerun")
             gold = None
             try:
                 gold = resolve(env, c)
