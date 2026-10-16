@@ -9,40 +9,36 @@ import StatusPie from "./components/StatusPie.jsx";
 import BrowseOverview from "./components/BrowseOverview.jsx";
 import TrackerBoard from "./components/TrackerBoard.jsx";
 import ThemeToggle from "./components/ThemeToggle.jsx";
-import HeaderScene from "./components/HeaderScene.jsx";
 import HiringSignals from "./components/HiringSignals.jsx";
 import ResumeLibrary from "./components/ResumeLibrary.jsx";
 import AnswersTab from "./components/AnswersTab.jsx";
-import QueuePanel from "./components/QueuePanel.jsx";
+import QueueStrip from "./components/QueueStrip.jsx";
 
-function TabButton({ active, onClick, label }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-label={label}
-      style={{
-        width: "100%",
-        textAlign: "left",
-        background: active ? "var(--green)" : "transparent",
-        color: active ? "var(--peach)" : "var(--ink-soft)",
-        border: "none",
-        borderRadius: 10,
-        padding: "8px 12px",
-        fontSize: 13,
-        fontWeight: 600,
-        cursor: "pointer",
-      }}
-    >
-      {label}
-    </button>
-  );
+const TABS = [["browse", "Browse"], ["applied", "Applications"], ["hiring", "Hiring"],
+              ["resumes", "Résumés"], ["answers", "Answers"]];
+
+// The open tab lives in the URL hash, so a reload, a bookmark or Back lands where you were.
+const TAB_KEYS = TABS.map(([k]) => k);
+const readHash = () => window.location.hash.replace(/^#\/?/, "").split("/");
+
+function useHashTab() {
+  const [tab, set] = useState(() => (TAB_KEYS.includes(readHash()[0]) ? readHash()[0] : "browse"));
+  useEffect(() => {
+    const on = () => { const t = readHash()[0]; if (TAB_KEYS.includes(t)) set(t); };
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  const setTab = useCallback((t) => {
+    set(t);
+    if (readHash()[0] !== t) window.history.pushState(null, "", `#${t}`);
+  }, []);
+  return [tab, setTab];
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("browse");
+  const [tab, setTab] = useHashTab();
   const [filters, setFilters] = useState({ sort: "embed", india: true });
   const [jobs, setJobs] = useState([]);
-  const [total, setTotal] = useState(0);
   const [stats, setStats] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState(null);
@@ -51,9 +47,7 @@ export default function App() {
 
   const reload = useCallback(() => {
     Promise.all([fetchJobs(filters), fetchStats()])
-      .then(([feed, s]) => {
-        setJobs(feed.jobs); setTotal(feed.total); setStats(s); setError(null);
-      })
+      .then(([feed, s]) => { setJobs(feed.jobs); setStats(s); setError(null); })
       .catch((e) => setError(String(e)));
   }, [filters]);
 
@@ -64,7 +58,7 @@ export default function App() {
 
   const loadQueue = useCallback(() => fetchQueue().then(setQueue).catch(() => {}), []);
   useEffect(() => { loadQueue(); }, [loadQueue]);
-  // Poll while the runner works so rows and the panel follow it job by job.
+  // Poll while the runner works so rows and the strip follow it job by job.
   useEffect(() => {
     if (!queue.running) return undefined;
     const t = setInterval(() => { loadQueue(); reloadAll(); }, 3000);
@@ -79,63 +73,72 @@ export default function App() {
   const onQueue = (id) => onQueueChange(addToQueue(id));
   const onApply = (id) => onQueueChange(addToQueue(id, { front: true, start: true }));
 
-  const TABS = [["browse", "Browse"], ["tracker", "Tracker"], ["hiring", "Hiring Signals"],
-                ["resumes", "Résumés"], ["answers", "Answers"]];
-
   return (
-    <div className="layout">
-      <aside className="sidebar">
-        <header style={{ background: "var(--warm-band)", borderRadius: "var(--radius-card)", padding: "14px 16px", position: "relative", overflow: "hidden" }}>
-          <HeaderScene />
-          <div style={{ position: "relative" }}>
-            <h1 style={{ fontSize: 20, fontWeight: 700, color: "var(--green)", margin: 0 }}>Job dashboard</h1>
-            {stats && (
-              <span data-testid="stats" style={{ fontSize: 12, color: "var(--ink-soft)" }}>
-                <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: "var(--green-soft)", marginRight: 5, animation: "breathe 2.2s ease-in-out infinite" }} />
-                {stats.total} jobs · {stats.new} new
-              </span>
-            )}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
-              <ThemeToggle />
-              <RefreshButton onDone={reloadAll} />
-            </div>
-          </div>
-        </header>
-        <nav aria-label="Sections" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {TABS.map(([key, label]) => (
-            <TabButton key={key} active={activeTab === key} onClick={() => setActiveTab(key)} label={label} />
+    <div className="app">
+      <header className="topbar">
+        <p className="brand">
+          <svg className="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <rect width="24" height="24" rx="7" />
+            <path d="M7 15.5l4-4 2.5 2.5L17.5 9" />
+            <circle cx="17.5" cy="9" r="1.6" />
+          </svg>
+          Job dashboard
+        </p>
+        <nav className="tabs" aria-label="Sections">
+          {TABS.map(([k, label]) => (
+            <button key={k} className="tab" aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
+              {label}
+            </button>
           ))}
         </nav>
-        {activeTab === "browse" && (
-          <section aria-label="Filters">
-            <p className="sidebar-label">Filters</p>
-            <FilterBar filters={filters} setFilters={setFilters} stacked />
-          </section>
-        )}
-        <QueuePanel queue={queue} onChange={onQueueChange} onOpenJob={setSelectedId} />
-      </aside>
-      <main style={{ minWidth: 0 }}>
-        {error && <div role="alert" style={{ color: "var(--dupe-ink)", background: "var(--dupe-bg)", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>{error}</div>}
-        {activeTab === "hiring" ? (
-          <HiringSignals onOpenJob={setSelectedId} />
-        ) : activeTab === "resumes" ? (
-          <ResumeLibrary />
-        ) : activeTab === "answers" ? (
-          <AnswersTab />
-        ) : activeTab === "browse" ? (
-          <div data-testid="feed-slot">
+        <div className="topbar-actions">
+          <ThemeToggle />
+          <RefreshButton onDone={reloadAll} />
+        </div>
+      </header>
+      <QueueStrip queue={queue} onChange={onQueueChange} onOpenJob={setSelectedId} />
+      {error && <div role="alert" className="alert">{error}</div>}
+      <main className="view" key={tab}>
+        {tab === "browse" && (
+          <section aria-label="Browse" data-testid="feed-slot">
+            <h1 className="view-title">Browse</h1>
+            {stats && <p className="view-sub" data-testid="stats">{stats.total} jobs · {stats.new} new</p>}
+            <section aria-label="Filters" style={{ marginBottom: 20 }}>
+              <FilterBar filters={filters} setFilters={setFilters} />
+            </section>
             <BrowseOverview stats={stats} onIndustry={(ind) => setFilters((f) => ({ ...f, industry: ind }))} />
             <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} onApply={onApply} onQueue={onQueue} queue={queue} />
             <DuplicatesSection />
-          </div>
-        ) : (
-          <div>
+          </section>
+        )}
+        {tab === "applied" && (
+          <section aria-label="Applications">
+            <h1 className="view-title">Applications</h1>
+            <p className="view-sub">Mark what happened. Outcomes show which applications work.</p>
             <StatusPie stats={stats} />
             <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} onStatsChange={reload} onStatsPoll={reloadStats} onRequeue={onQueue} />
-          </div>
+          </section>
         )}
-        {selectedId && <JobDetail id={selectedId} onApply={onApply} onStatusChange={() => reloadAll()} onClose={() => setSelectedId(null)} />}
+        {tab === "hiring" && (
+          <section aria-label="Hiring">
+            <h1 className="view-title">Hiring</h1>
+            <HiringSignals onOpenJob={setSelectedId} />
+          </section>
+        )}
+        {tab === "resumes" && (
+          <section aria-label="Résumés">
+            <h1 className="view-title">Résumés</h1>
+            <ResumeLibrary />
+          </section>
+        )}
+        {tab === "answers" && (
+          <section aria-label="Answers">
+            <h1 className="view-title">Answers</h1>
+            <AnswersTab />
+          </section>
+        )}
       </main>
+      {selectedId && <JobDetail id={selectedId} onApply={onApply} onStatusChange={() => reloadAll()} onClose={() => setSelectedId(null)} />}
     </div>
   );
 }

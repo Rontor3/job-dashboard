@@ -1,0 +1,201 @@
+/* Hover cards, the profile-readiness card, the Inbox's submit and review, and the Agent tab's header bar. */
+
+/* ── Hover cards (Tip.tsx) ── */
+.tip { position: fixed; z-index: 60; width: 320px; padding: 12px 14px; border-radius: 12px; pointer-events: none;
+  background: var(--card); border: 1px solid var(--hairline-strong); box-shadow: var(--shadow-lg); color: var(--ink);
+  font-family: var(--font-sans); font-size: 13px; line-height: 1.45; animation: tip-in var(--dur-quick) var(--ease-out); }
+@keyframes tip-in { from { opacity: 0; transform: translateY(2px); } }
+.tip-body strong { display: block; font-size: 14px; margin-bottom: 4px; }
+.tip-body p { margin: 0 0 6px; }
+.tip-body p:last-child { margin-bottom: 0; }
+.tip-dim { color: var(--ink-soft); font-size: 12.5px; }
+.tip-hint { color: var(--green-mid); font-size: 12px; font-weight: 600; }
+
+/* The rail shows each agent's whole description; the hover card adds what it may touch. */
+.team-profile-text { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.team-mission-title small { display: block; margin-top: 2px; font-size: 12px; font-weight: 450; color: var(--ink-soft); line-height: 1.35; }
+
+/* ── Profile readiness (ProfileReadiness.jsx) ── */
+.ready { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 18px; align-items: center; padding: 16px 20px;
+  margin-bottom: 18px; background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius-card); box-shadow: var(--shadow-sm); }
+.ready-ok { background: var(--green-tint); border-color: color-mix(in srgb, var(--green-mid) 35%, transparent); }
+.ready-ring { width: 76px; height: 76px; }
+.ready-ring circle { fill: none; stroke-width: 7; }
+.ready-track { stroke: var(--ring-track); }
+.ready-fill { stroke: var(--gold); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 40px 40px;
+  transition: stroke-dashoffset var(--dur-enter) var(--ease-out); }
+.ready-ok .ready-fill { stroke: var(--green-mid); }
+.ready-ring text { font-family: var(--font-display); font-size: 19px; font-weight: 600; fill: var(--ink); }
+.ready-title { margin: 0 0 2px; font-family: var(--font-display); font-size: 21px; font-weight: 560; letter-spacing: -0.01em; }
+.ready-sub { margin: 0; color: var(--ink-soft); font-size: 14px; }
+.ready-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.ready-chip { font-size: 12px; font-weight: 560; padding: 3px 10px; border-radius: var(--radius-pill);
+  background: var(--warm-tint); color: var(--warm-ink); border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent); }
+
+/* ── Inbox: submit at the top, a review at the end ── */
+.needs-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.needs-head > div { min-width: 0; }
+.review-list { list-style: none; margin: 4px 0 18px; padding: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden; }
+.review-list li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 14px; font-size: 14px; }
+.review-list li + li { border-top: 1px solid var(--hairline); }
+.review-list li > :first-child { color: var(--ink-soft); min-width: 0; }
+.review-list li > :last-child { font-weight: 600; text-align: right; }
+.ask-note { margin: 10px 0 0; padding: 10px 14px; border-radius: 10px; font-size: 13.5px; line-height: 1.45;
+  background: var(--warm-tint); color: var(--warm-ink); }
+
+/* ── Agent tab header: who you're talking to, on one quiet line ── */
+.pi-header { display: flex; align-items: center; gap: 12px; padding: 4px 2px 12px; margin-bottom: 14px; font-family: var(--font-sans);
+  border-bottom: 1px solid var(--hairline); }
+.pi-avatar { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; font-weight: 700; font-size: 15px; }
+.pi-avatar.team-badge-default { background: var(--green-tint); color: var(--green-mid); }
+.pi-who { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.pi-who strong { font-size: 15px; color: var(--ink); }
+.pi-who .pi-dim { font-size: 13px; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pi-meta { flex: none; display: flex; gap: 6px; }
+.pi-chip { font-size: 12px; font-weight: 560; padding: 4px 10px; border-radius: var(--radius-pill); cursor: default;
+  background: var(--card); border: 1px solid var(--hairline); color: var(--ink-soft); }
+.pi-chip-quiet { background: transparent; }
+.pi-chip kbd { font-family: var(--font-mono); font-size: 11px; padding: 0 4px; border-radius: 4px; background: var(--canvas); border: 1px solid var(--hairline); }
+
+@media (max-width: 720px) {
+  .ready { grid-template-columns: 60px minmax(0, 1fr); padding: 14px; gap: 14px; }
+  .ready-ring { width: 60px; height: 60px; }
+  .ready > .btn { grid-column: 1 / -1; }
+  .pi-meta .pi-chip-quiet { display: none; }
+}
+
+/* The header stays put while the transcript scrolls under it. */
+.pi-scroll > .pi-header { position: sticky; top: -4px; z-index: 3; background: var(--card); }
+/* Conversation in the reading font; tool calls, code and the footer keep the terminal's monospace. */
+.pi-user, .pi-assistant, .pi-thinking, .pi-note, .agent-start { font-family: var(--font-sans); font-size: 14.5px; line-height: 1.6; }
+.pi-assistant code, .pi-assistant pre, .pi-tool { font-family: var(--font-mono); font-size: 12.5px; }
+.pi-assistant p { margin: 0 0 8px; }
+.pi-assistant ol, .pi-assistant ul { margin: 0 0 8px; padding-left: 22px; }
+.pi-assistant li { margin: 2px 0; }
+.ready-for { font-size: 12px; color: var(--ink-soft); align-self: center; }
+.ready-chip-sit { background: var(--green-tint); color: var(--green-mid); border-color: color-mix(in srgb, var(--green-mid) 25%, transparent); cursor: help; }
+
+/* ── Jobs: one card per company, one line per opening ── */
+.jobs-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.jobs-tools .search { flex: 1 1 280px; width: auto; margin: 0; }
+.companies { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.company { background: var(--card); border: 1px solid var(--hairline); border-radius: var(--radius-card); box-shadow: var(--shadow-sm);
+  overflow: hidden; }
+.company-head { display: flex; align-items: center; gap: 14px; padding: 12px 16px; background: color-mix(in srgb, var(--canvas) 45%, var(--card));
+  border-bottom: 1px solid var(--hairline); }
+.company-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.company-name strong { font-size: 15.5px; }
+.company-name span { font-size: 12.5px; color: var(--ink-soft); }
+.company-facts { font: inherit; font-size: 12.5px; padding: 4px 12px; border-radius: var(--radius-pill); cursor: pointer;
+  border: 1px dashed var(--hairline-strong); background: transparent; color: var(--ink-soft); max-width: 46%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.company-facts:hover { border-color: var(--green-soft); color: var(--ink); }
+.company-facts-set { border-style: solid; border-color: color-mix(in srgb, var(--green-mid) 35%, transparent); background: var(--green-tint);
+  color: var(--green-mid); font-weight: 560; }
+.company .apply-details { margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--hairline); border-radius: 0; }
+.company .jobs { gap: 0; }
+.company .job { border: 0; border-radius: 0; box-shadow: none; padding: 9px 16px; background: transparent; }
+.company .job + .job { border-top: 1px solid var(--hairline); }
+.company .job:hover { background: color-mix(in srgb, var(--green-tint) 40%, transparent); box-shadow: none; }
+.company .job-checked { background: color-mix(in srgb, var(--green-tint) 65%, transparent); }
+.job-text { display: flex; align-items: baseline; gap: 10px; }
+.job-text .job-title { flex: 0 1 auto; min-width: 0; }
+.job-text .job-meta { flex: 1 1 0; margin: 0; }
+.company .fit { font-size: 13.5px; min-width: 40px; padding: 3px 6px; }
+.company-fold { display: block; padding: 8px 16px 10px 48px; font-size: 13px; }
+.job-more { font-size: 13px; margin-top: 6px; }
+.apply-details { flex-direction: column; align-items: stretch !important; }
+.apply-details .ask-input { font-size: 14px; padding: 8px 12px; }
+.jobs-more { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 18px 0 8px; font-size: 13px; color: var(--ink-soft); }
+
+@media (max-width: 720px) {
+  .job-text { flex-direction: column; gap: 2px; }
+  .company-facts { max-width: 100%; }
+  .company-head { flex-wrap: wrap; }
+}
+.companies { gap: 8px; }
+.company-solo .company-facts { max-width: 34%; flex: none; }
+.company-solo .apply-details { border-top: 1px solid var(--hairline); border-bottom: 0; }
+.job-text .job-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* An unset details chip on a one-opening row stays out of the way until you point at the row. */
+.company-solo .company-facts:not(.company-facts-set):not([aria-expanded="true"]) { opacity: 0; transition: opacity var(--dur-quick); }
+.company-solo:hover .company-facts, .company-solo:focus-within .company-facts { opacity: 1; }
+@media (hover: none) { .company-solo .company-facts { opacity: 1 !important; } }
+
+/* ── Memory → Tuning: three choices in words, numbers folded away ── */
+.tune-h { margin: 0 0 4px; font-family: var(--font-display); font-size: 20px; font-weight: 560; }
+.tune-sub { margin: 0 0 14px; color: var(--ink-soft); font-size: 14px; line-height: 1.5; max-width: 72ch; }
+.tune-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.tune-preset { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 14px 16px; border-radius: 14px; cursor: pointer;
+  font: inherit; color: var(--ink); background: var(--canvas); border: 1px solid var(--hairline); transition: border-color var(--dur-quick); }
+.tune-preset:hover { border-color: var(--green-soft); }
+.tune-preset[aria-checked="true"] { background: var(--green-tint); border-color: var(--green-mid); box-shadow: inset 0 0 0 1px var(--green-mid); }
+.tune-preset strong { font-size: 15px; }
+.tune-preset small { font-weight: 500; color: var(--green-mid); }
+.tune-preset span { font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+.tune-status { min-height: 18px; margin: 8px 0 0; font-size: 13px; color: var(--ink-soft); }
+.tune-advanced { margin-top: 10px; }
+.tune-advanced > summary { cursor: pointer; font-size: 13.5px; color: var(--ink-soft); padding: 4px 0; }
+.tune-advanced[open] > summary { margin-bottom: 10px; }
+
+/* ── Memory → Your story: the projects as a grid of short cards ── */
+.ing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.ing-grid > .ing-edit { grid-column: 1 / -1; }
+.ing-card { background: var(--card); border: 1px solid var(--hairline); border-radius: 12px; padding: 12px 14px; display: flex;
+  flex-direction: column; gap: 4px; min-width: 0; }
+.ing-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.ing-top strong { font-size: 14.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ing-top .linkish { font-size: 13px; flex: none; }
+.ing-meta { font-size: 12px; color: var(--ink-soft); text-transform: capitalize; }
+.ing-line { margin: 2px 0 0; font-size: 13px; color: var(--ink-soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ing-tech { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.ing-tech span { font-size: 11.5px; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--green-tint); color: var(--green-mid); }
+@media (max-width: 720px) { .tune-presets { grid-template-columns: 1fr; } }
+.ask-reading { color: var(--ink-soft); font-weight: 400; animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.45; } }
+.deck-item[data-state="again"] .deck-mark { background: var(--warm-tint); color: var(--warm-ink); }
+
+/* ── Agent editor: one line until you type more; pictures above it ── */
+.pi-input { display: flex; align-items: flex-end; gap: 8px; }
+.pi-editor textarea { min-height: 0; line-height: 1.5; padding: 6px 2px; font-family: var(--font-sans); font-size: 14.5px; }
+.pi-attach { flex: none; width: 30px; height: 30px; margin-bottom: 3px; border-radius: 8px; border: 1px solid var(--hairline); cursor: pointer;
+  background: transparent; color: var(--ink-soft); font: inherit; font-size: 16px; line-height: 1; }
+.pi-attach:hover { color: var(--ink); border-color: var(--green-soft); }
+.pi-pics { list-style: none; margin: 4px 0 6px; padding: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.pi-pics li { position: relative; }
+.pi-pics img { display: block; width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--hairline); }
+.pi-pics button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--hairline);
+  background: var(--card); color: var(--ink-soft); cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
+.pi-pics-note { margin: 0 0 6px; font-size: 12.5px; color: var(--warm-ink); }
+.pi-user-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.pi-user-images img { max-width: 220px; max-height: 160px; border-radius: 8px; border: 1px solid var(--hairline); object-fit: contain; background: var(--card); }
+.pi-latest { position: sticky; bottom: 8px; left: 50%; transform: translateX(-50%); display: block; margin: 0 auto; z-index: 4;
+  font: inherit; font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; padding: 5px 14px; border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline-strong); background: var(--card); color: var(--ink); box-shadow: var(--shadow-md); cursor: pointer; }
+/* In the Agent tab only the transcript box scrolls; the thread inside it never gets a scrollbar of its own. */
+.pi-scroll .agent-thread { max-height: none; overflow: visible; }
+.pi-editor textarea { min-height: calc(1.5em + 12px); max-height: 40vh; }
+/* The popover fits the room it has: its thread takes what's left between the header and the composer. */
+.agent-popover .agent-thread { flex: 1 1 auto; min-height: 60px; max-height: none; overflow-y: auto; }
+/* Drag the corner to make it bigger; the size is remembered. */
+.agent-popover { resize: both; min-width: 320px; min-height: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+.pi-forked { text-align: center; margin: 6px 0; color: var(--ink-soft); font-size: 12.5px; }
+/* A long title gives way before the company and place do; on narrow screens they take their own line. */
+.job-text .job-title { max-width: 68%; }
+.job-text .job-meta { min-width: 120px; }
+@media (max-width: 1000px) {
+  .job-text { flex-direction: column; gap: 1px; }
+  .job-text .job-title { max-width: 100%; }
+  .job-text .job-meta { min-width: 0; width: 100%; }
+}
+/* The question picker: every match in full, wrapped, never cut to one line. */
+.entry-picker { position: relative; }
+.entry-picker input { font-size: 12px; padding: 6px 10px; border: 0.5px solid var(--hairline); border-radius: 8px;
+  background: var(--canvas); color: var(--ink); width: 100%; box-sizing: border-box; text-overflow: ellipsis; }
+.entry-picker-list { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px;
+  list-style: none; max-height: 280px; overflow-y: auto; background: var(--card); border: 0.5px solid var(--hairline-strong);
+  border-radius: 8px; box-shadow: var(--shadow-md); }
+.entry-picker-list li { padding: 6px 8px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; white-space: normal;
+  overflow-wrap: anywhere; cursor: pointer; }
+.entry-picker-list li.on { background: color-mix(in srgb, var(--green) 12%, transparent); }
