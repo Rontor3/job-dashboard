@@ -13,8 +13,9 @@ import HiringSignals from "./components/HiringSignals.jsx";
 import ResumeLibrary from "./components/ResumeLibrary.jsx";
 import AnswersTab from "./components/AnswersTab.jsx";
 import QueueStrip from "./components/QueueStrip.jsx";
+import JobsView from "./components/JobsView.jsx";
 
-const TABS = [["browse", "Browse"], ["applied", "Applications"], ["hiring", "Hiring"],
+const TABS = [["browse", "Browse"], ["jobs", "Jobs"], ["applied", "Applications"], ["hiring", "Hiring"],
               ["resumes", "Résumés"], ["answers", "Answers"]];
 
 // The open tab lives in the URL hash, so a reload, a bookmark or Back lands where you were.
@@ -111,6 +112,8 @@ export default function App() {
             <DuplicatesSection />
           </section>
         )}
+        {tab === "jobs" && <JobsView queue={queue} onApply={onApply} onOpen={setSelectedId} refreshTick={trackerTick}
+          onQueued={(snap) => { setQueue(snap); reloadAll(); }} />}
         {tab === "applied" && (
           <section aria-label="Applications">
             <h1 className="view-title">Applications</h1>

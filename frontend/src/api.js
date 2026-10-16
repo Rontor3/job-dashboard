@@ -243,3 +243,16 @@ export const saveGmailConfirmation = (on) =>
 export const fetchJobMail = (id) => fetch(`/api/jobs/${id}/mail`).then(json).then((d) => d.mail || []);
 export const startMailScan = () => fetch("/api/mail-scan", { method: "POST" }).then(json);
 export const fetchMailScanStatus = () => fetch("/api/mail-scan/status").then(json);
+
+// Jobs tab: queue many at once, and the clicks that teach the ranking (match/preferences.py).
+export const addManyToQueue = (jobIds, { start = true } = {}) =>          // {items, queued, skipped, …}
+  fetch("/api/queue/batch", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_ids: jobIds, start }),
+  }).then(json);
+export const sendJobFeedback = (id, verdict, reasons = []) =>
+  fetch(`/api/jobs/${id}/feedback`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verdict, reasons }),
+  }).then(json);
+export const fetchPreferences = () => fetch("/api/preferences").then(json);
+export const forgetPreference = (feature) =>
+  fetch(`/api/preferences/${encodeURIComponent(feature)}`, { method: "DELETE" }).then(json);

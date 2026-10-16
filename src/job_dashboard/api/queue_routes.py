@@ -11,12 +11,13 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from job_dashboard import qa_store
 from job_dashboard.apply import queue as q
 from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.db import init_db, set_job_status
+from job_dashboard.match import preferences
 
 AUTOSUBMIT_PREFIX = "autosubmit_"
 
@@ -24,6 +25,11 @@ AUTOSUBMIT_PREFIX = "autosubmit_"
 class QueueAdd(BaseModel):
     job_id: int
     front: bool = False
+    start: bool = False
+
+
+class QueueBatch(BaseModel):
+    job_ids: list[int] = Field(min_length=1, max_length=100)
     start: bool = False
 
 
@@ -98,11 +104,35 @@ def build_queue_router(db_path, runner: QueueRunner) -> APIRouter:
             if row is None:
                 raise HTTPException(status_code=404, detail="job not found")
             q.enqueue(conn, body.job_id, front=body.front)
+            preferences.record(conn, body.job_id, "more", ["applied"])   # queueing = "more like this"
             if row[0] is None:
                 set_job_status(conn, body.job_id, "saved")        # queued jobs show on the tracker
             if body.start:
                 runner.start()
             return snapshot(conn)
+        finally:
+            conn.close()
+
+    @router.post("/api/queue/batch")
+    def add_many(body: QueueBatch):
+        """Queue many jobs in one go, in the order given (the Jobs tab's "Apply to N").
+        Jobs already applied to, or unknown, are skipped and reported."""
+        conn = db()
+        try:
+            queued, skipped = [], []
+            for job_id in dict.fromkeys(body.job_ids):
+                row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                if row is None or row[0] in ("applied", "interviewing", "offer"):
+                    skipped.append({"job_id": job_id, "why": "not found" if row is None else row[0]})
+                    continue
+                q.enqueue(conn, job_id)
+                preferences.record(conn, job_id, "more", ["applied"])
+                if row[0] is None:
+                    set_job_status(conn, job_id, "saved")
+                queued.append(job_id)
+            if body.start and queued:
+                runner.start()
+            return {**snapshot(conn), "queued": queued, "skipped": skipped}
         finally:
             conn.close()
 
