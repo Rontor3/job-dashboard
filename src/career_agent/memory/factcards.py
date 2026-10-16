@@ -76,8 +76,8 @@ def ask_local(llm, question, kind, options, job, facts, cards):
     """(value, cited card) from the local model, or ('', reason)."""
     lines = "\n".join(f"[{c}] {facts[c]['desc']} ({facts[c]['type']}) = {_show(facts[c]['value'])}" for c in cards)
     opt = f"\nThe answer must be exactly one of: {list(options)}" if options else ""
-    prompt = ("You fill one job-application form field for a candidate using ONLY the fact cards below.\n"
-              f"Job: {job.get('company') or 'unknown'}, {job.get('location') or 'unknown'}\n"
+    prompt = (f"{F.applicant_context(job)}\n\n"
+              "You fill one field of this application using ONLY the fact cards below.\n"
               f"Field ({kind}): {question}{opt}\n\nFact cards:\n{lines}\n\n"
               "Rules: the value must be copied from one card or derived from it by simple reasoning (age from a date, "
               "comparison, unit conversion, a level implying yes/no, a per-company list for this job's company, a "

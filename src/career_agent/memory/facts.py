@@ -397,13 +397,28 @@ def claude_cli_llm(model: str = "haiku", timeout: int = 120,
     return llm
 
 
+def applicant_context(job) -> str:
+    """Who is answering and for what: the candidate applying to the tech roles they chose (the dashboard's search
+    terms), and this application's role. Relevance picks the READING of a question, never what is claimed."""
+    from job_dashboard.source_registry import SEARCH_TERMS
+    roles = ", ".join(dict.fromkeys(t.title() for t in SEARCH_TERMS))
+    role = " at ".join(x for x in (job.get("title"), job.get("company")) if x) or "a tech role"
+    where = f" ({job['location']})" if job.get("location") else ""
+    return (f"Context: you act for a job applicant in tech — a data scientist / ML engineer applying only to roles "
+            f"like: {roles}. This application is for {role}{where}. Read every question as that applicant on that "
+            "application: when a question can be read more than one way, take the reading that matters for this "
+            "role (e.g. 'experience with evaluation' = ML model evaluation). Relevance never adds a claim: the "
+            "answer still comes only from the stored facts, and an honest no / none is better than a stretched yes.")
+
+
 def compile_question(question, kind, options, job, facts, llm) -> dict:
     """{'plan': expr} | {'missing': {'key', 'type', 'ask'}} | {'not_a_question': True} | {} on a bad reply."""
     opt = f"\nIts options: {list(options)}" if options else ""
     prompt = (
+        f"{applicant_context(job)}\n\n"
         "You translate a job-application form field into a plan over the candidate's stored facts. You see the "
         "facts' names and types, not their values; the plan is executed later.\n\n"
-        f"Job: {job.get('company') or '?'} ({job.get('location') or '?'})\nField ({kind}): {question}{opt}\n\n"
+        f"Field ({kind}): {question}{opt}\n\n"
         f"Stored facts:\n{schema(facts)}\n\n{OPS_HELP}\n\n"
         "Rules: a yes/no question must yield true/false. Use ONLY facts that answer what is asked. A general fact "
         "answers a narrower version of it: a stored non-compete answer covers 'that would affect your work at "

@@ -124,3 +124,15 @@ def test_regression_fixes_units_and_agreement(fake_embed):
 def test_one_reader_alone_does_not_fill(fake_embed):
     value, note = _gate('{"value": "Yes", "card": "location"}', '{}', fake_embed)    # plan unreadable, local only
     assert value is None and note.startswith("local only")
+
+
+def test_both_readers_are_told_who_applies_for_what(fake_embed):
+    facts = F.build(_bank(fake_embed, BASE), CONTACT)
+    seen = []
+    keep = lambda reply: (lambda p: seen.append(p) or reply)
+    job = {"title": "Applied AI Research Engineer", "company": "Appen", "location": "India"}
+    FC.answer("Do you live in India?", "radio_group", YN, job, facts, FC.Cards(facts, fake_embed),
+              local_llm=keep('{"value": "Yes", "card": "location"}'), haiku_llm=keep("{}"))
+    assert len(seen) == 2
+    for p in seen:                                  # the plan prompt and the local reader both get the applicant
+        assert "Applied AI Research Engineer at Appen" in p and "Data Scientist" in p and "never adds a claim" in p
