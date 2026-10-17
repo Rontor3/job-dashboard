@@ -55,8 +55,8 @@ export default function InsightBox({ q, jobId, onDone }) {
   }, [isRule, remember, scope, res, q.label, q.kind]);
 
   if (!open) {
-    return <button type="button" className="linkish" style={{ fontSize: 12, marginTop: 4 }} onClick={() => setOpen(true)}
-                   aria-label={`Tell it what's wrong: ${q.label}`}>Tell it what's wrong</button>;
+    return <div><button type="button" className="linkish" style={{ fontSize: 12, marginTop: 4 }} onClick={() => setOpen(true)}
+                   aria-label={`Tell it what's wrong: ${q.label}`}>Tell it what's wrong</button></div>;
   }
   if (done) {
     return (
