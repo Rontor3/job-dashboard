@@ -54,6 +54,7 @@ Reply with JSON only:
             No = leave unticked; 'always acknowledge' = Yes), else null",
   "query": "for lookup: the words it is stored under, else null",
   "meaning": "for identify: what the field actually asks, else null",
+  "max_words": "a length limit the note sets, as a number of words ('under 70 words' -> 70), else null",
   "concept": "the KIND of question this is, generic, e.g. 'willingness to work in the job's city'",
   "rule": "the lesson as 'When <condition>, <do this>' — generic: no company names, no personal values",
   "why": "why the applicant said it, in one sentence",
@@ -95,6 +96,11 @@ def validate(d: dict, notes: list[str], company: str = "") -> dict:
     for k in ("value", "query", "meaning"):
         v = d.get(k)
         out[k] = str(v).strip()[:500] if v not in (None, "", "null") else None
+    try:
+        words = int(float(d.get("max_words")))
+        out["max_words"] = words if 10 <= words <= 1000 else None
+    except (TypeError, ValueError):
+        out["max_words"] = None
     if lever in ("fact", "policy") and not out["value"]:
         out["lever"] = "guide"                            # a value lever with no value is just an instruction
     return out

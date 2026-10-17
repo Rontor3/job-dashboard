@@ -28,6 +28,8 @@ def ensure(conn) -> None:
         filed_in TEXT, before_json TEXT, vec BLOB,
         status TEXT NOT NULL DEFAULT 'active', hits INTEGER NOT NULL DEFAULT 0,
         created_at TEXT, updated_at TEXT)""")
+    if "max_words" not in [r[1] for r in conn.execute("PRAGMA table_info(answer_lesson)")]:
+        conn.execute("ALTER TABLE answer_lesson ADD COLUMN max_words INTEGER")     # a length the note set: a hard cap
     conn.commit()
 
 
@@ -54,11 +56,11 @@ def add(conn, d: dict, embed) -> int:
     now = _now()
     cur = conn.execute(
         "INSERT INTO answer_lesson (lever, applies_to, concept, qkey, rule, why, notes, source_row, filed_in, "
-        "before_json, vec, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "before_json, vec, status, created_at, updated_at, max_words) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (lever, d.get("applies_to") or "question", d.get("concept"), norm_key(d.get("label") or ""), d.get("rule"),
          d.get("why"), json.dumps(d.get("notes") or []), d.get("source_row"), d.get("filed_in"),
          json.dumps(d["before"]) if "before" in d else None, None if v is None else v.tobytes(),
-         "active" if is_rule else "filed", now, now))
+         "active" if is_rule else "filed", now, now, d.get("max_words")))
     conn.commit()
     return cur.lastrowid
 
@@ -66,7 +68,7 @@ def add(conn, d: dict, embed) -> int:
 def _rows(conn, where="1=1", args=()):
     ensure(conn)
     cur = conn.execute(f"SELECT id, lever, applies_to, concept, qkey, rule, why, notes, source_row, filed_in, "
-                       f"before_json, status, hits, created_at, updated_at FROM answer_lesson WHERE {where} "
+                       f"before_json, status, hits, created_at, updated_at, max_words FROM answer_lesson WHERE {where} "
                        f"ORDER BY id DESC", args)
     cols = [c[0] for c in cur.description]
     out = []
@@ -116,16 +118,17 @@ def for_question(conn, question: str, kind: str, embed, *, levers=RULE_LEVERS, c
     ensure(conn)
     from job_dashboard.qa_store import norm_key
     marks = ",".join("?" * len(levers))
-    rows = conn.execute(f"SELECT id, lever, applies_to, concept, qkey, rule, vec FROM answer_lesson "
+    rows = conn.execute(f"SELECT id, lever, applies_to, concept, qkey, rule, vec, max_words FROM answer_lesson "
                         f"WHERE status='active' AND lever IN ({marks})", tuple(levers)).fetchall()
     if not rows:
         return []
     qkey, long_q = norm_key(question), is_long(kind)
     qv = _vec(embed, question) if any(r[2] == "similar" for r in rows) else None
     hit = []
-    for rid, lever, scope, concept, rk, rule, blob in rows:
+    for rid, lever, scope, concept, rk, rule, blob, words in rows:
         sim = float(np.frombuffer(blob, dtype="float32") @ qv) if (blob and qv is not None) else None
-        r = {"id": rid, "lever": lever, "applies_to": scope, "concept": concept, "qkey": rk, "rule": rule}
+        r = {"id": rid, "lever": lever, "applies_to": scope, "concept": concept, "qkey": rk, "rule": rule,
+             "max_words": words}
         if _matches(r, qkey, long_q, sim):
             hit.append(r)
     if hit and count:
@@ -135,12 +138,14 @@ def for_question(conn, question: str, kind: str, embed, *, levers=RULE_LEVERS, c
 
 
 def steer(rules: list[dict]) -> dict:
-    """{'scope': 'general'|None, 'rule': text} for an answer engine; empty when no rule applies."""
+    """{'scope': 'general'|None, 'rule': text, 'max_words': n|None} for an answer engine; empty when no rule applies."""
     if not rules:
         return {}
     scope = next((r["rule"] for r in rules if r["lever"] == "scope"), None)
     text = "\n".join(f"- {r['rule']}" for r in rules if r.get("rule"))
-    return {"scope": "general" if scope else None, "rule": text, "ids": [r["id"] for r in rules]}
+    caps = [r["max_words"] for r in rules if r.get("max_words")]
+    return {"scope": "general" if scope else None, "rule": text, "ids": [r["id"] for r in rules],
+            "max_words": min(caps) if caps else None}
 
 
 def reach(conn, concept: str, applies_to: str, label: str, kind: str, embed, limit: int = 12) -> dict:
@@ -175,7 +180,8 @@ def file(conn, p: dict, answer, embed) -> dict:
                                       "atype": "text", "profile_ref": col})
         p = {**p, "entry_id": eid}
     entry = qbank.get_entry(conn, p["entry_id"]) if p.get("entry_id") else None
-    rec = {k: p.get(k) for k in ("lever", "applies_to", "concept", "rule", "why", "notes", "source_row", "label")}
+    rec = {k: p.get(k) for k in ("lever", "applies_to", "concept", "rule", "why", "notes", "source_row", "label",
+                                 "max_words")}
     if lever in ("trust", "lookup") or (lever == "identify" and entry):
         if entry:
             qbank.add_wording(conn, label, entry["id"], embed([label])[0], "human", replace=True)

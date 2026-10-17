@@ -143,7 +143,8 @@ def rewrite(conn, row_id: int, notes: list[str], eng: Engines) -> dict:
         if eng.longform is None:
             eng.trace.append("essay writer unavailable")
         else:
-            steer = {"scope": "general" if lever == "scope" else None, "rule": f"- {d.get('rule') or notes[-1]}"}
+            steer = {"scope": "general" if lever == "scope" else None, "rule": f"- {d.get('rule') or notes[-1]}",
+                     "max_words": d.get("max_words")}
             res = eng.longform(label, steer) or {}
             answer = res.get("answer")
             eng.trace.append(f"essay: {len(answer or '')} chars, flags {res.get('flags') or []}")

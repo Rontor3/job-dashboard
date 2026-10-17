@@ -25,7 +25,7 @@ function learns(p) {
   if (p.lever === "trust" || p.lever === "lookup") return p.entry_id ? `This wording will point to your saved answer “${p.entry_id}”.` : "Saved as a new answer for this wording.";
   if (p.lever === "fact" || p.lever === "policy") return p.entry_id ? `Your saved answer “${p.entry_id}” becomes “${p.value}” (the old value is kept in the history).` : `Saved as a new answer: “${p.value}”.`;
   if (p.lever === "derive" && p.derived) return `Saved as a worked-out fact “${p.derived.key}”, recomputed for every job.`;
-  return "Kept as a rule (below) for the questions it applies to.";
+  return `Kept as a rule (below) for the questions it applies to${p.max_words ? `, with a hard limit of ${p.max_words} words` : ""}.`;
 }
 
 const box = { marginTop: 6, padding: "10px 12px", borderRadius: 10, background: "var(--card)", border: "1px solid var(--hairline)",

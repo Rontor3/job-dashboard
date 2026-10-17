@@ -214,3 +214,29 @@ def test_trusting_a_profile_value_links_the_wording_to_that_profile_column(conn,
     lessons.file(conn, out["proposal"], out["answer"], fake_embed)
     eid = qbank.exact(conn, "Full Name*")
     assert qbank.get_entry(conn, eid)["profile_ref"] == "full_name" and not qbank.get_entry(conn, eid)["answer"]
+
+
+def test_a_length_in_the_note_is_a_hard_cap_now_and_on_later_runs(conn, fake_embed):
+    d = insight.validate({"lever": "guide", "rule": "keep it short", "max_words": "70"}, ["under 70 words"])
+    assert d["max_words"] == 70
+    assert insight.validate({"lever": "guide", "max_words": "lots"}, ["x"])["max_words"] is None
+    lessons.add(conn, {"lever": "guide", "concept": "leading or mentoring people", "rule": "plain, no invented numbers",
+                       "applies_to": "similar", "label": "x", "max_words": 70}, fake_embed)
+    lessons.add(conn, {"lever": "guide", "concept": "years of experience", "rule": "a number only",
+                       "applies_to": "question", "label": "Years?", "max_words": None}, fake_embed)
+    s = lessons.steer(lessons.for_question(conn, "leading or mentoring people", "textarea", fake_embed))
+    assert s["max_words"] == 70
+
+
+def test_the_essay_writer_enforces_the_cap(monkeypatch):
+    from career_agent.longform import asks as A
+    monkeypatch.setattr("career_agent.longform.segments.sub_asks", lambda q, llm: [{"part": q, "source": "GENERAL"}])
+    monkeypatch.setattr(A, "material_for", lambda *a, **k: [])
+    monkeypatch.setattr(A, "uncovered", lambda *a, **k: [])
+    long = "I would start with error analysis on bad answers. " * 30
+
+    class Corpus:
+        items = []
+    out = A.answer_asks("What would you do?", job={}, kb=None, corpus=Corpus(), llm=lambda p: long,
+                        steer={"max_words": 20})
+    assert len(out["answer"]) <= 130 and out["answer"].endswith(".")

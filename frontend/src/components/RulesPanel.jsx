@@ -17,7 +17,7 @@ function Rule({ l, onChange }) {
     <li className="mem-card" style={{ padding: "12px 14px", opacity: l.status === "active" || l.status === "filed" ? 1 : 0.6 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
         <span className="chip" style={{ padding: "2px 8px", fontSize: 11 }}>{LEVER[l.lever] || l.lever}</span>
-        {isRule && <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>applies to {SCOPE[l.applies_to] || l.applies_to}</span>}
+        {isRule && <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>applies to {SCOPE[l.applies_to] || l.applies_to}{l.max_words ? ` · max ${l.max_words} words` : ""}</span>}
         {l.status !== "active" && l.status !== "filed" && <span style={{ fontSize: 12, fontWeight: 600 }}>{l.status}</span>}
         <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--ink-faint)" }}>
           #{l.id}{isRule ? ` · used ${l.hits}×` : ""} · {new Date(l.created_at).toLocaleDateString()}

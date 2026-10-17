@@ -193,6 +193,9 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     if OUTREACH.search(question):
         return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm, limit=limit)
     asks = _steered(sub_asks(question, llm), steer)
+    if (steer or {}).get("max_words"):                      # a length you set is a hard cap, like a field's maxlength
+        cap = int(steer["max_words"] * 6.5)                 # ~6.5 characters per English word, spaces included
+        limit = min(limit, cap) if limit else cap
     research = get_research() if any(a["source"] == "COMPANY" for a in asks) else None
     pid = project_for(asks, question, corpus) if _ONE_THING.search(question) else None
     # it10 capped a note-to-the-team at the 2 projects that fit the posting: tied with it9 on the same judge
