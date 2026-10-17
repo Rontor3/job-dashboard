@@ -21,13 +21,14 @@ class QARecorder:
     def trace_all(self, fields):
         """Snapshot what memory retrieval sees for each field. Called before any
         answer is recorded, so the trace reflects the state retrieval used."""
-        if self.tracer is None:
-            return
         for f in fields:
+            meta = {"options_json": list(f.options)} if getattr(f, "options", None) else {}
             try:
-                self._meta[f.ref] = self.tracer(f)
+                meta.update(self.tracer(f) if self.tracer else {})
             except Exception as e:
                 print(f"[qa] trace failed: {e!r}", flush=True)
+            if meta:
+                self._meta[f.ref] = meta
 
     def outcome(self, ref, outcome):
         self._rec(ref, self._labels.get(ref, ref), outcome=outcome)

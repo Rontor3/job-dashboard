@@ -126,3 +126,18 @@ def test_recent_retrievals_newest_first_with_job(conn):
     _seed(conn)
     r = qa_store.recent_retrievals(conn, 3)
     assert len(r) == 3 and r[0]["label"] == "Tell me more" and r[0]["title"] == "T2"
+
+
+def test_a_choice_fields_options_round_trip(tmp_path):
+    from job_dashboard.db import init_db
+    from job_dashboard import qa_store
+    from career_agent.orchestrator.qa_recorder import QARecorder
+    from types import SimpleNamespace
+    conn = init_db(str(tmp_path / "t.db"))
+    rec = QARecorder(conn, 1, run_key="r")
+    f = SimpleNamespace(ref="#c", label="Currency", kind="select", purpose=None, options=["INR", "USD"])
+    rec.trace_all([f])
+    rec.needs(f)
+    cur = conn.execute("SELECT * FROM application_qa")
+    row = qa_store._row(cur, cur.fetchone())
+    assert row["options_json"] == ["INR", "USD"]

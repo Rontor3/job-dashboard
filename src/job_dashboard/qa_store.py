@@ -34,7 +34,7 @@ _COLS = (
     "qkey", "label", "kind", "purpose", "answer", "source", "status",
     "confidence", "basis", "context_json", "unsupported_claims",
     "retrieval_kind", "retrieved_qkey", "retrieval_score", "candidates_json",
-    "outcome", "page",
+    "outcome", "page", "options_json",
 )
 
 
@@ -56,6 +56,8 @@ def ensure(conn) -> None:
         UNIQUE(run_key, ref))""")
     if "page" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
         conn.execute("ALTER TABLE application_qa ADD COLUMN page INTEGER")      # which form page asked it
+    if "options_json" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
+        conn.execute("ALTER TABLE application_qa ADD COLUMN options_json TEXT")  # a choice field's options
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_job_status ON application_qa(job_id, status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_qkey ON application_qa(qkey)")
     conn.execute("CREATE TABLE IF NOT EXISTS agent_settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -94,7 +96,7 @@ def record(conn, *, job_id, run_key: str, ref: str, label: str, **fields) -> Non
 
 def _row(cur, r) -> dict:
     d = dict(zip([c[0] for c in cur.description], r))
-    for k in ("context_json", "unsupported_claims", "candidates_json"):
+    for k in ("context_json", "unsupported_claims", "candidates_json", "options_json"):
         if d.get(k):
             try:
                 d[k] = json.loads(d[k])

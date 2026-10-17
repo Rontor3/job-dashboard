@@ -28,6 +28,20 @@ def _claude_cli(prompt: str, timeout: int = 120) -> str:
     return r.stdout
 
 
+def with_claude_fallback(llm):
+    """The local model first; when it is down (Ollama stopped), Claude's CLI drafts instead of a canned template."""
+    def call(prompt):
+        try:
+            out = llm(prompt)
+            if isinstance(out, str) and out.strip():
+                return out
+        except Exception:
+            pass
+        print("[llm] local model unavailable -> drafting with Claude", flush=True)
+        return _claude_cli(prompt, timeout=180)
+    return call
+
+
 def parse_action(text: str) -> dict | None:
     """First JSON object in Claude's reply, or None."""
     i = (text or "").find("{")

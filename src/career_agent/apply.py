@@ -245,7 +245,8 @@ def _apply(args, box: dict) -> None:
             _qbank.ensure(conn)
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
-            llm = _with_claude_fallback(make_default_llm())
+            from .orchestrator.claude_assist import with_claude_fallback
+            llm = with_claude_fallback(make_default_llm())
             _vendor = _ats_lookup(args.url)
             _ats_notes = ""
             if _vendor:
@@ -699,21 +700,6 @@ def _close_dead_tab(page):
         page.close()
     except Exception:
         pass
-
-
-def _with_claude_fallback(llm):
-    """The local model first; when it is down (Ollama stopped), Claude's CLI drafts instead of a canned template."""
-    def call(prompt):
-        try:
-            out = llm(prompt)
-            if isinstance(out, str) and out.strip():
-                return out
-        except Exception:
-            pass
-        from .orchestrator.claude_assist import _claude_cli
-        print("[llm] local model unavailable -> drafting with Claude", flush=True)
-        return _claude_cli(prompt, timeout=180)
-    return call
 
 
 def _escalation_context(conn, job_id, jd_text):
