@@ -269,3 +269,11 @@ export const interpretAnswer = (question, text, entry_id, choices) =>
 export const fetchNotifications = () => fetch("/api/notifications").then(json);   // {items, unread}
 export const readNotifications = (ids) => fetch("/api/notifications/read", jsonBody("POST", ids ? { ids } : {})).then(json);
 export const dismissNotification = (id) => fetch(`/api/notifications/${id}/dismiss`, { method: "POST" }).then(json);
+
+// Insights beside a run's answers (insight_routes.py): rewrite from your note, then file what it taught.
+export const rewriteAnswer = (rowId, notes) =>
+  fetch(`/api/application-qa/${rowId}/rewrite`, jsonBody("POST", { notes })).then(json);
+export const saveLesson = (proposal, answer) => fetch("/api/lessons", jsonBody("POST", { proposal, answer })).then(json);
+export const fetchLessons = () => fetch("/api/lessons").then(json);          // {lessons}
+export const updateLesson = (id, patch) => fetch(`/api/lessons/${id}`, jsonBody("PUT", patch)).then(json);
+export const lessonReach = (body) => fetch("/api/lessons/reach", jsonBody("POST", body)).then(json);

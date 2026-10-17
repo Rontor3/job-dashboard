@@ -13,6 +13,7 @@ import HiringSignals from "./components/HiringSignals.jsx";
 import ResumeLibrary from "./components/ResumeLibrary.jsx";
 import AnswersTab, { Tuning } from "./components/AnswersTab.jsx";
 import IngredientsPanel from "./components/IngredientsPanel.jsx";
+import RulesPanel from "./components/RulesPanel.jsx";
 import QueueStrip from "./components/QueueStrip.jsx";
 import JobsView from "./components/JobsView.jsx";
 import Inbox from "./components/Inbox.jsx";
@@ -21,7 +22,7 @@ import Updates from "./components/Updates.jsx";
 
 const TABS = [["inbox", "Inbox"], ["browse", "Browse"], ["jobs", "Jobs"], ["applied", "Applications"], ["hiring", "Hiring"],
               ["resumes", "Résumés"], ["memory", "Memory"]];
-const MEMORY_PARTS = [["answers", "Answers"], ["story", "Your story"], ["tuning", "Tuning"]];
+const MEMORY_PARTS = [["answers", "Answers"], ["story", "Your story"], ["rules", "Rules"], ["tuning", "Tuning"]];
 
 // The open tab lives in the URL hash, so a reload, a bookmark or Back lands where you were.
 const TAB_KEYS = TABS.map(([k]) => k);
@@ -62,6 +63,7 @@ function Memory() {
           <IngredientsPanel />
         </>
       )}
+      {part === "rules" && <RulesPanel />}
       {part === "tuning" && <Tuning />}
     </section>
   );

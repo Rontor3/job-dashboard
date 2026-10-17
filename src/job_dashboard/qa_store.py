@@ -255,7 +255,8 @@ def questions_by_page(conn, job_id: int) -> dict:
             "status": d["status"], "origin": origin(d), "matched": d["retrieved_qkey"],
             "match_kind": d["retrieval_kind"], "score": d["retrieval_score"], "confidence": d["confidence"],
             "basis": d["basis"], "unsupported_claims": d["unsupported_claims"] or [],
-            "prompt": ctx.get("prompt") if isinstance(ctx, dict) else None, "outcome": d["outcome"]})
+            "prompt": ctx.get("prompt") if isinstance(ctx, dict) else None, "outcome": d["outcome"],
+            "lessons": (ctx.get("lessons") if isinstance(ctx, dict) else None) or []})
     return out
 
 
