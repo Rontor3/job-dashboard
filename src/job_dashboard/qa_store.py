@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
                     "profile_autofill_at": "",         # when the résumé was last read into the profile
                     "inbox_snoozed": "{}",             # Inbox items skipped: {key: ISO until}
+                    "insight_local_only": "0",         # 1 = rewriting an answer never falls back to Claude
                     "telegram_wait_minutes": "10",     # apply queue: live Telegram questions, then park
                     "answer_confidence_min": "60", "qbank_confident_min": "87", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
                     "browser_naukri_enabled": "0", "browser_wellfound_enabled": "0",
