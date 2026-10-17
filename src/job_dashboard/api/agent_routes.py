@@ -247,7 +247,11 @@ def _with_questions(job_id, steps, by_page) -> dict:
     (older runs) come back under `unpaged`."""
     for s in steps:
         s["questions"] = by_page.get(s["step"], [])
-    return {"job_id": job_id, "steps": steps, "unpaged": by_page.get(None, [])}
+    shown = {s["step"] for s in steps}
+    # rows with no page (older runs), or recorded on a page the run's trail doesn't list (a board run that logs one
+    # step), are still this run's answers: never drop them from the view
+    rest = [q for page, qs in by_page.items() if page is None or page not in shown for q in qs]
+    return {"job_id": job_id, "steps": steps, "unpaged": sorted(rest, key=lambda q: q["id"])}
 
 
 def _with_eligibility(run_dir, body):
