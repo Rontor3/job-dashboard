@@ -91,3 +91,29 @@ def test_live_keka_formatting():
     facts = {"dob": F._fact("date", date(2001, 3, 17), ""), "today": FACTS["today"]}
     assert F.answer("JanFebMarAprMayJunJulAugSepOctNovDec", "select", [], {}, facts,
                     lambda p: '{"plan": {"fact": "dob"}}')[0] is None             # glued option words are not a label
+
+
+def test_an_instruction_reaches_the_compiler_and_gets_its_own_cache_slot():
+    seen, cache = [], {}
+
+    class Cache(dict):
+        def get(self, k):
+            return dict.get(self, k)
+
+    cache = Cache()
+    llm = lambda p: seen.append(p) or '{"plan": {"fact": "phone", "field": "dial"}}'     # noqa: E731
+    facts = {**FACTS, "phone": F._fact("phone", F.phone("+91 7565052330"), "phone")}
+    F.answer("Country code", "text", [], {}, facts, llm, cache=cache)
+    F.answer("Country code", "text", [], {}, facts, llm, cache=cache, guidance="only the dial code, no number")
+    assert len(seen) == 2 and "only the dial code" in seen[1] and "only the dial code" not in seen[0]
+    assert len(cache) == 2                                # the plain plan is not reused for the instructed one
+
+
+def test_job_facts_let_a_plan_compare_the_job_with_the_applicant():
+    facts = {**FACTS, "location": F._fact("place", F.place("Mumbai, India"), "location"),
+             **F.job_facts({"location": "Ahmedabad, Gujarat, India", "company": "Acme"})}
+    plan = ('{"plan": {"op": "cmp", "cmp": "==", "args": [{"fact": "location", "field": "city"}, '
+            '{"fact": "job_location", "field": "city"}]}}')
+    assert F.answer("Are you currently based in Ahmedabad?", "radio_group", ["Yes", "No"], {}, facts,
+                    lambda p: plan)[0] == "No"
+    assert "Ahmedabad" not in F.schema(facts)             # the compiler sees names, never the job's values

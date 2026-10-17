@@ -163,7 +163,7 @@ def _local(llm, question, kind, options, job, facts, cards):
     return value, card
 
 
-def answer(question, kind, options, job, facts, cards, *, local_llm, haiku_llm, cache=None, hint=""):
+def answer(question, kind, options, job, facts, cards, *, local_llm, haiku_llm, cache=None, hint="", guidance=""):
     """(value or None, note). The note starts with MISSING/DERIVE when Haiku proposes a new fact (the caller saves
     it); 'agree'/'plan only'/'local only' say which reader(s) the value stands on."""
     if F._OPTION_RUN.fullmatch((question or "").strip()):
@@ -172,7 +172,8 @@ def answer(question, kind, options, job, facts, cards, *, local_llm, haiku_llm, 
         fut = pool.submit(_local, local_llm, question, kind, options, job, facts, cards.top(question)) \
             if local_llm else None
         try:                                              # Haiku in THIS thread: the plan cache is sqlite
-            plan_val, note = F.answer(question, kind, options, job, facts, haiku_llm, cache=cache, hint=hint)
+            plan_val, note = F.answer(question, kind, options, job, facts, haiku_llm, cache=cache, hint=hint,
+                                      guidance=guidance)
         except Exception as e:
             if fut:
                 fut.cancel()

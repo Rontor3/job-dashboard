@@ -411,14 +411,16 @@ def applicant_context(job) -> str:
             "answer still comes only from the stored facts, and an honest no / none is better than a stretched yes.")
 
 
-def compile_question(question, kind, options, job, facts, llm) -> dict:
-    """{'plan': expr} | {'missing': {'key', 'type', 'ask'}} | {'not_a_question': True} | {} on a bad reply."""
+def compile_question(question, kind, options, job, facts, llm, guidance="") -> dict:
+    """{'plan': expr} | {'missing': {'key', 'type', 'ask'}} | {'not_a_question': True} | {} on a bad reply.
+    `guidance`: the applicant's own instruction for how to read this field (an insight, orchestrator/insight.py)."""
     opt = f"\nIts options: {list(options)}" if options else ""
+    told = f"\nThe applicant's instruction for this field (follow it): {guidance}" if guidance else ""
     prompt = (
         f"{applicant_context(job)}\n\n"
         "You translate a job-application form field into a plan over the candidate's stored facts. You see the "
         "facts' names and types, not their values; the plan is executed later.\n\n"
-        f"Field ({kind}): {question}{opt}\n\n"
+        f"Field ({kind}): {question}{opt}{told}\n\n"
         f"Stored facts:\n{schema(facts)}\n\n{OPS_HELP}\n\n"
         "Rules: a yes/no question must yield true/false. Use ONLY facts that answer what is asked. A general fact "
         "answers a narrower version of it: a stored non-compete answer covers 'that would affect your work at "
@@ -444,16 +446,30 @@ def compile_question(question, kind, options, job, facts, llm) -> dict:
         return {}
 
 
-def answer(question, kind, options, job, facts, llm, cache=None, hint=""):
+def job_facts(job) -> dict:
+    """This application's public facts (the posting's place and employer), so a plan can compare the job with the
+    applicant ("based in the job's city?") generically — never a literal city baked into a plan cached by wording."""
+    out = {}
+    if (job or {}).get("location"):
+        out["job_location"] = _fact("place", place(job["location"]), "this job's location, from the posting")
+    if (job or {}).get("company"):
+        out["job_company"] = _fact("text", job["company"], "this job's employer")
+    return out
+
+
+def answer(question, kind, options, job, facts, llm, cache=None, hint="", guidance=""):
     """(value or None, note). The plan is cached per wording: the model runs once per new phrasing. `hint`: the
     field's name/ref/input type, read by the formatter (the unit a money box wants)."""
     from .qbank import norm
     if _OPTION_RUN.fullmatch((question or "").strip()):
         return None, "unreadable label (a run of option words)"      # live Keka: "JanFeb...Dec" got the birth year
     key = norm(question)
+    if guidance:                                          # an instruction changes the plan: never reuse the plain one
+        import hashlib
+        key += "#" + hashlib.sha1(guidance.encode()).hexdigest()[:8]
     out = cache.get(key) if cache is not None else None
     if out is None:
-        out = compile_question(question, kind, options, job, facts, llm)
+        out = compile_question(question, kind, options, job, facts, llm, guidance)
         if cache is not None:
             cache[key] = out
     derive = out.get("derive") if isinstance(out.get("derive"), dict) else None

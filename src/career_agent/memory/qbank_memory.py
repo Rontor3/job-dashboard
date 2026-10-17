@@ -35,7 +35,7 @@ class QBankMemory:
         from .factcards import Cards, PlanCache
         snap = self.conn.execute("SELECT count(*), max(updated_at) FROM qbank_entry").fetchone()
         if self._facts is None or snap != self._snap:
-            self._facts = F.build(self.conn, self.contact, self._skills)
+            self._facts = {**F.build(self.conn, self.contact, self._skills), **F.job_facts(self.job)}
             self._cards, self._plans = Cards(self._facts, self.embed), PlanCache(self.conn, self._facts)
             self._snap = snap
         return self._facts, self._cards, self._plans
