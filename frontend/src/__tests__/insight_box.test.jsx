@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { vi, test, expect, beforeEach } from "vitest";
 import InsightBox from "../components/InsightBox.jsx";
 import RulesPanel from "../components/RulesPanel.jsx";
@@ -34,9 +34,16 @@ test("a note becomes a cause, a rewritten answer and a rule you can scope, then 
   fireEvent.click(screen.getByRole("button", { name: "Rewrite" }));
   expect(await screen.findByText(/has to be worked out/)).toBeInTheDocument();
   expect(screen.getByLabelText("New answer")).toHaveValue("No");
-  expect(await screen.findByText(/Would have applied to 2 past questions/)).toBeInTheDocument();
+  expect(await screen.findByText("Where should this apply?")).toBeInTheDocument();
+  expect(within(screen.getByRole("radio", { name: /Questions about the same thing/ })).getByText("suggested")).toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: /Questions about the same thing/ })).toHaveAttribute("aria-checked", "true");
+  await waitFor(() => expect(screen.getAllByText("2 past")).toHaveLength(4));
   expect(calls.find(([u]) => u.endsWith("/rewrite"))[2]).toEqual({ notes: ["compare the JD location with mine"] });
-  fireEvent.change(screen.getByLabelText("Applies to"), { target: { value: "question" } });
+  fireEvent.click(screen.getByRole("radio", { name: /Only this question/ }));
+  expect(screen.getByRole("radio", { name: /Only this question/ })).toHaveAttribute("aria-checked", "true");
+  fireEvent.keyDown(screen.getByRole("radiogroup", { name: "Applies to" }), { key: "4" });
+  expect(screen.getByRole("radio", { name: /Every short field/ })).toHaveAttribute("aria-checked", "true");
+  fireEvent.keyDown(screen.getByRole("radiogroup", { name: "Applies to" }), { key: "1" });
   fireEvent.click(screen.getByRole("button", { name: "Accept" }));
   expect(await screen.findByText(/Learned: rule/)).toBeInTheDocument();
   expect(calls.some(([u, m, b]) => u === "/api/application-qa/11/answer" && m === "PUT" && b.answer === "No")).toBe(true);

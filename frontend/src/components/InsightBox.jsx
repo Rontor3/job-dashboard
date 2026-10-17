@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { editFilledAnswer, launchApplyAgent, lessonReach, rewriteAnswer, saveLesson } from "../api.js";
+import ScopeChoice, { SCOPE_OPTIONS } from "./ScopeChoice.jsx";
 
 // Beside one answer of a run: say what's wrong in your own words; the agent works out the CAUSE (a missing fact,
 // other wording, a default, a comparison with the job, the wrong material…), rewrites the answer the way the next
@@ -17,8 +18,6 @@ const CAUSE = {
   guide: "How this kind of answer should be written",
 };
 const RULE_LEVERS = ["derive", "shape", "identify", "scope", "guide"];
-const SCOPES = [["question", "Only this question"], ["similar", "Questions about the same thing"],
-                ["long", "Every essay answer"], ["short", "Every short field"]];
 
 function learns(p) {
   if (!p) return "";
@@ -42,17 +41,18 @@ export default function InsightBox({ q, jobId, onDone }) {
   const [rule, setRule] = useState("");
   const [scope, setScope] = useState("question");
   const [remember, setRemember] = useState(true);
-  const [reach, setReach] = useState(null);
+  const [reaches, setReaches] = useState({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [done, setDone] = useState(null);
 
   const isRule = res && RULE_LEVERS.includes(res.proposal.lever);
-  useEffect(() => {
-    if (!isRule || !remember) { setReach(null); return; }
-    lessonReach({ concept: res.proposal.concept, applies_to: scope, label: q.label, kind: q.kind || "text" })
-      .then(setReach).catch(() => setReach(null));
-  }, [isRule, remember, scope, res, q.label, q.kind]);
+  useEffect(() => {                           // how far each option reaches, fetched once per rewrite
+    if (!isRule) { setReaches({}); return; }
+    setReaches({});
+    SCOPE_OPTIONS.forEach(({ key }) => lessonReach({ concept: res.proposal.concept, applies_to: key, label: q.label, kind: q.kind || "text" })
+      .then((r) => setReaches((m) => ({ ...m, [key]: r }))).catch(() => {}));
+  }, [isRule, res, q.label, q.kind]);
 
   if (!open) {
     return <div><button type="button" className="linkish" style={{ fontSize: 12, marginTop: 4 }} onClick={() => setOpen(true)}
@@ -128,17 +128,7 @@ export default function InsightBox({ q, jobId, onDone }) {
               <label style={{ fontSize: 12, fontWeight: 600 }}>The rule
                 <textarea aria-label="Rule" rows={2} style={{ ...input, marginTop: 4 }} value={rule} onChange={(e) => setRule(e.target.value)} />
               </label>
-              <label style={{ fontSize: 12 }}>Applies to{" "}
-                <select aria-label="Applies to" value={scope} onChange={(e) => setScope(e.target.value)}>
-                  {SCOPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
-              </label>
-              {reach && (
-                <details style={{ fontSize: 12, color: "var(--ink-soft)" }}>
-                  <summary>Would have applied to {reach.count} past question{reach.count === 1 ? "" : "s"}</summary>
-                  <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>{reach.examples.map((x) => <li key={x.label}>{x.label}</li>)}</ul>
-                </details>
-              )}
+              <ScopeChoice value={scope} suggested={res.proposal.applies_to} reaches={reaches} onChange={setScope} />
             </>
           )}
           <details style={{ fontSize: 11, color: "var(--ink-faint)" }}>

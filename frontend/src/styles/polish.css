@@ -199,3 +199,26 @@
 .entry-picker-list li { padding: 6px 8px; border-radius: 6px; font-size: 12.5px; line-height: 1.4; white-space: normal;
   overflow-wrap: anywhere; cursor: pointer; }
 .entry-picker-list li.on { background: color-mix(in srgb, var(--green) 12%, transparent); }
+
+/* ── Insight → "Where should this apply?" choice card (ScopeChoice.jsx) ── */
+.scope-choice { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; outline: none;
+  background: var(--canvas); border: 1px solid var(--hairline-strong); box-shadow: var(--shadow-md);
+  animation: tip-in var(--dur-quick) var(--ease-out); }
+.scope-q { font-family: var(--font-display); font-size: 17px; font-weight: 560; margin: 2px 4px 6px; color: var(--ink); }
+.scope-opt { display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; font: inherit; cursor: pointer;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--card); color: var(--ink);
+  transition: border-color var(--dur-quick), background var(--dur-quick), box-shadow var(--dur-quick); }
+.scope-opt:hover { border-color: var(--green-soft); }
+.scope-opt[aria-checked="true"] { border-color: var(--green); background: var(--green-tint); box-shadow: 0 0 0 1px var(--green) inset; }
+.scope-num { flex-shrink: 0; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-size: 12px;
+  font-weight: 700; background: var(--ring-track); color: var(--ink-soft); }
+.scope-opt[aria-checked="true"] .scope-num { background: var(--green); color: var(--canvas); }
+.scope-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.scope-label { font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.scope-tag { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 7px;
+  border-radius: 999px; background: var(--warm-tint); color: var(--warm-ink); }
+.scope-text { font-size: 12.5px; color: var(--ink-soft); line-height: 1.4; }
+.scope-reach { flex-shrink: 0; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-faint); padding-top: 2px; }
+.scope-opt[aria-checked="true"] .scope-reach { color: var(--green); font-weight: 600; }
+.scope-examples { font-size: 12px; color: var(--ink-soft); margin: 4px 4px 0; }
+.scope-examples ul { margin: 4px 0 0; padding-left: 18px; }
