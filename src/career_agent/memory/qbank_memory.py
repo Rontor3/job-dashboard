@@ -40,20 +40,31 @@ class QBankMemory:
             self._snap = snap
         return self._facts, self._cards, self._plans
 
-    def _from_facts(self, f):
+    def _rules(self, f):
+        """The applicant's short-field lessons for this field (memory/lessons.py): how to read it, what part it wants."""
+        try:
+            from . import lessons
+            return lessons.for_question(self.conn, f.label, f.kind, self.embed, levers=("derive", "shape", "identify", "guide"))
+        except Exception as e:
+            print(f"[warn] lessons unavailable: {e!r}")
+            return []
+
+    def _from_facts(self, f, rules=()):
         import json
         import re
         from ..orchestrator.sensitive import is_sensitive
         from . import factcards
         from .qbank_promote import save_fact
+        named = next((r["concept"] for r in rules if r["lever"] == "identify" and r.get("concept")), None)
         if (self.facts_llm is None or f.kind in _NOT_FOR_PLANS or f.purpose == "attestation"
-                or is_junk(f) or is_sensitive(f)):
+                or (is_junk(f) and not named) or is_sensitive(f)):
             return None
         facts, cards, plans = self._fact_sheet()
-        question = factcards.question_of(f.label, f.ref)
+        question = named or factcards.question_of(f.label, f.ref)          # a label you named means what you said
+        guidance = "\n".join(r["rule"] for r in rules if r.get("rule"))
         value, note = factcards.answer(question, f.kind, f.options or [], self.job, facts, cards,
                                        local_llm=self.llm, haiku_llm=self.facts_llm, cache=plans,
-                                       hint=f"{f.ref} {getattr(f, 'input_type', '') or ''}")
+                                       hint=f"{f.ref} {getattr(f, 'input_type', '') or ''}", guidance=guidance)
         if m := re.search(r"(MISSING|DERIVE) (\{.*\})", note):
             proposal = json.loads(m.group(2))
             if m.group(1) == "MISSING":
@@ -72,6 +83,16 @@ class QBankMemory:
         # (the LLM pick is the expensive part).
         key = (f.ref, f.label, f.description, tuple(f.options or ()))
         if key not in self._cache:
+            rules = self._rules(f) if self.facts_llm is not None else []
+            if rules:                                     # a lesson says how to read this field: the plan answers first
+                try:
+                    hit = self._from_facts(f, rules)
+                    if hit:
+                        hit[0].note += f" | lessons {[r['id'] for r in rules]}"
+                        self._cache[key] = hit
+                        return hit
+                except Exception as e:
+                    print(f"[warn] lesson plan failed for {f.label!r}: {type(e).__name__}: {e}")
             try:
                 self._cache[key] = answer_field(self.conn, f, embed=self.embed, llm=self.llm,
                                                 job=self.job, contact=self.contact, high=self.high)

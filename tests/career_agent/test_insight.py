@@ -161,3 +161,35 @@ def test_reach_lists_the_past_questions_a_rule_would_touch(conn, fake_embed):
     labels = {e["label"] for e in r["examples"]}
     assert "I acknowledge the privacy notice" in labels and "Notice period" not in labels
     assert lessons.reach(conn, "x", "question", "Acknowledge", "checkbox", fake_embed)["count"] == 1
+
+
+# ── the essay writer obeys a scope lesson, but an explicit ask wins ───────────────────────────────────────────
+
+def test_scope_general_turns_project_material_into_general_reasoning_unless_the_ask_wants_own_work():
+    from career_agent.longform.asks import _ruled, _steered
+    asks = [{"part": "What would you investigate first in a RAG agent with poor answers?", "source": "CANDIDATE"},
+            {"part": "Describe a project you built with retrieval", "source": "CANDIDATE"},
+            {"part": "Why this company?", "source": "COMPANY"}]
+    got = [a["source"] for a in _steered(asks, {"scope": "general"})]
+    assert got == ["GENERAL", "CANDIDATE", "COMPANY"]
+    assert _steered(asks, None) == asks
+    p = _ruled("You write...\n\nAnswer:", {"rule": "- never invent metrics"})
+    assert "never invent metrics" in p and p.endswith("\n\nAnswer:")
+
+
+def test_a_shape_lesson_makes_the_next_run_answer_from_the_plan_with_that_instruction(conn, fake_embed):
+    from types import SimpleNamespace
+    from career_agent.memory.qbank_memory import QBankMemory
+    lessons.add(conn, {"lever": "shape", "concept": "currency of expected compensation", "applies_to": "similar",
+                       "rule": "When a box asks for the compensation currency, give only the currency", "label": "x"},
+                fake_embed)
+    conn.execute("INSERT INTO application_profile (id, salary_expectation) VALUES (1, '30 LPA')")
+    conn.commit()
+    seen = []
+    mem = QBankMemory(conn, embed=fake_embed, contact={"salary_expectation": "30 LPA"},
+                      llm=lambda p: '{"value": "INR", "card": "salary_expectation"}',
+                      facts_llm=lambda p: seen.append(p) or '{"plan": {"fact": "salary_expectation", "field": "currency"}}')
+    f = SimpleNamespace(ref="#cur", label="Expected compensation - Currency", kind="text", options=[], purpose=None,
+                        description="", required=False, input_type="", autocomplete="")
+    m, value = mem._answer(f)
+    assert value == "INR" and "only the currency" in seen[0] and "lessons" in m.note

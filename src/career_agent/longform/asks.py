@@ -162,14 +162,37 @@ def uncovered(text: str, asks: list[dict], llm) -> list[int]:
     return [n for n in range(1, len(asks) + 1) if got and not str(got.get(str(n)) or "").strip()]
 
 
-def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=None) -> dict:
-    """`research` is a ResearchBundle, or a callable returning one (looked up only when an answer needs it)."""
+# A part that asks about the applicant's OWN work keeps their projects whatever a scope lesson says: the ask wins.
+_OWN_WORK = re.compile(r"\b(you|your|you've|you have)\b[^.?]{0,60}\b(built|build|did|done|led|shipped|worked|project|"
+                       r"projects|experience|developed|deployed|measured|achieved|created|designed)\b", re.I)
+
+
+def _steered(asks: list[dict], steer: dict | None) -> list[dict]:
+    """A scope lesson ('answer this kind of question from general reasoning'): applicant-history parts that don't
+    explicitly ask for the applicant's own work are answered as GENERAL (practice library, 'I would ...')."""
+    if (steer or {}).get("scope") != "general":
+        return asks
+    return [{**a, "source": "GENERAL"} if a["source"] == "CANDIDATE" and not _OWN_WORK.search(a["part"]) else a
+            for a in asks]
+
+
+def _ruled(prompt: str, steer: dict | None) -> str:
+    rule = (steer or {}).get("rule")
+    if not rule:
+        return prompt
+    return prompt.replace("\n\nAnswer:", "\n\nThe applicant's own instructions for this kind of question (follow them; "
+                          f"if one conflicts with what an ask explicitly requests, the ask wins):\n{rule}\n\nAnswer:")
+
+
+def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=None, steer=None) -> dict:
+    """`research` is a ResearchBundle, or a callable returning one (looked up only when an answer needs it).
+    `steer`: {'scope': 'general'|None, 'rule': text} from the applicant's lessons (memory/lessons.py)."""
     from .outreach import OUTREACH, answer_outreach, copied_run
     from .segments import invented_links, sub_asks
     get_research = research if callable(research) else (lambda: research)
     if OUTREACH.search(question):
         return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm, limit=limit)
-    asks = sub_asks(question, llm)
+    asks = _steered(sub_asks(question, llm), steer)
     research = get_research() if any(a["source"] == "COMPANY" for a in asks) else None
     pid = project_for(asks, question, corpus) if _ONE_THING.search(question) else None
     # it10 capped a note-to-the-team at the 2 projects that fit the posting: tied with it9 on the same judge
@@ -179,7 +202,7 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
                                allowed if a["source"] == "CANDIDATE" else None, research)) for a in asks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
     try:
-        raw = llm(build_prompt(question, asks, blocks, limit, kb))
+        raw = llm(_ruled(build_prompt(question, asks, blocks, limit, kb), steer))
     except Exception as e:
         return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"], "confidence": None}
     text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
@@ -188,7 +211,7 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     copied = copied_run(text, posting) if research is not None else None
     if copied:                                               # a 'why us' that restates the job post: one rewrite
         try:
-            again = llm(build_prompt(question, asks, blocks, limit, kb).replace(
+            again = llm(_ruled(build_prompt(question, asks, blocks, limit, kb), steer).replace(
                 "\n\nAnswer:", f"\n\nDo not reuse the job post's wording such as \"{copied}\".\n\nAnswer:"))
             again = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", again or "")).strip())
             if again:
@@ -199,7 +222,7 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     try:                                                     # it3: coverage repair, one grounded addition per missed ask
         for n in uncovered(text, asks, llm) if text else []:
             ask, mat = blocks[n - 1]
-            add = llm(build_prompt(question, [ask], [(ask, mat)], None, kb).replace(
+            add = llm(_ruled(build_prompt(question, [ask], [(ask, mat)], None, kb), steer).replace(
                 "Answer EVERY ask below", "Write 1-2 sentences answering ONLY the ask below") + "")
             add = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", add or "")).strip())
             if add:
