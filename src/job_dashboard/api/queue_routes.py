@@ -55,7 +55,7 @@ class AutosubmitSet(BaseModel):
 def make_agent_launch(state, poll_s: float = 2.0):
     """launch(job_id, argv, result_path) -> exit code, via the shared AgentRunState.
     Waits for a busy agent (e.g. a manual /apply-agent run) instead of failing."""
-    from job_dashboard.api.agent_routes import REPO_ROOT, _ensure_cdp_chrome, _log_path
+    from job_dashboard.api.agent_routes import DATA_DIR, REPO_ROOT, _ensure_cdp_chrome, _log_path
 
     def launch(job_id, argv, result_path):
         from career_agent.config.settings import load_settings
@@ -64,8 +64,10 @@ def make_agent_launch(state, poll_s: float = 2.0):
             problem = _ensure_cdp_chrome(cdp_url)
             if problem:
                 raise RuntimeError(problem)
-        env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
-        while not state.start(job_id, argv, str(REPO_ROOT), env, _log_path(job_id)):
+        # The agent runs THIS code (src beside this file) on the dashboard's own data (its working dir: data/, .env)
+        # — the same when both are the checkout root; a worktree's code still fills from the real data.
+        env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONUNBUFFERED": "1"}
+        while not state.start(job_id, argv, str(DATA_DIR.parent), env, _log_path(job_id)):
             time.sleep(poll_s)
         from job_dashboard.apply.stall import STALL_EXIT, watch
         stalled = watch(lambda: state.poll()["running"], state.stop, str(_log_path(job_id)))

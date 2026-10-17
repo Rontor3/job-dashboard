@@ -226,3 +226,22 @@ def test_a_label_wrapping_a_select_is_the_question_not_the_option_list():
         (f,) = [x for x in snapshot_form(page) if x.kind == "select"]
         assert f.label == "Source*" and f.options == ["LinkedIn", "Referral"]
         b.close()
+
+
+def test_a_select_whose_question_sits_in_a_sibling_block_is_named_by_it_not_its_options():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    # Lever custom card (live JumpCloud form): the question is in .application-label, two levels above the select
+    html = ('<ul><li class="application-question custom-question"><div>'
+            '<div class="application-label full-width dropdown"><div class="text">I acknowledge that I may not record '
+            'the interview.<span class="required">✱</span></div></div>'
+            '<div class="application-field full-width required-field"><div class="application-dropdown">'
+            '<select name="cards[46bf994f-a9a2][field0]" required><option value="">Select...</option>'
+            '<option>Yes, I acknowledge this.</option><option>No, I do not acknowledge this.</option></select>'
+            '</div></div></div></li></ul>')
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        (f,) = snapshot_form(page); b.close()
+    assert f.label.startswith("I acknowledge that I may not record the interview.")
+    assert f.options == ["Yes, I acknowledge this.", "No, I do not acknowledge this."]

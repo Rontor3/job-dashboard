@@ -65,7 +65,7 @@ def test_qbank_memory_falls_back_to_a_plan(qbank_conn, fake_embed):
     f = Field(ref="r", kind="radio_group", label="Do you live in India right now?", required=True, options=["Yes", "No"])
     decisions, still = mem.recall([f])
     assert [(d.value, d.source) for d in decisions] == [("Yes", "qbank_likely")] and still == []
-    assert "plan from your facts" in mem.explain(f)["basis"]
+    assert "from your facts: plan only" in mem.explain(f)["basis"]
     off = QBankMemory(qbank_conn, embed=fake_embed, contact={"location": "Mumbai, India"})   # flag off: unchanged
     assert off.recall([f])[0] == []
 

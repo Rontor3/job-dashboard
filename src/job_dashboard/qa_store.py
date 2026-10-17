@@ -106,12 +106,16 @@ def _row(cur, r) -> dict:
 def open_questions(conn, job_id: int) -> list[dict]:
     """Questions still needing an answer for this job: the newest row per
     question, and only if that newest row is still `needs_answer` (a later run
-    that filled it, or a reply, closes it)."""
+    that filled it, or a reply, closes it). A later run's row for the same field
+    (ref, page) also closes it — its label may read differently now (a raw
+    `cards[..][field3]` name the next run perceived as the real question)."""
     ensure(conn)
     cur = conn.execute(
         """SELECT * FROM application_qa a WHERE job_id = ? AND status = 'needs_answer'
            AND id = (SELECT MAX(id) FROM application_qa b
                      WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
+           AND NOT EXISTS (SELECT 1 FROM application_qa c WHERE c.job_id = a.job_id AND c.ref = a.ref
+                           AND c.page IS a.page AND c.run_key != a.run_key AND c.id > a.id)
            ORDER BY id""", (job_id,))
     return [_row(cur, r) for r in cur.fetchall()]
 
@@ -132,6 +136,8 @@ def open_counts(conn) -> dict[int, int]:
            AND job_id IS NOT NULL
            AND id = (SELECT MAX(id) FROM application_qa b
                      WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
+           AND NOT EXISTS (SELECT 1 FROM application_qa c WHERE c.job_id = a.job_id AND c.ref = a.ref
+                           AND c.page IS a.page AND c.run_key != a.run_key AND c.id > a.id)
            GROUP BY job_id""").fetchall()
     return {j: n for j, n in rows}
 

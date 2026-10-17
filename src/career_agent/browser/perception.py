@@ -218,9 +218,12 @@ _INPUT_JS = r"""
     // (a web component's box sits in its shadow root; its words are the host's light-DOM / slotted text: step out to the host)
     const parentOf = n => n.parentElement || ((n.getRootNode && n.getRootNode().host) || null);
     let up = parentOf(el);
+    // A block's words WITHOUT the field's own options: a wrapper holding only the <select> reads empty and the walk
+    // climbs to the block that also holds the question (Lever card: .application-label beside .application-field).
+    const blockText = (n) => { const c = n.cloneNode(true); c.querySelectorAll('select,option,[role=listbox],[role=option],[hidden],[aria-hidden=true],script,style').forEach(x => x.remove()); return c.textContent || ''; };
     for (let i = 0; i < 4 && up; i++, up = parentOf(up)) {
       if (up.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;   // reached other fields
-      const raw = (up.innerText || up.textContent || '').trim().slice(0, 300);
+      const raw = (el.tagName === 'SELECT' ? blockText(up) : (up.innerText || up.textContent || '')).trim().slice(0, 300);
       const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
       if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;           // the star moves to the end: still marks it required
     }

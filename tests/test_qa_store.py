@@ -41,6 +41,14 @@ def test_open_only_when_newest_row_still_open(conn):
     assert qa_store.open_questions(conn, 1) == []
 
 
+def test_a_later_run_of_the_same_field_closes_it_even_relabelled(conn):
+    _q(conn, 1, "r1", "#f3", "cards[15ba][field3]", status="needs_answer", page=0)    # label not perceived yet
+    _q(conn, 1, "r1", "#f9", "Why us?", status="needs_answer", page=1)
+    _q(conn, 1, "r2", "#f3", "Which harnesses have you built?", status="filled", page=0)  # same box, read now
+    assert [q["label"] for q in qa_store.open_questions(conn, 1)] == ["Why us?"]     # page 1 not re-seen: open
+    assert qa_store.open_counts(conn) == {1: 1}
+
+
 def test_mark_answered_closes_and_counts_by_job(conn):
     _q(conn, 1, "r1", "#a", "Why us?", status="needs_answer")
     _q(conn, 2, "r9", "#a", "Why us?", status="needs_answer")

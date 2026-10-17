@@ -196,13 +196,13 @@ def test_history_rewrites_screenshot_paths_to_urls(tmp_path, monkeypatch):
 
 def test_log_404_when_none(tmp_path, monkeypatch):
     c, jid = _client(tmp_path)
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     assert c.get(f"/api/jobs/{jid}/agent-runs/log").status_code == 404
 
 
 def test_log_returns_tail(tmp_path, monkeypatch):
     c, jid = _client(tmp_path)
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     p = tmp_path / "data" / "agent_runs"
     p.mkdir(parents=True)
     (p / f"{jid}.log").write_text("\n".join(f"line {i}" for i in range(200)) + "\n")
@@ -213,7 +213,7 @@ def test_log_returns_tail(tmp_path, monkeypatch):
 
 def test_log_clips_huge_lines(tmp_path, monkeypatch):
     c, jid = _client(tmp_path)
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     p = tmp_path / "data" / "agent_runs"
     p.mkdir(parents=True)
     (p / f"{jid}.log").write_text("short\n" + "x" * 5000 + "\n")
@@ -261,7 +261,7 @@ def test_history_of_a_board_job_comes_from_board_run_json(tmp_path, monkeypatch)
                                 job_url="https://www.naukri.com/job-listings-1", description="jd"))
     jid = conn.execute("SELECT id FROM jobs").fetchone()[0]
     conn.close()
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     run_dir = tmp_path / "data" / "agent_runs" / str(jid)
     run_dir.mkdir(parents=True)
     (run_dir / "board_run.json").write_text(json.dumps([

@@ -23,22 +23,49 @@ class QBankMemory:
         self.job, self.contact = job or {}, contact or {}
         qbank.seed_if_empty(conn, self.embed)
         self._cache: dict = {}
-        # Facts + plans (spec 2026-10-11): when the bank has no answer, a plan written by facts_llm from the fact
-        # schema runs over the stored facts. Off unless a model is given. ponytail: plans cached per run only
-        # (in memory), persist them in a plan table when this graduates from the live test.
-        self.facts_llm, self._skills, self._facts, self._plans = facts_llm, list(skills), None, {}
+        # Facts (spec 2026-10-11 + tournament 2026-10-16): when the bank has no answer, two readers over the fact
+        # sheet — the local model (self.llm) and a Haiku plan (facts_llm, schema only) — fill only when they agree
+        # (memory/factcards.py). Off unless facts_llm is given; without a local model the plan alone answers.
+        self.facts_llm, self._skills, self._facts, self._snap = facts_llm, list(skills), None, None
+        self._proposed: dict = {}           # ref -> a new fact Haiku proposed (MISSING), saved when you answer
+
+    def _fact_sheet(self):
+        """(facts, cards, plan cache), rebuilt when the bank changed — a fact told mid-run is used at once."""
+        from . import facts as F
+        from .factcards import Cards, PlanCache
+        snap = self.conn.execute("SELECT count(*), max(updated_at) FROM qbank_entry").fetchone()
+        if self._facts is None or snap != self._snap:
+            self._facts = F.build(self.conn, self.contact, self._skills)
+            self._cards, self._plans = Cards(self._facts, self.embed), PlanCache(self.conn, self._facts)
+            self._snap = snap
+        return self._facts, self._cards, self._plans
 
     def _from_facts(self, f):
+        import json
+        import re
         from ..orchestrator.sensitive import is_sensitive
-        from . import facts as F
+        from . import factcards
+        from .qbank_promote import save_fact
         if (self.facts_llm is None or f.kind in _NOT_FOR_PLANS or f.purpose == "attestation"
                 or is_junk(f) or is_sensitive(f)):
             return None
-        if self._facts is None:
-            self._facts = F.build(self.conn, self.contact, self._skills)
-        value, note = F.answer(f.label, f.kind, f.options or [], self.job, self._facts, self.facts_llm,
-                               cache=self._plans, hint=f"{f.ref} {getattr(f, 'input_type', '') or ''}")
-        return (Match(LIKELY, kind="plan", note=f"plan from your facts: {note}"), value) if value else None
+        facts, cards, plans = self._fact_sheet()
+        question = factcards.question_of(f.label, f.ref)
+        value, note = factcards.answer(question, f.kind, f.options or [], self.job, facts, cards,
+                                       local_llm=self.llm, haiku_llm=self.facts_llm, cache=plans,
+                                       hint=f"{f.ref} {getattr(f, 'input_type', '') or ''}")
+        if m := re.search(r"(MISSING|DERIVE) (\{.*\})", note):
+            proposal = json.loads(m.group(2))
+            if m.group(1) == "MISSING":
+                self._proposed[f.ref] = {**proposal, "company": self.job.get("company")}
+            elif value:                                   # a formula named once: every later wording reuses it
+                save_fact(self.conn, proposal["key"], proposal.get("type"), proposal.get("desc") or question,
+                          wording=question, embed=self.embed, plan=proposal["plan"])
+        return (Match(LIKELY, kind="plan", note=f"from your facts: {note}"), value) if value else None
+
+    def missing_for(self, f):
+        """The fact Haiku said this field needs ({key, type, ask, company}), or None."""
+        return self._proposed.get(f.ref)
 
     def _answer(self, f):
         # trace_all() runs before recall() on the same fields: compute once
