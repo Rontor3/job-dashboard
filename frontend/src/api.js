@@ -277,3 +277,4 @@ export const saveLesson = (proposal, answer) => fetch("/api/lessons", jsonBody("
 export const fetchLessons = () => fetch("/api/lessons").then(json);          // {lessons}
 export const updateLesson = (id, patch) => fetch(`/api/lessons/${id}`, jsonBody("PUT", patch)).then(json);
 export const lessonReach = (body) => fetch("/api/lessons/reach", jsonBody("POST", body)).then(json);
+export const fetchInsightBacklog = (limit = 5) => fetch(`/api/insight/backlog?limit=${limit}`).then(json);   // {groups}

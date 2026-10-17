@@ -58,3 +58,15 @@ def test_bad_requests(env):
     assert c.post("/api/application-qa/99/rewrite", json={"notes": ["x"]}).status_code == 404
     assert c.post("/api/application-qa/1/rewrite", json={"notes": ["  "]}).status_code == 422
     assert c.post("/api/lessons", json={"proposal": {"lever": "hack", "label": "x"}}).status_code == 422
+
+
+def test_backlog_groups_the_same_gap_across_applications(env):
+    c, db = env
+    conn = init_db(db)
+    for i, label in enumerate(["Acknowledge", "Acknowledge", "Acknowledge *", "Notice period"]):
+        qa_store.record(conn, job_id=1, run_key=f"r{i}", ref="#a", label=label, kind="checkbox", status="needs_answer")
+    conn.close()
+    groups = c.get("/api/insight/backlog").json()["groups"]
+    top = groups[0]
+    assert top["label"] == "Acknowledge" and top["rows"] >= 3 and "Acknowledge *" in top["examples"]
+    assert all("Notice period" not in g["examples"] or g is not top for g in groups)

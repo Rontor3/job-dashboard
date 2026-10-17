@@ -5,6 +5,7 @@
     GET  /api/lessons                        every lesson, newest first (rules, links, facts, superseded ones too)
     PUT  /api/lessons/{id}                   {rule?, applies_to?, status?: active|off}
     POST /api/lessons/reach                  {concept, applies_to, label, kind} -> past questions a rule would touch
+    GET  /api/insight/backlog                open/unsure answers grouped by what they ask, biggest group first
 
 Accepting the answer itself goes through PUT /api/application-qa/{id}/answer (save_as=once), like any edit.
 The local model is started for a rewrite and stopped after it (it holds a lot of RAM); with the setting
@@ -156,6 +157,15 @@ def build_insight_router(db_path, engines: Optional[Callable] = None, embed: Opt
         conn = db()
         try:
             return lessons.reach(conn, body.concept or body.label, body.applies_to, body.label, body.kind, embedder())
+        finally:
+            conn.close()
+
+    @router.get("/api/insight/backlog")
+    def backlog(limit: int = 12):
+        from career_agent.memory.backlog import groups
+        conn = db()
+        try:
+            return {"groups": groups(conn, embedder(), max(1, min(limit, 50)))}
         finally:
             conn.close()
 

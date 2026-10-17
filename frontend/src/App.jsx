@@ -19,6 +19,7 @@ import JobsView from "./components/JobsView.jsx";
 import Inbox from "./components/Inbox.jsx";
 import ProfileReadiness from "./components/ProfileReadiness.jsx";
 import Updates from "./components/Updates.jsx";
+import InsightBacklog from "./components/InsightBacklog.jsx";
 
 const TABS = [["inbox", "Inbox"], ["browse", "Browse"], ["jobs", "Jobs"], ["applied", "Applications"], ["hiring", "Hiring"],
               ["resumes", "Résumés"], ["memory", "Memory"]];
@@ -78,6 +79,7 @@ function InboxPage({ onNeeds, onUnread, onGoJobs, onOpenJob, onShowJobs, onChang
       <p className="view-sub">Only what the apply agent can't do without you, then everything it did.</p>
       <ProfileReadiness tick={tick} onChange={() => setInboxKey((k) => k + 1)} />
       <Inbox key={inboxKey} embedded onCount={onNeeds} onGoJobs={onGoJobs} onSubmitted={() => setTick((t) => t + 1)} />
+      <InsightBacklog />
       <Updates onOpenJob={onOpenJob} onShowJobs={onShowJobs} onUnread={onUnread} onChange={onChange} />
     </section>
   );
