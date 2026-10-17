@@ -166,6 +166,14 @@ def file(conn, p: dict, answer, embed) -> dict:
     from . import qbank
     from .qbank_promote import save_fact
     lever, label, kind = p["lever"], p["label"], p.get("kind") or "text"
+    if str(p.get("entry_id") or "").startswith("profile:"):    # a profile value: one saved question reads that column
+        col = p["entry_id"].split(":", 1)[1]
+        eid = next((e["id"] for e in qbank.entries(conn) if e.get("profile_ref") == col), None)
+        if eid is None:
+            eid = qbank.new_entry_id(conn, col)
+            qbank.upsert_entry(conn, {"id": eid, "question": col.replace("_", " "), "topic": "profile",
+                                      "atype": "text", "profile_ref": col})
+        p = {**p, "entry_id": eid}
     entry = qbank.get_entry(conn, p["entry_id"]) if p.get("entry_id") else None
     rec = {k: p.get(k) for k in ("lever", "applies_to", "concept", "rule", "why", "notes", "source_row", "label")}
     if lever in ("trust", "lookup") or (lever == "identify" and entry):

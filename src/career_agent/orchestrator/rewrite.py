@@ -18,7 +18,7 @@ from job_dashboard import qa_store
 
 from ..memory import lessons, qbank
 from ..memory.qbank_match import CONFIDENT, fit_option, match_question, resolve_value
-from .insight import interpret
+from .insight import checkbox_default, interpret
 
 ORIGIN_WORDS = {"saved_exact": "your saved answer (exact wording)", "saved": "your saved answers",
                 "similar": "a similar saved question (a best guess)", "model": "written by the model",
@@ -72,6 +72,9 @@ def _entry_holding(conn, value, question, job, contact, embed):
             score = float(embed([e["question"]])[0] @ qv)
             if score > best[1]:
                 best = (e["id"], score)
+    if best[0] is None:                                   # held in your profile, no saved question reads it yet
+        col = next((k for k, v in (contact or {}).items() if k != "updated_at" and _norm(v) == want), None)
+        return f"profile:{col}" if col else None
     return best[0]
 
 
@@ -114,6 +117,7 @@ def rewrite(conn, row_id: int, notes: list[str], eng: Engines) -> dict:
     options = row.get("options_json") or []
     d = interpret({"label": row["label"], "kind": row.get("kind"), "options": options,
                    "origin": ORIGIN_WORDS.get(qa_store.origin(row), "unknown")}, notes, job, eng.llm)
+    d = checkbox_default(d, row.get("kind") or "")
     lever, label = d["lever"], row["label"]
     proposal = {**d, "label": label, "source_row": row_id, "notes": notes, "kind": row.get("kind")}
     answer = None

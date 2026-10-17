@@ -193,3 +193,24 @@ def test_a_shape_lesson_makes_the_next_run_answer_from_the_plan_with_that_instru
                         description="", required=False, input_type="", autocomplete="")
     m, value = mem._answer(f)
     assert value == "INR" and "only the currency" in seen[0] and "lessons" in m.note
+
+
+def test_a_note_on_a_tick_box_is_a_default_and_broad_scopes_start_narrow():
+    from career_agent.orchestrator.insight import checkbox_default
+    d = insight.validate({"lever": "guide", "rule": "When a privacy notice is shown, always acknowledge it",
+                          "applies_to": "short"}, ["always acknowledge"])
+    assert d["applies_to"] == "similar"
+    assert checkbox_default(d, "checkbox")["lever"] == "policy" and checkbox_default(d, "checkbox")["value"] == "Yes"
+    assert checkbox_default({**d, "rule": "opt out of marketing emails"}, "checkbox")["value"] == "No"
+    assert checkbox_default(d, "text")["lever"] == "guide"
+
+
+def test_trusting_a_profile_value_links_the_wording_to_that_profile_column(conn, fake_embed):
+    conn.execute("INSERT INTO application_profile (id, full_name) VALUES (1, 'Rakshit Singh')")
+    conn.commit()
+    rid = row(conn, "Full Name*", answer="Rakshit Singh", source="qbank_likely")
+    out = rewrite(conn, rid, ["this is correct"], Engines(llm=reply(lever="trust"), embed=fake_embed))
+    assert out["proposal"]["entry_id"] == "profile:full_name"
+    lessons.file(conn, out["proposal"], out["answer"], fake_embed)
+    eid = qbank.exact(conn, "Full Name*")
+    assert qbank.get_entry(conn, eid)["profile_ref"] == "full_name" and not qbank.get_entry(conn, eid)["answer"]

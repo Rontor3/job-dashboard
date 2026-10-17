@@ -50,7 +50,8 @@ Causes (pick ONE lever):
 
 Reply with JSON only:
 {{"lever": "...",
-  "value": "the answer or default the note states, else null",
+  "value": "the answer or default the note states or implies (REQUIRED for fact and policy; for a tick box: Yes = tick,
+            No = leave unticked; 'always acknowledge' = Yes), else null",
   "query": "for lookup: the words it is stored under, else null",
   "meaning": "for identify: what the field actually asks, else null",
   "concept": "the KIND of question this is, generic, e.g. 'willingness to work in the job's city'",
@@ -59,6 +60,8 @@ Reply with JSON only:
   "applies_to": "question | similar | long | short"}}
 applies_to: question = only this wording; similar = questions about the same concept; long = every essay answer;
 short = every short field. Prefer the narrowest that still captures the lesson."""
+
+_BROAD = ("long", "short")            # never chosen for you: a lesson starts at its concept; you widen it
 
 
 def _parse(text: str) -> dict:
@@ -83,8 +86,9 @@ def _generic(text, company: str):
 def validate(d: dict, notes: list[str], company: str = "") -> dict:
     """A usable directive whatever the model replied: an unknown lever is a guide, a bad scope is the narrowest."""
     lever = d.get("lever") if d.get("lever") in LEVERS else "guide"
+    scope = d.get("applies_to") if d.get("applies_to") in APPLIES else "question"
     out = {"lever": lever,
-           "applies_to": d.get("applies_to") if d.get("applies_to") in APPLIES else "question",
+           "applies_to": "similar" if scope in _BROAD else scope,
            "concept": _generic(d.get("concept"), company),
            "rule": _generic(d.get("rule"), company) or (notes[-1].strip()[:400] if notes else None),
            "why": _generic(d.get("why"), company)}
@@ -94,6 +98,18 @@ def validate(d: dict, notes: list[str], company: str = "") -> dict:
     if lever in ("fact", "policy") and not out["value"]:
         out["lever"] = "guide"                            # a value lever with no value is just an instruction
     return out
+
+
+def checkbox_default(d: dict, kind: str) -> dict:
+    """A tick box has two answers, so an instruction about one IS a default: 'always acknowledge' -> policy Yes."""
+    if kind != "checkbox" or d["lever"] not in ("guide", "policy") or d.get("value"):
+        return d
+    text = f"{d.get('rule') or ''} {d.get('concept') or ''}".lower()
+    no = any(w in text for w in ("untick", "don't tick", "do not tick", "opt out", "decline", "leave unticked", "never"))
+    yes = any(w in text for w in ("acknowledge", "agree", "accept", "tick", "consent", "confirm", "opt in"))
+    if no or yes:
+        return {**d, "lever": "policy", "value": "No" if no else "Yes"}
+    return d
 
 
 def interpret(field: dict, notes: list[str], job: dict, llm) -> dict:
