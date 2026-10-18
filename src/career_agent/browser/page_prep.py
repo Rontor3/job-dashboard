@@ -501,10 +501,15 @@ def visible_clickable_names(page):
 def _manual_option_hop(page) -> bool:
     """A choose-how-to-apply page (Avature: 'Choose any option to apply': From Device / Copy & Paste / Without Resume /
     LinkedIn ...) has no form yet. Its manual option ('Without Resume') is the way into the form: click it."""
-    from .credential_provider import _REGISTRATION_OPTIONS, _navigate_to_form, _registration_options_offered
+    from .credential_provider import (_REGISTRATION_OPTIONS, _navigate_to_form, _registration_options_offered,
+                                      _start_by_resume_upload)
     if not _registration_options_offered(page):
         return False
-    return _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual application option")
+    if _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual application option"):
+        return True
+    # no manual option (Deloitte/MetLife Avature: From Device / Copy & Paste / LinkedIn): the résumé upload starts it
+    from urllib.parse import urlparse
+    return _start_by_resume_upload(page, urlparse(page.url).netloc)
 
 
 def _real_field_count(page) -> int:
