@@ -28,6 +28,22 @@ def _claude_cli(prompt: str, timeout: int = 120) -> str:
     return r.stdout
 
 
+_CALLS: dict = {}
+
+
+def counted(llm, name: str):
+    """Count this model's calls for the run's '[llm] …' line (printed once at exit), so the cost of a run is visible."""
+    import atexit
+    if not _CALLS:
+        atexit.register(lambda: print("[llm] " + ", ".join(f"{k} {v}" for k, v in _CALLS.items()), flush=True))
+    _CALLS.setdefault(name, 0)
+
+    def call(prompt):
+        _CALLS[name] += 1
+        return llm(prompt)
+    return call
+
+
 def with_claude_fallback(llm):
     """The local model first; when it is down (Ollama stopped), Claude's CLI drafts instead of a canned template."""
     def call(prompt):

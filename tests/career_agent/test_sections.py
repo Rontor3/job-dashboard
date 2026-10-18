@@ -122,3 +122,11 @@ def test_prime_is_off_without_the_switch(qbank_conn, fake_embed, monkeypatch):
     mem = QBankMemory(qbank_conn, embed=fake_embed, llm=Calls({}), facts_llm=Calls({}))
     mem.prime([fld("#x", "Anything")])
     assert mem._cache == {}
+
+
+def test_model_calls_are_counted_per_name():
+    from career_agent.orchestrator import claude_assist as ca
+    ca._CALLS.clear()
+    a, b = ca.counted(lambda p: "x", "local"), ca.counted(lambda p: "y", "haiku")
+    a("1"), a("2"), b("3")
+    assert ca._CALLS == {"local": 2, "haiku": 1}

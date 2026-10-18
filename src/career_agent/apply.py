@@ -246,7 +246,8 @@ def _apply(args, box: dict) -> None:
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
             from .orchestrator.claude_assist import with_claude_fallback
-            llm = with_claude_fallback(make_default_llm())
+            from .orchestrator.claude_assist import counted
+            llm = counted(with_claude_fallback(make_default_llm()), "local")
             _vendor = _ats_lookup(args.url)
             _ats_notes = ""
             if _vendor:
@@ -300,7 +301,8 @@ def _apply(args, box: dict) -> None:
         print("[warn] facts-and-plans off: the `claude` CLI is not installed (the bank and rules still answer)")
     else:
         from .memory.facts import claude_cli_llm
-        _facts_llm = claude_cli_llm("haiku")
+        from .orchestrator.claude_assist import counted
+        _facts_llm = counted(claude_cli_llm("haiku"), "haiku")
         try:
             _skills = json.loads((_RunPath(args.db).parent / "answer_style" / "ingredients.json").read_text())["skills_pool"]
         except Exception as e:
