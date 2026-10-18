@@ -334,7 +334,9 @@ _REAL_FIELDS_JS = r"""() => {
 # nests an icon, so its accname isn't exactly "Apply Now" and get_by_role(name=)
 # times out. data-aff sidesteps that.
 _CLICKABLES_JS = r"""() => {
-  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  // A visibility:hidden or opacity:0 control has a box but is not shown: not a control the agent may click.
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4
+    && (e.checkVisibility ? e.checkVisibility({visibilityProperty:true, opacityProperty:true}) : true); };
   if (window.__affN === undefined) window.__affN = 0;
   const out = [];
   // Controls inside an open modal/dialog come first: a modal is what the page is asking
@@ -481,6 +483,28 @@ def _best_apply(cands, exclude=(), prefer=()):
                     best, best_rank = c, rank
                 break
     return best
+
+
+def visible_clickable_names(page):
+    """Lowercased names of the controls the page actually shows (same visibility rule as the Apply search), across
+    frames. None when the page can't be read. The snapshot also lists hidden buttons; this is the check for them."""
+    names = set()
+    try:
+        for fr in page.frames:
+            for row in (fr.evaluate(_CLICKABLES_JS) or []):
+                names.add((row.get("name") or "").strip().lower())
+    except Exception:
+        return None
+    return names
+
+
+def _manual_option_hop(page) -> bool:
+    """A choose-how-to-apply page (Avature: 'Choose any option to apply': From Device / Copy & Paste / Without Resume /
+    LinkedIn ...) has no form yet. Its manual option ('Without Resume') is the way into the form: click it."""
+    from .credential_provider import _REGISTRATION_OPTIONS, _navigate_to_form, _registration_options_offered
+    if not _registration_options_offered(page):
+        return False
+    return _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual application option")
 
 
 def _real_field_count(page) -> int:
@@ -698,6 +722,9 @@ def _reach(page, max_hops=4):
             active = _hop(active, aff)
             trail_note(step="hop", click=aff["name"], role=aff["role"], frame=aff.get("frame", 0),
                        url_before=_bare(before), url_after=_bare(active.url))
+            continue
+        if _manual_option_hop(active):      # no Apply left, but a choose-how-to-apply page: its manual option opens the form
+            trail_note(step="hop", click="manual application option", url_before=_bare(active.url))
             continue
         # No Apply left to follow: are we already ON a form step (wizard whose
         # first screen is a screening question, so is_application_form missed it)?

@@ -7,7 +7,7 @@ from ..browser.gate_probe import HANDLERS
 from ..orchestrator.screen_review import map_screen, apply_answers
 from ..orchestrator.advance import (
     screen_signature, changed, pick_advance_label, has_control,
-    ADVANCE_NAMES, SUBMIT_NAMES, advance_names,
+    ADVANCE_NAMES, SUBMIT_NAMES, advance_names, submit_seen,
 )
 
 INTERACTIVE_GATES = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
@@ -54,7 +54,7 @@ def _blocking(gate: str) -> bool:
 def walk(page, profile, human, deps, max_steps=15, do_submit=False,
          autonomous=False, on_link=None, resume_pdf=None, judge_fn=None,
          prep_fn=None, learn=None, vision_fn=None, cred_provider=None, assist=None) -> dict:
-    submitted, reason, steps = False, "max_steps", 0
+    submitted, reason, steps, filled_total = False, "max_steps", 0, 0
     for _ in range(max_steps):
         steps += 1
         if prep_fn is not None:
@@ -123,6 +123,7 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                         learn.record(f, human_answers[f.ref])
         print(f"[fill] screen {steps}: {len(decisions)} decisions, {len(needs)} escalated")
         deps.fill(page, decisions)
+        filled_total += len(decisions)
         try:
             _ss = f"/tmp/career_agent_step{steps}_filled.png"
             page.screenshot(path=_ss, full_page=True, timeout=5000)
@@ -145,12 +146,15 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
             if _d2:
                 deps.fill(page, _d2)
                 decisions.extend(_d2)
+                filled_total += len(_d2)
 
         before = screen_signature(deps.url(page), form)
         has_advance = has_control(form, advance_names(form))
         has_submit = has_control(form, SUBMIT_NAMES)
 
         if not has_advance and has_submit:          # final screen: submit
+            if not filled_total and not submit_seen(form):
+                reason = "no_form_found"; break     # nothing filled, and only an Apply that opens nothing
             if not do_submit:
                 reason = "reached_submit_dry_run"; break
             # Pre-submit gate re-check: hcaptcha_checkbox deferred from fill

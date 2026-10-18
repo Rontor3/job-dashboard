@@ -473,13 +473,15 @@ def advance_node(state: AgentState, config) -> dict:
     form = [_d2f(d) for d in state["form"]]
     from ..orchestrator.advance import (
         has_control, pick_advance_label, screen_signature, changed,
-        ADVANCE_NAMES, SUBMIT_NAMES, advance_names, entry_apply_label,
+        ADVANCE_NAMES, SUBMIT_NAMES, advance_names, entry_apply_label, submit_seen,
     )
-    from ..browser.page_prep import untick_opt_ins
+    from ..browser.page_prep import untick_opt_ins, visible_clickable_names
     untick_opt_ins(page)                                  # applying is not consent to be mailed (board path does this too)
     has_advance = has_control(form, advance_names(form))
     has_submit = has_control(form, SUBMIT_NAMES)
-    entry = entry_apply_label(form, state.get("decisions")) if (has_submit and not has_advance) else None
+    entry = None
+    if has_submit and not has_advance:
+        entry = entry_apply_label(form, state.get("decisions"), visible_clickable_names(page))
     if entry:                                             # a job page's Apply: open the form, then perceive it
         print(f"[advance] nothing filled yet: {entry!r} opens the form, not a submit", flush=True)
         has_submit = False
@@ -491,6 +493,10 @@ def advance_node(state: AgentState, config) -> dict:
         return {"stopped_reason": "no_form_found"}
 
     if not has_advance and has_submit:
+        if not state.get("decisions") and not submit_seen(form):
+            # Nothing filled and the only 'submit' is an Apply that opens nothing: not a form, not ready for review
+            print("[stop] nothing filled and no submit control — not an application form", flush=True)
+            return {"stopped_reason": "no_form_found"}
         policy = c.get("autosubmit_policy")
         verdict = policy(page.url, state.get("decisions") or []) if policy else None
         policy_allows = bool(verdict and verdict["allow"])
@@ -547,9 +553,19 @@ def advance_node(state: AgentState, config) -> dict:
         form = deps.snapshot(page, scroll=False)
         has_advance = has_control(form, advance_names(form))
         has_submit = has_control(form, SUBMIT_NAMES)
-        if not has_advance and not has_submit:
+        if not has_advance and not has_submit and not state.get("decisions"):
+            # Nothing applied to a form field and the snapshot shows no advance/submit: a job-description page whose
+            # visible 'Apply Now' link opens the form (insyncanalytics, live 2026-10-18: stopped 'no_advance_control').
+            from ..browser.page_prep import find_apply_affordance
+            aff = find_apply_affordance(page)
+            if aff is not None:
+                print(f"[advance] nothing applied yet: visible {aff['name']!r} opens the form", flush=True)
+                entry = aff["name"]
+        if not has_advance and not has_submit and not entry:
             return _recovered("no_advance_control") or {"stopped_reason": "no_advance_control"}
         if has_submit and not has_advance:
+            if not state.get("decisions") and not submit_seen(form):
+                return {"stopped_reason": "no_form_found"}
             if not state["do_submit"]:
                 return {"stopped_reason": "reached_submit_dry_run"}
 
