@@ -158,7 +158,27 @@ def create_app(
                 raise HTTPException(status_code=422, detail=str(exc))
             except KeyError:
                 raise HTTPException(status_code=404, detail="job not found")
+            if body.status == "applied":
+                _record_hand_submit(conn, job_id)
         return {"ok": True, "status": body.status}
+
+    def _record_hand_submit(conn, job_id: int) -> None:
+        """You marked a job the agent had left for you as Applied: that IS your hand submit on that site, which is what
+        lets the site auto-submit later (autonomy: the first submit on a site is yours). Live 2026-10-18: three iimjobs
+        jobs applied by hand were never seen by the watcher (the tab moved to iimjobs' 'Job Applied' page), so iimjobs
+        kept asking for a first submit. Only for a job the agent parked or was watching, and only once per job."""
+        from job_dashboard import autonomy
+        from job_dashboard.apply import queue as apply_queue
+        autonomy.ensure(conn)
+        apply_queue.ensure(conn)
+        watch = conn.execute("SELECT url, run_key FROM submission_watch WHERE job_id=?", (job_id,)).fetchone()
+        parked = conn.execute("SELECT 1 FROM apply_queue WHERE job_id=? AND state='parked'", (job_id,)).fetchone()
+        if not (watch or parked) or conn.execute("SELECT 1 FROM submit_history WHERE job_id=?", (job_id,)).fetchone():
+            return
+        url = (watch[0] if watch else None) or (conn.execute("SELECT job_url FROM jobs WHERE id=?", (job_id,)).fetchone() or [""])[0]
+        autonomy.record_submission(conn, job_id, (watch[1] if watch else None) or "", {}, "manual", url or "")
+        conn.execute("DELETE FROM submission_watch WHERE job_id=?", (job_id,))
+        conn.commit()
 
     @app.get("/api/duplicates")
     def list_duplicates():
