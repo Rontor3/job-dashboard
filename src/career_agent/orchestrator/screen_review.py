@@ -4,6 +4,7 @@ deterministically; option fields coerced to a real option or escalated."""
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from ..orchestrator.mapper import FillDecision, _action_for_kind as _action
 from ..orchestrator.profile_resolver import resolve
@@ -149,6 +150,45 @@ def _coerce_option(value, options):
     return None
 
 
+_CURRENT_Q = re.compile(r"^current\s*\??\s*\*?$", re.I)          # Employment History row: "Current? *"
+_IN_PROGRESS_Q = re.compile(r"^in progress\s*\??\s*\*?$", re.I)  # Education row: "In Progress *"
+_EMPLOYMENT_SECTION = re.compile(r"employ|experience|work history", re.I)
+_EDUCATION_SECTION = re.compile(r"educat|academic|school|degree", re.I)
+_OPEN_END = re.compile(r"^\s*(present|current|now|ongoing|to date|till date|today)\s*$", re.I)
+_YEAR = re.compile(r"\b((?:19|20)\d{2})\b")
+
+
+def _ends_open(end: str) -> bool:
+    """An entry's end date says it is still running: 'Present', or a year not yet past."""
+    if _OPEN_END.match(end or ""):
+        return True
+    m = _YEAR.search(end or "")
+    return bool(m) and int(m.group(1)) >= date.today().year
+
+
+def _entry_answer(f, profile):
+    """'Current?' on an Employment row / 'In Progress' on an Education row, answered from that row's own entry.
+    Empty end = still running for a job; for a degree, no end date means nothing says it is ongoing -> No."""
+    if f.row < 0 or f.kind not in _SELECT_KINDS:
+        return None
+    label = (f.label or "").strip()
+    section = f.section or ""
+    if _CURRENT_Q.match(label) and _EMPLOYMENT_SECTION.search(section):
+        rows, open_ = profile.experiences, lambda e: not (e.end or "").strip() or _ends_open(e.end)
+    elif _IN_PROGRESS_Q.match(label) and _EDUCATION_SECTION.search(section):
+        rows, open_ = profile.education, lambda e: _ends_open(e.end)
+    else:
+        return None
+    if f.row >= len(rows):
+        return None
+    return "Yes" if open_(rows[f.row]) else "No"
+
+
+def _is_yes_no(f) -> bool:
+    return (f.kind in _SELECT_KINDS and bool(f.options)
+            and _coerce_option("Yes", f.options) is not None and _coerce_option("No", f.options) is not None)
+
+
 def _place(f, value, source, decisions, needs_human):
     value = _normalize(value)
     if f.kind in _SELECT_KINDS:
@@ -175,6 +215,10 @@ def map_screen(form, profile, resume_pdf=None):
         if f.purpose in _CRED_PURPOSES:
             # Auth-wall credential fields — credential_provider handles these.
             # Never fill or escalate; pretend they don't exist.
+            continue
+        if _is_yes_no(f) and _MARKETING.search(f"{f.label} {getattr(f, 'description', '')}"):
+            # Marketing opt-in (SMS / future-opportunity emails), required or not: privacy-preserving default is No.
+            _place(f, "No", "policy", decisions, needs_human)
             continue
         if f.purpose == "attestation":
             # Tick privacy / terms / certify consent in the DRAFT, marked required or not (the user's standing yes,
@@ -228,6 +272,10 @@ def map_screen(form, profile, resume_pdf=None):
                 needs_human.append(f)
             else:
                 _place(f, ans, "standard", decisions, needs_human)
+            continue
+        entry = _entry_answer(f, profile)
+        if entry is not None:
+            _place(f, entry, "profile", decisions, needs_human)
             continue
         value = resolve(f.purpose, profile) if f.purpose else None
         if value is not None:

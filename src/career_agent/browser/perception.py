@@ -251,7 +251,13 @@ _INPUT_JS = r"""
     return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
   };
   // a name that says something: not empty, not just a required-star / colon
-  const ok = (t) => !!t && t.replace(/[*✱:\s]/g, '').length > 0;
+  // A generic control name ("Checkbox field", "Radio input") is junk, not a question: treat it as no name so the
+  // nearby-text fallbacks run (Koch Avature, 2026-10-18: a required 'I Agree' checkbox was named "Checkbox field").
+  const GENERIC_NAME = /^(checkbox|radio|text|input|select|combobox|option)( ?(field|input|box|button|control))?$/i;
+  const ok = (t) => {
+    const core = (t || '').replace(/[*✱:]/g, ' ').replace(/\s+/g, ' ').trim();
+    return core.length > 0 && !GENERIC_NAME.test(core);
+  };
   const CONTROL_SEL = 'input:not([type=hidden]),select,textarea';
   // Live-region chatter is not a question: a typeahead's "No location found. Try entering a different location" and its
   // "Loading" line leak into the block text beside the box. Strip them from any label text.
