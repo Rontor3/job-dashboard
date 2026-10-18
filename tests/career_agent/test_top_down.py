@@ -143,5 +143,7 @@ def test_a_site_value_that_contradicts_a_known_answer_is_replaced():
     assert site_value_stands("Rakshit", first) is True
     phone = FillDecision("#ph", "tel", "Phone", "+91 7565052330", "fill", "profile")
     assert site_value_stands("7565052330", phone) is True                   # same number, other format
-    guess = FillDecision("#c", "text", "City", "Mumbai", "fill", "qbank_likely")
+    banked = FillDecision("#fn", "text", "First Name", "Rakshit", "fill", "qbank_likely")
+    assert site_value_stands("GenAI", banked) is False                      # a stored answer beats the résumé parse
+    guess = FillDecision("#c", "text", "City", "Mumbai", "fill", "judgment")
     assert site_value_stands("Pune", guess) is True                          # ours is a guess: the site's stands

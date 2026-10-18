@@ -53,7 +53,10 @@ def _apply_one(deps, page, d) -> None:
         deps.fill(page, [d])
 
 
-_GUESSES = {"qbank_likely", "judgment"}      # answers we are unsure of: a value the site already put there may stand
+# Only a model's judgment is a guess. A bank answer marked "likely" is the stored answer not yet confirmed by a submit
+# (live Cummins 2026-10-18: First Name "Rakshit" was qbank_likely, so the résumé parse's "GenAI" stood) — it still
+# beats a parser's value.
+_GUESSES = {"judgment"}
 
 
 def _norm_val(v) -> str:
