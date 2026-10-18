@@ -1194,11 +1194,17 @@ def _go(page, el, text, label) -> bool:
     return True
 
 
-def _registration_options_offered(page) -> bool:
-    try:
-        return bool(_REGISTRATION_CUE.search(page.inner_text("body") or ""))
-    except Exception:
-        return False
+def _registration_options_offered(page, wait_ms: int = 5000) -> bool:
+    """The page offers ways in ('First time here? Choose a method...'). Polled briefly: the block renders after the
+    login panel, and a check made at first paint missed it (MetLife live 2026-10-19: escalated as 'no signup form')."""
+    for _ in range(max(1, wait_ms // 500)):
+        try:
+            if _REGISTRATION_CUE.search(page.inner_text("body") or ""):
+                return True
+        except Exception:
+            pass
+        page.wait_for_timeout(500)
+    return False
 
 
 def _start_by_resume_upload(page, site: str) -> bool:

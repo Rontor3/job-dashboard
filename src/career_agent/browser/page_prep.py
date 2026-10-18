@@ -520,7 +520,7 @@ def _manual_option_hop(page) -> bool:
     LinkedIn ...) has no form yet. Its manual option ('Without Resume') is the way into the form: click it."""
     from .credential_provider import (_REGISTRATION_OPTIONS, _navigate_to_form, _registration_options_offered,
                                       _start_by_resume_upload)
-    if not _registration_options_offered(page):
+    if not _registration_options_offered(page, wait_ms=500):   # one look: this runs on every reached page
         return False
     if _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual application option"):
         return True
