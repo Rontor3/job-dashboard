@@ -26,6 +26,25 @@ def wake_tabs(cdp_url: str) -> int:
     return len(tabs)
 
 
+def background_page(context, browser=None):
+    """A new tab that opens BEHIND the user's current one: Playwright's new_page() brings the Chrome window to the
+    front on every run (live 2026-10-19: "my current tab keeps shifting to chrome"). Falls back to new_page()."""
+    if browser is not None:
+        try:
+            cdp = browser.new_browser_cdp_session()
+            with context.expect_page(timeout=10000) as info:
+                cdp.send("Target.createTarget", {"url": "about:blank", "background": True})
+            page = info.value
+            try:                    # the page still believes it has focus: focus-gated widgets keep working
+                page.context.new_cdp_session(page).send("Emulation.setFocusEmulationEnabled", {"enabled": True})
+            except Exception:
+                pass
+            return page
+        except Exception:
+            pass
+    return context.new_page()
+
+
 def _attach(pw, cdp_url: str, timeout_ms: int):
     return pw.chromium.connect_over_cdp(cdp_url, timeout=timeout_ms)
 
@@ -50,7 +69,7 @@ def launch(settings, cdp_url: str | None = None):
         else:
             print("[browser] CDP: no existing contexts, creating one", flush=True)
             context = browser.new_context()
-        page = context.new_page()
+        page = background_page(context, browser)
         print(f"[browser] CDP connected → {cdp_url}", flush=True)
         return pw, context, page, browser
     Path(settings.user_data_dir).mkdir(parents=True, exist_ok=True)

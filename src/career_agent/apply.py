@@ -394,7 +394,6 @@ def _apply(args, box: dict) -> None:
                 pass
             page, resp = _open, None
             _tabs.mark_user_owned(_open)             # the human's own tab: never closed by the run
-            page.bring_to_front()
         else:
             # DOM-ready, not 'load': LinkedIn's ad/tracker frames can hold the
             # load event past 30s; the networkidle settle below still runs.
