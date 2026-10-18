@@ -228,3 +228,15 @@ def test_method_choice_page_starts_by_uploading_the_resume(tmp_path, monkeypatch
         assert not (tmp_path / "creds.json").exists()
     else:
         assert (ok, action) == (False, "register")
+
+
+def test_a_rejected_login_retires_the_stored_credential_and_keeps_it_as_history(tmp_path, monkeypatch):
+    import json
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "c.json")
+    cp.save_credential("jobs.example.com", "a@b.c", "pw", label="password")
+    cp.retire_credential("jobs.example.com", label="password")
+    data = json.loads((tmp_path / "c.json").read_text())
+    assert cp.load_credential("jobs.example.com", label="password") is None
+    assert "jobs.example.com:password:stale" in data
+    assert cp._LOGIN_ERROR.search("Invalid email or password") and not cp._LOGIN_ERROR.search("Welcome back")

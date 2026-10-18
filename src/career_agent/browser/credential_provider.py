@@ -77,6 +77,29 @@ def save_credential(site: str, username: str, password: str, label: str = "",
     _STORE.write_text(json.dumps(data, indent=2))
 
 
+_LOGIN_ERROR = _re.compile(r"invalid|incorrect|wrong (e-?mail|password|user)|not (found|recogni[sz]ed|registered)|does ?n.?t "
+                          r"(exist|match)|no account|unable to (log|sign) ?in|login failed|authentication failed", _re.I)
+
+
+def _login_rejected(page) -> bool:
+    """The site said no to the login (a slow redirect is not a rejection: only an error message counts)."""
+    try:
+        return bool(_LOGIN_ERROR.search(page.inner_text("body") or ""))
+    except Exception:
+        return False
+
+
+def retire_credential(site: str, label: str = "") -> None:
+    """A stored login the site rejects: keep it under '<key>:stale' (history, never re-used) so the next visit registers."""
+    key = f"{site}:{label}" if label else site
+    if not _STORE.exists():
+        return
+    data = json.loads(_STORE.read_text())
+    if key in data:
+        data[key + ":stale"] = data.pop(key)
+        _STORE.write_text(json.dumps(data, indent=2))
+
+
 def load_credential(site: str, label: str = "") -> dict | None:
     """Return ``{"username": ..., "password": ..., "label": ...}`` or ``None``."""
     if not _STORE.exists():
@@ -1237,7 +1260,7 @@ def _ensure_signup_form(page) -> None:
 
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
-            email: str = "", phone: str = "") -> tuple[bool, str | None]:
+            email: str = "", phone: str = "", _retried: bool = False) -> tuple[bool, str | None]:
     """Fill an account/login wall using stored or freshly-generated credentials.
 
     Flow:
@@ -1356,4 +1379,10 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             # Traditional form, have credentials — login
             _ensure_login_form(page)
             _fill_wall(page, gate, cred, site=site)
+            if not _retried and _is_login_form(page) and _login_rejected(page):
+                # Still the login form: the stored account does not open (Koch, Deloitte live 2026-10-18 — a password
+                # was saved for an account whose sign-up was never sent). Retire it and register instead, once.
+                print(f"[cred] {site}: the stored login did not open — retiring it and registering", flush=True)
+                retire_credential(site, label=gate)
+                return provide(page, gate, site, original_url, email, phone, _retried=True)
     return True, ("register" if is_new else "login")
