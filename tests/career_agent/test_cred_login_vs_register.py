@@ -196,3 +196,35 @@ def test_avature_header_signup_then_choose_how_to_apply_hands_the_form_to_the_fi
         assert ok and action == "register_inline", (ok, action)
         assert pg.locator("input[name=first_name]").count() == 1
         b.close()
+
+
+AVATURE_METHOD_CHOICE = """<main><div style="float:left"><h2>Already registered?</h2><input type=email><input type=password>
+<button>Log in</button><a href=#>Forgot your password?</a></div>
+<div style="float:right"><h2>First time here?</h2><p>Choose a method from the options below to submit your information.</p>
+<a href=# onclick="return false">Copy &amp; Paste</a> <a href=# onclick="return false">Apply With LinkedIn</a>
+<label>From Device<input type=file name=resumeFile style="display:none"
+onchange="document.body.innerHTML='<h1>Profile</h1><input type=email name=email><input name=first_name><input name=last_name><button>Continue</button>'"></label>
+</div></main>"""
+
+
+@pytest.mark.skipif(not os.environ.get("RUN_BROWSER_TESTS"), reason="browser")
+@pytest.mark.parametrize("has_resume", [True, False])
+def test_method_choice_page_starts_by_uploading_the_resume(tmp_path, monkeypatch, has_resume):
+    """Avature 'First time here?': no manual option, a hidden file input. Upload the résumé; no résumé -> escalate."""
+    from playwright.sync_api import sync_playwright
+    import career_agent.apply as apply_mod
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "creds.json")
+    pdf = tmp_path / "resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    monkeypatch.setattr(apply_mod, "supplied_resume_pdf", lambda *a, **k: str(pdf) if has_resume else None)
+    monkeypatch.setattr(cp, "_observe_until_change", lambda *a, **k: "unknown")
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page(); pg.set_content(AVATURE_METHOD_CHOICE)
+        ok, action = cp.provide(pg, "password", "www.metlifecareers.com", email="a@b.co")
+        b.close()
+    if has_resume:
+        assert (ok, action) == (True, "register_inline")
+        assert not (tmp_path / "creds.json").exists()
+    else:
+        assert (ok, action) == (False, "register")

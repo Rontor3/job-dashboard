@@ -1011,8 +1011,8 @@ _REGISTRATION_OPTIONS = ["self-complete", "self complete", "fill in manually", "
 # Avature (Koch, live 2026-10-18): "Choose any option to apply — From Device / Copy & Paste / Without Resume / Indeed /
 # Google / XING" behind its "Create an account" link.
 _REGISTRATION_CUE = _re.compile(r"create (an )?account (using|with|by)|register (using|with|by)|sign up (using|with|by)"
-                                r"|choose (any|an|one) (option|way) to apply|how (would|do) you (like|want) to apply"
-                                r"|ways to apply", _re.I)
+                                r"|choose (any|an|one|a) (option|way|method) to apply|choose a method"
+                                r"|how (would|do) you (like|want) to apply|ways to apply|first time here", _re.I)
 # Keywords that, if present in ANY visible link/button text, aria-label, or title
 # on a login/signup wall, indicate an account-free path. Checked as substrings.
 _GUEST_KEYWORDS = ["guest", "without account", "without sign", "without log",
@@ -1075,6 +1075,24 @@ def _registration_options_offered(page) -> bool:
     try:
         return bool(_REGISTRATION_CUE.search(page.inner_text("body") or ""))
     except Exception:
+        return False
+
+
+def _start_by_resume_upload(page, site: str) -> bool:
+    """Registration options offered but no manual option: a file input on the page is the start of the application
+    (Avature 'From Device'). Upload the candidate's résumé into it; True if the form opened without a password box."""
+    from career_agent.apply import supplied_resume_pdf
+    try:
+        file_el = page.query_selector('input[type="file"]')
+        resume = supplied_resume_pdf() if file_el else None
+        if not resume:
+            return False
+        file_el.set_input_files(resume)
+        print(f"[cred] {site}: started the application by uploading the résumé", flush=True)
+        _observe_until_change(page, "resume_upload")
+        return not any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
+    except Exception as _e:
+        print(f"[cred] résumé upload failed on {site}: {_e!r}", flush=True)
         return False
 
 
@@ -1211,6 +1229,8 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                         # The option opened the application's own profile form (no password box): the normal filler
                         # takes it from here. Nothing to save: no account credential was created.
                         print(f"[cred] {site}: registration is part of the application form — handing over to the filler", flush=True)
+                        return True, "register_inline"
+                    if not found and _start_by_resume_upload(page, site):
                         return True, "register_inline"
                 if not found:
                     print(f"[cred] no signup form found on {site} — escalating", flush=True)
