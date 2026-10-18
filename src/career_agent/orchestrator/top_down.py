@@ -12,11 +12,7 @@ import re
 
 MAX_FIELDS = 150          # a form with more than this is not being filled, it is looping
 
-_SIG_JS = """() => {
-  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
-  const els = Array.from(document.querySelectorAll('input,select,textarea,[role=combobox],[role=radiogroup]')).filter(vis);
-  return els.length + '|' + els.map(e => (e.id || e.name || e.getAttribute('aria-label') || '').slice(0, 24)).join(',');
-}"""
+from ..browser.perception import FIELD_SIG_JS as _SIG_JS          # one copy of "the fields on screen"
 
 
 def field_keys(fields) -> dict:

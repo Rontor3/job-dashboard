@@ -679,6 +679,34 @@ def collect_raw(page) -> list[dict]:
     return out
 
 
+# The fields on screen, cheaply: how many, and each one's id/name/label. Read without scrolling. Also the fill loop's
+# "did this answer change the form?" check (orchestrator/top_down.py).
+FIELD_SIG_JS = """() => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
+  const els = Array.from(document.querySelectorAll('input,select,textarea,[role=combobox],[role=radiogroup]')).filter(vis);
+  return els.length + '|' + els.map(e => (e.id || e.name || e.getAttribute('aria-label') || '').slice(0, 24)).join(',');
+}"""
+_NOT_FORM_FRAMES = ("hcaptcha.com", "recaptcha", "googletagmanager", "google-analytics", "doubleclick",
+                    "challenges.cloudflare")
+
+
+def page_fingerprint(page) -> str | None:
+    """Address + the fields on screen, per frame (a Workday/iCIMS step changes inside its frame, not the outer page).
+    None when it can't be read — the caller then scrolls, as before."""
+    try:
+        parts = [page.url]
+        for fr in page.frames:
+            if any(s in (fr.url or "") for s in _NOT_FORM_FRAMES):
+                continue
+            try:
+                parts.append(f"{fr.url}#{fr.evaluate(FIELD_SIG_JS)}")
+            except Exception:
+                parts.append(f"{fr.url}#?")       # a frame mid-navigation: still part of what the page is
+        return "\n".join(parts)
+    except Exception:
+        return None
+
+
 def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:
     """Scroll top→bottom→top in small steps so lazy/virtualized fields
     render into the DOM before we snapshot. Abrupt full-page jumps skip
