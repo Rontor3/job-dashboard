@@ -335,6 +335,28 @@ _CONSENT_LINK = _re.compile(r"(read|review|open)?.{0,12}accept.{0,30}(privacy|te
 _ACCEPT_BTN = _re.compile(r"^(i )?(accept|agree|i agree|accept and continue|ok)$", _re.I)
 
 
+def _confirm_consent_dialog(page) -> bool:
+    """Ticking a consent box can open the notice itself with an Agree button that must be pressed (Oracle at Cummins,
+    live 2026-10-18: a 'Privacy Notice' dialog with AGREE blocked Next). Press Agree/Accept in a visible dialog only."""
+    try:
+        page.wait_for_timeout(800)
+        dialog = page.locator("[role=dialog], [aria-modal=true], [class*=modal i], [class*=dialog i]").filter(
+            has_text=_re.compile(r"privacy|terms|consent|notice|agree", _re.I))
+        for i in range(min(dialog.count(), 4)):
+            d = dialog.nth(i)
+            if not d.is_visible():
+                continue
+            btn = d.get_by_role("button", name=_ACCEPT_BTN).first
+            if btn.count() and btn.is_visible():
+                _safe_click(btn)
+                page.wait_for_timeout(800)
+                print("[cred] agreed in the consent dialog", flush=True)
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _accept_consent_link(page) -> bool:
     """Consent shown as a LINK ('Read and accept the data privacy statement') that opens a dialog with an
     Accept button instead of a checkbox. Open it, press Accept (scrolling the notice first if it is gated)."""
@@ -1160,7 +1182,7 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             page.wait_for_timeout(500)
             if _check_consent_checkboxes(page) or _accept_consent_link(page):   # a required "I agree" gates Next
                 print("[cred] ticked the required privacy/terms consent", flush=True)
-                page.wait_for_timeout(300)
+                _confirm_consent_dialog(page)                                    # the notice may open: press Agree
             _click_non_social_submit(page, ("Continue", "Next", "Sign In", "Log In", "Submit"))
             state = _observe_until_change(page, "email_first_continue")
             print(f"[cred] after email+Continue: {state}", flush=True)

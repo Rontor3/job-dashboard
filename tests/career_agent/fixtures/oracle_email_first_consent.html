@@ -6,10 +6,14 @@
 <label for="email">Email Address *</label>
 <input id="email" type="email">
 <div class="input-row">
-  <input id="legal-disclaimer-checkbox" type="checkbox" class="input-row__hidden-control" style="width:0;height:0;margin:0;padding:0;border:0">
+  <input id="legal-disclaimer-checkbox" type="checkbox" class="input-row__hidden-control" style="width:0;height:0;margin:0;padding:0;border:0"
+         onclick="if(this.checked){this.checked=false;document.getElementById('notice').style.display='block';}">
   <span id="legal-disclaimer-checkbox-label" class="apply-flow-input-checkbox"><span class="apply-flow-input-checkbox__button" style="display:inline-block;width:22px;height:22px;border:1px solid #999"></span>
     <span class="apply-flow-input-checkbox__label">I agree with Cummins Talent Acquisition Privacy Notice</span> *</span>
 </div>
+<!-- ticking opens the notice; only AGREE really ticks the box (live Oracle behaviour) -->
+<div id="notice" role="dialog" style="display:none"><h2>Privacy Notice</h2><p>Please click "Agree" to acknowledge.</p>
+  <button onclick="document.getElementById('legal-disclaimer-checkbox').checked=true;document.getElementById('notice').style.display='none'">AGREE</button></div>
 <p id="err"></p>
 <button id="next" onclick="if(document.getElementById('legal-disclaimer-checkbox').checked){document.body.innerHTML='<h1>Confirm your identity</h1><input id=otp>';}else{document.getElementById('err').textContent='You need to agree to the terms and conditions.'}">NEXT</button>
 </body></html>
