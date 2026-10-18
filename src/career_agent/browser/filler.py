@@ -60,11 +60,25 @@ _SHADOW_FILL_JS = """\
 }"""
 
 
+_SMALL = {"of", "and", "the", "for", "in", "at", "&"}
+
+
 def _type_ahead_queries(value: str) -> list[str]:
-    """What to type into a type-ahead: the whole value, then its comma-separated parts from the last
-    ("Santacruz (E), Mumbai" -> "Mumbai"), since a list of cities will not match a street-level value."""
+    """What to type into a type-ahead, most specific first: the whole value; its comma-separated parts from the last
+    ("Santacruz (E), Mumbai" -> "Mumbai": a list of cities won't match a street-level value) and the first; the
+    name as lists abbreviate it ("Indian Institute of Technology BHU" -> "IIT BHU"); its leading words. Live
+    2026-10-18: Greenhouse's School search found nothing for the full university name."""
     parts = [p.strip() for p in value.split(",") if p.strip()]
-    return list(dict.fromkeys([value, *reversed(parts)]))
+    head = parts[0] if parts else value
+    words = head.split()
+    caps = [w for w in words if w[:1].isupper() and w.lower() not in _SMALL]
+    acro = "".join(w[0] for w in caps if not w.isupper())
+    short = " ".join([acro] + [w for w in caps if w.isupper()]) if len(acro) >= 2 else ""
+    lead = " ".join(words[:4]) if len(words) > 4 else ""
+    names = [head, short, acro if len(acro) >= 3 else "", lead]
+    # a long first part is a name (a university, a company): its forms before the place after the comma
+    out = [value, *names, *reversed(parts)] if len(words) >= 3 else [value, *reversed(parts), *names]
+    return [q for q in dict.fromkeys(out) if q and len(q) >= 2]
 
 
 def _pick_combobox(page, target, sel, d, matcher) -> None:
@@ -105,8 +119,17 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
         def _options():
             return [t.strip() for t in scope.locator(opt_sel).all_text_contents() if t.strip()]
 
+        def _fit(options):
+            opt = _coerce_option(str(d.value), options) if options else None
+            if opt is None and options and matcher is not None:
+                opt = matcher(d.label, str(d.value), options)
+            return opt
+
         options = _options()
-        if not options:
+        opt = _fit(options)
+        if opt is None:
+            # a type-ahead: try each way the value may be listed, until an option actually fits (options that show up
+            # but don't fit are not an answer — the next query may find it)
             for q in _type_ahead_queries(str(d.value)):
                 try:
                     target.locator(sel).first.fill(q, timeout=_SOFT_TIMEOUT_MS)
@@ -115,12 +138,9 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                 page.wait_for_timeout(1500)     # remote autocomplete round-trip
                 if scope is not target and not scope.is_visible():
                     scope = target
-                options = _options()
-                if options:
+                opt = _fit(_options())
+                if opt:
                     break
-        opt = _coerce_option(str(d.value), options)
-        if opt is None and matcher is not None:
-            opt = matcher(d.label, str(d.value), options)
         if opt:
             pace(page)
             scope.locator(opt_sel).filter(has_text=opt).first.click(timeout=_SOFT_TIMEOUT_MS)
