@@ -760,7 +760,7 @@
       ],
       "archetype": "form",
       "entry": {
-        "selector": "#indeedApplyButton, button:has-text(\"Apply now\"), a:has-text(\"Apply now\")",
+        "selector": "#indeedApplyButton, button:has-text(\"Apply now\"), a:has-text(\"Apply now\"), button:has-text(\"Apply on company site\"), a:has-text(\"Apply on company site\")",
         "submits": "no"
       },
       "advance": [
