@@ -475,6 +475,8 @@ def advance_node(state: AgentState, config) -> dict:
         has_control, pick_advance_label, screen_signature, changed,
         ADVANCE_NAMES, SUBMIT_NAMES, advance_names, entry_apply_label,
     )
+    from ..browser.page_prep import untick_opt_ins
+    untick_opt_ins(page)                                  # applying is not consent to be mailed (board path does this too)
     has_advance = has_control(form, advance_names(form))
     has_submit = has_control(form, SUBMIT_NAMES)
     entry = entry_apply_label(form, state.get("decisions")) if (has_submit and not has_advance) else None

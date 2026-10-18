@@ -841,6 +841,32 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
     return classify_entry(page)
 
 
+def untick_opt_ins(page, extra_patterns=(), tag="fill") -> int:
+    """Untick pre-ticked OPTIONAL opt-ins before moving on (LinkedIn's "Follow <company>", Indeed's job-alert mails, an
+    Oracle career site's "I agree to receive updates about new job opportunities" — live Cummins 2026-10-18): applying
+    is not consent to be followed or mailed. Only checked, non-required boxes whose label reads as an opt-in
+    (screen_review._MARKETING) or matches `extra_patterns`. Returns how many were unticked."""
+    from ..orchestrator.screen_review import _MARKETING
+    pats = [re.compile(p, re.I) for p in extra_patterns] + [_MARKETING]
+    n = 0
+    try:
+        boxes = page.locator("input[type=checkbox]:checked:not([required]):not([aria-required=true])")
+        for i in reversed(range(boxes.count())):
+            b = boxes.nth(i)
+            label = b.evaluate("e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label')"
+                               " || (e.closest('label') || e.parentElement || {}).innerText || '').trim()")
+            if label and any(p.search(label) for p in pats):
+                try:
+                    b.uncheck(timeout=5000, force=True)
+                except Exception:
+                    b.evaluate("e => e.click()")          # a drawn box over a hidden input (as Oracle's consent box)
+                n += 1
+                print(f"[{tag}] unticked optional box {label[:60]!r}", flush=True)
+    except Exception:
+        pass
+    return n
+
+
 def prepare(page) -> None:
     """Idempotent per-step page prep: clear cookie overlays and idle dialogs."""
     try: dismiss_consent(page)

@@ -40,7 +40,8 @@ def _is_profile_import(f) -> bool:
 # An opt-in to receive things (never ticked unless the form requires it), as opposed to consent to apply.
 _MARKETING = re.compile(r"newsletter|marketing|promotion|offers?\b|job alerts?|similar (jobs|roles)|notif|"
                         r"\bsms\b|whatsapp|text messages?|updates? (about|on|from)|talent (community|network|pool)|"
-                        r"future (opportunities|openings|roles)|keep me (informed|updated)|stay up to date", re.I)
+                        r"future (opportunities|openings|roles)|keep me (informed|updated)|stay up to date|"
+                        r"delivered to (your|my) inbox|news,? and articles|the latest .{0,30}\bjobs\b", re.I)
 
 
 def _normalize(value):
