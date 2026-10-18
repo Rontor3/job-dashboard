@@ -115,6 +115,80 @@ import re as _re
 import time as _time
 
 
+_SEND_CODE_BTN = _re.compile(r"send (a |the )?(verification )?code|send otp|verify email|get code", _re.I)
+_VERIFY_CODE_BTN = _re.compile(r"verify( code)?|confirm", _re.I)
+_CODE_INPUT_SEL = ('input[id*="verificationcode" i], input[name*="verificationcode" i], input[id*="otp" i],'
+                   'input[name*="otp" i], input[autocomplete="one-time-code"], input[name*="code" i]')
+
+
+def _inline_email_verify_state(page) -> bool:
+    """Sign-up that verifies the email inline (Accenture Azure AD B2C): a visible EMPTY email box and a visible
+    'Send verification code' button, before any code was sent. Its own button text says 'verification code', so
+    the OTP regexes in _classify_page_state would fire and poll Gmail for a code that is never requested."""
+    try:
+        boxes = [el for el in page.query_selector_all(_EMAIL_ATTR_SEL) if el.is_visible()]
+        if not boxes or any(el.input_value() for el in boxes):
+            return False
+        return page.get_by_role("button", name=_SEND_CODE_BTN).first.is_visible()
+    except Exception:
+        return False
+
+
+def _body_text(page) -> str:
+    try:
+        return page.inner_text("body") or ""
+    except Exception:
+        return ""
+
+
+def _handle_inline_verify(page, cred: dict, site: str) -> None:
+    """Email → Send code → OTP from Gmail → Verify → account fields (names, password, consent) → Create."""
+    from ..integrations.gmail_otp import poll_otp, available
+    boxes = [el for el in page.query_selector_all(_EMAIL_ATTR_SEL) if el.is_visible()]
+    if not boxes or not available():
+        print("[cred] inline verification: no email box or Gmail OTP unavailable", flush=True)
+        return
+    _type_into(page, boxes[0], cred["username"])
+    if not _safe_click(page.get_by_role("button", name=_SEND_CODE_BTN).first):
+        print("[cred] inline verification: could not click send-code", flush=True)
+        return
+    print("[cred] sent the inline verification code", flush=True)
+    try:
+        code_el = page.wait_for_selector(_CODE_INPUT_SEL, state="visible", timeout=15000)
+    except Exception:
+        code_el = None
+    if code_el is None:
+        print("[cred] inline verification: code input never appeared", flush=True)
+        return
+    code = poll_otp(timeout_s=1800, sender_hint=site)
+    if not code:
+        print(f"[cred] OTP timeout for {site}", flush=True)
+        return
+    digits = "".join(c for c in str(code) if c.isdigit()) or str(code).strip()
+    _type_into(page, code_el, digits)
+    if not _safe_click(page.get_by_role("button", name=_VERIFY_CODE_BTN).first):
+        print("[cred] inline verification: could not click verify", flush=True)
+        return
+    page.wait_for_timeout(800)
+    _fill_visible_fields(page, cred)          # names, passwords, consent; the email box re-types the same value
+    page.wait_for_timeout(500)
+    before = _body_text(page)
+    if not _click_non_social_submit(page, ("Create", "Sign up", "Register", "Continue")):
+        print("[cred] inline verification: no create button clicked", flush=True)
+        return
+    page.wait_for_timeout(1500)                   # let the create request land; the page text is the signal
+    if _body_text(page) == before:                # the account form did not take it: nothing to save
+        print("[cred] inline verification: the account form did not advance", flush=True)
+        return
+    save_credential(site, cred["username"], cred["password"], label=cred.get("label", ""),
+                    first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+    print(f"[cred] saved credential for {site}", flush=True)
+    # Chain only on a real next step: "verification code" text often outlives the code box, so 'otp' here is a misread.
+    state = _classify_page_state(page)
+    if state not in ("unknown", "inline_verify", "otp"):
+        _handle_state(page, state, cred, site)
+
+
 def _classify_page_state(page) -> str:
     """Read DOM + URL → return next-action hint."""
     try:
@@ -124,6 +198,8 @@ def _classify_page_state(page) -> str:
         return "unknown"
     if any(d in url for d in ("accounts.google.com", "accounts.facebook.com", "linkedin.com/oauth")):
         return "oauth"
+    if _inline_email_verify_state(page):
+        return "inline_verify"
     # OTP input present
     otp_el = page.query_selector(
         'input[name*="otp" i], input[id*="otp" i],'
@@ -534,7 +610,9 @@ def _handle_otp_state(page, site: str, cred: dict) -> None:
 
 def _handle_state(page, state: str, cred: dict, site: str) -> None:
     """Act on an observed page state: fill what's now visible, then re-observe."""
-    if state == "otp":
+    if state == "inline_verify":
+        _handle_inline_verify(page, cred, site)
+    elif state == "otp":
         _handle_otp_state(page, site, cred)
     elif state == "verify_email":
         _handle_otp_state(page, site, cred)  # poll_otp returns link or code
@@ -587,6 +665,9 @@ def _is_combined_form(page) -> bool:
 def _fill_wall(page, gate: str, cred: dict, site: str = "") -> None:
     """Fill all visible auth fields, submit, then observe and handle the resulting state."""
     try:
+        if _inline_email_verify_state(page):          # submitting here would only wait for a code nobody sent
+            _handle_state(page, "inline_verify", cred, site)
+            return
         _fill_visible_fields(page, cred)
         page.wait_for_timeout(800)
         if _is_combined_form(page):
@@ -1191,7 +1272,10 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
         _infosys_login(page, cred, original_url=original_url)
     else:
         # Generic path — observation-driven: look at the page, then act.
-        if _is_email_first(page):
+        if is_new and _inline_email_verify_state(page):
+            # Email verified inline on this page (Accenture B2C): not an email-first form.
+            _handle_state(page, "inline_verify", cred, site)
+        elif _is_email_first(page):
             # Email-only form visible (no password field yet).
             # Fill email, click Continue, then observe and handle whatever appears.
             print(f"[cred] email-first form detected on {site}", flush=True)
