@@ -37,7 +37,8 @@ pkill -x "Google Chrome" 2>/dev/null; sleep 2; \
   --remote-debugging-port=9222 \
   --user-data-dir="$HOME/.career_agent/chrome-p3" \
   --profile-directory="Profile 3" \
-  --no-first-run --no-default-browser-check &
+  --no-first-run --no-default-browser-check \
+  --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows &
 ```
 
 Profile data lives at `~/.career_agent/chrome-p3/Profile 3` (symlink → real Chrome Profile 3).

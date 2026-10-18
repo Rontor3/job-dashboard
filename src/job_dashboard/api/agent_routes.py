@@ -115,7 +115,10 @@ def _launch_cdp_chrome(port: int) -> None:
         [_CDP_CHROME_APP, f"--remote-debugging-port={port}",
          f"--user-data-dir={_CDP_CHROME_PROFILE_DIR}",
          f"--profile-directory={_CDP_CHROME_PROFILE_NAME}",
-         "--no-first-run", "--no-default-browser-check"],
+         "--no-first-run", "--no-default-browser-check",
+         # Chrome freezes background tabs; a frozen tab makes CDP attach and page calls hang (live 2026-10-18)
+         "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+         "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
