@@ -8,6 +8,7 @@ from ..orchestrator.mapper import FillDecision
 from ..orchestrator.screen_review import _coerce_option
 from .clicks import pace
 from .perception import frame_target, split_ref
+from .value_shape import read_shape, shape_value
 
 
 # Any fill action can legitimately fail on a real form (an unmatched option, a
@@ -365,7 +366,7 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                 page.wait_for_timeout(500)
             continue
         if d.action == "fill":
-            value = str(d.value)
+            value = shape_value(d.value, read_shape(target, sel))     # numerals-only / month / date boxes get their form
             try:
                 ml = target.get_attribute(sel, "maxlength")
                 if ml and str(ml).isdigit():
@@ -380,14 +381,14 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                 # CSS selectors can't cross shadow roots — use JS native-setter approach.
                 if sel.startswith('#'):
                     try:
-                        ok = target.evaluate(_SHADOW_FILL_JS, {"id": sel[1:], "value": str(d.value)})
+                        ok = target.evaluate(_SHADOW_FILL_JS, {"id": sel[1:], "value": value})
                         filled = bool(ok)
                     except Exception:
                         pass
                 if not filled and d.label:
                     try:
                         target.get_by_label(d.label, exact=False).first.fill(
-                            str(d.value), timeout=_SOFT_TIMEOUT_MS)
+                            value, timeout=_SOFT_TIMEOUT_MS)
                     except Exception:
                         pass
         elif d.action == "select":
