@@ -1,0 +1,18 @@
+<!doctype html><html><body>
+<div id="main"><div class="skeleton-loader" style="height:320px;background:#eee;margin:16px"></div></div>
+<script>
+setTimeout(function () {
+  document.getElementById('main').innerHTML =
+    '<h1>Sign In</h1>' +
+    '<p>By continuing you agree to our privacy notice (GDPR).</p>' +
+    '<button>Sign in with Apple</button><button>Sign in with Google</button><button>Sign in with LinkedIn</button>' +
+    '<p>OR</p><button id="rev">Sign in with email</button><div id="form"></div>';
+  document.getElementById('rev').onclick = function () {
+    document.getElementById('form').innerHTML =
+      '<label>Email <input type="text" name="email"></label>' +
+      '<label>Password <input type="password" name="pw"></label>' +
+      '<button>Sign In</button><a href="#" onclick="return false">Create Account</a>';
+  };
+}, 2000);
+</script>
+</body></html>

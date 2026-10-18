@@ -59,6 +59,12 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         steps += 1
         if prep_fn is not None:
             prep_fn(page)               # clear cookie/idle overlays before perceiving
+        # A step still showing its loading placeholder reads as an empty page (no fields, no wall): wait it out first.
+        try:
+            from ..browser.clicks import wait_until_stable
+            wait_until_stable(page, max_ms=20000)
+        except Exception:
+            pass
 
         # Gate check first — hCaptcha auto-verifies asynchronously on trusted
         # browsers; poll until cleared (up to 5s) before snapshotting the form.

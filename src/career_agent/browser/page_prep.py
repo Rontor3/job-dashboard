@@ -197,6 +197,15 @@ def is_closed_posting(page) -> bool:
         return False
 
 
+# An email-first account wall: the password box sits behind a "Sign in with email" control, beside social sign-in
+# buttons (Workday; live Hitachi 2026-10-18). Matched on the control's whole text, so the same words inside a long
+# form can't make it a wall. Shared by classify_entry (detection) and credential_provider (the click that reveals it).
+EMAIL_REVEAL_RE = re.compile(r"^(?:(?:sign ?in|log ?in|sign ?up|register|continue) with (?:e-?mail|email address)"
+                             r"|(?:use|continue with) e-?mail)$", re.I)
+SOCIAL_SIGNIN_RE = re.compile(r"^(?:sign ?in|log ?in|sign ?up|continue) with (?:apple|google|linkedin|facebook|microsoft|github)$",
+                              re.I)
+
+
 def classify_entry(page, status=None) -> str:
     """Which of the two application shapes (or a JD/password gate) is on screen:
     'closed' | 'form' | 'email_auth' | 'password' | 'none'.
@@ -213,8 +222,13 @@ def classify_entry(page, status=None) -> str:
     if "darwinbox.com/cookie-policy" in _u or "/ms/candidatev2/main/auth/" in _u:
         return "password"
     try:
-        d = page.evaluate("""() => {
+        d = page.evaluate("""(pats) => {
           const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+          const ctlText = e => (e.innerText || e.value || '').trim().replace(/\\s+/g, ' ');
+          const ctls = Array.from(document.querySelectorAll('button,a[href],[role=button],input[type=button],input[type=submit]'))
+            .filter(vis).map(ctlText);
+          const emailReveal = ctls.some(t => new RegExp(pats[0], 'i').test(t));
+          const social = ctls.some(t => new RegExp(pats[1], 'i').test(t));
           const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
           const txt = document.body.innerText.slice(0, 4000);
           const hasPw = ins.some(e => e.type === 'password')
@@ -227,13 +241,16 @@ def classify_entry(page, status=None) -> str:
           // a sign-in step's own button (IBMid: "Continue"), not a job-alert box's "Subscribe"
           const authBtn = Array.from(document.querySelectorAll('button,input[type=submit],[role=button]')).filter(vis)
             .some(e => /^(continue|next|sign ?in|log ?in|login)$/i.test((e.innerText || e.value || '').trim()));
-          return { hasPw, hasEmail: !!email, authBtn,
+          return { hasPw, hasEmail: !!email, authBtn, emailReveal, social,
             verify: /verify|one-time|we'll send|continue with email|create .*profile|create (an |your )?account|confirm your identity|start application|begin.*apply|sign.?in|sign.?up|log.?in or|register/i.test(txt),
             fillable };
-        }""")
+        }""", [EMAIL_REVEAL_RE.pattern, SOCIAL_SIGNIN_RE.pattern])
     except Exception:
         return "none"
     if d["hasPw"]:
+        return "password"
+    # Social buttons + "Sign in with email" on a small page: the password gate, one click away (no box shown yet).
+    if d.get("emailReveal") and d.get("social") and d["fillable"] <= 4:
         return "password"
     # An email-first gate is a tiny page; a long form that merely mentions "signing"/"sign in" is not.
     from .credential_provider import alert_box_only

@@ -180,3 +180,30 @@ def test_dismiss_dialogs_leaves_an_application_modal_alone():
         p.set_content(app); assert dismiss_dialogs(p) is False
         p.set_content(idle); assert dismiss_dialogs(p) is True
         b.close()
+
+
+def test_email_reveal_wall_waits_out_loading_then_reads_as_password_gate():
+    # live Hitachi Workday 2026-10-18: a loading placeholder for ~10s, then social buttons + "Sign in with email";
+    # the password box only appears after that click. Read during the spinner it was 'none' (no wall).
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.clicks import wait_until_stable
+    from career_agent.browser.page_prep import classify_entry
+    with sync_playwright() as pw:
+        b, p = _page(pw, "entry_email_reveal.html")
+        assert wait_until_stable(p, max_ms=20000)
+        assert classify_entry(p) == "password"
+        b.close()
+
+
+def test_reveal_email_form_shows_the_password_box():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.clicks import wait_until_stable
+    from career_agent.browser.credential_provider import _reveal_email_form
+    with sync_playwright() as pw:
+        b, p = _page(pw, "entry_email_reveal.html")
+        wait_until_stable(p, max_ms=20000)
+        assert p.locator('input[type="password"]').count() == 0      # no password box before the reveal
+        assert _reveal_email_form(p) is True
+        assert p.locator('input[type="password"]').is_visible()
+        assert _reveal_email_form(p) is False                          # nothing left to reveal
+        b.close()

@@ -191,3 +191,12 @@ def test_a_not_accepting_banner_under_the_title_marks_a_full_page_closed():
     assert _looks_closed("This job has expired. " + "x " * 800)
     jd = "Senior Data Engineer. " + "We build pipelines. " * 200 + " Note: if the role is filled we will keep your CV."
     assert not _looks_closed(jd)                                   # mentioned deep in a JD, not a banner
+
+
+def test_email_reveal_regex_matches_only_the_email_control():
+    from career_agent.browser.page_prep import EMAIL_REVEAL_RE, SOCIAL_SIGNIN_RE
+    for t in ("Sign in with email", "Log in with e-mail", "Continue with email", "Use email"):
+        assert EMAIL_REVEAL_RE.match(t), t
+    for t in ("Sign in with Google", "Apply with email", "Email me jobs", "Sign in"):
+        assert not EMAIL_REVEAL_RE.match(t), t
+    assert SOCIAL_SIGNIN_RE.match("Sign in with Apple") and not SOCIAL_SIGNIN_RE.match("Sign in with email")

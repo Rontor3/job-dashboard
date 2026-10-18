@@ -1260,6 +1260,33 @@ def _ensure_signup_form(page) -> None:
     _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
 
 
+def _reveal_email_form(page) -> bool:
+    """An email-first wall ("Sign in with email" beside social buttons) hides its email and password boxes until that
+    control is clicked. Click it once and wait for the password box; False if there was no such control (or it was
+    already clicked and the form is open). Matched by page_prep.EMAIL_REVEAL_RE, the same rule that classifies the wall."""
+    from .page_prep import EMAIL_REVEAL_RE
+    try:
+        if any(el.is_visible() for el in page.query_selector_all('input[type="password"]')):
+            return False                     # the form is already open
+        for el in page.query_selector_all("button, a, [role=button], input[type='button'], input[type='submit']"):
+            if not el.is_visible():
+                continue
+            text = " ".join((el.text_content() or el.get_attribute("value") or "").split())
+            if not EMAIL_REVEAL_RE.match(text):
+                continue
+            print(f"[cred] revealing the email form: {text!r}", flush=True)
+            if not _safe_click(el):
+                return False
+            try:
+                page.wait_for_selector('input[type="password"]', state="visible", timeout=10000)
+            except Exception:
+                _observe_until_change(page, "reveal_email")
+            return True
+    except Exception as e:
+        print(f"[cred] reveal scan error: {e!r}", flush=True)
+    return False
+
+
 def provide(page, gate: str, site: str, original_url: str | None = None,
             email: str = "", phone: str = "", _retried: bool = False) -> tuple[bool, str | None]:
     """Fill an account/login wall using stored or freshly-generated credentials.
@@ -1280,6 +1307,7 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
     # Step 1 — guest apply (always try first; no account needed)
     if _try_guest_apply(page):
         return True, "guest"
+    _reveal_email_form(page)                 # an email-first wall hides its password box behind one click
     cred = load_credential(site, label=gate)
 
     is_new = cred is None

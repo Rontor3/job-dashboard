@@ -25,7 +25,7 @@ class _FakePage:
     """Dispatches page.evaluate by the JS it's handed: the big classify probe
     returns `d`; the body-innerText read returns `body`."""
     def __init__(self, d, body="", url=""): self._d = d; self._body = body; self.url = url
-    def evaluate(self, js):
+    def evaluate(self, js, arg=None):
         return self._body if "document.body.innerText" in js and "hasPw" not in js else self._d
 
 
