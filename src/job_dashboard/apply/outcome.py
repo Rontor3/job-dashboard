@@ -20,6 +20,8 @@ def outcome(result: dict | None, exit_code: int) -> tuple[str, str, str | None]:
     if result is None:
         return "failed", "crashed" if exit_code else "no_result", "failed"
     reason = result.get("stopped_reason") or "stopped"
+    if reason == "already_applied":                   # the board says you applied before (by hand, or an earlier run)
+        return "done", "already_applied", "applied"
     if reason == "closed":                            # the posting is dead: not a failed application
         return "parked", "closed", "closed"
     if exit_code:

@@ -9,6 +9,7 @@ from job_dashboard.apply.outcome import outcome
     ({"submitted": False, "stopped_reason": "apply_is_one_click"}, 0, ("parked", "one_click_needs_autosubmit", "failed")),
     ({"submitted": False, "stopped_reason": "logged_out"}, 0, ("parked", "logged_out", "failed")),
     ({"submitted": False, "stopped_reason": "challenge"}, 0, ("parked", "challenge", "failed")),
+    ({"submitted": False, "stopped_reason": "already_applied"}, 0, ("done", "already_applied", "applied")),
     ({"submitted": False, "stopped_reason": "daily_cap"}, 0, ("parked", "daily_cap", "failed")),
     ({"submitted": False, "stopped_reason": "captcha_blocked"}, 0, ("parked", "captcha_blocked", "failed")),
     ({"submitted": False, "stopped_reason": "gap", "pending_human": ["CTC"]}, 0, ("parked", "needs_answers", "failed")),

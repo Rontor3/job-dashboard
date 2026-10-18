@@ -30,10 +30,13 @@ def _needles(board):
 
 _APPLIED = re.compile(r"\byou(?:'ve| have)? already applied\b|\bapplied \d+ (?:second|minute|hour|day|week|month)s? ago\b",
                       re.I)
-# A visible BUTTON reading just "Applied" ("✓ Applied"): nav links named
-# "Applied" (Wellfound's sidebar) are anchors, so only buttons count.
-_APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e =>
-    e.checkVisibility() && /^\\W*applied\\W*$/i.test((e.innerText || '').trim()))"""
+# A visible BUTTON saying it's done: "✓ Applied", Instahyre's "Application sent!" (live 2026-10-18: GeoIQ, applied
+# Oct 3, was searched for an Apply button instead). Nav links named "Applied" (Wellfound's sidebar) are anchors, so only
+# buttons count, and only a short label (not a paragraph that mentions it).
+_APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e => {
+    const t = (e.innerText || '').trim();
+    return e.checkVisibility() && t.length < 60 && /^\\W*(applied|already applied|application (sent|submitted))\\b/i.test(t);
+})"""
 _ERRORS_JS = """() => [...new Set([...document.querySelectorAll(
     '[role=alert],[aria-live=assertive],[id*=error i],[class*=error i],[class*=invalid i]')]
     .filter(e => e.checkVisibility() && e.innerText && e.innerText.trim().length < 300)
