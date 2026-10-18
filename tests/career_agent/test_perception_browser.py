@@ -245,3 +245,38 @@ def test_a_select_whose_question_sits_in_a_sibling_block_is_named_by_it_not_its_
         (f,) = snapshot_form(page); b.close()
     assert f.label.startswith("I acknowledge that I may not record the interview.")
     assert f.options == ["Yes, I acknowledge this.", "No, I do not acknowledge this."]
+
+
+def test_a_machine_named_textarea_takes_its_question_from_its_container_and_status_text_stays_out():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    # Lever card (job 30212): two custom textareas named cards[uuid][fieldN] share one li, each question a sibling
+    # .application-label; a location typeahead carries a role=status "No location found" line beside its box.
+    html = (Path(__file__).parent / "fixtures" / "lever_card_textareas.html").read_text()
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        by_name = {f.label.rstrip("*") for f in snapshot_form(page, scroll=False)}
+        fields = {f.kind + ":" + f.ref: f for f in snapshot_form(page, scroll=False)}
+        b.close()
+    assert not any(l.startswith("cards[") for l in by_name), by_name
+    assert "Which harnesses do you have experience building with? Please name the harness." in by_name
+    assert "What is your experience with fine-tuning or adapting LLMs?" in by_name
+    loc = [f for f in fields.values() if f.kind == "combobox"]
+    assert loc and loc[0].label.startswith("Current location")
+    assert "No location found" not in loc[0].label and "Loading" not in loc[0].label
+
+
+def test_a_visibility_hidden_or_transparent_button_is_not_a_control_on_screen():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    # Avature keeps a "Default Apply" button in the DOM with visibility:hidden / opacity:0; only the visible Apply counts.
+    html = ('<button style="visibility:hidden">Default Apply</button>'
+            '<button style="opacity:0">Ghost Apply</button>'
+            '<button>Apply now</button>')
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        labels = [f.label for f in snapshot_form(page, scroll=False) if f.kind == "button"]
+        b.close()
+    assert labels == ["Apply now"], labels

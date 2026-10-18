@@ -225,17 +225,38 @@ _INPUT_JS = r"""
     let up = parentOf(el);
     // A block's words WITHOUT the field's own options: a wrapper holding only the <select> reads empty and the walk
     // climbs to the block that also holds the question (Lever card: .application-label beside .application-field).
-    const blockText = (n) => { const c = n.cloneNode(true); c.querySelectorAll('select,option,[role=listbox],[role=option],[hidden],[aria-hidden=true],script,style').forEach(x => x.remove()); return c.textContent || ''; };
+    const blockText = (n) => { const c = n.cloneNode(true); c.querySelectorAll('select,option,[role=listbox],[role=option],[role=status],[role=alert],[aria-live],[hidden],[aria-hidden=true],script,style').forEach(x => x.remove()); return c.textContent || ''; };
     for (let i = 0; i < 4 && up; i++, up = parentOf(up)) {
       if (up.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;   // reached other fields
-      const raw = (el.tagName === 'SELECT' ? blockText(up) : (up.innerText || up.textContent || '')).trim().slice(0, 300);
+      const raw = scrubStatus((el.tagName === 'SELECT' ? blockText(up) : (up.innerText || up.textContent || '')).trim().slice(0, 300));
       const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
       if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;           // the star moves to the end: still marks it required
+    }
+    // A container holding SEVERAL questions (Lever: one li with a label + textarea per question, or a card whose
+    // inputs are named cards[uuid][fieldN]): the question is the nearest preceding sibling of the control's branch,
+    // at each level, that holds text and no other control. The walk stops at the form, never past it.
+    let branch = el;
+    for (let d = 0; d < 6 && branch && !/^(FORM|BODY|MAIN)$/.test(branch.tagName); d++) {
+      let prev = branch.previousElementSibling, sc = 0;
+      while (prev && sc++ < 3) {
+        if (!prev.querySelector(CONTROL_SEL) && !prev.matches(CONTROL_SEL) && prev.getAttribute('aria-hidden') !== 'true') {
+          const raw = scrubStatus(blockText(prev).trim().slice(0, 300));
+          const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
+          if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;
+        }
+        prev = prev.previousElementSibling;
+      }
+      branch = parentOf(branch);
     }
     return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
   };
   // a name that says something: not empty, not just a required-star / colon
   const ok = (t) => !!t && t.replace(/[*✱:\s]/g, '').length > 0;
+  const CONTROL_SEL = 'input:not([type=hidden]),select,textarea';
+  // Live-region chatter is not a question: a typeahead's "No location found. Try entering a different location" and its
+  // "Loading" line leak into the block text beside the box. Strip them from any label text.
+  const scrubStatus = (t) => (t || '').replace(/\bno [^.]{0,80}?\bfound\b\.?(\s*try [^.]*\.?)?/gi, ' ')
+                                      .replace(/\bloading\b\.{0,3}\s*$/i, ' ').replace(/\s+/g, ' ').trim();
   // What the box is measured in, from the controls that share its row: a read-only "INR" box or a currency <select>
   // beside an amount, "Years" beside a number, an addon/prefix chip ("₹", "days"). Empty when the row holds other fields.
   const unitOf = (el) => {
@@ -484,7 +505,8 @@ _INPUT_JS = r"""
         'button, a[href], input[type=submit], input[type=button], [role=button]')) {
     const elRole = (el.getAttribute('role') || '').toLowerCase();
     if (elRole === 'radio' || elRole === 'checkbox') continue;  // handled above
-    if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;   // invisible (self or ancestor) shadow/duplicate control
+    // visibility:hidden / opacity:0 buttons (Avature's hidden "Default Apply") are not on screen; plain checkVisibility() misses them
+    if (el.checkVisibility ? !el.checkVisibility({visibilityProperty: true, opacityProperty: true}) : getComputedStyle(el).display === 'none') continue;   // invisible (self or ancestor) shadow/duplicate control
     let label = ((el.textContent || el.value || el.getAttribute('aria-label') || '')).trim().slice(0, 100);
     if (!label) continue;
     // A native-select stand-in (Workday Canvas Kit, etc.): a <button
