@@ -28,6 +28,7 @@ class QBankMemory:
         # (memory/factcards.py). Off unless facts_llm is given; without a local model the plan alone answers.
         self.facts_llm, self._skills, self._facts, self._snap = facts_llm, list(skills), None, None
         self._proposed: dict = {}           # ref -> a new fact Haiku proposed (MISSING), saved when you answer
+        self._worked = 0                    # fields worked out this run: a progress line per field (stall watchdog)
 
     def _fact_sheet(self):
         """(facts, cards, plan cache), rebuilt when the bank changed — a fact told mid-run is used at once."""
@@ -105,6 +106,10 @@ class QBankMemory:
                     self._cache[key] = self._from_facts(f) or self._cache[key]
                 except Exception as e:                  # CLI down, login expired: the bank's answer (none) stands
                     print(f"[warn] facts plan failed for {f.label!r}: {type(e).__name__}: {e}")
+            # one line per field: a long form (Koch on Avature, 79 fields, live 2026-10-18) takes minutes to work out,
+            # and a silent run looked stalled to the queue's watchdog, which stopped it before anything was filled
+            self._worked += 1
+            print(f"[answer] {self._worked} fields worked out", flush=True)
         return self._cache[key]
 
     def explain(self, f) -> dict:

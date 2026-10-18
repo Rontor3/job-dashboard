@@ -6,7 +6,7 @@ LOG = ("[perc] frame 0: 'https://a.example/job'\n[fill] step 1: 3 filled, 2 esca
 
 def test_progress_token_tracks_fills_pages_and_assist():
     t0 = progress_token(LOG)
-    assert t0 == (3, 1, 0, 0, 0)
+    assert t0 == (3, 1, 0, 0, 0, 0)
     assert progress_token(LOG + "[perc] snapshot: 0 fields\n") == t0                      # chatter is not progress
     assert progress_token(LOG + "[fill] step 2: 7 filled, 0 escalated\n")[0] == 7
     assert progress_token(LOG + "[perc] frame 0: 'https://b.example/apply'\n")[1] == 2
@@ -50,3 +50,13 @@ def test_asking_the_human_and_their_answer_both_count_as_progress():
     asked = base + "[telegram] sending 3 field question(s) — waiting for reply...\n"
     answered = asked + "[human] got 3 answer(s) — applying\n"
     assert progress_token(base) != progress_token(asked) != progress_token(answered)
+
+
+def test_working_out_answers_on_a_long_form_is_progress_but_a_hang_is_not():
+    """Koch on Avature (live 2026-10-18): 79 fields, minutes of silent answering, stopped as 'stalled'."""
+    base = "[perc] frame 0: 'https://koch.avature.net/YourInformation'\n"
+    t0 = progress_token(base)
+    t1 = progress_token(base + "[answer] 1 fields worked out\n[answer] 2 fields worked out\n")
+    t2 = progress_token(base + "[answer] 1 fields worked out\n[answer] 2 fields worked out\n[answer] 3 fields worked out\n")
+    assert t0 != t1 != t2
+    assert progress_token(base + "[answer] 3 fields worked out\n[warn] x\n") == t2      # stuck on field 4: no change

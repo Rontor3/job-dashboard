@@ -15,14 +15,16 @@ _PAGE = re.compile(r"\[perc\] frame 0: '([^']*)'")
 _ASSIST = re.compile(r"\[assist \d+/\d+\] Claude chose: (?!give_up|invalid)")
 _ASKED = re.compile(r"\[telegram\] sending \d+ field question")      # a question went to the human: the clock restarts
 _ANSWERED = re.compile(r"\[human\] got \d+ answer")                # the human replied: that is progress too
+_WORKED = re.compile(r"\[answer\] (\d+) fields worked out")       # answers being worked out on a long form
 
 
 def progress_token(log: str) -> tuple:
     """Changes only when the run fills more fields, reaches a new page, acts on Claude's help, asks the human a question
     or receives their answer (waiting on a person is not a stall until they have had their time)."""
     filled = max((int(n) for n in _FILLED.findall(log)), default=0)
+    worked = max((int(n) for n in _WORKED.findall(log)), default=0)
     return (filled, len(set(_PAGE.findall(log))), len(_ASSIST.findall(log)),
-            len(_ASKED.findall(log)), len(_ANSWERED.findall(log)))
+            len(_ASKED.findall(log)), len(_ANSWERED.findall(log)), worked)
 
 
 def _tail(path: str, max_bytes: int = 262144) -> str:
