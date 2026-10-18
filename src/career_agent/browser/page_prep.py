@@ -32,6 +32,7 @@ def suppress_noise(fields):
 # Ordered most-specific first so "Reject all" beats "Reject" etc.
 _DECLINE = [
     "Reject all", "Decline all", "Decline all cookies", "Reject all cookies",
+    "Reject optional cookies", "Reject optional", "Decline optional cookies", "Reject non-essential",
     "Use necessary cookies only", "Necessary cookies only", "Only necessary cookies",
     "Only essential", "Essential only",
     "Decline", "Reject", "Only necessary", "Necessary only", "Refuse",
@@ -93,11 +94,25 @@ def _click_first(page, names, within=None):
     return None
 
 
+# The page's text plus the text of every open shadow root: consent managers such as Usercentrics draw the whole banner
+# inside one (FedEx careers, live 2026-10-18 — the banner covered Apply and the text check never saw it).
+_CONSENT_TEXT_JS = """() => {
+  const re = /cookie|consent|privacy preferences|we use cookies/i;
+  if (re.test((document.body ? document.body.innerText : '').slice(0, 4000))) return true;
+  const seen = []; const walk = root => { for (const e of root.querySelectorAll('*')) if (e.shadowRoot) seen.push(e.shadowRoot); };
+  walk(document);
+  for (let i = 0; i < seen.length && i < 50; i++) {
+    const r = seen[i];
+    if (re.test((r.textContent || '').slice(0, 4000))) return true;
+    walk(r);
+  }
+  return false;
+}"""
+
+
 def _looks_consent(page) -> bool:
     try:
-        return bool(page.evaluate(
-            "() => /cookie|consent|privacy preferences|we use cookies/i"
-            ".test(document.body.innerText.slice(0,4000))"))
+        return bool(page.evaluate(_CONSENT_TEXT_JS))
     except Exception:
         return False
 
