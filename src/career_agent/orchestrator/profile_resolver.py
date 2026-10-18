@@ -31,6 +31,11 @@ def _name_parts(contact):
     return (toks[0] if toks else "", " ".join(toks[1:]))
 
 
+_DIAL_BY_COUNTRY = {"india": "+91", "united states": "+1", "usa": "+1", "us": "+1", "united kingdom": "+44",
+                    "uk": "+44", "canada": "+1", "singapore": "+65", "united arab emirates": "+971", "uae": "+971",
+                    "germany": "+49", "australia": "+61"}
+
+
 def resolve(purpose, profile, index=0):
     if purpose in ("first_name", "last_name"):
         first, last = _name_parts(profile.contact)
@@ -45,7 +50,11 @@ def resolve(purpose, profile, index=0):
         return profile.contact.get("current_ctc") or None
     if purpose == "phone_country_code":
         m = _PHONE_CC_RE.match((profile.contact.get("phone") or "").strip())
-        return m.group(0).strip(" -") if m else None
+        if m:
+            return m.group(0).strip(" -")
+        # no prefix on the number: the dial code of the country the profile says you live in (a fact, not a guess)
+        country = (profile.contact.get("location") or "").split(",")[-1].strip().lower()
+        return _DIAL_BY_COUNTRY.get(country)
     if purpose == "phone":
         raw = profile.contact.get("phone")
         return (_PHONE_CC_RE.sub("", raw).strip() or None) if raw else None
