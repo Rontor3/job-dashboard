@@ -37,8 +37,16 @@ def test_watch_stops_a_run_with_no_progress(tmp_path):
 
 
 def test_progress_resets_the_clock_and_exit_is_not_a_stall(tmp_path):
-    assert _run(tmp_path, grow=True, alive_ticks=11)[0] is False   # 11 min alive, but progress at 2 min
-    assert _run(tmp_path, grow=False, alive_ticks=3)[0] is False   # exited on its own before 10 min
+    assert _run(tmp_path, grow=True, alive_ticks=11)[0] == ""   # 11 min alive, but progress at 2 min
+    assert _run(tmp_path, grow=False, alive_ticks=3)[0] == ""   # exited on its own before 10 min
+
+
+def test_a_run_stopped_while_its_question_waits_is_parked_as_needing_answers():
+    from job_dashboard.apply.stall import UNANSWERED_EXIT, waiting_on_human
+    asked = "[fill] step 1: 4 filled, 1 escalated\n[telegram] sending 1 field question(s) — waiting for reply...\n"
+    assert waiting_on_human(asked) and waiting_on_human("[board] asking: ['Which applies to you?']\n")
+    assert not waiting_on_human(asked + "[human] got 1 answer(s) — applying\n") and not waiting_on_human("[fill] 3 applied\n")
+    assert outcome(None, UNANSWERED_EXIT) == ("parked", "needs_answers", "failed")
 
 
 def test_stalled_run_is_parked_not_failed():

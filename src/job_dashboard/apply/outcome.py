@@ -17,6 +17,8 @@ def outcome(result: dict | None, exit_code: int) -> tuple[str, str, str | None]:
         return "done", "submitted", "applied"
     if exit_code == 124:                              # stall.STALL_EXIT: no progress, stopped by the queue
         return "parked", "stalled_no_progress", "failed"
+    if exit_code == 125:                              # stall.UNANSWERED_EXIT: stopped while its question waited on you
+        return "parked", "needs_answers", "failed"
     if result is None:
         return "failed", "crashed" if exit_code else "no_result", "failed"
     reason = result.get("stopped_reason") or "stopped"

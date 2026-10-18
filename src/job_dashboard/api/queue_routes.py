@@ -69,10 +69,10 @@ def make_agent_launch(state, poll_s: float = 2.0):
         env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONUNBUFFERED": "1"}
         while not state.start(job_id, argv, str(DATA_DIR.parent), env, _log_path(job_id)):
             time.sleep(poll_s)
-        from job_dashboard.apply.stall import STALL_EXIT, watch
+        from job_dashboard.apply.stall import STALL_EXIT, UNANSWERED_EXIT, watch
         stalled = watch(lambda: state.poll()["running"], state.stop, str(_log_path(job_id)))
         code = state.wait()
-        return STALL_EXIT if stalled else code
+        return {"stalled": STALL_EXIT, "unanswered": UNANSWERED_EXIT}.get(stalled, code)
 
     return launch
 
