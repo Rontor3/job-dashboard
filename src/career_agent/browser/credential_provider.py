@@ -387,7 +387,9 @@ def _click_non_social_submit(page, btn_names=("Continue", "Create Account", "Sig
     return False
 
 
-_CONSENT_KEYWORDS = ("privacy", "consent", "terms", "agree", "policy")
+# Hitachi Workday (live 2026-10-18): "I confirm Hitachi will process my personal data as per the GDPR Notice"
+_CONSENT_KEYWORDS = ("privacy", "consent", "terms", "agree", "policy", "gdpr", "personal data", "data protection",
+                     "i confirm", "acknowledge")
 
 
 def _check_consent_checkboxes(page) -> int:
@@ -414,6 +416,9 @@ def _check_consent_checkboxes(page) -> int:
                     label_text = (container.inner_text() or "").lower()
                     lbl = lbl or container
             if not any(k in label_text for k in _CONSENT_KEYWORDS):
+                continue
+            from ..orchestrator.screen_review import _MARKETING
+            if _MARKETING.search(label_text):                # "I agree to receive job alerts" is not consent to apply
                 continue
             done = False
             if cb.is_visible():
