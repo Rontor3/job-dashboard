@@ -73,6 +73,8 @@ class SubmitWatcher:
             conn.execute("DELETE FROM submission_watch WHERE job_id=?", (job_id,))
             conn.commit()
             print(f"[watch] job {job_id} submitted ({proof}); approvals {out}", flush=True)
+            if tab is not None and hasattr(tab, "close"):    # the confirmation page has nothing left to do: free the tab
+                tab.close()
             done.append(job_id)
         return done
 
@@ -141,6 +143,12 @@ class _Tab:
     def read_values(self):
         from career_agent.browser.form_values import read_form_values
         return read_form_values(self.page)
+
+    def close(self):
+        try:
+            self.page.close()
+        except Exception:
+            pass
 
 
 class CdpTabs:
