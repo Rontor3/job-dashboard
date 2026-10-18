@@ -599,14 +599,17 @@ def _fill_visible_fields(page, cred: dict) -> None:
             _type_into(page, el, cred["password"])
     for name_sel, val in [
         ('input[name*="fName" i], input[id*="first" i], input[name*="firstName" i],'
-         'input[placeholder*="first" i]', cred.get("first_name", "")),
+         'input[placeholder*="first" i], input[autocomplete="given-name"], input[id*="given" i], input[name*="given" i]',
+         cred.get("first_name", "")),
         ('input[name*="lName" i], input[id*="last" i], input[name*="lastName" i],'
-         'input[placeholder*="last" i]', cred.get("last_name", "")),
+         'input[placeholder*="last" i], input[autocomplete="family-name"], input[id*="surname" i],'
+         'input[name*="surname" i], input[id*="family" i]', cred.get("last_name", "")),
     ]:
         if not val:
             continue
-        el = page.query_selector(name_sel)
-        if el and el.is_visible():
+        # first VISIBLE match; Azure B2C names them givenName / surname (Accenture, live 2026-10-18: CREATE failed blank)
+        el = next((e for e in page.query_selector_all(name_sel) if e.is_visible()), None)
+        if el is not None and not (el.input_value() or "").strip():
             _type_into(page, el, val)
     _check_consent_checkboxes(page)
     _fill_phone_and_country(page, cred)
