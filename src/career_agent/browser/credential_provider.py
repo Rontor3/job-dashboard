@@ -1426,6 +1426,12 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                                 first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
             else:
                 print(f"[cred] {site}: no password box yet — nothing saved, the account does not exist", flush=True)
+        elif _is_combined_form(page) and not _is_login_form(page):
+            # A sign-up that is also the application form, back on screen (its Continue was refused): the account is
+            # made when THIS form goes through, so fill it again with the same password — never go off to a login
+            # page with a credential the site has not accepted yet (MetLife Register, live 2026-10-19).
+            print(f"[cred] {site}: the registration form is back — filling it with the same credential", flush=True)
+            _fill_visible_fields(page, cred)
         else:
             # Traditional form, have credentials — login
             _ensure_login_form(page)
