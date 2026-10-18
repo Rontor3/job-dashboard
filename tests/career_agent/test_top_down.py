@@ -132,3 +132,16 @@ def test_a_textarea_already_holding_text_is_still_written_but_a_parsed_short_fie
     monkeypatch.setattr(td, "_holds_value", lambda page, d: True)       # both boxes already hold text
     out, _ = td.fill_top_down(page, deps, [f1, f2], ds, [], None, skip_prefilled=True)
     assert applied == ["#essay"]
+
+
+def test_a_site_value_that_contradicts_a_known_answer_is_replaced():
+    """Oracle profile import put 'GenAI' in First Name (Cummins, live 2026-10-18) and the agent kept it."""
+    from career_agent.orchestrator.mapper import FillDecision
+    from career_agent.orchestrator.top_down import site_value_stands
+    first = FillDecision("#fn", "text", "First Name", "Rakshit", "fill", "profile")
+    assert site_value_stands("GenAI", first) is False                       # ours is known: replace
+    assert site_value_stands("Rakshit", first) is True
+    phone = FillDecision("#ph", "tel", "Phone", "+91 7565052330", "fill", "profile")
+    assert site_value_stands("7565052330", phone) is True                   # same number, other format
+    guess = FillDecision("#c", "text", "City", "Mumbai", "fill", "qbank_likely")
+    assert site_value_stands("Pune", guess) is True                          # ours is a guess: the site's stands

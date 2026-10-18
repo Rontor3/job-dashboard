@@ -16,6 +16,7 @@ _ASSIST = re.compile(r"\[assist \d+/\d+\] Claude chose: (?!give_up|invalid)")
 _ASKED = re.compile(r"\[telegram\] sending \d+ field question")      # a question went to the human: the clock restarts
 _ANSWERED = re.compile(r"\[human\] got \d+ answer")                # the human replied: that is progress too
 _WORKED = re.compile(r"\[answer\] (\d+) fields worked out")       # answers being worked out on a long form
+_APPLIED = re.compile(r"\[fill\] (\d+) applied")                    # fields being typed in, one by one
 
 
 def progress_token(log: str) -> tuple:
@@ -23,8 +24,9 @@ def progress_token(log: str) -> tuple:
     or receives their answer (waiting on a person is not a stall until they have had their time)."""
     filled = max((int(n) for n in _FILLED.findall(log)), default=0)
     worked = max((int(n) for n in _WORKED.findall(log)), default=0)
+    applied = len(_APPLIED.findall(log))          # every line is one more field (the count restarts on each page)
     return (filled, len(set(_PAGE.findall(log))), len(_ASSIST.findall(log)),
-            len(_ASKED.findall(log)), len(_ANSWERED.findall(log)), worked)
+            len(_ASKED.findall(log)), len(_ANSWERED.findall(log)), worked, applied)
 
 
 def _tail(path: str, max_bytes: int = 262144) -> str:

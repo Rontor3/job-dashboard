@@ -6,7 +6,7 @@ LOG = ("[perc] frame 0: 'https://a.example/job'\n[fill] step 1: 3 filled, 2 esca
 
 def test_progress_token_tracks_fills_pages_and_assist():
     t0 = progress_token(LOG)
-    assert t0 == (3, 1, 0, 0, 0, 0)
+    assert t0 == (3, 1, 0, 0, 0, 0, 0)
     assert progress_token(LOG + "[perc] snapshot: 0 fields\n") == t0                      # chatter is not progress
     assert progress_token(LOG + "[fill] step 2: 7 filled, 0 escalated\n")[0] == 7
     assert progress_token(LOG + "[perc] frame 0: 'https://b.example/apply'\n")[1] == 2
@@ -60,3 +60,10 @@ def test_working_out_answers_on_a_long_form_is_progress_but_a_hang_is_not():
     t2 = progress_token(base + "[answer] 1 fields worked out\n[answer] 2 fields worked out\n[answer] 3 fields worked out\n")
     assert t0 != t1 != t2
     assert progress_token(base + "[answer] 3 fields worked out\n[warn] x\n") == t2      # stuck on field 4: no change
+
+
+def test_typing_fields_in_one_by_one_is_progress():
+    base = "[perc] frame 0: 'https://x/apply'\n"
+    a = progress_token(base + "[fill] 1 applied\n")
+    b = progress_token(base + "[fill] 1 applied\n[fill] 2 applied\n")
+    assert a != b and progress_token(base + "[fill] 1 applied\n[warn] x\n") == a
