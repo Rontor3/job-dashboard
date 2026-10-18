@@ -40,6 +40,8 @@ class Field:
     placeholder: str = ""      # what the box shows when empty ("DD/MM/YYYY") — the page's own format hint
     max_length: int = 0        # HTML maxlength (0 = none)
     unit: str = ""             # what the box is measured in, from controls sharing its row ("INR", "Years")
+    section: str = ""          # the heading the field sits under ("Education", "Contact Information") — answering context
+    row: int = -1              # which repeated entry block it is in (Education 1/2/3 -> 0/1/2); -1 = not repeated
 
 
 # Ordered most-specific-first; first hit wins.

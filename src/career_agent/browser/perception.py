@@ -104,6 +104,8 @@ def to_form_model(raw: list[dict]) -> list[Field]:
                 {"labels": [], "required": False, "label": r["group"], "group_label": ""},
             )
             g["labels"].append(r["label"])
+            g.setdefault("section", r.get("section", "") or "")
+            g.setdefault("row", r.get("row", -1) if r.get("row") is not None else -1)
             g["required"] = g["required"] or bool(r.get("required"))
             if r.get("group_label") and not g["group_label"]:
                 g["group_label"] = r["group_label"]
@@ -119,6 +121,8 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             placeholder=r.get("placeholder", ""),
             max_length=int(r.get("max_length") or 0),
             unit=r.get("unit", ""),
+            section=r.get("section", "") or "",
+            row=int(r.get("row", -1) if r.get("row") is not None else -1),
         ))
 
     for name, g in radio_groups.items():
@@ -127,6 +131,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             ref=f"group:{name}", kind="radio_group", label=label,
             required=g["required"], options=g["labels"], group=name,
             purpose=guess_purpose(label, "radio_group"),
+            section=g.get("section", ""), row=g.get("row", -1),
         ))
     return fields
 
@@ -649,6 +654,54 @@ def _frame_is_visible_and_sizeable(fr) -> bool:
         return False                              # detached / not attached to a visible element
 
 
+# Each field's SECTION (the nearest heading above it in document order: h1-h6, role=heading, a fieldset legend) and
+# ROW (its index among sibling blocks that repeat the same class and each hold form controls: Education 1/2/3). Pure
+# DOM; used to answer a section's fields together (orchestrator/sections.py).
+_SECTION_JS = r"""
+(refs) => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],legend'))
+    .filter(h => vis(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80);
+  const sectionOf = el => {
+    let best = '';
+    for (const h of heads) {
+      if (h === el || h.contains(el)) { if (h.tagName === 'LEGEND') best = h.innerText.trim(); continue; }
+      if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) best = h.innerText.trim(); else break;
+    }
+    const fs = el.closest('fieldset'); const lg = fs && fs.querySelector(':scope > legend');
+    return (lg && lg.innerText.trim() && lg.innerText.trim().length <= 80) ? lg.innerText.trim() : best;
+  };
+  const CTL = 'input:not([type=hidden]),select,textarea,[role=combobox]';
+  const rowOf = el => {
+    let a = el.parentElement;
+    for (let d = 0; a && a.parentElement && d < 8; d++, a = a.parentElement) {
+      const cls = (a.className && typeof a.className === 'string') ? a.className.trim() : '';
+      if (!cls) continue;
+      const sibs = Array.from(a.parentElement.children).filter(s => s.tagName === a.tagName && s.className === a.className
+                                                              && s.querySelector(CTL));
+      if (sibs.length >= 2) return sibs.indexOf(a);
+    }
+    return -1;
+  };
+  return refs.map(ref => {
+    let el = null;
+    try { el = document.querySelector(ref); } catch (e) {}
+    if (!el) return {section: '', row: -1};
+    return {section: sectionOf(el).replace(/\s+/g, ' ').slice(0, 80), row: rowOf(el)};
+  });
+}
+"""
+
+
+def _add_sections(fr, rows) -> None:
+    try:
+        info = fr.evaluate(_SECTION_JS, [r["ref"] for r in rows])
+    except Exception:
+        return                                    # a frame mid-navigation: fields just have no section
+    for r, s in zip(rows, info or []):
+        r["section"], r["row"] = s.get("section", ""), s.get("row", -1)
+
+
 def collect_raw(page) -> list[dict]:
     """Scan the main frame AND the child frames that can hold an application (embedded
     ATS iframes). Child frames' refs are frame-qualified so the filler targets the right frame."""
@@ -670,6 +723,7 @@ def collect_raw(page) -> list[dict]:
             rows = fr.evaluate(_INPUT_JS)
         except Exception:
             continue                              # detached / cross-origin / still loading / blocked
+        _add_sections(fr, rows)
         if idx == 0:
             out.extend(rows)
         elif trusted or looks_like_application(rows):
