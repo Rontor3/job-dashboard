@@ -39,12 +39,13 @@ def _fill_otp_generic(page, code: str) -> bool:
                 except Exception:
                     pass
             return True
-    single = page.query_selector(
-        'input[name*="otp" i], input[id*="otp" i], '
-        'input[name*="code" i], input[id*="code" i], '
-        'input[inputmode="numeric"]'
-    )
-    if single and single.is_visible():
+    # The first VISIBLE match: a page can hold several 'code' inputs, hidden ones first (Azure B2C, Accenture live
+    # 2026-10-18 — the code arrived from Gmail but was never typed, and the run looped on it)
+    single = next((el for el in page.query_selector_all(
+        'input[name*="otp" i], input[id*="otp" i], input[autocomplete="one-time-code"], '
+        'input[aria-label*="verification code" i], input[name*="code" i], input[id*="code" i], '
+        'input[inputmode="numeric"]') if el.is_visible()), None)
+    if single is not None:
         _type_into(page, single, digits)
         return True
     return False
