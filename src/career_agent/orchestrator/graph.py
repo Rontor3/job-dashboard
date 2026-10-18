@@ -583,7 +583,10 @@ def advance_node(state: AgentState, config) -> dict:
         _prov = lambda pg, gate, site: _provide(pg, gate, site, original_url=_job_url, email=_adv_email, phone=_adv_phone)
         print(f"[cred] {_kind} wall mid-walk — credential provider...", flush=True)
         clear_auth_wall(page, credential_provider=_prov)
-        if classify_entry(page) in ("password", "email_auth"):
+        from ..browser.page_prep import is_application_form
+        # A sign-up that IS a form (name, email, phone... plus a password: Deloitte/Avature 'Register', live 2026-10-18)
+        # is the filler's next screen, not a wall: the credentials are already in, the rest is filled like any form.
+        if classify_entry(page) in ("password", "email_auth") and not is_application_form(page):
             return {"stopped_reason": "auth_wall"}
 
     new_form = deps.snapshot(page)
