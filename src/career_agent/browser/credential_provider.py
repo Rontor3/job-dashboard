@@ -139,6 +139,10 @@ import hashlib as _hashlib
 import re as _re
 import time as _time
 
+# A code mailed before this run started belongs to an earlier attempt (Accenture live 2026-10-18: the previous run's
+# code was typed, the sign-up failed). Codes are read only from mail newer than this.
+_RUN_START = _time.time()
+
 
 _SEND_CODE_BTN = _re.compile(r"send (a |the )?(verification )?code|send otp|verify email|get code", _re.I)
 _VERIFY_CODE_BTN = _re.compile(r"verify( code)?|confirm", _re.I)
@@ -174,6 +178,7 @@ def _handle_inline_verify(page, cred: dict, site: str) -> None:
         print("[cred] inline verification: no email box or Gmail OTP unavailable", flush=True)
         return
     _type_into(page, boxes[0], cred["username"])
+    sent_at = int(_time.time()) - 30                       # only a code mailed after this click is ours
     if not _safe_click(page.get_by_role("button", name=_SEND_CODE_BTN).first):
         print("[cred] inline verification: could not click send-code", flush=True)
         return
@@ -185,7 +190,7 @@ def _handle_inline_verify(page, cred: dict, site: str) -> None:
     if code_el is None:
         print("[cred] inline verification: code input never appeared", flush=True)
         return
-    code = poll_otp(timeout_s=1800, sender_hint=site)
+    code = poll_otp(timeout_s=1800, sender_hint=site, after_epoch=sent_at)
     if not code:
         print(f"[cred] OTP timeout for {site}", flush=True)
         return
@@ -610,7 +615,7 @@ def _handle_otp_state(page, site: str, cred: dict) -> None:
         print("[cred] Gmail OTP not available", flush=True)
         return
     try:
-        code = poll_otp(timeout_s=1800, sender_hint=site)
+        code = poll_otp(timeout_s=1800, sender_hint=site, after_epoch=int(_RUN_START) - 60)
         if not code:
             print(f"[cred] OTP timeout for {site}", flush=True)
             return
