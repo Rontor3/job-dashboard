@@ -142,6 +142,11 @@ def answer_fields(fields, ctx):
     unit = {f.ref: getattr(f, "unit", "") or "" for f in fields}
     decisions = [replace(d, value=shape_value(d.value, d.label, itype.get(d.ref, ""), unit.get(d.ref, ""), absolute=cur))
                  if d.action == "fill" and d.value is not None else d for d in decisions]
+    # A city box takes the city alone: a stored "Mumbai, India" (qbank current_city) gives "Mumbai".
+    purpose = {f.ref: f.purpose for f in fields}
+    decisions = [replace(d, value=d.value.split(",")[0].strip())
+                 if d.action == "fill" and purpose.get(d.ref) == "city" and isinstance(d.value, str) else d
+                 for d in decisions]
     dial, by_ref = has_dial_field(fields), {f.ref: f for f in fields}
     decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))
                  if d.action == "fill" and d.ref in by_ref and _is_phone(by_ref[d.ref]) else d for d in decisions]

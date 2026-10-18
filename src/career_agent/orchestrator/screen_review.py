@@ -164,12 +164,15 @@ def _place(f, value, source, decisions, needs_human):
     decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action(f.kind), source))
 
 
+_CRED_PURPOSES = ("password", "password_new", "password_confirm")
+
+
 def map_screen(form, profile, resume_pdf=None):
     decisions, needs_human = [], []
     for f in form:
         if f.kind == "button":
             continue
-        if f.purpose in ("password", "password_new", "password_confirm"):
+        if f.purpose in _CRED_PURPOSES:
             # Auth-wall credential fields — credential_provider handles these.
             # Never fill or escalate; pretend they don't exist.
             continue
@@ -231,6 +234,14 @@ def map_screen(form, profile, resume_pdf=None):
             _place(f, value, "resume", decisions, needs_human)
         elif f.required or (f.kind == "textarea" or (f.kind == "text" and f.purpose in PROSE_PURPOSES)):
             # an OPTIONAL single-line field with no answer stays blank — escalating it parks the run on a human
+            needs_human.append(f)
+    # Invariant: a required field leaves the screen as a decision or an escalation, never silently. The only
+    # deliberate skips above are credential-owned passwords and a résumé-import box (the document slot takes the file).
+    seen = {d.ref for d in decisions} | {f.ref for f in needs_human}
+    for f in form:
+        if (f.required and f.kind != "button" and f.ref not in seen and f.purpose not in _CRED_PURPOSES
+                and not (f.kind == "file" and _is_profile_import(f))):
+            print(f"[fill] required field {f.label[:50]!r} had no decision — escalated", flush=True)
             needs_human.append(f)
     return decisions, needs_human
 

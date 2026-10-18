@@ -56,7 +56,8 @@ _RULES: list[tuple[str, str]] = [
     # country rules — they want "+91", not the number or the country name.
     # "Phone number (including country code)" asks for the whole number, not just the dial code
     (r"\b(phone|mobile|contact|telephone|whatsapp|cell)\b.{0,12}\b(number|no\.?)\b.{0,25}\b(incl\w*|with|along with|and)\b.{0,10}\b(country|dial\w*|calling) code\b", "phone"),
-    (r"\bcountry (dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
+    # "Country Phone Code" (MetLife, live 2026-10-18) — the country word sits before "phone", so it must match too
+    (r"\bcountry (phone |dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
     # Sponsorship/work-auth must precede employer — "require employer sponsorship"
     # contains \bemployer\b and would otherwise be misclassified as a company-name field.
     (r"\bsponsor(ship)?\b", "visa_sponsorship"),
