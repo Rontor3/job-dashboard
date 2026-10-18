@@ -1199,7 +1199,8 @@ def _start_by_resume_upload(page, site: str) -> bool:
     2026-10-18), else set it on the page's file input. True once the résumé is in: the page's own Continue is the
     filler's next step. (The same page keeps a login password box beside the options, so 'no password box' is no test.)"""
     from career_agent.apply import supplied_resume_pdf
-    resume = supplied_resume_pdf()
+    named = sorted(Path("data/resumes/upload").glob("*_Resume.pdf"))   # the copy named for employers, made by apply.py
+    resume = str(named[0]) if named else supplied_resume_pdf()
     if not resume:
         return False
     try:
@@ -1220,7 +1221,14 @@ def _start_by_resume_upload(page, site: str) -> bool:
                 return False
             file_el.set_input_files(resume)
         print(f"[cred] {site}: started the application by uploading the résumé", flush=True)
-        _observe_until_change(page, "resume_upload")
+        page.wait_for_timeout(1500)
+        # The upload only arms the choice: the page's Continue takes it on (MetLife -> Register, live 2026-10-18)
+        # by name only: the first submit on this page is the login panel's 'Log In'
+        for name in ("Continue", "Next", "Proceed"):
+            btn = page.get_by_role("button", name=_re.compile(rf"^\s*{name}\b", _re.I)).first
+            if btn.count() and btn.is_visible() and _safe_click(btn):
+                _observe_until_change(page, "resume_upload")
+                break
         return True
     except Exception as _e:
         print(f"[cred] résumé upload failed on {site}: {_e!r}", flush=True)
