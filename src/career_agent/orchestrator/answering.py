@@ -113,6 +113,12 @@ def answer_fields(fields, ctx):
     rules, then the LLM judge. Every field is recorded to ctx['qa'] when present,
     so likely fills and gaps surface for review on every path (graph and boards)."""
     qa = ctx.get("qa")
+    learn = ctx.get("learn")
+    if learn is not None and hasattr(learn, "prime"):
+        try:
+            learn.prime(fields)                    # section by section, before the per-field path (memory/sections.py)
+        except Exception as e:
+            print(f"[warn] section answering failed, falling back to one field at a time: {type(e).__name__}: {e}")
     if qa:
         if ctx.get("page_index") is not None:
             qa.page = ctx["page_index"]            # the tracker groups questions by form page
@@ -120,7 +126,6 @@ def answer_fields(fields, ctx):
     recalled, remaining = _prior_human_answers(fields, qa), list(fields)
     done = {d.ref for d in recalled}
     remaining = [f for f in remaining if f.ref not in done]
-    learn = ctx.get("learn")
     if learn:
         more, remaining = learn.recall(remaining)
         recalled += more                          # never instead of: the human's own answers were taken out above

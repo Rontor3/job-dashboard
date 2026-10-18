@@ -144,8 +144,13 @@ def _same(a, b) -> bool:
 
 def _local(llm, question, kind, options, job, facts, cards):
     """The local reader plus its checks: (value, card) or (None, why)."""
-    from .qbank_match import fit_option
     value, card = ask_local(llm, question, kind, options, job, facts, cards)
+    return check_local(value, card, question, kind, options, facts, cards)
+
+
+def check_local(value, card, question, kind, options, facts, cards):
+    """The deterministic checks on what the local reader said (shared with memory/sections.py)."""
+    from .qbank_match import fit_option
     if card.startswith("LOCAL-DOWN"):
         return None, card
     if not value or value.upper() == "NONE" or card not in cards:
@@ -179,6 +184,12 @@ def answer(question, kind, options, job, facts, cards, *, local_llm, haiku_llm, 
                 fut.cancel()
             return None, f"haiku unreachable, escalate: {type(e).__name__}"      # fail closed
         local_val, card = fut.result() if fut else (None, "no local reader")
+    return gate(plan_val, note, local_val, card)
+
+
+def gate(plan_val, note, local_val, card):
+    """Two readers -> (value or None, note): agree -> fill; local had nothing -> the checked plan alone; disagree,
+    MISSING, a reader down -> escalate. Shared with memory/sections.py."""
     if note.startswith(("MISSING", "not a question", "unreadable")):
         return None, note                                 # the schema holds no such fact: don't trust a card
     if str(card).startswith("LOCAL-DOWN"):                # one reader missing is not agreement: fail closed

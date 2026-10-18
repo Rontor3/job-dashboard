@@ -411,17 +411,7 @@ def applicant_context(job) -> str:
             "answer still comes only from the stored facts, and an honest no / none is better than a stretched yes.")
 
 
-def compile_question(question, kind, options, job, facts, llm, guidance="") -> dict:
-    """{'plan': expr} | {'missing': {'key', 'type', 'ask'}} | {'not_a_question': True} | {} on a bad reply.
-    `guidance`: the applicant's own instruction for how to read this field (an insight, orchestrator/insight.py)."""
-    opt = f"\nIts options: {list(options)}" if options else ""
-    told = f"\nThe applicant's instruction for this field (follow it): {guidance}" if guidance else ""
-    prompt = (
-        f"{applicant_context(job)}\n\n"
-        "You translate a job-application form field into a plan over the candidate's stored facts. You see the "
-        "facts' names and types, not their values; the plan is executed later.\n\n"
-        f"Field ({kind}): {question}{opt}{told}\n\n"
-        f"Stored facts:\n{schema(facts)}\n\n{OPS_HELP}\n\n"
+COMPILE_RULES = (
         "Rules: a yes/no question must yield true/false. Use ONLY facts that answer what is asked. A general fact "
         "answers a narrower version of it: a stored non-compete answer covers 'that would affect your work at "
         "<company>'; per-company lists answer the question for this job's company; the phone answers 'mobile' or "
@@ -433,11 +423,28 @@ def compile_question(question, kind, options, job, facts, llm, guidance="") -> d
         "yet a stored fact: reply derive, naming it so every later wording reuses it. MISSING only for what "
         "cannot be computed; never a fact about this one application (how you found this job, dates of one "
         "work-history row, your opinion of this role) — that is not_a_question.\n"
+)
+PLAN_SHAPES = (
         'Reply with JSON only, one of:\n{"plan": ...}\n{"derive": {"key": "snake_case", "type": "date|number|bool|'
         'text", "desc": "what it is, generic (no company name)", "plan": ...}}\n{"missing": {"key": "snake_case", '
         '"type": "bool|number|text|date|money", "ask": "the fact to ask the candidate once, generic (no company '
         'name)"}}\n{"not_a_question": true}   (a captcha, a search box, a placeholder, an unreadable label, a '
-        "one-application detail)")
+        "one-application detail)"
+)
+
+
+def compile_question(question, kind, options, job, facts, llm, guidance="") -> dict:
+    """{'plan': expr} | {'missing': {'key', 'type', 'ask'}} | {'not_a_question': True} | {} on a bad reply.
+    `guidance`: the applicant's own instruction for how to read this field (an insight, orchestrator/insight.py)."""
+    opt = f"\nIts options: {list(options)}" if options else ""
+    told = f"\nThe applicant's instruction for this field (follow it): {guidance}" if guidance else ""
+    prompt = (
+        f"{applicant_context(job)}\n\n"
+        "You translate a job-application form field into a plan over the candidate's stored facts. You see the "
+        "facts' names and types, not their values; the plan is executed later.\n\n"
+        f"Field ({kind}): {question}{opt}{told}\n\n"
+        f"Stored facts:\n{schema(facts)}\n\n{OPS_HELP}\n\n"
+        f"{COMPILE_RULES}" + PLAN_SHAPES)
     reply = _THINK.sub("", llm(prompt) or "")             # a failed call raises: the caller fails closed
     try:
         obj, _ = json.JSONDecoder().raw_decode(reply[reply.find("{"):])
@@ -460,18 +467,32 @@ def job_facts(job) -> dict:
 def answer(question, kind, options, job, facts, llm, cache=None, hint="", guidance=""):
     """(value or None, note). The plan is cached per wording: the model runs once per new phrasing. `hint`: the
     field's name/ref/input type, read by the formatter (the unit a money box wants)."""
-    from .qbank import norm
     if _OPTION_RUN.fullmatch((question or "").strip()):
         return None, "unreadable label (a run of option words)"      # live Keka: "JanFeb...Dec" got the birth year
-    key = norm(question)
-    if guidance:                                          # an instruction changes the plan: never reuse the plain one
-        import hashlib
-        key += "#" + hashlib.sha1(guidance.encode()).hexdigest()[:8]
+    key = plan_key(question, guidance)
     out = cache.get(key) if cache is not None else None
     if out is None:
         out = compile_question(question, kind, options, job, facts, llm, guidance)
         if cache is not None:
             cache[key] = out
+    return evaluate(out, question, kind, options, facts, hint)
+
+
+def plan_key(question, guidance="") -> str:
+    """The plan cache key: the wording, plus the instruction when one steers it (never reuse the plain plan)."""
+    from .qbank import norm
+    key = norm(question)
+    if guidance:
+        import hashlib
+        key += "#" + hashlib.sha1(guidance.encode()).hexdigest()[:8]
+    return key
+
+
+def evaluate(out, question, kind, options, facts, hint=""):
+    """A compiled reply ({'plan'|'derive'|'missing'|'not_a_question'}) -> (value or None, note), run and shaped for
+    this field. Shared by the one-field path (answer) and the section path (memory/sections.py)."""
+    if not isinstance(out, dict):
+        return None, "no plan"
     derive = out.get("derive") if isinstance(out.get("derive"), dict) else None
     if derive:                                            # a new derived fact: answered now, saved by the caller
         out = {"plan": derive.get("plan")}

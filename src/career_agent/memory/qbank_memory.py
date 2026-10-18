@@ -79,10 +79,77 @@ class QBankMemory:
         """The fact Haiku said this field needs ({key, type, ask, company}), or None."""
         return self._proposed.get(f.ref)
 
+    @staticmethod
+    def _key(f):
+        return (f.ref, f.label, f.description, tuple(f.options or ()))
+
+    def _plannable(self, f) -> bool:
+        from ..orchestrator.sensitive import is_sensitive
+        return not (self.facts_llm is None or f.kind in _NOT_FOR_PLANS or f.purpose == "attestation"
+                    or is_junk(f) or is_sensitive(f))
+
+    def prime(self, fields) -> None:
+        """Answer a page's fields SECTION by SECTION (memory/sections.py) before the one-field path runs: the bank first
+        (no model call), then one local + one Haiku call per section for the rest, instead of several calls per field.
+        Results land in the same cache _answer reads, so recall/explain reuse them. Off unless CAREER_AGENT_SECTIONS=1
+        (until the replay on real data shows it is no less accurate)."""
+        import os
+        if os.getenv("CAREER_AGENT_SECTIONS") != "1" or self.facts_llm is None:
+            return
+        from . import sections
+        todo = []
+        for f in fields:
+            key = self._key(f)
+            if key in self._cache or not self._plannable(f):
+                continue
+            if self._rules(f):                            # a lesson steers this field: the one-field path applies it
+                continue
+            try:
+                m, value = answer_field(self.conn, f, embed=self.embed, llm=None,      # the bank, no model call
+                                        job=self.job, contact=self.contact, high=self.high)
+            except Exception:
+                m, value = Match(band=NONE), None
+            if m.band != NONE and value is not None:
+                self._cache[key] = (m, value)
+                self._count()
+            else:
+                todo.append(f)
+        facts, cards, plans = self._fact_sheet() if todo else (None, None, None)
+        for packet in sections.packets(todo):
+            res = sections.answer_packet(packet, self.job, facts, cards, local_llm=self.llm, haiku_llm=self.facts_llm,
+                                         cache=plans)
+            print(f"[sections] {sections.title(packet)!r}: {len(packet)} field(s) in one pass", flush=True)
+            for f in packet:
+                value, note = res.get(f.ref, (None, "no answer"))
+                self._cache[self._key(f)] = self._settle(f, value, note)
+                self._count()
+
+    def _settle(self, f, value, note):
+        """A plan's (value, note) -> the cached (Match, value); a MISSING/DERIVE proposal is kept as _from_facts does."""
+        import json
+        import re
+        from .factcards import question_of
+        from .qbank_promote import save_fact
+        if m := re.search(r"(MISSING|DERIVE) (\{.*\})", note or ""):
+            proposal = json.loads(m.group(2))
+            if m.group(1) == "MISSING":
+                self._proposed[f.ref] = {**proposal, "company": self.job.get("company")}
+            elif value:
+                q = question_of(f.label, f.ref)
+                save_fact(self.conn, proposal["key"], proposal.get("type"), proposal.get("desc") or q,
+                          wording=q, embed=self.embed, plan=proposal["plan"])
+        if value:
+            return Match(LIKELY, kind="plan", note=f"from your facts (section): {note}"), value
+        return Match(band=NONE, note=f"section: {note}"), None
+
+    def _count(self):
+        self._worked += 1
+        print(f"[answer] {self._worked} fields worked out", flush=True)
+
     def _answer(self, f):
         # trace_all() runs before recall() on the same fields: compute once
         # (the LLM pick is the expensive part).
-        key = (f.ref, f.label, f.description, tuple(f.options or ()))
+        key = self._key(f)
         if key not in self._cache:
             rules = self._rules(f) if self.facts_llm is not None else []
             if rules:                                     # a lesson says how to read this field: the plan answers first
@@ -108,8 +175,7 @@ class QBankMemory:
                     print(f"[warn] facts plan failed for {f.label!r}: {type(e).__name__}: {e}")
             # one line per field: a long form (Koch on Avature, 79 fields, live 2026-10-18) takes minutes to work out,
             # and a silent run looked stalled to the queue's watchdog, which stopped it before anything was filled
-            self._worked += 1
-            print(f"[answer] {self._worked} fields worked out", flush=True)
+            self._count()
         return self._cache[key]
 
     def explain(self, f) -> dict:
