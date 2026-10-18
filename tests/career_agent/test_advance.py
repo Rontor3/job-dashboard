@@ -67,3 +67,15 @@ def test_four_screens_without_a_single_field_stops_as_not_a_form():
     state = {"steps": 4, "decisions": [], "form": link, "stopped_reason": None, "max_steps": 20, "do_submit": False}
     cfg = {"configurable": {"page": SimpleNamespace(url="https://x/jobs"), "deps": SimpleNamespace(), "human": None}}
     assert advance_node(state, cfg)["stopped_reason"] == "no_form_found"
+
+
+def test_a_job_pages_apply_opens_the_form_when_nothing_is_filled():
+    """FedEx (live 2026-10-18): a description page with only APPLY was parked 'ready to submit' with 0 fields filled."""
+    from career_agent.orchestrator.advance import entry_apply_label
+    jd = [_f("Search jobs"), _b("APPLY"), _b("Accept all cookies")]
+    assert entry_apply_label(jd, []) == "APPLY"
+    assert entry_apply_label([_b("Apply now")], None) == "Apply now"
+    assert entry_apply_label(jd, [{"ref": "#email"}]) is None              # something filled: Apply is the real submit
+    assert entry_apply_label([_b("Submit application")], []) is None        # never a bare submit/send/finish/confirm
+    assert entry_apply_label([_b("Confirm")], []) is None
+    assert entry_apply_label([_b("Submit and apply")], []) is None

@@ -68,6 +68,20 @@ def advance_names(form):
     return list(ADVANCE_NAMES)
 
 
+def entry_apply_label(form, decisions):
+    """The 'Apply' control of a job page, when nothing has been filled yet: it opens the form, it does not send one.
+    'apply' is a submit word on a form's last page, but a description page with an Apply button and no form (FedEx,
+    live 2026-10-18: parked 'ready to submit' with 0 fields filled) must be clicked through. Only the apply family:
+    a bare Submit/Send/Finish/Confirm is never treated this way. None when it doesn't apply."""
+    if decisions:
+        return None
+    for f in form:
+        low = (f.label or "").strip().lower()
+        if low and _matches(low, "apply") and not any(_matches(low, n) for n in SUBMIT_NAMES if n != "apply"):
+            return f.label.strip()
+    return None
+
+
 def pick_advance_label(form, is_last):
     lowered = {f.label.strip().lower(): f.label.strip() for f in form if f.label}
     adv = advance_names(form)

@@ -473,10 +473,14 @@ def advance_node(state: AgentState, config) -> dict:
     form = [_d2f(d) for d in state["form"]]
     from ..orchestrator.advance import (
         has_control, pick_advance_label, screen_signature, changed,
-        ADVANCE_NAMES, SUBMIT_NAMES, advance_names,
+        ADVANCE_NAMES, SUBMIT_NAMES, advance_names, entry_apply_label,
     )
     has_advance = has_control(form, advance_names(form))
     has_submit = has_control(form, SUBMIT_NAMES)
+    entry = entry_apply_label(form, state.get("decisions")) if (has_submit and not has_advance) else None
+    if entry:                                             # a job page's Apply: open the form, then perceive it
+        print(f"[advance] nothing filled yet: {entry!r} opens the form, not a submit", flush=True)
+        has_submit = False
 
     if state.get("steps", 0) >= 4 and not state.get("decisions") and not has_submit:
         # Four screens in, not one field filled or asked, and no Submit in sight: this is not an application form (a dead
@@ -534,7 +538,7 @@ def advance_node(state: AgentState, config) -> dict:
             c["on_submit"](before_submit, how, page.url)
         return {"submitted": True, "stopped_reason": "submitted"}
 
-    if not has_advance:
+    if not has_advance and not entry:
         # File upload may have just enabled a previously-disabled advance button.
         # Re-snapshot once before giving up.
         page.wait_for_timeout(1500)
@@ -547,7 +551,7 @@ def advance_node(state: AgentState, config) -> dict:
             if not state["do_submit"]:
                 return {"stopped_reason": "reached_submit_dry_run"}
 
-    deps.click(page, pick_advance_label(form, is_last=False))
+    deps.click(page, entry or pick_advance_label(form, is_last=False))
 
     # Mid-walk credential wall (e.g. iCIMS "Create a login" on screen 2).
     from ..browser.page_prep import classify_entry, clear_auth_wall
