@@ -151,8 +151,20 @@ class CdpTabs:
 
     def __enter__(self):
         from playwright.sync_api import sync_playwright
+        from career_agent.browser.runner import wake_tabs
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.connect_over_cdp(self.cdp_url)
+        try:
+            try:
+                self._browser = self._pw.chromium.connect_over_cdp(self.cdp_url, timeout=30000)
+            except Exception:                         # a sleeping tab blocks attaching: wake every tab, try once more
+                wake_tabs(self.cdp_url)
+                self._browser = self._pw.chromium.connect_over_cdp(self.cdp_url, timeout=60000)
+        except BaseException:
+            # __exit__ never runs when __enter__ raises: a playwright left started keeps its event loop in this
+            # thread, and every later pass then fails "Sync API inside the asyncio loop" (live 2026-10-17: 453
+            # skipped passes, no hand submit tracked) — stop it here
+            self._pw.stop()
+            raise
         return self
 
     def __exit__(self, *a):

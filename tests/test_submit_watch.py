@@ -96,3 +96,27 @@ def test_the_confirmation_email_finalizes_a_submit_even_when_the_tab_is_gone(tmp
     c.execute("UPDATE submission_watch SET created_at=?", ((datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),)); c.commit()
     w._last_email[7] = _time.time() - 10
     assert w.poll_once(c, FakeTabs(None), lambda *a: None) == [] and len(asked) == 1
+
+
+def test_a_failed_attach_stops_playwright_so_the_next_pass_can_start(monkeypatch):
+    """__exit__ never runs when __enter__ raises: a playwright left started poisoned every later pass."""
+    import pytest
+    from job_dashboard.apply import submit_watch
+    state = {"stopped": 0, "woke": 0}
+
+    class Chromium:
+        def connect_over_cdp(self, url, timeout=None):
+            raise TimeoutError("sleeping tab")
+
+    class PW:
+        chromium = Chromium()
+
+        def stop(self):
+            state["stopped"] += 1
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: type("S", (), {"start": lambda self: PW()})())
+    monkeypatch.setattr("career_agent.browser.runner.wake_tabs", lambda url: state.update(woke=state["woke"] + 1) or 3)
+    with pytest.raises(TimeoutError):
+        with submit_watch.CdpTabs("http://localhost:9222"):
+            pass
+    assert state == {"stopped": 1, "woke": 1}
