@@ -81,6 +81,37 @@ def _type_ahead_queries(value: str) -> list[str]:
     return [q for q in dict.fromkeys(out) if q and len(q) >= 2]
 
 
+# The popup a combobox opens: role=listbox, or Workday's activeListContainer (no role on some builds). Only a
+# VISIBLE one counts — a closed listbox keeps its old options in the DOM.
+_POPUP_SEL = "[role=listbox], [data-automation-id='activeListContainer']"
+# Options must be visible: a closed popup (or another prompt's) keeps its rows in the DOM and would be read as choices.
+_OPT_SEL = "[role=option]:visible, [id*='-option-']:visible, [data-automation-id='promptOption']:visible"
+
+
+def _popup(target, lb_id):
+    """The listbox this combobox controls: its aria-controls target, else the first visible popup on the page, else
+    the field's own scope (type-ahead options that are not in any popup)."""
+    if lb_id:
+        return target.locator(f"#{lb_id}")
+    for lb in target.locator(_POPUP_SEL).all():
+        if lb.is_visible():
+            return lb
+    return target
+
+
+def _drill_to_leaf(page, scope, pre: list[str], fit) -> None:
+    """A hierarchical prompt (Workday "How Did You Hear"): the chosen option was a category, so it opened a sub-list
+    instead of committing. Pick the leaf: the one that fits the answer, else 'Other'. Nothing new listed = committed."""
+    page.wait_for_timeout(400)
+    leaves = [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
+    if not leaves or leaves == pre:          # the list did not change: the pick committed (popup closed or pill shown)
+        return
+    leaf = fit(leaves) or next((t for t in leaves if t.lower() == "other"), None)
+    if leaf:
+        pace(page)
+        scope.locator(_OPT_SEL).filter(has_text=leaf).first.click(timeout=_SOFT_TIMEOUT_MS)
+
+
 def _pick_combobox(page, target, sel, d, matcher) -> None:
     """One attempt: open the dropdown, read its live options, click the one matching d.value."""
     pace(page)
@@ -98,26 +129,13 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                 target.locator(sel).first.locator("xpath=ancestor::div[contains(@class,'control')][1]").click(timeout=_SOFT_TIMEOUT_MS)
         page.wait_for_timeout(300)      # let the listbox render
         # Scope to the listbox THIS combobox controls — reading every
-        # [role=option] on the page grabs unrelated widgets (e.g. the
+        # option on the page grabs unrelated widgets (e.g. the
         # phone-country list has 247 options, one of them "Male").
         lb_id = target.get_attribute(sel, "aria-controls")
-        if lb_id:
-            scope = target.locator(f"#{lb_id}")
-        else:
-            # No linking id (e.g. Workday's type-ahead multiselect) —
-            # fall back to whichever [role=listbox] is actually visible,
-            # not the whole page (other closed listboxes would pollute it).
-            scope = target
-            for lb in target.locator("[role=listbox]").all():
-                if lb.is_visible():
-                    scope = lb
-                    break
-        # react-select renders options as divs with "-option-" ids,
-        # not role=option; a type-ahead shows none until you type.
-        opt_sel = "[role=option], [id*='-option-']"
+        scope = _popup(target, lb_id)
 
         def _options():
-            return [t.strip() for t in scope.locator(opt_sel).all_text_contents() if t.strip()]
+            return [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
 
         def _fit(options):
             opt = _coerce_option(str(d.value), options) if options else None
@@ -136,14 +154,15 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                 except Exception:
                     page.keyboard.type(q)
                 page.wait_for_timeout(1500)     # remote autocomplete round-trip
-                if scope is not target and not scope.is_visible():
-                    scope = target
+                scope = _popup(target, lb_id)   # the popup may only appear once something is typed
                 opt = _fit(_options())
                 if opt:
                     break
         if opt:
             pace(page)
-            scope.locator(opt_sel).filter(has_text=opt).first.click(timeout=_SOFT_TIMEOUT_MS)
+            before = _options()
+            scope.locator(_OPT_SEL).filter(has_text=opt).first.click(timeout=_SOFT_TIMEOUT_MS)
+            _drill_to_leaf(page, scope, before, _fit)
         elif not target.locator(sel).first.evaluate(
                 "e => !!e.closest('[role=dialog],[aria-modal=true],[class*=modal i]')"):
             # Escape closes the listbox — but inside a modal it closes
@@ -270,6 +289,12 @@ _VALUE_JS = r"""e => {
   if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) && e.shadowRoot) e = inner(e.shadowRoot) || e;
   if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName)) return null;   // a <div role=combobox>: no value to read
   if (e.tagName === 'SELECT') { const o = e.options[e.selectedIndex]; return o && o.value ? o.text.trim() : ''; }   // a placeholder option has no value
+  // a Workday prompt (searchBox in a multiselectInputContainer): the search text is never the answer; the choice is a
+  // selectedItem pill in the same form field
+  if (e.closest('[data-automation-id="multiselectInputContainer"], [data-automation-id="searchBox"]')) {
+    const f = e.closest('[data-automation-id^="formField"]') || e.parentElement;
+    return [...f.querySelectorAll('[data-automation-id="selectedItem"]')].map(x => (x.textContent || '').trim()).filter(Boolean).join(', ');
+  }
   if (e.tagName !== 'INPUT' || (e.getAttribute('role') || '').toLowerCase() !== 'combobox') return e.value || '';
   let c = e.parentElement;
   for (let i = 0; i < 4 && c; i++, c = c.parentElement) {

@@ -393,7 +393,10 @@ _INPUT_JS = r"""
     // the only signal is this vendor attribute. It also needs typing (not just
     // a click) to reveal any options, unlike a plain click-to-open listbox.
     const uxiWidget = (el.getAttribute('data-uxi-widget-type') || '').toLowerCase();
-    const isUxiSelect = uxiWidget.includes('select');
+    // Workday's prompt widgets (searchBox inside multiselectInputContainer) are the same kind: a popup that opens on
+    // click and lists the choices, not free text.
+    const isPromptBox = !!el.closest('[data-automation-id="multiselectInputContainer"]') || el.getAttribute('data-automation-id') === 'searchBox';
+    const isUxiSelect = uxiWidget.includes('select') || isPromptBox;
     let kind = tag === 'textarea' ? 'textarea'
              : tag === 'select' ? 'select'
              : isUxiSelect ? 'combobox'
