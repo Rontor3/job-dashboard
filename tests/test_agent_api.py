@@ -112,6 +112,7 @@ def test_ensure_cdp_chrome_noop_when_already_reachable(monkeypatch):
 
 
 def test_ensure_cdp_chrome_refuses_to_kill_existing_chrome(monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: False)
     monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: True)
     launched = []
@@ -273,3 +274,12 @@ def test_history_of_a_board_job_comes_from_board_run_json(tmp_path, monkeypatch)
     assert [s["stopped_reason"] for s in body["steps"]] == [None, "needs_human"]
     assert body["steps"][0]["screenshot"] == f"/api/jobs/{jid}/agent-runs/screenshot/0"
     assert body["steps"][1]["screenshot"] is None
+
+
+def test_a_busy_agent_chrome_gets_time_to_answer(monkeypatch):
+    """Right after a stalled run is stopped, the debug port answered late and the next job failed (live 2026-10-18)."""
+    answers = iter([False, False, True])
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: next(answers))
+    monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: True)
+    assert agent_routes._ensure_cdp_chrome("http://localhost:9222") is None

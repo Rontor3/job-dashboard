@@ -137,6 +137,12 @@ def _ensure_cdp_chrome(cdp_url: str) -> Optional[str]:
     if _cdp_reachable(cdp_url):
         return None
     if _any_chrome_running():
+        # Busy, not gone: right after a stalled run is stopped the debug port can take seconds to answer (live
+        # 2026-10-18: the next queued job failed 'isn't reachable' while the agent's Chrome was up). Give it ~15 s.
+        for _ in range(5):
+            time.sleep(2)
+            if _cdp_reachable(cdp_url, timeout=3):
+                return None
         return (f"career-agent Chrome isn't reachable at {cdp_url}, and Chrome is "
                 "already running without the debug port. Auto-restarting it would "
                 "close your existing Chrome windows, so that wasn't done — close "
