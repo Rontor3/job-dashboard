@@ -117,7 +117,7 @@ def test_registration_offered_as_alternative_options_takes_the_manual_one():
 def test_manual_option_that_opens_a_profile_form_without_password_is_handed_to_the_filler(tmp_path, monkeypatch):
     from playwright.sync_api import sync_playwright
     from career_agent.browser import credential_provider as cp
-    monkeypatch.setattr(cp, "CRED_PATH", tmp_path / "creds.json", raising=False)
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "creds.json")
     html = ("<main><h2>Log in</h2><input type=email><input type=password><button>Log in</button><a href=#>Forgot your password?</a>"
             "<p>Create an account using any of the following options:</p><a role=button href=# id=m "
             "onclick=\"document.body.innerHTML='<h1>Profile information</h1><input type=email><input name=first_name><input name=last_name><button>Continue</button>';return false\">Self-complete</a></main>")
@@ -170,3 +170,29 @@ def test_a_click_that_starts_a_slow_navigation_is_clicked_once():
         assert [u for u in hits if u.endswith("/slow")] == [f"http://127.0.0.1:{port}/slow"] and not any(u.endswith("/other") for u in hits)
         b.close()
     srv.shutdown()
+
+
+@pytest.mark.skipif(not os.environ.get("RUN_BROWSER_TESTS"), reason="browser")
+def test_avature_header_signup_then_choose_how_to_apply_hands_the_form_to_the_filler(tmp_path, monkeypatch):
+    """Koch on Avature (live 2026-10-18): the only sign-up link is 'Create an account' in the header; it opens
+    'Choose any option to apply' (From Device / Copy & Paste / Without Resume / Indeed / Google / XING)."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "creds.json")
+    html = """<script>
+      function methods() { document.body.innerHTML = '<main><p>Choose any option to apply</p>'
+        + '<a href=# >From Device</a><a href=# >Copy &amp; Paste</a>'
+        + '<a href=# onclick="form();return false">Without Resume</a>'
+        + '<a href=# >Continue with Google</a><p>Or login if you are already registered.</p></main>'; }
+      function form() { document.body.innerHTML = '<h1>Your information</h1><input type=email>'
+        + '<input name=first_name><input name=last_name><button>Next</button>'; }
+    </script>
+    <header><a href=# onclick="methods();return false">Create an account</a></header>
+    <main><h2>Login</h2><input name=username><input type=password name=password><button>Sign in</button>
+      <a href=#>Forgot your password?</a><a href=#>Sign in with Google</a></main>"""
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page(); pg.set_content(html)
+        ok, action = cp.provide(pg, "password", "koch.avature.net", email="a@b.co")
+        assert ok and action == "register_inline", (ok, action)
+        assert pg.locator("input[name=first_name]").count() == 1
+        b.close()

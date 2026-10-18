@@ -978,8 +978,13 @@ _SIGNUP_TEXTS = [
 # options: Upload file / Self-complete / Upload CV later") with no link that says "sign up". The manual options start
 # the same form without handing over a file or a social profile.
 _REGISTRATION_OPTIONS = ["self-complete", "self complete", "fill in manually", "fill manually", "enter manually",
-                         "manual registration", "upload cv later", "upload resume later", "continue without"]
-_REGISTRATION_CUE = _re.compile(r"create (an )?account (using|with|by)|register (using|with|by)|sign up (using|with|by)", _re.I)
+                         "manual registration", "upload cv later", "upload resume later", "continue without",
+                         "without resume", "without a resume", "without cv", "without a cv"]
+# Avature (Koch, live 2026-10-18): "Choose any option to apply — From Device / Copy & Paste / Without Resume / Indeed /
+# Google / XING" behind its "Create an account" link.
+_REGISTRATION_CUE = _re.compile(r"create (an )?account (using|with|by)|register (using|with|by)|sign up (using|with|by)"
+                                r"|choose (any|an|one) (option|way) to apply|how (would|do) you (like|want) to apply"
+                                r"|ways to apply", _re.I)
 # Keywords that, if present in ANY visible link/button text, aria-label, or title
 # on a login/signup wall, indicate an account-free path. Checked as substrings.
 _GUEST_KEYWORDS = ["guest", "without account", "without sign", "without log",
@@ -1006,27 +1011,36 @@ def _is_page_chrome(el) -> bool:
 def _navigate_to_form(page, link_texts: list[str], label: str) -> bool:
     try:
         sel = "a, button, input[type='button'], input[type='submit']"
+        chrome = []
         for el in page.query_selector_all(sel):
             if not el.is_visible():
                 continue
             text = (el.text_content() or el.get_attribute("value") or "").strip().lower()
             # Skip social-login buttons (e.g. "Sign in with Google")
-            if any(s in text for s in _SOCIAL_KEYWORDS):
+            if any(s in text for s in _SOCIAL_KEYWORDS) or not any(t in text for t in link_texts):
                 continue
             # Prefer an in-flow control over global site chrome (a header often
             # has its own generic "Sign In" that opens an unrelated auth modal)
             if _is_page_chrome(el):
+                chrome.append((el, text))
                 continue
-            if any(t in text for t in link_texts):
-                print(f"[cred] navigating to {label}: {text!r}", flush=True)
-                if not _safe_click(el):
-                    continue
-                state = _observe_until_change(page, "navigate_form")
-                print(f"[cred] after nav click state: {state}", flush=True)
+            if _go(page, el, text, label):
+                return True
+        for el, text in chrome:                       # only in the header: still the way in (Avature 'Create an account')
+            if _go(page, el, text, label):
                 return True
     except Exception:
         pass
     return False
+
+
+def _go(page, el, text, label) -> bool:
+    print(f"[cred] navigating to {label}: {text!r}", flush=True)
+    if not _safe_click(el):
+        return False
+    state = _observe_until_change(page, "navigate_form")
+    print(f"[cred] after nav click state: {state}", flush=True)
+    return True
 
 
 def _registration_options_offered(page) -> bool:
@@ -1161,9 +1175,11 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                 why = "this is a login page" if _form_already_visible(page) else "no stored cred"
                 print(f"[cred] {why} for {site} — navigating to signup", flush=True)
                 found = _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
-                if not found and _registration_options_offered(page):
+                no_password = lambda: not any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))  # noqa: E731
+                # the sign-up link may lead to a "choose how to apply" page (Avature) rather than a form
+                if (not found or no_password()) and _registration_options_offered(page):
                     found = _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual registration option")
-                    if found and not any(el.is_visible() for el in page.query_selector_all('input[type="password"]')):
+                    if found and no_password():
                         # The option opened the application's own profile form (no password box): the normal filler
                         # takes it from here. Nothing to save: no account credential was created.
                         print(f"[cred] {site}: registration is part of the application form — handing over to the filler", flush=True)
