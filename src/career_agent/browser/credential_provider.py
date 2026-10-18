@@ -1164,21 +1164,40 @@ def _registration_options_offered(page) -> bool:
 
 
 def _start_by_resume_upload(page, site: str) -> bool:
-    """Registration options offered but no manual option: a file input on the page is the start of the application
-    (Avature 'From Device'). Upload the candidate's résumé into it; True if the form opened without a password box."""
+    """Registration options offered but no manual option: the résumé upload is the start of the application (Avature
+    'From Device'). Click the upload option and hand the résumé to the file chooser it opens (as on Deloitte, live
+    2026-10-18), else set it on the page's file input. True once the résumé is in: the page's own Continue is the
+    filler's next step. (The same page keeps a login password box beside the options, so 'no password box' is no test.)"""
     from career_agent.apply import supplied_resume_pdf
+    resume = supplied_resume_pdf()
+    if not resume:
+        return False
     try:
-        file_el = page.query_selector('input[type="file"]')
-        resume = supplied_resume_pdf() if file_el else None
-        if not resume:
-            return False
-        file_el.set_input_files(resume)
+        opt = next((el for el in page.query_selector_all("a, button, [role=button], label")
+                    if el.is_visible() and _UPLOAD_OPTION.search((el.text_content() or "").strip())), None)
+        done = False
+        if opt is not None:
+            try:
+                with page.expect_file_chooser(timeout=5000) as fc:
+                    opt.click()
+                fc.value.set_files(resume)
+                done = True
+            except Exception:
+                pass
+        if not done:
+            file_el = page.query_selector('input[type="file"]')
+            if file_el is None:
+                return False
+            file_el.set_input_files(resume)
         print(f"[cred] {site}: started the application by uploading the résumé", flush=True)
         _observe_until_change(page, "resume_upload")
-        return not any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
+        return True
     except Exception as _e:
         print(f"[cred] résumé upload failed on {site}: {_e!r}", flush=True)
         return False
+
+
+_UPLOAD_OPTION = _re.compile(r"^(from (device|computer)|upload (a |your )?(cv|resume|résumé|file)|upload)\b", _re.I)
 
 
 def _try_guest_apply(page) -> bool:
