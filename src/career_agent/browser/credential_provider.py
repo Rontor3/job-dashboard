@@ -1323,9 +1323,16 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                 if not found:
                     print(f"[cred] no signup form found on {site} — escalating", flush=True)
                     return False, "register"
+            # Save only when a password box was there to take it: a sign-up click that opened nothing yet (Deloitte
+            # 'Create profile', live 2026-10-18) saved a credential for an account that never existed, and every later
+            # visit tried to LOG IN with it.
+            had_password = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
             _fill_wall(page, gate, cred, site=site)
-            save_credential(site, cred["username"], cred["password"], label=gate,
-                            first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+            if had_password:
+                save_credential(site, cred["username"], cred["password"], label=gate,
+                                first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+            else:
+                print(f"[cred] {site}: no password box yet — nothing saved, the account does not exist", flush=True)
         else:
             # Traditional form, have credentials — login
             _ensure_login_form(page)
