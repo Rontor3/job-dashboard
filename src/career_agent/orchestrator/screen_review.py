@@ -24,6 +24,19 @@ _NO = {"no", "false"}
 # the résumé there (I-3).
 _NON_RESUME_FILE = re.compile(
     r"cover letter|portfolio|photo|picture|transcript|certificate|writing sample", re.I)
+# A file box that IMPORTS a profile from the résumé (the site parses it and overwrites fields) rather than attaching it
+# to the application. Live Oracle at Cummins (2026-10-18): the parse put 'GenAI' in First Name and 'Unnamed Major'
+# education rows. Used only when it is the sole résumé input.
+_PROFILE_IMPORT = re.compile(
+    r"import (your |my )?(profile|information|details|data)|auto-?fill|auto-?populate|pre-?fill|"
+    r"parse (your |my )?(resume|cv)|fill(ing)? (your|the) application (quickly|faster|automatically)", re.I)
+
+
+def _is_profile_import(f) -> bool:
+    return bool(_PROFILE_IMPORT.search(" ".join(x for x in (f.label, getattr(f, "description", None),
+                                                           getattr(f, "section", None)) if x)))
+
+
 # An opt-in to receive things (never ticked unless the form requires it), as opposed to consent to apply.
 _MARKETING = re.compile(r"newsletter|marketing|promotion|offers?\b|job alerts?|similar (jobs|roles)|notif|"
                         r"\bsms\b|whatsapp|text messages?|updates? (about|on|from)|talent (community|network|pool)|"
@@ -182,6 +195,12 @@ def map_screen(form, profile, resume_pdf=None):
             continue
         if f.purpose == "resume_upload" or f.kind == "file":
             is_resume = f.purpose == "resume_upload" or not _NON_RESUME_FILE.search(f.label or "")
+            if is_resume and _is_profile_import(f) and any(
+                    g is not f and g.kind == "file" and not _is_profile_import(g)
+                    and not _NON_RESUME_FILE.search(g.label or "") for g in form):
+                print(f"[fill] résumé not sent to the profile-import box {f.label[:50]!r} (a document slot exists)",
+                      flush=True)
+                continue                                  # the document slot gets it; the parser would overwrite fields
             if not is_resume or not resume_pdf:
                 needs_human.append(f)
                 continue
