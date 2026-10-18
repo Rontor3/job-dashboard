@@ -284,13 +284,17 @@ def _click_non_social_submit(page, btn_names=("Continue", "Create Account", "Sig
 _CONSENT_KEYWORDS = ("privacy", "consent", "terms", "agree", "policy")
 
 
-def _check_consent_checkboxes(page) -> None:
-    """Check any unchecked checkbox whose label suggests T&C/privacy consent."""
-    for cb in page.query_selector_all('input[type="checkbox"]'):
+def _check_consent_checkboxes(page) -> int:
+    """Tick every unticked checkbox whose label is T&C/privacy consent; returns how many. A styled box hides the real
+    input (Oracle Candidate Experience: 'I agree with … Privacy Notice', live 2026-10-18 — Next did nothing until it
+    was ticked): then its label is clicked instead. ARIA checkboxes ([role=checkbox]) count too."""
+    ticked = 0
+    for cb in page.query_selector_all('input[type="checkbox"], [role="checkbox"]'):
         try:
-            if not cb.is_visible() or cb.is_checked():
+            aria = cb.get_attribute("role") == "checkbox"
+            if (cb.get_attribute("aria-checked") == "true") if aria else cb.is_checked():
                 continue
-            label_text = ""
+            label_text, lbl = "", None
             cb_id = cb.get_attribute("id")
             if cb_id:
                 lbl = page.query_selector(f'label[for="{cb_id}"]')
@@ -302,10 +306,23 @@ def _check_consent_checkboxes(page) -> None:
                 ).as_element()
                 if container:
                     label_text = (container.inner_text() or "").lower()
-            if any(k in label_text for k in _CONSENT_KEYWORDS):
-                cb.check()
+                    lbl = lbl or container
+            if not any(k in label_text for k in _CONSENT_KEYWORDS):
+                continue
+            done = False
+            if cb.is_visible():
+                try:
+                    cb.click(timeout=2000) if aria else cb.check(timeout=2000)
+                    done = True
+                except Exception:                          # covered by the drawn box: the label below
+                    pass
+            if not done and lbl is not None and lbl.is_visible():
+                lbl.click(timeout=2000)                    # the drawn box: its label toggles the hidden input
+                done = (cb.get_attribute("aria-checked") == "true") if aria else cb.is_checked()
+            ticked += bool(done)
         except Exception:
             pass
+    return ticked
 
 
 _CONSENT_LINK = _re.compile(r"(read|review|open)?.{0,12}accept.{0,30}(privacy|terms|agreement|statement|policy)", _re.I)
@@ -1121,6 +1138,9 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                     _type_into(page, el, cred["username"])
                     break
             page.wait_for_timeout(500)
+            if _check_consent_checkboxes(page) or _accept_consent_link(page):   # a required "I agree" gates Next
+                print("[cred] ticked the required privacy/terms consent", flush=True)
+                page.wait_for_timeout(300)
             _click_non_social_submit(page, ("Continue", "Next", "Sign In", "Log In", "Submit"))
             state = _observe_until_change(page, "email_first_continue")
             print(f"[cred] after email+Continue: {state}", flush=True)
