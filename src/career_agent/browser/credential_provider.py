@@ -1001,6 +1001,10 @@ _SIGNUP_TEXTS = [
     "sign up", "register", "create account", "create an account",
     "new user", "don't have an account", "no account", "new here",
     "join now", "get started", "new to",
+    # the account is created as the application's first step (Deloitte "First time applicant — Create profile",
+    # Accenture B2C "To apply, please create a profile — START APPLICATION")
+    "create profile", "create a profile", "create your profile", "start application", "start your application",
+    "start an application", "new applicant", "first time applicant",
 ]
 # Some sites offer registration as a block of alternative ways in ("Create an account using any of the following
 # options: Upload file / Self-complete / Upload CV later") with no link that says "sign up". The manual options start
