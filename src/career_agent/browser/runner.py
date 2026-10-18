@@ -10,17 +10,41 @@ from __future__ import annotations
 from pathlib import Path
 
 
+def wake_tabs(cdp_url: str) -> int:
+    """Bring every tab to the front once, over Chrome's HTTP endpoint (no websocket, so a frozen tab can't block it).
+    Chrome freezes background tabs after a while; a frozen tab never answers, and attaching waits for every tab
+    (live 2026-10-17: 4 sleeping tabs failed 19 queued applications). Returns how many tabs were woken."""
+    import json
+    import urllib.request
+    base = cdp_url.rstrip("/")
+    tabs = [t for t in json.load(urllib.request.urlopen(f"{base}/json", timeout=10)) if t.get("type") == "page"]
+    for t in tabs:
+        try:
+            urllib.request.urlopen(f"{base}/json/activate/{t['id']}", timeout=5).read()
+        except Exception:
+            pass
+    return len(tabs)
+
+
+def _attach(pw, cdp_url: str, timeout_ms: int):
+    return pw.chromium.connect_over_cdp(cdp_url, timeout=timeout_ms)
+
+
 def launch(settings, cdp_url: str | None = None):
     from playwright.sync_api import sync_playwright
     pw = sync_playwright().start()
     if cdp_url:
         try:
-            browser = pw.chromium.connect_over_cdp(cdp_url, timeout=60000)
-        except Exception as e:
-            pw.stop()
-            # attaching waits for EVERY tab to answer; one frozen tab ("Page unresponsive") blocks it for good
-            raise RuntimeError("could not attach to Chrome in 60 s — a tab is probably frozen; close it "
-                               f"(Chrome's task manager, Shift+Esc, shows which): {type(e).__name__}") from e
+            browser = _attach(pw, cdp_url, 30000)
+        except Exception:
+            try:                                          # a sleeping tab blocks attaching: wake them all, try again
+                print(f"[browser] attach stalled; woke {wake_tabs(cdp_url)} tab(s), retrying", flush=True)
+                browser = _attach(pw, cdp_url, 60000)
+            except Exception as e:
+                pw.stop()
+                # attaching waits for EVERY tab to answer; one hung tab ("Page unresponsive") still blocks it
+                raise RuntimeError("could not attach to Chrome even after waking every tab — a tab is hung; close it "
+                                   f"(Chrome's task manager, Shift+Esc, shows which): {type(e).__name__}") from e
         if browser.contexts:
             context = browser.contexts[0]
         else:
