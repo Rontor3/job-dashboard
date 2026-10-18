@@ -24,8 +24,15 @@ _MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "o
 _SHAPE_JS = r"""e => {
   const text = id => { const n = document.getElementById(id); return n ? (n.innerText || n.textContent || '') : ''; };
   const described = (e.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map(text).join(' ');
+  // a hint printed beside the box with no aria link (Avature 'Enter numerals only', live Koch 2026-10-18): the text of
+  // the smallest ancestor that holds this box alone
+  let box = e.parentElement, near = '';
+  for (let i = 0; box && i < 3; i++, box = box.parentElement) {
+    if (box.querySelectorAll('input,select,textarea').length > 1) break;
+    near = (box.innerText || '').slice(0, 200);
+  }
   return {type: (e.getAttribute('type') || '').toLowerCase(), placeholder: e.getAttribute('placeholder') || '',
-          pattern: e.getAttribute('pattern') || '', hint: described + ' ' + (e.getAttribute('title') || '')};
+          pattern: e.getAttribute('pattern') || '', hint: described + ' ' + (e.getAttribute('title') || '') + ' ' + near};
 }"""
 
 
