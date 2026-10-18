@@ -316,9 +316,15 @@ def _check_consent_checkboxes(page) -> int:
                     done = True
                 except Exception:                          # covered by the drawn box: the label below
                     pass
+            is_on = (lambda: cb.get_attribute("aria-checked") == "true") if aria else cb.is_checked
             if not done and lbl is not None and lbl.is_visible():
                 lbl.click(timeout=2000)                    # the drawn box: its label toggles the hidden input
-                done = (cb.get_attribute("aria-checked") == "true") if aria else cb.is_checked()
+                done = is_on()
+            if not done and not aria:
+                # a 0x0 input whose visible "label" is a span (Oracle Candidate Experience, live 2026-10-18: clicking
+                # the wrapper did nothing): click the input in-page — it toggles and fires click/change like a person
+                cb.evaluate("e => e.click()")
+                done = is_on()
             ticked += bool(done)
         except Exception:
             pass

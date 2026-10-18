@@ -1,14 +1,15 @@
 <!doctype html>
 <html><body>
 <!-- Oracle Candidate Experience "email first" (Cummins, live 2026-10-18): Next is refused until the privacy box is
-     ticked; the real checkbox is hidden behind a drawn box and toggled by its label. -->
+     ticked; the real checkbox is 0x0 and its visible label is a SPAN (no <label for>), wrapped in a div. -->
 <h1>You don't need to have an account</h1>
 <label for="email">Email Address *</label>
 <input id="email" type="email">
-<div class="cb">
-  <input id="agree" type="checkbox" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none">
-  <label for="agree"><span class="box"></span> I agree with Cummins Talent Acquisition Privacy Notice *</label>
+<div class="input-row">
+  <input id="legal-disclaimer-checkbox" type="checkbox" class="input-row__hidden-control" style="width:0;height:0;margin:0;padding:0;border:0">
+  <span id="legal-disclaimer-checkbox-label" class="apply-flow-input-checkbox"><span class="apply-flow-input-checkbox__button" style="display:inline-block;width:22px;height:22px;border:1px solid #999"></span>
+    <span class="apply-flow-input-checkbox__label">I agree with Cummins Talent Acquisition Privacy Notice</span> *</span>
 </div>
 <p id="err"></p>
-<button id="next" onclick="if(document.getElementById('agree').checked){document.body.innerHTML='<h1>Confirm your identity</h1><input id=otp>';}else{document.getElementById('err').textContent='You need to agree to the terms and conditions.'}">NEXT</button>
+<button id="next" onclick="if(document.getElementById('legal-disclaimer-checkbox').checked){document.body.innerHTML='<h1>Confirm your identity</h1><input id=otp>';}else{document.getElementById('err').textContent='You need to agree to the terms and conditions.'}">NEXT</button>
 </body></html>
