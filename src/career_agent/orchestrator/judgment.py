@@ -138,6 +138,19 @@ def _looks_like_question(label: str) -> bool:
     return len(text.split()) >= 4
 
 
+# A bare free-text box on an application ("Message", "Comments", "Cover letter") is a cover note, not a
+# question: it is not phrased as one, so the question gate would escalate it. Routed to the same long-form writer.
+_COVER_NOTE_LABEL = re.compile(
+    r"^\s*(your )?(message|comments?|additional (info(rmation)?|comments?)|cover (letter|note)|anything else.*)\s*:?\s*\*?\s*$",
+    re.I)
+COVER_NOTE_ASK = "Write a short cover note for this application"
+
+
+def cover_note_question(label: str) -> str | None:
+    """The ask for a generic free-text box (by its label's shape), or None when the label is a question of its own."""
+    return COVER_NOTE_ASK if _COVER_NOTE_LABEL.match(label or "") else None
+
+
 def judge_combobox_value(label, profile_text, llm) -> str | None:
     """A combobox whose live options aren't visible yet to Phase E (this tier has
     no browser access, so it can't open the widget to read them) — ask for a
@@ -205,19 +218,20 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
             continue
         if f.kind in ("textarea", "text") and (f.purpose is None or f.purpose in PROSE_PURPOSES):
+            question = cover_note_question(f.label) or f.label
             if (_NOT_A_QUESTION.search(f.label or "")
-                    or not _looks_like_question(f.label)
+                    or (question == f.label and not _looks_like_question(f.label))
                     or draft_screening_answer is None):
                 still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
             res = None
             if ctx.longform is not None:
                 try:
-                    res = ctx.longform(f.label, f, ctx.job)
+                    res = ctx.longform(question, f, ctx.job)
                 except Exception:
                     res = None                       # never let the new pipeline stop an application
             if res is None:
-                res = draft_screening_answer(ctx.job, f.label, profile_text,
+                res = draft_screening_answer(ctx.job, question, profile_text,
                                              ctx.research, ctx.resume_text, llm=llm,
                                              story_text=ctx.story_text)
             conf = res.get("confidence")

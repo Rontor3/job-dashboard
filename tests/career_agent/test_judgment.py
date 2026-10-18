@@ -2,7 +2,7 @@ from career_agent.browser.form_model import Field
 from career_agent.memory.candidate_profile import CandidateProfile, Experience, Education
 from career_agent.orchestrator.judgment import (
     JudgmentContext, profile_to_text, _is_sensitive, map_option, judge,
-    _looks_like_question, judge_combobox_value,
+    _looks_like_question, judge_combobox_value, cover_note_question, COVER_NOTE_ASK,
 )
 
 
@@ -238,3 +238,42 @@ def test_judge_never_fills_canned_fallback_answer():
     finally:
         J.draft_screening_answer = orig
     assert not answered and still == [f]
+
+
+def test_cover_note_question_matches_generic_free_text_boxes_only():
+    for label in ("Message", "Your message", "Comments", "Additional information", "Cover letter*",
+                  "Anything else you would like us to know", "Additional comments:"):
+        assert cover_note_question(label) == COVER_NOTE_ASK, label
+    assert cover_note_question("Why do you want to work here?") is None
+    assert cover_note_question("Postal Code") is None
+
+
+def test_judge_writes_a_bare_message_box_as_a_cover_note():
+    # Live insyncanalytics.com/apply-now and infoveritech.com/careers: the required "Message" textarea was
+    # escalated (one word, no "?") and the run waited on Telegram forever. It is now the cover-note ask.
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme", "description": "..."}, profile_text="x")
+    msg = _f("#msg", "Message", kind="textarea", required=True)
+    asked = []
+    def longform(question, field, job):
+        asked.append(question)
+        return {"answer": "Short cover note.", "confidence": 90, "flags": [], "unsupported_company_claims": []}
+    answered, still_need, _ = judge([msg], JudgmentContext(job=ctx.job, profile_text="x", longform=longform),
+                                    lambda p: "")
+    assert asked == [COVER_NOTE_ASK]
+    assert [x.ref for x in answered] == ["#msg"] and answered[0].value == "Short cover note."
+    assert still_need == []
+
+
+def test_judge_falls_back_to_the_drafter_with_the_cover_note_ask(monkeypatch):
+    from career_agent.orchestrator import judgment
+    seen = {}
+    def fake_draft(job, q, profile_text, research, resume_text, llm=None, story_text=""):
+        seen["q"] = q
+        return {"answer": "Short cover note.", "confidence": 90, "basis": "", "prompt": "", "flags": [],
+                "unsupported_company_claims": []}
+    monkeypatch.setattr(judgment, "draft_screening_answer", fake_draft)
+    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": ""})
+    answered, still_need, _ = judge([_f("#c", "Comments", kind="textarea", required=True)], ctx, lambda p: "")
+    assert seen["q"] == COVER_NOTE_ASK
+    assert [x.ref for x in answered] == ["#c"] and still_need == []
+
