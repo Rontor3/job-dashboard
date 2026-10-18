@@ -70,10 +70,16 @@ export default function HiringSignals({ onOpenJob = () => {} }) {
     const tab = window.open("about:blank", "_blank");
     say(id, "Drafting…");
     draftHiringEmail(id, to).then((d) => {
+      if (d.reconnect) {                          // don't open a compose link for an account this browser may not have
+        if (tab) tab.close();
+        say(id, `⚠ ${d.reconnect}`);
+        return;
+      }
       if (tab) tab.location.href = d.gmail_url; else window.open(d.gmail_url, "_blank");
       const prior = (d.already || []).map((a) => `${a.role_title || "another post"} (${a.status})`).join(", ");
       say(id, (d.attached ? `Gmail draft to ${d.to} — ${d.attached} attached`
                           : `Gmail opened for ${d.to} — attach DS_Rakshit_Singh.pdf before sending`)
+              + (d.problem ? ` · ⚠ ${d.problem}` : "")
               + (prior ? ` · ⚠ already contacted this address: ${prior}` : ""));
       load();
     }).catch((e) => { if (tab) tab.close(); say(id, e.message); });
