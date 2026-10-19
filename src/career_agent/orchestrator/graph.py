@@ -38,8 +38,11 @@ class AgentState(TypedDict):
     pending_human: list[dict]
     # accumulated FillDecision dicts across all screens
     decisions: list[dict]
+    # assembled between nodes; add new keys here or LangGraph drops them
     submitted: bool
     stopped_reason: str | None
+    # screen signatures the validation refill already ran once for (stop double rounds)
+    refilled: list[str]
 
 
 def initial_state(url: str, *, job_id=None, jd_text=None,
@@ -51,7 +54,7 @@ def initial_state(url: str, *, job_id=None, jd_text=None,
         "cred_provided": False, "cred_action": None, "gate_notice": None,
         "form": [], "form_sig": None,
         "pending_human": [], "decisions": [],
-        "submitted": False, "stopped_reason": None,
+        "submitted": False, "stopped_reason": None, "refilled": [],
     }
 
 
@@ -451,6 +454,65 @@ def human_gate_node(state: AgentState, config) -> dict:
     }
 
 
+def _validation_refill(page, deps, failing, c, state) -> dict:
+    """The site answered our click with field errors: answer those fields once more — the bank
+    re-recalled, prior values re-typed with real keystrokes (React drops programmatic fills) —
+    and hand what still fails to the human, quoting the site's own message in the question."""
+    ctx = {**c, "page_index": state.get("steps", 0)}
+    from ..browser.validation import read_errors
+    from ..browser.filler import has_value
+    from .answering import answer_fields
+    from .mapper import FillDecision, _action_for_kind
+    from .top_down import fill_top_down
+
+    live = deps.snapshot(page, scroll=False)
+    present = {f.ref: f for f in live}
+    # only fields still on the page — the site may have dropped a step or answered a box
+    # for itself while we were away
+    fields = []
+    for f in failing:
+        lf = present.get(f.ref)
+        if lf is None or lf.kind == "button":
+            continue
+        fields.append(lf)
+    # a value the site filled for itself is not ours to fix
+    from ..browser.filler import has_value
+    fields = [f for f in fields
+              if not (has_value(page, f) and f.kind not in ("combobox", "select", "radio_group", "checkbox_group"))]
+    if not fields:
+        return {}
+    print(f"[advance] the site rejected: {[f.label for f in fields]} — one refill round", flush=True)
+    decs, needs = answer_fields(fields, ctx)
+
+    # a field we already decided but the site now rejects: send the SAME answer again,
+    # this time with real keystrokes (the answer itself is not the problem — the fill was)
+    prior = {d.get("ref"): d for d in (state.get("decisions") or [])}
+    for f in fields:
+        pd = prior.get(f.ref)
+        if not pd or pd.get("value") in (None, ""):
+            continue
+        needs = [n for n in needs if n.ref != f.ref]
+        decs = [d for d in decs if d.ref != f.ref]
+        decs.append(FillDecision(ref=f.ref, kind=f.kind, label=f.label, value=pd.get("value"),
+                                 action=pd.get("action") or _action_for_kind(f.kind),
+                                 source="revalidate"))
+
+    live2 = deps.snapshot(page, scroll=False)
+    applied, needs = fill_top_down(page, deps, live2, decs, needs, ctx, skip_prefilled=False)
+    decs = list(decs) + list(applied)
+
+    # what still fails after this one round?
+    live3 = deps.snapshot(page, scroll=False)
+    still, _ = failing_fields(read_errors(page), live3)
+    wanted = {f.ref for f in fields}
+    still = [f for f in still if f.ref in wanted]
+    out = {"decisions": (state.get("decisions") or []) + [_dec2d(d) for d in decs]}
+    if still:
+        print(f"[advance] still failing after the refill: {[f.label for f in still]}", flush=True)
+        out["pending_human"] = [_f2d(f) for f in still]
+    return out
+
+
 def advance_node(state: AgentState, config) -> dict:
     """Click Next or Submit; detect stuck; route back for more screens."""
     if state.get("stopped_reason"):
@@ -467,7 +529,8 @@ def advance_node(state: AgentState, config) -> dict:
         if not (assist and assist.recover(page, reason)):
             return None
         nf = deps.snapshot(page)
-        return {"form": [_f2d(f) for f in nf], "form_sig": screen_signature(deps.url(page), nf),
+        from ..browser.validation import progress_signature
+        return {"form": [_f2d(f) for f in nf], "form_sig": screen_signature(deps.url(page), nf, progress_signature(page)),
                 "url": page.url}
 
     form = [_d2f(d) for d in state["form"]]
@@ -492,7 +555,7 @@ def advance_node(state: AgentState, config) -> dict:
         print("[stop] four steps and no form field found — not an application form", flush=True)
         return {"stopped_reason": "no_form_found"}
 
-    if not has_advance and has_submit:
+    if not has_advance and has_submit and submit_seen(form):
         if not state.get("decisions") and not submit_seen(form):
             # Nothing filled and the only 'submit' is an Apply that opens nothing: not a form, not ready for review
             print("[stop] nothing filled and no submit control — not an application form", flush=True)
@@ -566,8 +629,11 @@ def advance_node(state: AgentState, config) -> dict:
         if has_submit and not has_advance:
             if not state.get("decisions") and not submit_seen(form):
                 return {"stopped_reason": "no_form_found"}
-            if not state["do_submit"]:
-                return {"stopped_reason": "reached_submit_dry_run"}
+            if submit_seen(form):
+                if not state["do_submit"]:
+                    return {"stopped_reason": "reached_submit_dry_run"}
+            # only the 'Apply' family matched with fields already filled: it opens/advances
+            # the form, it does not send one — click through below instead of claiming a submit
 
     deps.click(page, entry or pick_advance_label(form, is_last=False))
     if page.url.startswith("chrome-error://"):
@@ -606,8 +672,27 @@ def advance_node(state: AgentState, config) -> dict:
             return {"stopped_reason": "auth_wall"}
 
     new_form = deps.snapshot(page)
-    after = screen_signature(deps.url(page), new_form)
+    from ..browser.validation import failing_fields, progress_signature, read_errors, ref_key
+    after = screen_signature(deps.url(page), new_form, progress_signature(page))
+    errs = read_errors(page)
+    if errs:
+        shown = "; ".join(dict.fromkeys(e["message"] for e in errs if e["message"]))[:240]
+        print(f"[advance] the site says: {shown or '(invalid fields, no messages)'}", flush=True)
     if state.get("form_sig") and not changed(state["form_sig"], after):
+        # The page did not move. The site has the floor: bind its complaints to fields and
+        # refill those once (MetLife's phone code, Koch's Education/Current?, Workday's loops
+        # all stalled here yesterday with the red text unread).
+        fail, _banners = failing_fields(errs, new_form)
+        done = list(state.get("refilled") or [])
+        if fail and ref_key(after) not in done:
+            upd = _validation_refill(page, deps, fail, c, state)
+            if upd:
+                upd.setdefault("form", [_f2d(f) for f in new_form])
+                upd["form_sig"] = after
+                upd["url"] = page.url
+                upd["refilled"] = done + [ref_key(after)]
+                return upd
+        print("[stop] the page did not change — stuck", flush=True)
         return _recovered("stuck") or {"stopped_reason": "stuck"}
     return {"form": [_f2d(f) for f in new_form], "form_sig": after, "url": page.url}
 
@@ -643,6 +728,10 @@ def _route_fill(state: AgentState) -> str:
 def _route_advance(state: AgentState) -> str:
     if state.get("stopped_reason") or state.get("submitted"):
         return END
+    if state.get("pending_human"):
+        # the validation refill found fields it cannot answer — ask the person,
+        # quoting the site's own message, then advance again
+        return "human_gate"
     return "perceive"
 
 
@@ -670,6 +759,7 @@ def build_graph(checkpointer=None):
     g.add_conditional_edges("fill", _route_fill,
                             {"human_gate": "human_gate", "advance": "advance", END: END})
     g.add_edge("human_gate", "advance")
-    g.add_conditional_edges("advance", _route_advance, {"perceive": "perceive", END: END})
+    g.add_conditional_edges("advance", _route_advance,
+                            {"perceive": "perceive", "human_gate": "human_gate", END: END})
 
     return g.compile(checkpointer=checkpointer)

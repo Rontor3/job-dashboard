@@ -88,7 +88,44 @@ def to_form_model(raw: list[dict]) -> list[Field]:
     fields: list[Field] = []
     radio_groups: dict[str, dict] = {}
 
+    # Multi-choice checkbox clusters ("How did you hear about us?" with nine boxes) are ONE
+    # question: fold every checkbox sharing a group heading into a single checkbox_group
+    # field whose options are the boxes' own labels. Each option then answers once
+    # (or the group is left blank) instead of nine yes/no prompts (Twilio, live 2026-10-19).
+    cb_groups: dict[str, list[dict]] = {}
+    for r in raw:
+        if r.get("kind") == "checkbox" and (r.get("group_label") or "").strip() \
+                and not _CSS_RULE.search(r["group_label"] or "") \
+                and not r.get("disabled") and not _CSS_RULE.search(r.get("label") or ""):
+            cb_groups.setdefault(r["group_label"].strip(), []).append(r)
+    _folded: set = set()
+    _groups: dict[str, Field] = {}
+    for gl, boxes in cb_groups.items():
+        labels = [(b.get("label") or "").strip() for b in boxes]
+        # 2+ boxes, each with its own distinct option label, none named after the group
+        if (len(boxes) < 2 or len(set(labels)) != len(boxes)
+                or any(not l or l == gl for l in labels)):
+            continue
+        first = boxes[0]
+        _groups[first["ref"]] = Field(
+            ref=first["ref"], kind="checkbox_group", label=gl,
+            required=any(b.get("required") for b in boxes),
+            options=labels, group=gl,
+            purpose=guess_purpose(gl, "checkbox_group"),
+            description=(first.get("description") or ""),
+            input_type="", autocomplete="", placeholder="",
+            max_length=0, value="", unit="",
+            section=(first.get("section") or ""),
+            row=int(first.get("row", -1) if first.get("row") is not None else -1),
+        )
+        _folded.update(b["ref"] for b in boxes[1:])
+
     for r in merge_date_parts(raw):
+        if r.get("kind") == "checkbox" and r["ref"] in _folded:
+            continue                      # a later tail of a checkbox group folded above
+        if r.get("kind") == "checkbox" and r["ref"] in _groups:
+            fields.append(_groups[r["ref"]])   # the group takes the first box's place
+            continue
         # a 'label' that is a stylesheet rule names a honeypot (Aezion: ".x { position: absolute !important; left:
         # -9999vw }") — a trap for bots, never a question
         if _CSS_RULE.search(r.get("label") or ""):

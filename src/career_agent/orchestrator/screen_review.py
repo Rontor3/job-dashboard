@@ -228,6 +228,19 @@ def map_screen(form, profile, resume_pdf=None):
             # Auth-wall credential fields — credential_provider handles these.
             # Never fill or escalate; pretend they don't exist.
             continue
+        if f.kind == "checkbox_group":
+            # One question for the whole cluster, or nothing: optional boxes are left blank
+            # saintly ("How did you hear about us?": nine boxes came in as nine 'questions',
+            # Twilio live 2026-10-19); a required group is answered once, coerced to its
+            # options like any select.
+            if not f.required:
+                continue
+            ans = standard_answers.answer(f.purpose, f.label) if f.purpose in _STD_PURPOSES else None
+            if ans is not None:
+                _place(f, ans, "standard", decisions, needs_human)
+                continue
+            needs_human.append(f)
+            continue
         if _is_yes_no(f) and _MARKETING.search(f"{f.label} {getattr(f, 'description', '')}"):
             # Marketing opt-in (SMS / future-opportunity emails), required or not: privacy-preserving default is No.
             _place(f, "No", "policy", decisions, needs_human)

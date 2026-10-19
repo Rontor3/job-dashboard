@@ -22,7 +22,8 @@ from job_dashboard.qa_store import norm_key as norm
 SEED_PATH = Path(__file__).with_name("qbank_seed.json")
 _JSON_COLS = ("slots", "synonyms")
 _DEF_COLS = ("question", "topic", "atype", "profile_ref", "rule", "slots", "synonyms", "shape")
-_KIND_ATYPE = {"select": "choice", "radio_group": "choice", "combobox": "choice", "checkbox": "bool"}
+_KIND_ATYPE = {"select": "choice", "radio_group": "choice", "combobox": "choice", "checkbox": "bool",
+               "checkbox_group": "choice"}   # multi tick list: the answer text carries the picks
 
 
 def ensure(conn) -> None:

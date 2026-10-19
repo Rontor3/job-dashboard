@@ -16,8 +16,11 @@ NEVER_NAMES = ["back", "cancel", "previous", "logout", "sign out",
                "apply with"]
 
 
-def screen_signature(url, form):
-    return (urlparse(url).path, frozenset(f.label.strip().lower() for f in form if f.label))
+def screen_signature(url, form, extra: str = ""):
+    """What makes a screen what it is: its path, the field labels, and where the progress
+    indicator stands (an `extra` from validation.progress_signature — a Workday wizard
+    re-labels nothing but its stepper between steps)."""
+    return (urlparse(url).path, frozenset(f.label.strip().lower() for f in form if f.label), extra)
 
 
 def changed(before, after):

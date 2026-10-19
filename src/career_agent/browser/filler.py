@@ -241,6 +241,42 @@ def _pick_in_aria_group(page, target, group: str, want: str) -> None:
         pass
 
 
+def _tick_box(page, target, want: str) -> None:
+    """Tick ONE checkbox by its option text (the box itself is usually hidden under a styled
+    label). Same ladder as _pick_radio, checkboxes edition; confirms it ended up checked."""
+    q = want.replace('"', '\\"')
+    attempts = (
+        lambda: target.get_by_label(want, exact=True).check(timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator(f'input[type=checkbox][value="{q}" i]').first.check(
+            force=True, timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator(f'input[type=checkbox][value="{q}" i]').first.locator(
+            "xpath=..").click(timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.get_by_role("checkbox", name=re.compile(
+            r"^\s*\W*" + re.escape(want) + r"\W*$", re.I)).first.check(
+            force=True, timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator("label").filter(has_text=want).first.click(timeout=_SOFT_TIMEOUT_MS),
+        # a styled button masquerading as a checkbox
+        lambda: target.get_by_role("checkbox", name=re.compile(re.escape(want), re.I)).first.click(
+            timeout=_SOFT_TIMEOUT_MS),
+    )
+    for go in attempts:
+        try:
+            pace(page)
+            go()
+            cb = target.get_by_label(want, exact=True)
+            if cb.count() == 0 or cb.first.is_checked():
+                return
+        except Exception:
+            continue
+
+
+def _pick_boxes(page, target, want: str) -> None:
+    """Tick every wanted option of a multi-choice group; the others stay as they are
+    ("How did you hear about us?" is one question with many boxes, not nine questions)."""
+    for one in [w.strip() for w in re.split(r"\s*,\s*", str(want)) if w.strip()]:
+        _tick_box(page, target, one)
+
+
 def _pick_radio(page, target, want: str, group: str | None = None) -> None:
     """Select the radio option labelled `want`. Styled radios hide the real <input> (opacity 0, readonly)
     and often carry the question text in their aria-label, so try, in order: label match, the input by
@@ -454,6 +490,10 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                         target.click(sel, timeout=_SOFT_TIMEOUT_MS)
                 except Exception:
                     pass
+        elif d.action == "check_multi":
+            # a small group of choices-together: tick each named option, exactly one decision
+            # for the whole question (Twilio's "How did you hear about us?" lived 9 questions long)
+            _pick_boxes(page, target, str(d.value))
         elif d.action == "check":
             # tick a single checkbox (a required attestation draft). Binding is
             # the SUBMIT, which stays human-gated — see screen_review.
