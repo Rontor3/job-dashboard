@@ -4,6 +4,7 @@ control; suppress_noise is pure. LLM-free."""
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 # Fields that are never real application inputs.
 _NOISE_RE = re.compile(
@@ -43,6 +44,7 @@ _ACCEPT = [
     "Accept", "Agree", "Allow", "OK", "Got it", "I understand",
     "I agree", "I accept",
 ]
+_JOB_TITLE: str = ""   # ponytail: module-global like _TRAIL; one apply run per process. Set by apply.py before reach.
 _TRAIL: list = []   # ponytail: module-global; one apply run per process. Per-run object if runs ever share a process.
 
 
@@ -328,9 +330,13 @@ _REAL_FIELDS_JS = r"""() => {
       catch(e) { return ''; }
     }).join(' ');
   };
+  // A site search box or newsletter/subscribe signup is not the application, whatever its labels say.
+  const SUB = /newsletter|subscribe|search/i;
+  const junkBox = e => e.type === 'search' || !!e.closest('[role=search]') || (() => {
+    const f = e.closest('form'); return !!f && SUB.test((f.id||'')+' '+(f.className||'')+' '+(f.getAttribute('action')||'')+' '+(f.getAttribute('aria-label')||'')); })();
   // file inputs are styled invisible (display:none) but are real upload fields
   const ins = shadowAll(document.body, 'input,select,textarea').filter(e =>
-    e.type === 'file' || vis(e));
+    e.type === 'file' || (vis(e) && !junkBox(e)));
   const seen = new Set();
   for (const e of ins) {
     if (['hidden','submit','button'].includes(e.type)) continue;
@@ -359,7 +365,20 @@ _CLICKABLES_JS = r"""() => {
   // Controls inside an open modal/dialog come first: a modal is what the page is asking
   // about right now, and it sits at the end of the DOM — past the 200 cap on busy pages.
   const inModal = e => !!e.closest('[role=dialog],[aria-modal=true],dialog[open]');
-  const els = [...document.querySelectorAll('button, a[href], [role=button], input[type=submit], input[type=button]')]
+  const CTRL = 'button, a[href], [role=button], input[type=submit], input[type=button]';
+  const applyLike = x => /apply/i.test(x.getAttribute('aria-label') || x.value || x.textContent || '');
+  // The job card = the largest ancestor that still holds exactly ONE apply-like control (the nearest ancestor is
+  // just the button's wrapper, which lacks the job's title). A listing's cards each hold their own Apply.
+  const cardOf = e => {
+    let card = '';
+    for (let a = e.parentElement, i = 0; a && a !== document.body && i < 12; a = a.parentElement, i++) {
+      const n = [...a.querySelectorAll(CTRL)].filter(applyLike).length;
+      if (n > 1) break;
+      if (n === 1) card = (a.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 400);
+    }
+    return card;
+  };
+  const els = [...document.querySelectorAll(CTRL)]
     .filter(vis).sort((a, b) => inModal(b) - inModal(a));
   for (const e of els) {
     const name = (e.getAttribute('aria-label') || e.value || e.textContent || '').trim().replace(/\s+/g,' ');
@@ -369,7 +388,8 @@ _CLICKABLES_JS = r"""() => {
     // the revealed menu OPTION next, instead of re-toggling.
     let aff = e.getAttribute('data-aff');
     if (!aff) { aff = 'a' + (window.__affN++); e.setAttribute('data-aff', aff); }
-    out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]' });
+    out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]',
+               card: applyLike(e) ? cardOf(e) : '' });
   }
   return out.slice(0, 200);
 }"""
@@ -561,12 +581,17 @@ _FILLABLE_JS = r"""() => {
     walk(root); return r;
   }
   const vis = e => { try { const r=e.getBoundingClientRect(); return r.width>4&&r.height>4; } catch(e){ return false; } };
+  // A site search box or newsletter/subscribe signup is not the application, whatever its labels say.
+  const SUB = /newsletter|subscribe|search/i;
+  const junkBox = e => e.type === 'search' || !!e.closest('[role=search]') || (() => {
+    const f = e.closest('form'); return !!f && SUB.test((f.id||'')+' '+(f.className||'')+' '+(f.getAttribute('action')||'')+' '+(f.getAttribute('aria-label')||'')); })();
   return shadowAll(document.body, 'input,select,textarea').filter(e => {
     const t = (e.getAttribute('type') || 'text').toLowerCase();
     // file inputs are always styled invisible but are real upload fields — count them regardless
     if (t === 'file') return true;
     if (!vis(e)) return false;
     if (['hidden','submit','button','password'].includes(t)) return false;
+    if (junkBox(e)) return false;
     return !/search/i.test((e.getAttribute('aria-label') || e.name || ''));
   }).length;
 }"""
@@ -620,6 +645,43 @@ def find_apply_affordance(page, exclude=(), prefer=()):
             c["frame"] = idx
             cands.append(c)
     return _best_apply(cands, exclude, prefer)
+
+
+def set_job_hint(title: str) -> None:
+    """The job being applied for. A listing page (several cards, each with its own Apply) is opened at THIS job's card."""
+    global _JOB_TITLE
+    _JOB_TITLE = (title or "").strip()
+
+
+def _listing_pick(page, title):
+    """(state, cand). None when the page is not a listing: fewer than two same-named apply controls that each sit in a
+    card. 'match' + the control whose card names `title` (>=60% of its words); 'no_match' when it is a listing but no
+    card names this job, so we must not click a random one. Pure reading: clicks nothing."""
+    toks = set(re.findall(r"[a-z0-9]+", title.lower()))
+    if not toks:
+        return None, None
+    cands = []
+    for idx, fr in enumerate(page.frames):
+        if idx and _frame_is_ad(fr):
+            continue
+        try:
+            rows = fr.evaluate(_CLICKABLES_JS) or []
+        except Exception:
+            continue
+        for c in rows:
+            name = (c.get("name") or "").strip().lower()
+            if c.get("card") and _best_apply([{"name": name}]) is not None:
+                c["frame"] = idx
+                cands.append(c)
+    if not any(n >= 2 for n in Counter((c.get("name") or "").strip().lower() for c in cands).values()):
+        return None, None
+    best, best_score = None, 0.0
+    for c in cands:
+        words = set(re.findall(r"[a-z0-9]+", c["card"].lower()))
+        score = len(toks & words) / len(toks)
+        if score >= 0.6 and score > best_score:
+            best, best_score = c, score
+    return ("match", best) if best else ("no_match", None)
 
 
 def _frame_is_ad(fr) -> bool:
@@ -713,6 +775,19 @@ def _reach(page, max_hops=4):
         if st in ("email_auth", "password"):
             return active, st              # account/login wall FIRST — an account
             # page has applicant fields AND a password; the wall wins -> escalate
+        # A listing (several job cards, each with its own Apply): open THIS job's card before accepting any form on the
+        # page — the form already shown may be a site contact form. Once that card is open, its form is the application.
+        listing, pick = _listing_pick(active, _JOB_TITLE) if _JOB_TITLE else (None, None)
+        if listing == "no_match":
+            trail_note(step="listing", result="no_match", url=_bare(active.url))
+            return active, "none"
+        if listing == "match" and pick.get("ref") not in clicked:
+            clicked.add(pick.get("ref"))
+            before = active.url
+            active = _hop(active, pick)
+            trail_note(step="hop", click=pick["name"], role=pick["role"], frame=pick.get("frame", 0),
+                       url_before=_bare(before), url_after=_bare(active.url), listing=True)
+            continue
         if is_application_form(active):    # a real personal-info form -> arrived
             return active, "form"
         # Follow an Apply affordance FIRST: a JD/search page has one, a real form

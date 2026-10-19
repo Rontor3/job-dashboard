@@ -168,6 +168,9 @@ def _apply(args, box: dict) -> None:
     from job_dashboard.apply.store import get_application_profile
 
     conn = sqlite3.connect(args.db)
+    from job_dashboard.db import get_job
+    from .browser.page_prep import set_job_hint
+    set_job_hint(((get_job(conn, args.job_id) if args.job_id else None) or {}).get("title", ""))  # reach opens THIS job's card on a listing
     contact = get_application_profile(conn) or {}
     profile = load_candidate_profile(conn, args.resume_version, contact=contact)
 

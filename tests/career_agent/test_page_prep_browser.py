@@ -207,3 +207,50 @@ def test_reveal_email_form_shows_the_password_box():
         assert p.locator('input[type="password"]').is_visible()
         assert _reveal_email_form(p) is False                          # nothing left to reveal
         b.close()
+
+
+def test_listing_opens_the_matching_job_card_not_the_contact_form():
+    """Several 'Quick Apply' cards, each revealing its own form, plus a newsletter, a site search and a contact form
+    (two real applicant fields). reach must open the Machine Learning Engineer card and end on ITS form."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser import page_prep
+    from career_agent.browser.page_prep import reach_application_form, set_job_hint
+    set_job_hint("Machine Learning Engineer")
+    try:
+        with sync_playwright() as pw:
+            b, p = _page(pw, "listing_quick_apply.html")
+            active, status = reach_application_form(p)
+            assert status == "form"
+            assert active.locator("#app2").is_visible()           # the ML card's own form
+            assert not active.locator("#app1").is_visible()
+            b.close()
+    finally:
+        set_job_hint("")
+
+
+def test_listing_with_no_matching_card_clicks_nothing():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import reach_application_form, set_job_hint
+    set_job_hint("Backend Engineer")                              # no card names this job
+    try:
+        with sync_playwright() as pw:
+            b, p = _page(pw, "listing_quick_apply.html")
+            _, status = reach_application_form(p)
+            assert status == "none"
+            assert not p.locator("#app1, #app2, #app3").first.is_visible()
+            b.close()
+    finally:
+        set_job_hint("")
+
+
+def test_newsletter_and_search_boxes_are_not_application_fields():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import _real_field_count, is_application_form
+    html = """<form class="newsletter"><input aria-label="Email address" type="email"><input aria-label="Your name">
+              <button type="button">Subscribe</button></form>
+              <form class="site-search"><input type="search" aria-label="Search jobs"><button>Search</button></form>"""
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); p = b.new_page(); p.set_content(html)
+        assert _real_field_count(p) == 0          # newsletter + site search: no applicant fields
+        assert not is_application_form(p)
+        b.close()
