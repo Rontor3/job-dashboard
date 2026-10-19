@@ -88,3 +88,11 @@ def test_role_box_reaches_the_writer_with_the_role_question():
     answered, still, _ = judge([box], ctx, llm=lambda p: "")
     assert asked == ["Describe your responsibilities and achievements in this role at Tata AIG"]
     assert [d.value for d in answered] == ["Built fraud models."] and not still
+
+
+def test_a_parser_placeholder_school_falls_back_to_the_profile_entry_at_that_row():
+    from types import SimpleNamespace as NS
+    from career_agent.orchestrator.profile_resolver import row_degree_level
+    prof = NS(education=[NS(school="IIT (BHU) Varanasi", degree="B.Tech")])
+    assert row_degree_level(prof, 0, "Not provided in text") == "Bachelor's Degree"
+    assert row_degree_level(prof, 1, "Not provided in text") is None

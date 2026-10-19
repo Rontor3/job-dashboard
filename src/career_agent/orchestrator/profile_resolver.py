@@ -127,11 +127,17 @@ def highest_degree_level(profile) -> str | None:
     return max(ranked, key=_LEVEL_RANK.index) if ranked else None
 
 
+_PARSER_PLACEHOLDER = re.compile(r"^\s*(not (provided|available|specified|found)( in (the )?(text|resume|cv))?|n/?a|none|"
+                                 r"unknown|-+)\s*\.?\s*$", re.I)
+
+
 def row_degree_level(profile, index: int, school_value: str | None) -> str | None:
     """Level for one repeated education row. The row's School text names the profile entry it is (fuzzy contains);
     a K-12 school with no profile match is High School; any other unmatched school -> None (never guessed).
     With no School text on the page, fall back to the profile entry at the same index."""
     school = (school_value or "").strip()
+    if _PARSER_PLACEHOLDER.match(school):        # a résumé parser's "Not provided in text" names no school
+        school = ""
     if not school:
         if 0 <= index < len(profile.education):
             return degree_level(profile.education[index].degree)

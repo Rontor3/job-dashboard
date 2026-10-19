@@ -712,10 +712,12 @@ _SECTION_JS = r"""
   const rowOf = el => {
     let a = el.parentElement;
     for (let d = 0; a && a.parentElement && d < 8; d++, a = a.parentElement) {
-      const cls = (a.className && typeof a.className === 'string') ? a.className.trim() : '';
-      if (!cls) continue;
-      const sibs = Array.from(a.parentElement.children).filter(s => s.tagName === a.tagName && s.className === a.className
-                                                              && s.querySelector(CTL));
+      // an ENTRY repeats (School + Degree + Major...), not one field's wrapper: each repeat holds 2+ controls and is
+      // shown; class names may differ between repeats (MetLife Avature live 2026-10-19: 'TableSampleRow' then rows,
+      // and field wrappers were numbered School 0 / Degree 1 / Major 2 as if they were entries)
+      if (a.querySelectorAll(CTL).length < 2) continue;
+      const sibs = Array.from(a.parentElement.children).filter(s => s.tagName === a.tagName && vis(s)
+                                                              && s.querySelectorAll(CTL).length >= 2);
       if (sibs.length >= 2) return sibs.indexOf(a);
     }
     return -1;
