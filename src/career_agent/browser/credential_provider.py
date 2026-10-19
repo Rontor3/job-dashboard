@@ -1444,6 +1444,7 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             had_password = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
             combined = _is_combined_form(page)
             _fill_wall(page, gate, cred, site=site)
+            combined = combined or _is_combined_form(page)        # read again once settled: the first look can be early
             if had_password:
                 # A sign-up that IS the application form makes the account only when the application goes in (MetLife,
                 # live 2026-10-19): keep the password PENDING — never used to log in — until a submit is confirmed.
