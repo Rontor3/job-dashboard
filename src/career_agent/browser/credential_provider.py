@@ -1447,5 +1447,10 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                 # was saved for an account whose sign-up was never sent). Retire it and register instead, once.
                 print(f"[cred] {site}: the stored login did not open — retiring it and registering", flush=True)
                 retire_credential(site, label=gate)
+                try:                  # the login page has no way to sign up; the page before it (choose-a-method) does
+                    page.go_back(wait_until="domcontentloaded", timeout=15000)
+                    page.wait_for_timeout(1500)
+                except Exception:
+                    pass
                 return provide(page, gate, site, original_url, email, phone, _retried=True)
     return True, ("register" if is_new else "login")
