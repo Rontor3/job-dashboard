@@ -121,4 +121,4 @@ def test_a_failed_attach_stops_playwright_so_the_next_pass_can_start(monkeypatch
     with pytest.raises(TimeoutError):
         with submit_watch.CdpTabs("http://localhost:9222"):
             pass
-    assert state == {"stopped": 1, "woke": 1}
+    assert state == {"stopped": 1, "woke": 0}       # a background watcher never flips through the user's tabs

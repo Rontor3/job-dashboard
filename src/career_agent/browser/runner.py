@@ -23,6 +23,11 @@ def wake_tabs(cdp_url: str) -> int:
             urllib.request.urlopen(f"{base}/json/activate/{t['id']}", timeout=5).read()
         except Exception:
             pass
+    if tabs:                    # give the user back the tab they were on (the list is most-recently-used first)
+        try:
+            urllib.request.urlopen(f"{base}/json/activate/{tabs[0]['id']}", timeout=5).read()
+        except Exception:
+            pass
     return len(tabs)
 
 
@@ -54,9 +59,13 @@ def launch(settings, cdp_url: str | None = None):
     pw = sync_playwright().start()
     if cdp_url:
         try:
-            browser = _attach(pw, cdp_url, 30000)
+            try:
+                browser = _attach(pw, cdp_url, 30000)
+            except Exception:                             # a busy Chrome: one patient retry before touching any tab
+                browser = _attach(pw, cdp_url, 60000)
         except Exception:
-            try:                                          # a sleeping tab blocks attaching: wake them all, try again
+            try:                                          # a sleeping tab blocks attaching: wake them all (last resort:
+                                                          # it flips through the user's tabs), try again
                 print(f"[browser] attach stalled; woke {wake_tabs(cdp_url)} tab(s), retrying", flush=True)
                 browser = _attach(pw, cdp_url, 60000)
             except Exception as e:
