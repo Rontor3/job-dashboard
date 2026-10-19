@@ -500,15 +500,9 @@ def _apply(args, box: dict) -> None:
         # kind=="none" = clear JD page; kind=="form" can false-positive on pages
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
         if kind == "none" or (kind == "form" and not is_application_form(page)):
-            # Close stale ATS tabs from previous runs so pages[-1] after Apply
-            # click reliably points to the new (fresh-session) login tab.
-            _ATS_HOSTS = ("taleo.net", "greenhouse.io", "icims.com", "workday.com",
-                          "darwinbox.in", "successfactors.com", "ashbyhq.com",
-                          "lever.co", "recruitee.com", "jobvite.com")
-            for _sp in list(page.context.pages):
-                if _sp is not page and any(h in (_sp.url or "") for h in _ATS_HOSTS):
-                    try: _sp.close()
-                    except Exception: pass
+            # (Other ATS tabs are NOT closed here any more: they are other jobs' parked forms — live 2026-10-19 a
+            # Worksbot run closed Twilio's filled Greenhouse form. The tab an Apply click opens is found by
+            # page_prep.new_tab_since, not by "the last tab".)
             page, _ = reach_application_form(page)      # the tab the drill ended on (a new one only if one opened)
             _tabs.trim(keep=page)
             prepare(page); kind = classify_entry(page)
