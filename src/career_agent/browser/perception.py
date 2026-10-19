@@ -81,11 +81,18 @@ def merge_date_parts(raw: list[dict]) -> list[dict]:
     return out
 
 
+_CSS_RULE = re.compile(r"\{[^}]*\b(position|left|display|visibility|opacity)\s*:", re.I)
+
+
 def to_form_model(raw: list[dict]) -> list[Field]:
     fields: list[Field] = []
     radio_groups: dict[str, dict] = {}
 
     for r in merge_date_parts(raw):
+        # a 'label' that is a stylesheet rule names a honeypot (Aezion: ".x { position: absolute !important; left:
+        # -9999vw }") — a trap for bots, never a question
+        if _CSS_RULE.search(r.get("label") or ""):
+            continue
         # Disabled / read-only inputs aren't part of the fillable form — a human
         # can't type in them either. Drop them so the mapper never targets one
         # (a strict fill on a disabled field blocks and crashes the run).
@@ -404,9 +411,7 @@ _INPUT_JS = r"""
     if (tag === 'textarea' || ['text', 'email', 'tel', 'number', 'url', 'search', ''].includes(type)) {
       const off = n => { const r = n.getBoundingClientRect(); return r.right < -100 || r.left > (window.innerWidth || 1200) * 3; };
       const lab = (el.labels && el.labels[0]) || null;
-      if (off(el) && (!lab || off(lab))) continue;
-      const near = (el.closest('label, p, div') || {}).textContent || '';
-      if (/\{[^}]*(position|left|display)\s*:[^}]*\}/i.test(near.slice(0, 300))) continue;
+      if (off(el) && (!lab || off(lab))) continue;     // (a CSS-rule 'label' is dropped in to_form_model)
     }
     // Skip inputs inside page chrome (header, nav, search bar) — they are site
     // navigation controls, not application form fields (Phenom/Mastercard has
