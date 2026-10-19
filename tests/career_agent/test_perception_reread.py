@@ -20,3 +20,16 @@ def test_a_styled_combobox_survives_a_second_read():
         page.set_content(HTML)
         reads = [[f.kind for f in P.to_form_model(P.collect_raw(page))] for _ in range(2)]
         assert reads[0].count("combobox") == 1 and reads[1].count("combobox") == 1
+
+
+def test_an_off_screen_honeypot_box_is_not_a_field():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser import perception as P
+    html = """<form><label for=n>Name</label><input id=n>
+      <div><style>.hp { position: absolute !important; left: -9999vw !important; }</style>
+      <label class=hp for=h>Phone</label><input class=hp id=h type=tel style="position:absolute;left:-9999vw"></div></form>"""
+    with sync_playwright() as p:
+        page = p.chromium.launch().new_page()
+        page.set_content(html)
+        labels = [f.label for f in P.to_form_model(P.collect_raw(page))]
+        assert labels == ["Name"]

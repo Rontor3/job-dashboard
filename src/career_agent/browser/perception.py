@@ -397,6 +397,12 @@ _INPUT_JS = r"""
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
     if (type === 'hidden' || type === 'submit' || type === 'button') continue;
+    // A honeypot: a box parked off-screen (left:-9999px) or with its own CSS for a label exists only to catch bots —
+    // never filled, never asked (Aezion, live 2026-10-19: two were escalated to the human)
+    { const r = el.getBoundingClientRect();
+      if (r.right < -100 || r.bottom < -100 - window.scrollY || r.left > (window.innerWidth || 1200) * 3) continue;
+      const near = (el.closest('label, p, div') || {}).textContent || '';
+      if (/\{[^}]*(position|left|display)\s*:[^}]*\}/i.test(near.slice(0, 300))) continue; }
     // Skip inputs inside page chrome (header, nav, search bar) — they are site
     // navigation controls, not application form fields (Phenom/Mastercard has
     // a jobs-search bar in the header whose selects navigate the page if filled).
