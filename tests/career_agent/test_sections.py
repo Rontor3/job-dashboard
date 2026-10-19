@@ -140,3 +140,13 @@ def test_a_question_repeated_in_a_section_is_numbered_by_entry():
           fld("#p1", "In Progress", kind="radio_group", section="Education")]
     rows = {f.ref: f.row for f in _rows_by_repeat(fs)}
     assert rows["#c1"] == 0 and rows["#c2"] == 1 and rows["#n"] == -1 and rows["#p1"] == -1
+
+
+def test_a_radio_group_with_no_named_option_is_a_hidden_template_not_a_question():
+    from career_agent.browser.perception import to_form_model
+    raw = [{"ref": "#a", "kind": "radio", "label": "Yes", "group": "g1", "group_label": "Current?", "required": True},
+           {"ref": "#b", "kind": "radio", "label": "No", "group": "g1", "group_label": "Current?", "required": True},
+           {"ref": "#c", "kind": "radio", "label": "", "group": "g2", "group_label": "Current?", "required": True},
+           {"ref": "#d", "kind": "radio", "label": "", "group": "g2", "group_label": "Current?", "required": True}]
+    groups = [f for f in to_form_model(raw) if f.kind == "radio_group"]
+    assert [g.group for g in groups] == ["g1"]

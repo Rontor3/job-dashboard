@@ -127,6 +127,8 @@ def to_form_model(raw: list[dict]) -> list[Field]:
         ))
 
     for name, g in radio_groups.items():
+        if not any((o or "").strip() for o in g["labels"]):
+            continue          # every option unnamed: a hidden template row (Avature 'sample_' entry), not a question
         label = g.get("group_label") or name
         fields.append(Field(
             ref=f"group:{name}", kind="radio_group", label=label,

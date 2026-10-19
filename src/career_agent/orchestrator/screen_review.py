@@ -169,8 +169,9 @@ def _ends_open(end: str) -> bool:
 def _entry_answer(f, profile):
     """'Current?' on an Employment row / 'In Progress' on an Education row, answered from that row's own entry.
     Empty end = still running for a job; for a degree, no end date means nothing says it is ongoing -> No."""
-    if f.row < 0 or f.kind not in _SELECT_KINDS:
+    if f.kind not in _SELECT_KINDS:
         return None
+    row = max(f.row, 0)                    # the only entry of its section carries no row number: it is the first
     label = (f.label or "").strip()
     section = f.section or ""
     if _CURRENT_Q.match(label) and _EMPLOYMENT_SECTION.search(section):
@@ -179,9 +180,9 @@ def _entry_answer(f, profile):
         rows, open_ = profile.education, lambda e: _ends_open(e.end)
     else:
         return None
-    if f.row >= len(rows):
+    if row >= len(rows):
         return None
-    return "Yes" if open_(rows[f.row]) else "No"
+    return "Yes" if open_(rows[row]) else "No"
 
 
 def _is_yes_no(f) -> bool:
