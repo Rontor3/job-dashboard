@@ -144,11 +144,19 @@ def dismiss_dialogs(page) -> bool:
         if dialog.count() == 0:
             return False
         # A modal that offers an Apply step ("I'm ready to apply") is the next hop, not noise.
-        names = dialog.locator("a[href], button").all_inner_texts()
-        if _best_apply([{"name": " ".join(n.split())} for n in names]) is not None:
-            trail_note(step="modal_kept", why="offers an apply control")
+        # [role=button]/[role=link] matter: design-system CTAs are often not <button> (Himalayas
+        # 2026-10-20 — the "Apply to X" modal's only apply control was a role=button div, the keep
+        # check missed it, Close fired, and the walker re-clicked Apply in a loop forever).
+        names = dialog.locator("a[href], button, [role=button], [role=link]").all_inner_texts()
+        try:
+            text = dialog.inner_text(timeout=1000)
+        except Exception:
+            text = ""
+        modal_is_apply = _APPLY_MODAL_RE.search(text) is not None
+        if _best_apply([{"name": " ".join(n.split())} for n in names]) is not None or modal_is_apply:
+            trail_note(step="modal_kept",
+                       why="offers an apply control" if not modal_is_apply else "the modal IS the apply step")
             return False
-        text = dialog.inner_text(timeout=1000)
         fillable = dialog.locator("textarea:visible, select:visible, input:visible:not([type=hidden]):not([type=checkbox])"
                                   ":not([type=radio]):not([type=submit]):not([type=button])").count() > 0
     except Exception:
@@ -161,6 +169,13 @@ def dismiss_dialogs(page) -> bool:
     if via:
         trail_note(step="modal_dismissed", via=via)
     return via is not None
+
+
+# A dialog titled/introduced like an apply continuation ("Apply to NVIDIA", “Start your application”)
+# is the next hop by definition: its Close never fires unconditionally. Only consent/idle text
+# opt-out; real T&C dialogs never carry this wording.
+_APPLY_MODAL_RE = re.compile(r"\bapply (to|now|for|online)\b|\bstart (your|the) application\b|"
+                             r"\b(job )?application (form|portal|step)\b", re.I)
 
 
 _CLOSED_RE = re.compile(

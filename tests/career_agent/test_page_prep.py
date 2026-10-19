@@ -153,6 +153,35 @@ def test_dismiss_dialogs_never_clicks_the_pages_own_continue():
         b.close()
 
 
+def test_dismiss_dialogs_keeps_the_apply_modal_with_a_role_button_cta():
+    """Himalayas 2026-10-20: the 'Apply to <Co>' modal's only apply control was a role=button
+    div (no <button>, no a[href]) — the keep-check missed it, Close fired, and the walker
+    re-clicked Apply forever: 3 reach passes, 0 forms crossed."""
+    import os
+    if os.getenv("RUN_BROWSER_TESTS") != "1":
+        import pytest; pytest.skip("browser")
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import dismiss_dialogs
+
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page()
+        # 1. A role=button CTA whose name matches the apply vocabulary: keep — never Close.
+        pg.set_content("<div role=dialog><p>Apply to Upstart</p>"
+                       "<div role=button tabindex=0 onclick=\"document.title='crossed'\">Apply now</div>"
+                       "<button onclick=\"document.title='closed'\">Close</button></div>")
+        assert dismiss_dialogs(pg) is False and pg.title() != "closed"
+        # 2. An apply-titled modal even when its CTA has no recognizable name: the modal IS the apply step.
+        pg.set_content("<div role=dialog><p>Apply to NVIDIA</p>"
+                       "<div role=button tabindex=0 onclick=\"document.title='x'\">Via custom engine</div>"
+                       "<button onclick=\"document.title='closed'\">Close</button></div>")
+        assert dismiss_dialogs(pg) is False and pg.title() != "closed"
+        # 3. Regression guard: an idle modal with no apply control/fields is still dismissed.
+        pg.set_content("<div role=dialog><p>Session idle</p>"
+                       "<button onclick=\"this.parentElement.remove()\">Continue Working</button></div>")
+        assert dismiss_dialogs(pg) is True
+        b.close()
+
+
 def test_consent_ok_never_matches_the_cookies_policy_link():
     """Live Veritech run 2026-10-12: 'OK' matched 'Cookies Policy' (c-ok-ies) and the agent left for the policy page."""
     import os
