@@ -130,3 +130,13 @@ def test_model_calls_are_counted_per_name():
     a, b = ca.counted(lambda p: "x", "local"), ca.counted(lambda p: "y", "haiku")
     a("1"), a("2"), b("3")
     assert ca._CALLS == {"local": 2, "haiku": 1}
+
+
+def test_a_question_repeated_in_a_section_is_numbered_by_entry():
+    from career_agent.browser.perception import _rows_by_repeat
+    fs = [fld("#c1", "Current? *", kind="radio_group", section="Employment History"),
+          fld("#n", "Notice", section="Employment History"),
+          fld("#c2", "Current? *", kind="radio_group", section="Employment History"),
+          fld("#p1", "In Progress", kind="radio_group", section="Education")]
+    rows = {f.ref: f.row for f in _rows_by_repeat(fs)}
+    assert rows["#c1"] == 0 and rows["#c2"] == 1 and rows["#n"] == -1 and rows["#p1"] == -1

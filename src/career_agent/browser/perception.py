@@ -134,7 +134,28 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             purpose=guess_purpose(label, "radio_group"),
             section=g.get("section", ""), row=g.get("row", -1),
         ))
-    return fields
+    return _rows_by_repeat(fields)
+
+
+def _rows_by_repeat(fields: list[Field]) -> list[Field]:
+    """A question asked again in the same section belongs to the next entry: the Nth 'Current?' under Employment
+    History is entry N. Layout-independent (Koch Avature lays its entries out flat; live 2026-10-19)."""
+    import re as _re
+    key = lambda f: (f.section, _re.sub(r"[\s*:]+", " ", (f.label or "").lower()).strip())   # noqa: E731
+    counts: dict = {}
+    for f in fields:
+        if f.kind != "button" and f.section:
+            counts[key(f)] = counts.get(key(f), 0) + 1
+    import dataclasses as _dc
+    seen: dict = {}
+    out = []
+    for f in fields:
+        k = key(f)
+        if f.kind != "button" and f.section and counts.get(k, 0) >= 2:
+            f = _dc.replace(f, row=seen.get(k, 0))
+            seen[k] = f.row + 1
+        out.append(f)
+    return out
 
 
 _INPUT_JS = r"""
@@ -697,27 +718,36 @@ def _frame_is_visible_and_sizeable(fr) -> bool:
 _SECTION_JS = r"""
 (refs) => {
   const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const CTL = 'input:not([type=hidden]),select,textarea,[role=combobox]';
+  // distinct questions inside a block: radio/checkbox options of one group count once
+  function fields(root) {
+    const keys = new Set();
+    for (const c of root.querySelectorAll(CTL)) keys.add((c.type === 'radio' || c.type === 'checkbox') && c.name ? 'n:' + c.name : c);
+    return keys.size;
+  }
   const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],legend'))
-    .filter(h => vis(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80);
+    .filter(h => vis(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80
+                 && !(h.tagName === 'LEGEND' && h.closest('fieldset') && fields(h.closest('fieldset')) < 2));   // a question, not a section
   const sectionOf = el => {
     let best = '';
     for (const h of heads) {
       if (h === el || h.contains(el)) { if (h.tagName === 'LEGEND') best = h.innerText.trim(); continue; }
       if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) best = h.innerText.trim(); else break;
     }
+    // a fieldset's legend names a SECTION only when the fieldset holds several questions; a radio group's own
+    // fieldset legend is the question itself (Koch Avature 'Current? *', live 2026-10-19)
     const fs = el.closest('fieldset'); const lg = fs && fs.querySelector(':scope > legend');
-    return (lg && lg.innerText.trim() && lg.innerText.trim().length <= 80) ? lg.innerText.trim() : best;
+    const ownGroup = fs && fields(fs) < 2;
+    return (lg && !ownGroup && lg.innerText.trim() && lg.innerText.trim().length <= 80) ? lg.innerText.trim() : best;
   };
-  const CTL = 'input:not([type=hidden]),select,textarea,[role=combobox]';
   const rowOf = el => {
     let a = el.parentElement;
     for (let d = 0; a && a.parentElement && d < 8; d++, a = a.parentElement) {
       // an ENTRY repeats (School + Degree + Major...), not one field's wrapper: each repeat holds 2+ controls and is
       // shown; class names may differ between repeats (MetLife Avature live 2026-10-19: 'TableSampleRow' then rows,
       // and field wrappers were numbered School 0 / Degree 1 / Major 2 as if they were entries)
-      if (a.querySelectorAll(CTL).length < 2) continue;
-      const sibs = Array.from(a.parentElement.children).filter(s => s.tagName === a.tagName && vis(s)
-                                                              && s.querySelectorAll(CTL).length >= 2);
+      if (fields(a) < 2) continue;
+      const sibs = Array.from(a.parentElement.children).filter(s => s.tagName === a.tagName && vis(s) && fields(s) >= 2);
       if (sibs.length >= 2) return sibs.indexOf(a);
     }
     return -1;
