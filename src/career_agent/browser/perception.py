@@ -453,9 +453,13 @@ _INPUT_JS = r"""
   }
   // A combobox that is not an <input>/<select>/<button>: a styled <div role="combobox"> that opens a listbox popup
   // (Indeed's single-select employer question). Same kind as the input comboboxes; the filler opens it and picks.
+  // Skip only what THIS read already took: the data-cref stamp outlives the read, and checking it hid every styled
+  // combobox from the second read on (MetLife select2 'Country Phone Code', live 2026-10-19 — Continue refused forever).
+  const _comboSeen = new Set();
   for (const el of deepQuery('[role="combobox"]')) {
     const tag = el.tagName.toLowerCase();
-    if (['input', 'select', 'textarea', 'button'].includes(tag) || el.hasAttribute('data-cref')) continue;
+    if (['input', 'select', 'textarea', 'button'].includes(tag) || _comboSeen.has(el)) continue;
+    _comboSeen.add(el);
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
     const cref = 'f' + (_ci++);
