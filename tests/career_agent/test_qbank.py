@@ -103,3 +103,12 @@ def test_preference_entries_in_seed():
     for eid in ("work_arrangement", "employment_type", "shift_pattern", "relocation_places"):
         assert by[eid]["rule"] == "preference" and by[eid]["synonyms"], eid
     assert "gurugram" in by["relocation_places"]["synonyms"]["India"]
+
+
+def test_a_models_not_found_placeholder_is_never_stored_as_an_answer(qbank_conn):
+    from career_agent.memory import qbank
+    c = qbank_conn
+    qbank.set_answer(c, "notice_period", "30")
+    assert qbank.set_answer(c, "notice_period", "Not provided in text") is False
+    assert c.execute("SELECT answer FROM qbank_entry WHERE id='notice_period'").fetchone()[0] == "30"
+    assert qbank.set_answer(c, "notice_period", "N/A") is True          # a person may mean it
