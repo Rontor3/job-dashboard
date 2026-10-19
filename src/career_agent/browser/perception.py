@@ -278,9 +278,12 @@ _INPUT_JS = r"""
   // A generic control name ("Checkbox field", "Radio input") is junk, not a question: treat it as no name so the
   // nearby-text fallbacks run (Koch Avature, 2026-10-18: a required 'I Agree' checkbox was named "Checkbox field").
   const GENERIC_NAME = /^(checkbox|radio|text|input|select|combobox|option)( ?(field|input|box|button|control))?$/i;
+  // A code identifier is no name either: an accessibility overlay (UserWay) stamps aria-label="hidden-control-element"
+  // on Koch's required 'I Agree' box (live 2026-10-19).
+  const CODE_NAME = /^[a-z0-9]+([-_][a-z0-9]+)+$|^[a-z]+([A-Z][a-z0-9]*)+$/;
   const ok = (t) => {
     const core = (t || '').replace(/[*✱:]/g, ' ').replace(/\s+/g, ' ').trim();
-    return core.length > 0 && !GENERIC_NAME.test(core);
+    return core.length > 0 && !GENERIC_NAME.test(core) && !CODE_NAME.test(core);
   };
   const CONTROL_SEL = 'input:not([type=hidden]),select,textarea';
   // Live-region chatter is not a question: a typeahead's "No location found. Try entering a different location" and its
