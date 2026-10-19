@@ -399,10 +399,15 @@ _INPUT_JS = r"""
     if (type === 'hidden' || type === 'submit' || type === 'button') continue;
     // A honeypot: a box parked off-screen (left:-9999px) or with its own CSS for a label exists only to catch bots —
     // never filled, never asked (Aezion, live 2026-10-19: two were escalated to the human)
-    { const r = el.getBoundingClientRect();
-      if (r.right < -100 || r.bottom < -100 - window.scrollY || r.left > (window.innerWidth || 1200) * 3) continue;
+    // Only a TYPED box whose label is off-screen too: a radio/checkbox parked at left:-9990 under a drawn button is a
+    // styled control (Koch's real Yes/No), not a trap.
+    if (tag === 'textarea' || ['text', 'email', 'tel', 'number', 'url', 'search', ''].includes(type)) {
+      const off = n => { const r = n.getBoundingClientRect(); return r.right < -100 || r.left > (window.innerWidth || 1200) * 3; };
+      const lab = (el.labels && el.labels[0]) || null;
+      if (off(el) && (!lab || off(lab))) continue;
       const near = (el.closest('label, p, div') || {}).textContent || '';
-      if (/\{[^}]*(position|left|display)\s*:[^}]*\}/i.test(near.slice(0, 300))) continue; }
+      if (/\{[^}]*(position|left|display)\s*:[^}]*\}/i.test(near.slice(0, 300))) continue;
+    }
     // Skip inputs inside page chrome (header, nav, search bar) — they are site
     // navigation controls, not application form fields (Phenom/Mastercard has
     // a jobs-search bar in the header whose selects navigate the page if filled).

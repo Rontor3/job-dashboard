@@ -33,3 +33,16 @@ def test_an_off_screen_honeypot_box_is_not_a_field():
         page.set_content(html)
         labels = [f.label for f in P.to_form_model(P.collect_raw(page))]
         assert labels == ["Name"]
+
+
+def test_an_off_screen_radio_under_a_drawn_button_is_still_a_field():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser import perception as P
+    html = """<form><fieldset><legend>Current? *</legend>
+      <input type=radio name=c id=c1 style="position:absolute;left:-9990px"><label for=c1>Yes</label>
+      <input type=radio name=c id=c2 style="position:absolute;left:-9990px"><label for=c2>No</label></fieldset></form>"""
+    with sync_playwright() as p:
+        page = p.chromium.launch().new_page()
+        page.set_content(html)
+        groups = [f for f in P.to_form_model(P.collect_raw(page)) if f.kind == "radio_group"]
+        assert len(groups) == 1 and groups[0].options == ["Yes", "No"]
