@@ -256,6 +256,7 @@ def _apply(args, box: dict) -> None:
                 if hints:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
+                                  companies=tuple(e.company for e in profile.experiences),
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             if not args.no_longform and os.getenv("CAREER_AGENT_LONGFORM") != "0":

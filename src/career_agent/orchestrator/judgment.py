@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .screen_review import PROSE_PURPOSES
+from .screen_review import PROSE_PURPOSES, _EMPLOYMENT_SECTION
 try:
     from job_dashboard.apply.screening import draft_screening_answer
 except Exception:
@@ -21,6 +21,7 @@ class JudgmentContext:
     ats_notes: str = ""            # vendor notes from ats-graph (e.g. "Direct, no-login")
     story_text: str = ""           # candidate's own long-form answers (qbank topic=story)
     longform: object = None        # callable(question, field, job) -> dict | None: the need-based long-answer pipeline
+    companies: tuple = ()          # employer per experience entry (index = a repeated Experience row)
 
 
 _SENSITIVE_RE = re.compile(
@@ -151,6 +152,20 @@ def cover_note_question(label: str) -> str | None:
     return COVER_NOTE_ASK if _COVER_NOTE_LABEL.match(label or "") else None
 
 
+_ROLE_BOX_LABEL = re.compile(
+    r"^(roles?( and| &)? responsibilities|responsibilities|job description|description|duties|key achievements?)\s*\*?$", re.I)
+def role_description_question(f, companies) -> str | None:
+    """The ask for a 'Roles & Responsibilities' box inside an Experience entry, written from that role (same path as a
+    cover note). None when the box is not a role description of an employment entry."""
+    if f.kind != "textarea" or not _ROLE_BOX_LABEL.match((f.label or "").strip()):
+        return None
+    if not _EMPLOYMENT_SECTION.search(f.section or ""):
+        return None
+    company = companies[f.row] if 0 <= f.row < len(companies) else ""
+    base = "Describe your responsibilities and achievements in this role"
+    return f"{base} at {company}" if company else base
+
+
 def judge_combobox_value(label, profile_text, llm) -> str | None:
     """A combobox whose live options aren't visible yet to Phase E (this tier has
     no browser access, so it can't open the widget to read them) — ask for a
@@ -218,7 +233,7 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
             continue
         if f.kind in ("textarea", "text") and (f.purpose is None or f.purpose in PROSE_PURPOSES):
-            question = cover_note_question(f.label) or f.label
+            question = cover_note_question(f.label) or role_description_question(f, ctx.companies) or f.label
             if (_NOT_A_QUESTION.search(f.label or "")
                     or (question == f.label and not _looks_like_question(f.label))
                     or draft_screening_answer is None):

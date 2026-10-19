@@ -42,6 +42,7 @@ class Field:
     unit: str = ""             # what the box is measured in, from controls sharing its row ("INR", "Years")
     section: str = ""          # the heading the field sits under ("Education", "Contact Information") — answering context
     row: int = -1              # which repeated entry block it is in (Education 1/2/3 -> 0/1/2); -1 = not repeated
+    value: str = ""            # what the box holds on the page now (text boxes only; "" = empty or not read)
 
 
 # Ordered most-specific-first; first hit wins.

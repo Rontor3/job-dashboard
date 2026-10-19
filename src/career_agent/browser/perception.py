@@ -120,6 +120,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             autocomplete=r.get("autocomplete", ""),
             placeholder=r.get("placeholder", ""),
             max_length=int(r.get("max_length") or 0),
+            value=r.get("value", "") or "",
             unit=r.get("unit", ""),
             section=r.get("section", "") or "",
             row=int(r.get("row", -1) if r.get("row") is not None else -1),
@@ -449,6 +450,7 @@ _INPUT_JS = r"""
       unit: ['text', 'number', 'tel'].includes(type) ? unitOf(el) : '',
       part_hint: [tag === 'select' && el.options.length ? el.options[0].text : '', el.name || '', el.id || ''].join(' ').trim().slice(0, 80),
       max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : 0,
+      value: (tag === 'input' || tag === 'textarea') && type !== 'password' ? (el.value || '').slice(0, 200) : '',
     });
   }
   // A combobox that is not an <input>/<select>/<button>: a styled <div role="combobox"> that opens a listbox popup

@@ -7,7 +7,7 @@ import re
 from datetime import date
 
 from ..orchestrator.mapper import FillDecision, _action_for_kind as _action
-from ..orchestrator.profile_resolver import resolve
+from ..orchestrator.profile_resolver import resolve, highest_degree_level, row_degree_level
 from ..orchestrator import standard_answers
 
 _SELECT_KINDS = {"select", "radio_group"}
@@ -205,10 +205,21 @@ def _place(f, value, source, decisions, needs_human):
 
 
 _CRED_PURPOSES = ("password", "password_new", "password_confirm")
+_HIGHEST_DEGREE = re.compile(r"highest|diploma obtained", re.I)
+
+
+def _degree_level(f, profile, school_by_row):
+    """A degree SELECT wants a level ("Bachelor's Degree"), not the profile's degree as written ("B.Tech").
+    'Highest Degree' = the top level in the profile; a repeated row's Degree = the level of the entry its School names."""
+    if f.row < 0 or _HIGHEST_DEGREE.search(f.label or ""):
+        return highest_degree_level(profile)
+    return row_degree_level(profile, f.row, school_by_row.get((f.section, f.row)))
 
 
 def map_screen(form, profile, resume_pdf=None):
     decisions, needs_human = [], []
+    # The School text box of each education row, as the page holds it (the résumé import fills it).
+    school_by_row = {(f.section, f.row): f.value for f in form if f.purpose == "school" and f.row >= 0 and f.value}
     for f in form:
         if f.kind == "button":
             continue
@@ -276,6 +287,13 @@ def map_screen(form, profile, resume_pdf=None):
         entry = _entry_answer(f, profile)
         if entry is not None:
             _place(f, entry, "profile", decisions, needs_human)
+            continue
+        if f.purpose == "degree" and f.kind in _SELECT_KINDS and f.options:
+            level = _degree_level(f, profile, school_by_row)
+            if level is None:
+                needs_human.append(f)
+            else:
+                _place(f, level, "profile", decisions, needs_human)
             continue
         value = resolve(f.purpose, profile) if f.purpose else None
         if value is not None:
