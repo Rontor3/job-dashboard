@@ -231,7 +231,7 @@ def _apply(args, box: dict) -> None:
         """A submit was CONFIRMED: its form values become approvals (unchanged +1, edited 0) and the site's history."""
         try:
             from .browser.credential_provider import confirm_pending_credentials
-            confirm_pending_credentials()           # an account made inside the application exists now
+            confirm_pending_credentials(url)        # the account made inside THIS application exists now
         except Exception:
             pass
         try:

@@ -72,7 +72,7 @@ class SubmitWatcher:
             set_job_status(conn, job_id, "applied")
             try:                                          # an account made inside that application exists now
                 from career_agent.browser.credential_provider import confirm_pending_credentials
-                confirm_pending_credentials()
+                confirm_pending_credentials((getattr(tab, "url", None) if tab else None) or url)
             except Exception:
                 pass
             conn.execute("DELETE FROM submission_watch WHERE job_id=?", (job_id,))

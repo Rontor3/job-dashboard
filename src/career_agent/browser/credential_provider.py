@@ -112,14 +112,21 @@ def load_credential(site: str, label: str = "") -> dict | None:
     return None if cred and cred.get("pending") else cred
 
 
-def confirm_pending_credentials() -> int:
-    """A submit went through: every pending credential is now a real account. Returns how many were confirmed."""
-    if not _STORE.exists():
+def confirm_pending_credentials(url: str = "") -> int:
+    """A submit went through on `url`: the pending credential of THAT site is now a real account (another site's stays
+    pending — live 2026-10-19: a MetLife submit promoted Koch's never-created account). Returns how many."""
+    if not _STORE.exists() or not url:
+        return 0
+    from urllib.parse import urlparse
+    host = (urlparse(url).hostname or "").lower()
+    if not host:
         return 0
     data = json.loads(_STORE.read_text())
     n = 0
-    for v in data.values():
-        if isinstance(v, dict) and v.pop("pending", None):
+    for k, v in data.items():
+        site = k.split(":", 1)[0].lower()
+        same = host == site or host.endswith("." + site) or site.endswith("." + host)
+        if same and isinstance(v, dict) and v.pop("pending", None):
             n += 1
     if n:
         _STORE.write_text(json.dumps(data, indent=2))

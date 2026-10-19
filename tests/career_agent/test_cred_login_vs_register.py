@@ -247,5 +247,7 @@ def test_a_pending_credential_is_not_a_login_until_a_submit_confirms_it(tmp_path
     monkeypatch.setattr(cp, "_STORE", tmp_path / "c.json")
     cp.save_credential("jobs.example.com", "a@b.c", "pw", label="password", pending=True)
     assert cp.load_credential("jobs.example.com", label="password") is None
-    assert cp.confirm_pending_credentials() == 1
+    cp.save_credential("other.example.org", "a@b.c", "pw2", label="password", pending=True)
+    assert cp.confirm_pending_credentials("https://jobs.example.com/apply/thanks") == 1     # only that site's
     assert cp.load_credential("jobs.example.com", label="password")["password"] == "pw"
+    assert cp.load_credential("other.example.org", label="password") is None
