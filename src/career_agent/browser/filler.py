@@ -113,6 +113,10 @@ def _drill_to_leaf(page, scope, pre: list[str], fit) -> None:
         scope.locator(_OPT_SEL).filter(has_text=leaf).first.click(timeout=_SOFT_TIMEOUT_MS)
 
 
+_SEARCHING = re.compile(r"^\s*(searching|loading|please enter|type to search)\b", re.I)
+_OTHER_OPTION = re.compile(r"^\s*other\b|not listed|none of the above", re.I)
+
+
 def _pick_combobox(page, target, sel, d, matcher) -> None:
     """One attempt: open the dropdown, read its live options, click the one matching d.value."""
     pace(page)
@@ -149,16 +153,33 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
         if opt is None:
             # a type-ahead: try each way the value may be listed, until an option actually fits (options that show up
             # but don't fit are not an answer — the next query may find it)
-            for q in _type_ahead_queries(str(d.value)):
+            def _search(q):
+                nonlocal scope
                 try:
                     target.locator(sel).first.fill(q, timeout=_SOFT_TIMEOUT_MS)
-                except Exception:
+                except Exception:               # the search box lives in the popup (select2): replace, never append
+                    page.keyboard.press("ControlOrMeta+A")
                     page.keyboard.type(q)
-                page.wait_for_timeout(1500)     # remote autocomplete round-trip
-                scope = _popup(target, lb_id)   # the popup may only appear once something is typed
-                opt = _fit(_options())
+                found = []
+                for _ in range(16):             # a remote list answers in its own time ('Searching…'): up to ~8 s
+                    page.wait_for_timeout(500)
+                    scope = _popup(target, lb_id)   # the popup may only appear once something is typed
+                    found = _options()
+                    if found and not all(_SEARCHING.match(o) for o in found):
+                        break
+                return found
+
+            for q in _type_ahead_queries(str(d.value)):
+                opt = _fit(_search(q))
                 if opt:
                     break
+            if opt is None and getattr(d, "action", "") == "combobox":
+                # not in the site's list: the list's own 'Other / Not Listed' entry is the honest pick
+                # (Koch Avature: "If your school is not in the list, choose Other / Not Listed")
+                for q in ("Not Listed", "Other"):
+                    opt = next((o for o in _search(q) if _OTHER_OPTION.search(o)), None)
+                    if opt:
+                        break
         if opt:
             pace(page)
             before = _options()
