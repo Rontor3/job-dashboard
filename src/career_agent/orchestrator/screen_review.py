@@ -289,7 +289,9 @@ def map_screen(form, profile, resume_pdf=None):
         if entry is not None:
             _place(f, entry, "profile", decisions, needs_human)
             continue
-        if f.purpose == "degree" and f.kind in _SELECT_KINDS and f.options:
+        # a search-as-you-type degree box loads its options only when typed into (Koch Avature: 'Bachelor's Degree'
+        # matches, 'B.Tech' finds nothing): it wants the level too
+        if f.purpose == "degree" and ((f.kind in _SELECT_KINDS and f.options) or f.kind == "combobox"):
             level = _degree_level(f, profile, school_by_row)
             if level is None:
                 needs_human.append(f)
