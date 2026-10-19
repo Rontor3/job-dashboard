@@ -570,6 +570,22 @@ def advance_node(state: AgentState, config) -> dict:
                 return {"stopped_reason": "reached_submit_dry_run"}
 
     deps.click(page, entry or pick_advance_label(form, is_last=False))
+    if page.url.startswith("chrome-error://"):
+        # The connection dropped as the page went (live Koch 2026-10-19: ERR_INTERNET_DISCONNECTED after a full page):
+        # wait for the network, step back to the form; the next pass re-reads and re-fills what the back lost.
+        print("[advance] network error page — waiting for the connection, then back to the form", flush=True)
+        import urllib.request
+        for _ in range(24):
+            try:
+                urllib.request.urlopen("https://www.google.com/generate_204", timeout=5)
+                break
+            except Exception:
+                page.wait_for_timeout(5000)
+        try:
+            page.go_back(wait_until="domcontentloaded", timeout=30000)
+        except Exception:
+            pass
+        return {"form": [_f2d(f) for f in deps.snapshot(page)], "url": page.url}
 
     # Mid-walk credential wall (e.g. iCIMS "Create a login" on screen 2).
     from ..browser.page_prep import classify_entry, clear_auth_wall
