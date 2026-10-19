@@ -499,7 +499,11 @@ def _apply(args, box: dict) -> None:
                 return
         # kind=="none" = clear JD page; kind=="form" can false-positive on pages
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
-        if kind == "none" or (kind == "form" and not is_application_form(page)):
+        from .browser import page_prep as _pp
+        _listing = bool(_pp._JOB_TITLE) and _pp._listing_pick(page, _pp._JOB_TITLE)[0] == "match"
+        # a listing that shows OUR job's card is entered by that card's Apply, whatever other form is on the page
+        # (Micraft live 2026-10-19: its contact form passed for the application)
+        if kind == "none" or _listing or (kind == "form" and not is_application_form(page)):
             # (Other ATS tabs are NOT closed here any more: they are other jobs' parked forms — live 2026-10-19 a
             # Worksbot run closed Twilio's filled Greenhouse form. The tab an Apply click opens is found by
             # page_prep.new_tab_since, not by "the last tab".)
