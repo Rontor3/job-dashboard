@@ -240,3 +240,12 @@ def test_a_rejected_login_retires_the_stored_credential_and_keeps_it_as_history(
     assert cp.load_credential("jobs.example.com", label="password") is None
     assert "jobs.example.com:password:stale" in data
     assert cp._LOGIN_ERROR.search("Invalid email or password") and not cp._LOGIN_ERROR.search("Welcome back")
+
+
+def test_a_pending_credential_is_not_a_login_until_a_submit_confirms_it(tmp_path, monkeypatch):
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "c.json")
+    cp.save_credential("jobs.example.com", "a@b.c", "pw", label="password", pending=True)
+    assert cp.load_credential("jobs.example.com", label="password") is None
+    assert cp.confirm_pending_credentials() == 1
+    assert cp.load_credential("jobs.example.com", label="password")["password"] == "pw"

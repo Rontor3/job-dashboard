@@ -227,6 +227,11 @@ def _apply(args, box: dict) -> None:
     def _on_submit(values, how, url):
         """A submit was CONFIRMED: its form values become approvals (unchanged +1, edited 0) and the site's history."""
         try:
+            from .browser.credential_provider import confirm_pending_credentials
+            confirm_pending_credentials()           # an account made inside the application exists now
+        except Exception:
+            pass
+        try:
             _autonomy.record_submission(conn, args.job_id, qa_rec.run_key, {_autonomy.key(k): v for k, v in values.items()}, how, url)
         except Exception as e:
             print(f"[policy] could not record the submit: {e}", flush=True)

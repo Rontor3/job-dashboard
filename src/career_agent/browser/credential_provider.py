@@ -103,11 +103,27 @@ def retire_credential(site: str, label: str = "") -> None:
 
 
 def load_credential(site: str, label: str = "") -> dict | None:
-    """Return ``{"username": ..., "password": ..., "label": ...}`` or ``None``."""
+    """Return ``{"username": ..., "password": ..., "label": ...}`` or ``None``. A pending credential (typed into a
+    sign-up that is also the application, not yet submitted) is no account yet: None."""
     if not _STORE.exists():
         return None
     key = f"{site}:{label}" if label else site
-    return json.loads(_STORE.read_text()).get(key)
+    cred = json.loads(_STORE.read_text()).get(key)
+    return None if cred and cred.get("pending") else cred
+
+
+def confirm_pending_credentials() -> int:
+    """A submit went through: every pending credential is now a real account. Returns how many were confirmed."""
+    if not _STORE.exists():
+        return 0
+    data = json.loads(_STORE.read_text())
+    n = 0
+    for v in data.values():
+        if isinstance(v, dict) and v.pop("pending", None):
+            n += 1
+    if n:
+        _STORE.write_text(json.dumps(data, indent=2))
+    return n
 
 
 def _default_email() -> str:
@@ -1426,9 +1442,12 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
             # 'Create profile', live 2026-10-18) saved a credential for an account that never existed, and every later
             # visit tried to LOG IN with it.
             had_password = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
+            combined = _is_combined_form(page)
             _fill_wall(page, gate, cred, site=site)
             if had_password:
-                save_credential(site, cred["username"], cred["password"], label=gate,
+                # A sign-up that IS the application form makes the account only when the application goes in (MetLife,
+                # live 2026-10-19): keep the password PENDING — never used to log in — until a submit is confirmed.
+                save_credential(site, cred["username"], cred["password"], label=gate, pending=combined,
                                 first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
             else:
                 print(f"[cred] {site}: no password box yet — nothing saved, the account does not exist", flush=True)

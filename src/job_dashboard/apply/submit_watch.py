@@ -70,6 +70,11 @@ class SubmitWatcher:
             out = autonomy.record_submission(conn, job_id, run_key or "", json.loads(last or "{}"), how or "manual",
                                              (getattr(tab, "url", None) if tab else None) or url)
             set_job_status(conn, job_id, "applied")
+            try:                                          # an account made inside that application exists now
+                from career_agent.browser.credential_provider import confirm_pending_credentials
+                confirm_pending_credentials()
+            except Exception:
+                pass
             conn.execute("DELETE FROM submission_watch WHERE job_id=?", (job_id,))
             conn.commit()
             print(f"[watch] job {job_id} submitted ({proof}); approvals {out}", flush=True)
