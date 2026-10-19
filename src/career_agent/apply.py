@@ -460,6 +460,24 @@ def _apply(args, box: dict) -> None:
         _board = board_for(page.url) or board_for(args.url)
         _run_dir = str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         _assist = _make_assist(args, _run_dir)         # one assist for whichever engine runs this job
+        if not _board:
+            # Apply by email (a mailto: Apply link): a Gmail draft with the résumé, never another form on the page
+            from .browser.email_apply import mailto_apply, draft_application
+            _em = mailto_apply(page)
+            if _em:
+                try:
+                    from job_dashboard.db import get_job as _gj
+                    _job = (_gj(conn, args.job_id) if args.job_id else None) or {}
+                except Exception:
+                    _job = {}
+                _d = draft_application(_em["to"], _em["subject"], (_job or {}).get("title") or "",
+                                       (_job or {}).get("company") or "", contact, resume_pdf)
+                print(f"[email-apply] Apply is an email to {_em['to']}: "
+                      + (f"draft ready in Gmail -> {_d['gmail_url']}" if _d.get("drafted") else f"no draft ({_d.get('problem')})"),
+                      flush=True)
+                box["out"] = {"url": page.url, "stopped_reason": "email_apply_drafted" if _d.get("drafted") else "email_apply",
+                              "email_to": _em["to"], "gmail_url": _d.get("gmail_url"), "submitted": False}
+                return
         if _board:
             out = _run_board(_board, page, args, autosubmit_policy=_policy_fn, on_submit=_on_submit,
                              profile=profile, human=human, resume_pdf=resume_pdf,

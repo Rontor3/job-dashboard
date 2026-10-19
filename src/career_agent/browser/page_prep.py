@@ -660,6 +660,15 @@ def _listing_pick(page, title):
     toks = set(re.findall(r"[a-z0-9]+", title.lower()))
     if not toks:
         return None, None
+    # the page IS this job's posting (its heading / title names it): several Apply buttons are the same job's top and
+    # bottom buttons, not a listing (Accenture: two 'Apply for this job')
+    try:
+        head = page.evaluate("() => ((document.querySelector('h1') || {}).innerText || '') + ' ' + document.title") or ""
+    except Exception:
+        head = ""
+    htoks = set(re.findall(r"[a-z0-9]+", head.lower()))
+    if len(toks & htoks) >= max(1, round(0.6 * len(toks))):
+        return None, None
     cands = []
     for idx, fr in enumerate(page.frames):
         if idx and _frame_is_ad(fr):
