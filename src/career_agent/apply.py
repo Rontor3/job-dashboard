@@ -634,7 +634,9 @@ def _apply(args, box: dict) -> None:
                 _out.setdefault("run_key", qa_rec.run_key)
                 _out.setdefault("final_tab_id", tab_id_for(context, _final))
             # the tab the result points at stays; the working variable only when the result names no URL
-            _tabs.close_all_but(keep=[page] if (args.review and not _final) else [], keep_urls=[_final] if args.review else [])
+            # --review: the tab the run was working in always stays — the form may have moved off the URL the result
+            # names (Twilio/Greenhouse, Worksbot live 2026-10-19: the filled form was closed)
+            _tabs.close_all_but(keep=[page] if args.review else [], keep_urls=[_final] if args.review else [])
         except Exception:
             pass
         close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
