@@ -658,7 +658,10 @@ def _apply(args, box: dict) -> None:
             _tabs.close_all_but(keep=[page] if args.review else [], keep_urls=[_final] if args.review else [])
         except Exception:
             pass
-        close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
+        # shutdown close: only a tab THIS run opened. A reused operator tab (marked user-owned above)
+        # is where the human's logged-in session lives — the 2026-10-20 rule makes it untouchable.
+        _mine_tab = None if (_tabs.is_user_owned(page) or args.review) else page
+        close(pw, context, page=_mine_tab, cdp_browser=_cdp_browser)
 
 
 def _bare_url(u: str) -> str:

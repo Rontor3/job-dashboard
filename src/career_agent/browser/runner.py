@@ -106,6 +106,9 @@ class TabLedger:
     def mark_user_owned(self, page) -> None:
         self.user.add(id(page))
 
+    def is_user_owned(self, page) -> bool:
+        return page is not None and id(page) in self.user
+
     def _mine(self, p) -> bool:
         return id(p) not in self.user
 
