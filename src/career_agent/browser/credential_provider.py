@@ -1340,6 +1340,17 @@ def _reveal_email_form(page) -> bool:
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
             email: str = "", phone: str = "", _retried: bool = False) -> tuple[bool, str | None]:
+    """Boundary print around _provide_attempt: the cred machinery must name itself in the run log
+    above and below every attempt, so a stall (a silent 660 s wall, battle #1) shows its edges."""
+    print(f"[cred] provide(site={site}): starting", flush=True)
+    ok, action = _provide_attempt(page, gate, site, original_url, email, phone, _retried)
+    print(f"[cred] provide(site={site}): done outcome={'handled' if ok else 'unhandled'}:"
+          f"{action or 'none'}", flush=True)
+    return ok, action
+
+
+def _provide_attempt(page, gate: str, site: str, original_url: str | None = None,
+                     email: str = "", phone: str = "", _retried: bool = False) -> tuple[bool, str | None]:
     """Fill an account/login wall using stored or freshly-generated credentials.
 
     Flow:

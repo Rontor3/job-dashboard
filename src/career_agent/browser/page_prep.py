@@ -178,6 +178,53 @@ _APPLY_MODAL_RE = re.compile(r"\bapply (to|now|for|online)\b|\bstart (your|the) 
                              r"\b(job )?application (form|portal|step)\b", re.I)
 
 
+# Himalayas 2026-10-20 (live CDP probe): after Apply, the site answers with an "Apply to Upstart"
+# modal (~512×440) holding ZERO input/select/textarea elements and no way forward — its only
+# clickables are Close, "Update your working permit information" (a→/profile/preferences),
+# "Update profile" (a→/profile/preferences) and "Find similar jobs". Walking that formless state
+# burned ~110 s, filled 0 of the 4 buttons it perceived as rows, and ended no_form_found. That
+# modal is the site itself refusing the application (a profile-preferences nag), so reach must
+# stop and escalate, quoting the site's own words. All three must hold before it is called a
+# refusal: (a) no real field inside the dialog (invisible hidden-type inputs only), (b) the head
+# matches _APPLY_MODAL_RE, (c) none of its clickables names a way on — a no-inputs modal WITH a
+# Continue/Submit/Sign-in hand-off opens another surface and keeps the existing modal_kept flow.
+_APPLY_REFUSAL_JS = """(applyPat) => {
+  const big = e => { const r = e.getBoundingClientRect(); return r.width >= 200 && r.height >= 200; };
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+  const text = e => (e.innerText || '').trim().replace(/\\s+/g, ' ');
+  let dlg = null, area = 0;
+  for (const d of document.querySelectorAll('[role=dialog],[role=alertdialog]'))
+    if (big(d)) {
+      const r = d.getBoundingClientRect();
+      if (r.width * r.height > area) { dlg = d; area = r.width * r.height; }
+    }
+  if (!dlg) return null;
+  const he = dlg.querySelector('h1, h2, h3');
+  const head = ((he && text(he)) || (dlg.getAttribute('aria-label') || '')).replace(/\\s+/g, ' ').trim();
+  if (!new RegExp(applyPat, 'i').test(head)) return null;
+  // (a) no real fields: a hidden-type box is effectively invisible, anything shown kills it
+  if (Array.from(dlg.querySelectorAll('input,select,textarea')).filter(e => vis(e) && e.type !== 'hidden').length) return null;
+  // (c) a clickable named like a way on = hands off elsewhere, never a refusal
+  const PROCEED = /apply|continue|next|submit|start|sign[\\s-]?in|sign[\\s-]?up|create|register/i;
+  if (Array.from(dlg.querySelectorAll('a,button,[role=button]')).filter(vis).some(c => PROCEED.test(text(c)))) return null;
+  return { head: head, quote: (dlg.innerText || '').slice(0, 600) };
+}"""
+
+
+def _kept_modal_refusal(page) -> dict | None:
+    """The kept apply modal that is not an apply: no fields and no way forward — the site itself
+    refusing the application. Returns {"head", "quote"} for the escalation's message, else None
+    (a modal WITH a field or a proceed CTA stays on the existing modal_kept / walk flow)."""
+    try:
+        d = page.evaluate(_APPLY_REFUSAL_JS, _APPLY_MODAL_RE.pattern)
+    except Exception:
+        return None
+    if isinstance(d, dict) and isinstance(d.get("head"), str) and isinstance(d.get("quote"), str) \
+            and d["head"] and d["quote"]:
+        return d
+    return None
+
+
 _CLOSED_RE = re.compile(
     r"job (not found|you requested was not found)|no longer available"
     r"|could ?n'?t find anything|posting[^.]{0,40}(closed|removed)|404 error"
@@ -782,7 +829,9 @@ def _reach(page, max_hops=4):
     """Drill from any landing (JD / search / SPA) to the real application form by
     following the Apply affordance until real applicant fields appear. Bounded and
     loop-safe (a no-progress hop stops it). Login/OTP/captcha gates are returned
-    for the caller to escalate — never auto-passed. Returns (active_page, status)."""
+    for the caller to escalate — never auto-passed; a kept apply modal with no
+    fields and no way forward returns "site_refused" (the site refuses the
+    application — see _kept_modal_refusal). Returns (active_page, status)."""
     active = page
     clicked = set()                        # affordance refs already clicked
     last_url = active.url
@@ -858,7 +907,13 @@ def _reach(page, max_hops=4):
             continue
         break
     reached = is_application_form(active) or _is_wizard_step(active)
-    return active, ("form" if reached else classify_entry(active))
+    if reached:
+        return active, "form"
+    refusal = _kept_modal_refusal(active)     # a formless, dead-end apply modal = the site refusing
+    if refusal:
+        trail_note(step="site_refused", modal=refusal["head"][:60], quote=refusal["quote"][:160])
+        return active, "site_refused"
+    return active, classify_entry(active)
 
 
 def _try_url_variants(page):

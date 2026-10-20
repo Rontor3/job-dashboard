@@ -501,13 +501,37 @@ def _apply(args, box: dict) -> None:
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
         from .browser import page_prep as _pp
         _listing = bool(_pp._JOB_TITLE) and _pp._listing_pick(page, _pp._JOB_TITLE)[0] == "match"
+
+        def _stop_site_refused():
+            """reach found the dead-end apply modal (site_refused): stop before the walk and escalate,
+            quoting the site's own words — the human decides whether updating the profile unblocks it."""
+            from .browser.page_prep import _kept_modal_refusal
+            _ref = _kept_modal_refusal(page) or {}
+            _head = str(_ref.get("head") or "")
+            _said = str(_ref.get("quote") or "")[:240]
+            print(f'[stop] the site itself refuses this application: {_head} — "{_said}"', flush=True)
+            out = {"url": args.url, "stopped_reason": "site_refused", "site_said": _said,
+                   "decisions": [], "pending_human": [], "submitted": False}
+            box["out"] = out
+            print(out, flush=True)
+            _write_run_log(conn, args.url, args.job_id, out)
+            _append_pending_memory(args.db, args.url, args.job_id, out)
+            return out
+
         # a listing that shows OUR job's card is entered by that card's Apply, whatever other form is on the page
         # (Micraft live 2026-10-19: its contact form passed for the application)
         if kind == "none" or _listing or (kind == "form" and not is_application_form(page)):
             # (Other ATS tabs are NOT closed here any more: they are other jobs' parked forms — live 2026-10-19 a
             # Worksbot run closed Twilio's filled Greenhouse form. The tab an Apply click opens is found by
             # page_prep.new_tab_since, not by "the last tab".)
-            page, _ = reach_application_form(page)      # the tab the drill ended on (a new one only if one opened)
+            import time as _time
+            print(f"[reach] enter url={page.url[:90]}", flush=True)
+            _t0 = _time.monotonic()
+            page, _reach_status = reach_application_form(page)      # the tab the drill ended on (a new one only if one opened)
+            print(f"[reach] exit status={_reach_status} in {_time.monotonic() - _t0:.1f}s", flush=True)
+            if _reach_status == "site_refused":                     # himalayas 2026-10-20: the wall is the site itself saying no
+                _stop_site_refused()
+                return
             _tabs.trim(keep=page)
             prepare(page); kind = classify_entry(page)
         if kind == "closed":
@@ -549,16 +573,23 @@ def _apply(args, box: dict) -> None:
             pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""))
 
         if kind == "password":
-            print("[password] attempting credential provider...")
+            print("[password] delegating to credential provider", flush=True)
             _before = list(page.context.pages)
-            clear_auth_wall(page, credential_provider=_provide_url)
+            _cleared = clear_auth_wall(page, credential_provider=_provide_url)
+            print(f"[password] credential provider returned cleared={_cleared}", flush=True)
             page = new_tab_since(page, _before)       # adopt a tab only if guest-apply really opened one
             _tabs.trim(keep=page)
             kind = classify_entry(page)
             # After Darwinbox registration the provider navigates back to the JD
             # page; re-enter the application so walk() lands on the form.
             if kind in ("none", "form") and not is_application_form(page):
-                page, _ = reach_application_form(page)
+                print(f"[reach] enter url={page.url[:90]}", flush=True)
+                _t0 = _time.monotonic()
+                page, _reach_status = reach_application_form(page)
+                print(f"[reach] exit status={_reach_status} in {_time.monotonic() - _t0:.1f}s", flush=True)
+                if _reach_status == "site_refused":
+                    _stop_site_refused()
+                    return
                 prepare(page); kind = classify_entry(page)
             # Registration+application on one page (e.g. SAP SuccessFactors): the
             # credential provider fills the auth fields; walk() fills the rest.
