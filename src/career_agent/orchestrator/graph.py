@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import time
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
@@ -81,20 +82,47 @@ def _d2dec(d: dict):
 
 # ── Memory helpers ────────────────────────────────────────────────────────────
 
-def _notify_gate(c, gate: str, message: str) -> dict:
-    """Try to send `message` via the configured Telegram on_link. Never raises.
-    Returns {"attempted": bool, "sent": bool} — attempted is False only when
-    Telegram isn't configured at all (on_link is None), so a stop's
-    ``gate_notice`` always says honestly whether a human was actually pinged."""
+def _gate_sender(c) -> object | None:
+    """A channel that can physically deliver a notice right now. The captcha-link
+    sender first; else the collector's own Telegram notify (park mode wires
+    client.send_message there); else a Telegram collector's client. None only
+    when no Telegram channel is wired at all — a CLI/offline run has a human in
+    the room."""
     on_link = c.get("on_link")
-    if on_link is None:
-        return {"attempted": False, "sent": False}
-    try:
-        on_link(message)
-        return {"attempted": True, "sent": True}
-    except Exception as e:
-        print(f"[notify] on_link failed: {e!r}", flush=True)
-        return {"attempted": True, "sent": False}
+    if on_link is not None:
+        return on_link
+    col = c.get("collector")
+    if col is None:
+        return None
+    notify = getattr(col, "notify", None)
+    if notify:
+        return notify
+    client = getattr(col, "client", None)
+    if client is not None and hasattr(client, "send_message"):
+        return lambda text: client.send_message(text)
+    return None
+
+
+_NOTIFY_RETRY_S, _NOTIFY_TRIES = 0.5, 3
+
+def _notify_gate(c, gate: str, message: str) -> dict:
+    """Deliver `message` via the run's Telegram channel. Never raises; never
+    skipped when the channel merely looks down: Telegram sends are idempotent
+    text, so a failed attempt is retried, and if every attempt fails the
+    gate_notice records queued=True — the run's result then says honestly that
+    a human must look (rather than 'notified: False' over a blip)."""
+    sender = _gate_sender(c)
+    if sender is None:
+        return {"attempted": False, "sent": False, "queued": False}
+    for attempt in range(1, _NOTIFY_TRIES + 1):
+        try:
+            sender(message)
+            return {"attempted": True, "sent": True, "queued": False}
+        except Exception as e:
+            print(f"[notify] on_link failed (attempt {attempt}/{_NOTIFY_TRIES}): {e!r}", flush=True)
+            if attempt < _NOTIFY_TRIES:
+                time.sleep(_NOTIFY_RETRY_S * attempt)
+    return {"attempted": True, "sent": False, "queued": True}
 
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
@@ -277,7 +305,7 @@ def perceive_node(state: AgentState, config) -> dict:
     if gate in _INTERACTIVE and gate not in _SUBMIT_GATED:
         if HANDLERS.get(gate, "escalate") != "proceed":
             human = c["human"]
-            on_link = c.get("on_link") or (lambda u: None)
+            on_link = _gate_sender(c) or (lambda u: None)
             print(f"[gate] {gate} — sending live-view link via Telegram...", flush=True)
             result = human.remote_solve(page, gate, on_link)
             if not result:
@@ -584,7 +612,7 @@ def advance_node(state: AgentState, config) -> dict:
                         "hcaptcha_checkbox", "hcaptcha_image"}
         pre_gate = deps.gate(page)
         if HANDLERS.get(pre_gate, "escalate") != "proceed":
-            on_link = c.get("on_link") or (lambda u: None)
+            on_link = _gate_sender(c) or (lambda u: None)
             if pre_gate in _INTERACTIVE and human.remote_solve(page, pre_gate, on_link):
                 if HANDLERS.get(deps.gate(page), "escalate") != "proceed":
                     return {"stopped_reason": f"gate:{pre_gate}"}
