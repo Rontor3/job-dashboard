@@ -738,13 +738,21 @@ NON_APPLICATION_FRAME_HOSTS = (  # captcha, analytics, ads, chat / media widgets
 )
 _MIN_FRAME_W, _MIN_FRAME_H = 200, 100       # a reCAPTCHA checkbox is ~300x78; trackers are 0-1px
 _LOAD_WAIT_MS, _TRUSTED_LOAD_WAIT_MS = 1500, 8000
+# Widget junk frames (chat bubbles, cookie banners, embedded feeds) that pass the
+# deny/size checks but hold no real form: they may add only this many rows each, and
+# this many in aggregate, so they can't flood the primary fields with nav-button "fields".
+_HEAP_FRAME_FIELDS, _HEAP_FRAME_TOTAL = 12, 60
 _FIELD_KINDS = {"text", "email", "tel", "number", "url", "textarea", "select", "combobox", "date", "password"}
 _CAPTCHA_FIELD = re.compile(r"captcha|turnstile|g-recaptcha-response", re.I)
 
 
 def is_denied_frame(url: str) -> bool:
-    """Known not to be an application (captcha / analytics / ads / chat / media), or empty."""
-    return not url or url == "about:blank" or any(h in url for h in NON_APPLICATION_FRAME_HOSTS)
+    """Known not to be an application (captcha / analytics / ads / chat / media), or
+    opaque (no url, about:blank, injected javascript / blob / data widgets): such a
+    frame can only be an overlay or widget, never the application form."""
+    u = url or ""
+    return not u or u.startswith(("about:blank", "javascript:", "blob:", "data:")) \
+        or any(h in u for h in NON_APPLICATION_FRAME_HOSTS)
 
 
 def is_trusted_frame(url: str) -> bool:
@@ -831,10 +839,17 @@ def _add_sections(fr, rows) -> None:
 
 def collect_raw(page) -> list[dict]:
     """Scan the main frame AND the child frames that can hold an application (embedded
-    ATS iframes). Child frames' refs are frame-qualified so the filler targets the right frame."""
+    ATS iframes). Child frames' refs are frame-qualified so the filler targets the right frame.
+
+    A frame that dies mid-scan (detached, cross-origin, still navigating) is skipped and
+    logged — one dead frame must not kill the whole snapshot (live 2026-10-20, class H:
+    a LinkedIn job view with 14 frames died mid-snapshot, no result row written). Frames
+    that are neither trusted nor real application content (opaque widget junk) get a row
+    bound so they can't flood the primary fields."""
     out = []
     frames = page.frames
     print(f"[perc] {len(frames)} frames", flush=True)
+    heap_total = 0
     for idx, fr in enumerate(frames):        # frames[0] is the main frame
         url = fr.url or ""
         print(f"[perc] frame {idx}: {url[:60]!r}", flush=True)
@@ -848,12 +863,24 @@ def collect_raw(page) -> list[dict]:
                     continue                      # hidden, tracking pixel or widget-sized
                 fr.wait_for_load_state("domcontentloaded", timeout=_TRUSTED_LOAD_WAIT_MS if trusted else _LOAD_WAIT_MS)
             rows = fr.evaluate(_INPUT_JS)
-        except Exception:
+            _add_sections(fr, rows)
+        except Exception as e:
+            print(f"[perc] frame {idx} dead: {type(e).__name__}", flush=True)
             continue                              # detached / cross-origin / still loading / blocked
-        _add_sections(fr, rows)
         if idx == 0:
-            out.extend(rows)
+            out.extend(rows)                               # main-frame content: unconditional priority
         elif trusted or looks_like_application(rows):
+            for r in rows:                                 # a real embedded ATS form: read whole
+                r["ref"] = f"f{idx}{_FRAME_SEP}{r['ref']}"
+                out.append(r)
+        else:
+            budget = min(_HEAP_FRAME_FIELDS, _HEAP_FRAME_TOTAL - heap_total)   # widget junk: bounded
+            if budget <= 0:
+                print(f"[perc] frame {idx}: junk capped ({_HEAP_FRAME_TOTAL} frame fields max)", flush=True)
+                continue
+            if len(rows) > budget:
+                rows = rows[:budget]
+            heap_total += len(rows)
             for r in rows:
                 r["ref"] = f"f{idx}{_FRAME_SEP}{r['ref']}"
                 out.append(r)
