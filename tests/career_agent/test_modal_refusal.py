@@ -138,3 +138,148 @@ def test_a_real_form_reached_still_wins_over_a_stale_refusal_read(monkeypatch):
                                                      "quote": "Update your working permit information"}))
     assert status == "form"
     assert "site_refused" not in [t.get("step") for t in pp.take_trail()]
+
+
+# ── walk-level stop: the walker's own advance click is what opens the refusal ──
+# Live validation (f5be553, job 31505 Upstart, 2026-10-20): reach exited "none", the walker
+# [click]'ed 'Apply now' only mid-walk, the "Apply to Upstart" modal appeared, and the run
+# burned every step at "0 filled" to no_form_found. reach can never see it; the walk must.
+
+REFUSAL = {"head": "Apply to Upstart",
+           "quote": "Update your working permit information | Update profile | Find similar jobs"}
+
+
+def _field(ref, label, kind="button", purpose=None):
+    from career_agent.browser.form_model import Field
+    return Field(ref, kind, label, False, [], None, purpose)
+
+
+def _modal_screen():
+    from career_agent.browser.form_model import Field
+    return [Field(f"#b{i}", "button", name, False, [], None, None)
+            for i, name in enumerate(("Close", "Update your working permit information",
+                                      "Update profile", "Find similar jobs"))]
+
+
+class RefusalJsPage:
+    """A page standing in for one DOM state: evaluate() answers the real _APPLY_REFUSAL_JS
+    verdict (`ret`) — the canned dict/None IS the JS's verdict for this DOM — and evaluates
+    everything else to None, like a page carrying no matching structure. `ret_after_click`
+    re-points the verdict when the walker's own advance click lands (deps.click): the modal
+    only comes to exist then, exactly as it did live."""
+    def __init__(self, ret=REFUSAL, ret_after_click=None):
+        self.url = "https://himalayas.app/jobs/12999-applied-scientist"
+        self.ret, self.ret_after_click = ret, ret_after_click
+    def evaluate(self, js, *args):
+        if "applyPat" not in js:
+            return None
+        if isinstance(self.ret, Exception):
+            raise self.ret
+        return self.ret
+    def wait_for_timeout(self, ms):
+        pass
+    def inner_text(self, sel):
+        return ""
+
+
+class _Deps:
+    """Canned screens; the walker's advance click is what flips to the next screen
+    (the house pattern from test_entry_choose_apply._Deps). The click also flips the
+    page's refusal verdict (the modal exists only from that click on)."""
+    def __init__(self, screens):
+        self._screens, self._i = screens, 0
+    def snapshot(self, page, scroll=True):
+        return self._screens[min(self._i, len(self._screens) - 1)]
+    def gate(self, page):
+        return "none"
+    def fill(self, page, decisions):
+        pass
+    def click(self, page, label):
+        self._i += 1
+        if getattr(page, "ret_after_click", None) is not None:
+            page.ret = page.ret_after_click
+    def url(self, page):
+        return f"http://x/step{self._i}"
+
+
+class _Human:
+    def approve(self, card):
+        return True
+    def remote_solve(self, page, gate, on_link):
+        return True
+    def collect(self, fields):
+        return {}
+
+
+def test_walk_stops_site_refused_when_the_walker_clicks_into_the_refusal():
+    """(a) The walker advances at 0 filled (its only control is a Continue), and its own click
+    opens the refusal modal: the walk stops at the modal's first sight — before any fill work —
+    quoting the site's words through the same stop path the reach boundary uses."""
+    from career_agent.orchestrator.step_engine import walk
+    from career_agent.memory.candidate_profile import CandidateProfile
+    from career_agent.browser import page_prep as pp
+    pp.take_trail()
+    out = walk(RefusalJsPage(ret=None, ret_after_click=REFUSAL), CandidateProfile(), _Human(),
+               _Deps([[_field("#adv", "Continue")], _modal_screen()]))
+    assert out["stopped_reason"] == "site_refused"
+    assert out["site_said"].startswith("Update your working permit") and len(out["site_said"]) <= 240
+    assert out["screens"] == 2 and out["submitted"] is False      # stopped ON the modal screen, no extra pass
+    refused = [t for t in pp.take_trail() if t.get("step") == "site_refused"]
+    assert len(refused) == 1 and refused[0]["modal"] == "Apply to Upstart"
+
+
+def test_a_walk_that_already_filled_something_is_not_a_refusal():
+    """(b) Same modal, but screen 1 filled a field: a modal mid-form is not the site refusing —
+    the walk keeps walking (here it runs out of controls and ends as it always did)."""
+    from career_agent.orchestrator.step_engine import walk
+    from career_agent.memory.candidate_profile import CandidateProfile
+    out = walk(RefusalJsPage(ret=None, ret_after_click=REFUSAL),
+               CandidateProfile(contact={"full_name": "Rakshit"}), _Human(),
+               _Deps([[_field("#n", "Full name", "text", "full_name"), _field("#adv", "Continue")],
+                      _modal_screen()]))
+    assert out["stopped_reason"] == "no_advance_control"          # walked on, not site_refused
+
+
+def test_a_walk_facing_a_continue_cta_modal_keeps_flowing():
+    """(c) The modal has no input but a Continue hand-off (the real JS answers None — gate (c)):
+    never a refusal; the existing modal_kept flow decides what happens."""
+    from career_agent.orchestrator.step_engine import walk
+    from career_agent.memory.candidate_profile import CandidateProfile
+    out = walk(RefusalJsPage(ret=None), CandidateProfile(), _Human(),
+               _Deps([[_field("#adv", "Continue")], _modal_screen()]))
+    assert out["stopped_reason"] != "site_refused"
+
+
+def _graph_cfg(deps, page):
+    return {"configurable": {"page": page, "deps": deps, "human": _Human()}}
+
+
+def _graph_state(**over):
+    from career_agent.orchestrator.graph import initial_state
+    s = initial_state("https://himalayas.app/jobs/12999-applied-scientist")
+    s.update(over)
+    return s
+
+
+def test_graph_perceive_stops_site_refused_with_the_sites_words():
+    """The LangGraph engine's boundary — perceive after the walker's fill/advance cycle saw the
+    modal at 0 decisions: stopped_reason + site_said ride the state to the run's result dict."""
+    from career_agent.orchestrator.graph import perceive_node
+    out = perceive_node(_graph_state(), _graph_cfg(_Deps([_modal_screen()]), RefusalJsPage()))
+    assert out["stopped_reason"] == "site_refused"
+    assert out["site_said"].startswith("Update your working permit") and len(out["site_said"]) <= 240
+
+
+def test_graph_perceive_with_a_decision_already_made_is_never_a_refusal():
+    from career_agent.orchestrator.graph import perceive_node
+    st = _graph_state(decisions=[{"ref": "#n", "kind": "text", "label": "Full name",
+                                  "value": "Rakshit", "action": "fill", "source": "profile"}])
+    out = perceive_node(st, _graph_cfg(_Deps([_modal_screen()]), RefusalJsPage()))
+    assert out.get("stopped_reason") is None
+    assert [f["ref"] for f in out["form"]] == [f.ref for f in _modal_screen()]
+
+
+def test_graph_perceive_with_a_continue_cta_modal_is_not_a_refusal():
+    from career_agent.orchestrator.graph import perceive_node
+    out = perceive_node(_graph_state(), _graph_cfg(_Deps([_modal_screen()]), RefusalJsPage(ret=None)))
+    assert out.get("stopped_reason") is None and out["form"]

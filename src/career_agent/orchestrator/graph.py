@@ -41,6 +41,7 @@ class AgentState(TypedDict):
     # assembled between nodes; add new keys here or LangGraph drops them
     submitted: bool
     stopped_reason: str | None
+    site_said: str | None       # the site's own refusal words on stopped_reason="site_refused"
     # screen signatures the validation refill already ran once for (stop double rounds)
     refilled: list[str]
 
@@ -54,7 +55,7 @@ def initial_state(url: str, *, job_id=None, jd_text=None,
         "cred_provided": False, "cred_action": None, "gate_notice": None,
         "form": [], "form_sig": None,
         "pending_human": [], "decisions": [],
-        "submitted": False, "stopped_reason": None, "refilled": [],
+        "submitted": False, "stopped_reason": None, "site_said": None, "refilled": [],
     }
 
 
@@ -303,6 +304,18 @@ def perceive_node(state: AgentState, config) -> dict:
 
     # Snapshot form — stored in state so advance_node can check controls
     form = deps.snapshot(page)
+    # A kept apply modal with no fields and no way on, before this walk filled ONE field, is
+    # the site itself refusing: the walker's own advance click is what opens it (himalayas
+    # 'Apply to Upstart', live 2026-10-20 — the reach-level check cannot see a modal that did
+    # not exist yet, so the walk burned steps at 0 filled and died no_form_found). Stop and
+    # quote the site's words. A walk that already filled something is a modal mid-form, never
+    # a refusal; firing stops the walk here, so it can never fire twice.
+    if not (state.get("decisions") or []):
+        from ..browser.page_prep import _kept_modal_refusal, announce_site_refusal, trail_note
+        _refused = _kept_modal_refusal(page)
+        if _refused:
+            trail_note(step="site_refused", modal=_refused["head"][:60], quote=_refused["quote"][:160])
+            return announce_site_refusal(page)      # stopped_reason + site_said: the walk ends here
     from ..orchestrator.advance import screen_signature
     sig = screen_signature(deps.url(page), form)
     return {"form": [_f2d(f) for f in form], "form_sig": sig, "pending_human": [],

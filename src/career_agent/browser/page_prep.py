@@ -225,6 +225,18 @@ def _kept_modal_refusal(page) -> dict | None:
     return None
 
 
+def announce_site_refusal(page) -> dict:
+    """The one-line [stop] quoting the site's own words, plus the {stopped_reason, site_said} bits
+    callers merge into their result dicts (reach boundary in apply.py, walk step in step_engine,
+    graph perceive). Always prints — empty quote when the modal already left between the stop
+    decision and this read — so the run log names the stall either way."""
+    r = _kept_modal_refusal(page) or {}
+    head = str(r.get("head") or "")
+    said = str(r.get("quote") or "")[:240]
+    print(f'[stop] the site itself refuses this application: {head} — "{said}"', flush=True)
+    return {"stopped_reason": "site_refused", "site_said": said}
+
+
 _CLOSED_RE = re.compile(
     r"job (not found|you requested was not found)|no longer available"
     r"|could ?n'?t find anything|posting[^.]{0,40}(closed|removed)|404 error"

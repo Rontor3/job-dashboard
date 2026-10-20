@@ -105,6 +105,19 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
         print("[step] snapshot...", flush=True)
         form = deps.snapshot(page)
         print(f"[step] {len(form)} fields; LLM={judge_fn is not None}", flush=True)
+        # A kept apply modal with no fields and no way on, before this walk filled ONE field, is
+        # the site itself refusing: the walker's own advance click is what opens it (himalayas
+        # 'Apply to Upstart', live 2026-10-20 — the reach-level check cannot see a modal that did
+        # not exist yet, so the walk burned every step at 0 filled and died no_form_found). Stop
+        # and quote the site's words. A walk that already filled something is a modal mid-form,
+        # never a refusal; firing returns at once, so it can never fire twice.
+        if not filled_total:
+            from ..browser.page_prep import _kept_modal_refusal, announce_site_refusal, trail_note
+            _refused = _kept_modal_refusal(page)
+            if _refused:
+                trail_note(step="site_refused", modal=_refused["head"][:60], quote=_refused["quote"][:160])
+                return {**announce_site_refusal(page),
+                        "screens": steps, "submitted": submitted, "cards": []}
         if vision_fn is not None:              # read labels the DOM couldn't (vision fallback)
             from ..browser.perception import enrich_with_vision
             form = enrich_with_vision(page, form, vision_fn)

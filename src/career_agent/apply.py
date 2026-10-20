@@ -505,12 +505,8 @@ def _apply(args, box: dict) -> None:
         def _stop_site_refused():
             """reach found the dead-end apply modal (site_refused): stop before the walk and escalate,
             quoting the site's own words — the human decides whether updating the profile unblocks it."""
-            from .browser.page_prep import _kept_modal_refusal
-            _ref = _kept_modal_refusal(page) or {}
-            _head = str(_ref.get("head") or "")
-            _said = str(_ref.get("quote") or "")[:240]
-            print(f'[stop] the site itself refuses this application: {_head} — "{_said}"', flush=True)
-            out = {"url": args.url, "stopped_reason": "site_refused", "site_said": _said,
+            from .browser.page_prep import announce_site_refusal
+            out = {"url": args.url, **announce_site_refusal(page),
                    "decisions": [], "pending_human": [], "submitted": False}
             box["out"] = out
             print(out, flush=True)
