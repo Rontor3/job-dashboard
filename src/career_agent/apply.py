@@ -566,7 +566,8 @@ def _apply(args, box: dict) -> None:
         _job_url = args.url
         _profile_email = contact.get("email", "")
         _provide_url = lambda pg, gate, site: _provide(
-            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""))
+            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""),
+            collector=collector)
 
         if kind == "password":
             print("[password] delegating to credential provider", flush=True)

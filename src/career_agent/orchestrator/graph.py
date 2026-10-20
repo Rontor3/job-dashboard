@@ -205,7 +205,8 @@ def cred_provide_node(state: AgentState, config) -> dict:
     _cred_result: dict = {}
 
     def _prov(pg, gate, site):
-        handled, action = _provide(pg, gate, site, original_url=original_url, email=_email, phone=_phone)
+        handled, action = _provide(pg, gate, site, original_url=original_url, email=_email, phone=_phone,
+                                   collector=c.get("collector"))
         _cred_result["action"] = action
         return handled
 
@@ -228,7 +229,10 @@ def cred_provide_node(state: AgentState, config) -> dict:
             print("[auth-wall] registration is part of the application form — continuing to fill", flush=True)
             cleared = True
     if not cleared:
-        return {"stopped_reason": "auth_wall", "cred_provided": True, "cred_action": cred_action}
+        # otp_unanswered: the provider asked the connected human once and was
+        # silent within the short window — an honest park, the queue re-drains it.
+        reason = cred_action if cred_action == "otp_unanswered" else "auth_wall"
+        return {"stopped_reason": reason, "cred_provided": True, "cred_action": cred_action}
     kind = classify_entry(page)
     # After registration Darwinbox lands back on the JD page — re-enter apply
     if kind in ("none", "form") and not is_application_form(page):

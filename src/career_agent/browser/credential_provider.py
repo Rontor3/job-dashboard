@@ -213,10 +213,17 @@ def _handle_inline_verify(page, cred: dict, site: str) -> None:
     if code_el is None:
         print("[cred] inline verification: code input never appeared", flush=True)
         return
-    code = poll_otp(timeout_s=1800, sender_hint=site, after_epoch=sent_at)
-    if not code:
-        print(f"[cred] OTP timeout for {site}", flush=True)
-        return
+    collector = _ASK["collector"]
+    if collector is not None:                     # attended: one short human ask, no silent half-hour
+        code = _otp_from_human(collector, site)
+        if not code:
+            _otp_unanswered(site)
+            return
+    else:
+        code = poll_otp(timeout_s=1800, sender_hint=site, after_epoch=sent_at)
+        if not code:
+            print(f"[cred] OTP timeout for {site}", flush=True)
+            return
     digits = "".join(c for c in str(code) if c.isdigit()) or str(code).strip()
     _type_into(page, code_el, digits)
     if not _safe_click(page.get_by_role("button", name=_VERIFY_CODE_BTN).first):
@@ -469,6 +476,58 @@ _CONSENT_LINK = _re.compile(r"(read|review|open)?.{0,12}accept.{0,30}(privacy|te
 _ACCEPT_BTN = _re.compile(r"^(i )?(accept|agree|i agree|accept and continue|ok)$", _re.I)
 
 
+# ── OTP via the connected human (class C, live 2026-10-20) ──────────────────
+# The provider used to poll Gmail for the code for 1800 s in silence; eight queued
+# jobs burned the full half hour. When a human channel is wired, ask it ONCE for
+# the code (or the magic link — the handlers already branch on a leading "http"),
+# with the collector's per-ask window briefly shrunk to _OTP_ASK_S the same way
+# integrations/escalation.py bounds each of its asks, and park the run with a
+# named reason on silence: the queue re-drains those jobs later. Only a vraiment
+# headless run (no channel) keeps the old 1800 s poll, so unattended semantics
+# don't regress.
+_OTP_ASK_S = 120
+_OTP_UNANSWERED = "otp_unanswered"
+_ASK = {"collector": None}            # run-scoped ask channel (provider flows are serial)
+_PARK = {"reason": None}
+
+
+def _otp_field(site: str):
+    from ..browser.form_model import Field
+    return Field(ref="otp_code", kind="text",
+                 label=f"🔑 OTP / verification link for {site} — paste the code or link",
+                 required=True, options=[], group=None, purpose="otp")
+
+
+def _otp_from_human(collector, site: str) -> str | None:
+    """ONE short ask to the connected human channel: the code (or magic link) if
+    they answered inside the shrunk window, None on silence or failure. The
+    collector's own settable per-ask wait is trimmed for this call only and
+    restored after."""
+    if collector is None:
+        return None
+    f = _otp_field(site)
+    saved = {}
+    try:
+        for attr in ("deadline_s", "text_deadline_s"):
+            v = getattr(collector, attr, None)
+            if isinstance(v, (int, float)):
+                saved[attr] = v
+                if v > _OTP_ASK_S:
+                    setattr(collector, attr, _OTP_ASK_S)
+        answers = collector([f]) or {}
+    except Exception as e:
+        print(f"[cred] OTP ask failed ({type(e).__name__})", flush=True)
+        answers = {}
+    finally:
+        for attr, v in saved.items():
+            try:
+                setattr(collector, attr, v)
+            except Exception:
+                pass
+    val = str(answers.get(f.ref) or "").strip()
+    return val or None
+
+
 def _confirm_consent_dialog(page) -> bool:
     """Ticking a consent box can open the notice itself with an Agree button that must be pressed (Oracle at Cummins,
     live 2026-10-18: a 'Privacy Notice' dialog with AGREE blocked Next). Press Agree/Accept in a visible dialog only."""
@@ -639,9 +698,42 @@ def _fill_visible_fields(page, cred: dict) -> None:
     _accept_consent_link(page)
 
 
+def _apply_otp_code(page, code: str, cred: dict, site: str) -> None:
+    """Use a code (or magic link) that this provider already has: verify and chain."""
+    print(f"[cred] got OTP code={code!r}, filling now", flush=True)
+    if code.startswith("http"):
+        page.goto(code, wait_until="domcontentloaded")
+        next_state = _observe_until_change(page, "otp_link")
+    else:
+        filled = _fill_otp_generic(page, code)
+        print(f"[cred] OTP fill result: {filled}", flush=True)
+        page.wait_for_timeout(500)
+        clicked = _click_non_social_submit(page, ("Verify", "Continue", "Submit", "Sign In"))
+        print(f"[cred] OTP submit clicked: {clicked}", flush=True)
+        next_state = _observe_until_change(page, "otp_submit")
+    print(f"[cred] post-OTP state: {next_state}", flush=True)
+    # Keep the chain going — Phenom shows password/registration step after OTP
+    if next_state not in ("unknown", "otp"):
+        _handle_state(page, next_state, cred, site)
+
+
+def _otp_unanswered(site: str) -> None:
+    print(f"[cred] otp_unanswered for {site} — parked; the human can answer on the tracker "
+          f"and the queue re-drains this job", flush=True)
+    _PARK["reason"] = _OTP_UNANSWERED
+
+
 def _handle_otp_state(page, site: str, cred: dict) -> None:
     """Get OTP from Gmail, fill it, then continue handling whatever page comes next."""
     from ..integrations.gmail_otp import poll_otp, available
+    collector = _ASK["collector"]
+    if collector is not None:                     # attended: the connected human is the OTP source
+        code = _otp_from_human(collector, site)
+        if code:
+            _apply_otp_code(page, code, cred, site)
+        else:
+            _otp_unanswered(site)
+        return
     if not available():
         print("[cred] Gmail OTP not available", flush=True)
         return
@@ -650,21 +742,7 @@ def _handle_otp_state(page, site: str, cred: dict) -> None:
         if not code:
             print(f"[cred] OTP timeout for {site}", flush=True)
             return
-        print(f"[cred] got OTP code={code!r}, filling now", flush=True)
-        if code.startswith("http"):
-            page.goto(code, wait_until="domcontentloaded")
-            next_state = _observe_until_change(page, "otp_link")
-        else:
-            filled = _fill_otp_generic(page, code)
-            print(f"[cred] OTP fill result: {filled}", flush=True)
-            page.wait_for_timeout(500)
-            clicked = _click_non_social_submit(page, ("Verify", "Continue", "Submit", "Sign In"))
-            print(f"[cred] OTP submit clicked: {clicked}", flush=True)
-            next_state = _observe_until_change(page, "otp_submit")
-        print(f"[cred] post-OTP state: {next_state}", flush=True)
-        # Keep the chain going — Phenom shows password/registration step after OTP
-        if next_state not in ("unknown", "otp"):
-            _handle_state(page, next_state, cred, site)
+        _apply_otp_code(page, code, cred, site)
     except Exception as e:
         print(f"[cred] _handle_otp_state error: {e}", flush=True)
 
@@ -1339,11 +1417,22 @@ def _reveal_email_form(page) -> bool:
 
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
-            email: str = "", phone: str = "", _retried: bool = False) -> tuple[bool, str | None]:
+            email: str = "", phone: str = "", collector=None, _retried: bool = False) -> tuple[bool, str | None]:
     """Boundary print around _provide_attempt: the cred machinery must name itself in the run log
-    above and below every attempt, so a stall (a silent 660 s wall, battle #1) shows its edges."""
+    above and below every attempt, so a stall (a silent 660 s wall, battle #1) shows its edges.
+
+    `collector` (optional) is the run's human-ask channel: with one wired, an OTP
+    wall gets a single short human ask and — on silence — the provider reports
+    the honest action ``"otp_unanswered"`` so the queue re-drains the job."""
     print(f"[cred] provide(site={site}): starting", flush=True)
-    ok, action = _provide_attempt(page, gate, site, original_url, email, phone, _retried)
+    _ASK["collector"] = collector
+    _PARK["reason"] = None
+    try:
+        ok, action = _provide_attempt(page, gate, site, original_url, email, phone, _retried)
+    finally:
+        parked, _ASK["collector"] = _PARK["reason"], None
+    if parked and not ok:
+        action = parked                            # the honest park reason, not a plain failed attempt
     print(f"[cred] provide(site={site}): done outcome={'handled' if ok else 'unhandled'}:"
           f"{action or 'none'}", flush=True)
     return ok, action
