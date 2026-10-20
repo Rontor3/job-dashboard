@@ -1,18 +1,23 @@
-"""Opt-in Claude help at the walk's dead ends (no_advance_control / advance_failed / stuck).
+"""Opt-in help at the walk's dead ends (no_advance_control / advance_failed / stuck).
 
 The deterministic code does everything it can first; only when it would give up does it call
-`ClaudeAssist.recover(page, reason)`. Claude sees a screenshot + the numbered clickable controls and
-answers ONE action from a fixed list; this module validates it and does the click. Claude never
-types, never submits, never touches captchas or credentials. Capped per run (default 5). The step is
-recorded in the run trail, so a route that worked is promoted into the ATS graph and the next run
-takes it with no Claude call.
+`ClaudeAssist.recover(page, reason)`. The model backend — GLM over HTTP when CAREER_GLM_API_KEY
+is set, else the Claude CLI — sees a screenshot + the numbered clickable controls and answers
+ONE action from a fixed list; this module validates it and does the click. It never types,
+never submits, never touches captchas or credentials. Capped per run (default 5). The step is
+recorded in the run trail, so a route that worked is promoted into the ATS graph and the next
+run takes it with no model call.
 """
 from __future__ import annotations
 
+import base64
 import json
+import os
 import re
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from ..browser import page_prep as pp
@@ -38,13 +43,67 @@ _DRAFT_ERROR_RE = re.compile(
 
 _LAST_STDERR = ""        # the assist child's last stderr line, for the echo check
 
+GLM_BASE_URL = "https://api.z.ai/api/paas/v4"
+GLM_MODEL = "glm-5.3-flash"
 
-def _claude_cli(prompt: str, timeout: int = 120) -> str:
+
+def _glm_enabled() -> bool:
+    return bool(os.getenv("CAREER_GLM_API_KEY"))
+
+
+def _claude_cli(prompt: str, image_path: str | None = None, timeout: int = 120) -> str:
+    """The Claude CLI subprocess: `prompt` is the whole instruction (both the screenshot
+    path the CLI reads itself and everything else). `image_path` is accepted and ignored —
+    argv and prompt bytes stay exactly what they were."""
     global _LAST_STDERR
     r = subprocess.run(["claude", "-p", prompt, "--allowedTools", "Read", "--max-turns", "4"],
                        capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
     _LAST_STDERR = ((r.stderr or "").strip().splitlines() or [""])[-1]
     return r.stdout
+
+
+def _glm_call(prompt: str, image_path: str | None = None, timeout: int = 120) -> str:
+    """One GLM chat-completions call over urllib (no new deps). Text first; the screenshot
+    rides as a data-url image part only when the file actually exists."""
+    global _LAST_STDERR
+    base = (os.getenv("CAREER_GLM_BASE_URL") or GLM_BASE_URL).rstrip("/")
+    model = os.getenv("CAREER_GLM_MODEL") or GLM_MODEL
+    parts: list = [{"type": "text", "text": prompt}]
+    if image_path and Path(image_path).exists():
+        b64 = base64.b64encode(Path(image_path).read_bytes()).decode()
+        parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+    body = json.dumps({"model": model,
+                       "messages": [{"role": "user", "content": parts}],
+                       "temperature": 0, "max_tokens": 512}).encode()
+    req = urllib.request.Request(
+        base + "/chat/completions", data=body, method="POST",
+        headers={"Authorization": "Bearer " + (os.environ.get("CAREER_GLM_API_KEY") or ""),
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode())
+        _LAST_STDERR = ""          # a clean call: no stale echo may name-check wrong later
+        return payload["choices"][0]["message"]["content"] or ""
+    except urllib.error.HTTPError as e:
+        try:
+            detail = (e.read() or b"").decode("utf-8", "replace").strip()
+        except Exception:
+            detail = ""
+        _LAST_STDERR = (detail.splitlines() or [""])[-1][:400]   # error_shaped's echo check
+        raise RuntimeError(f"glm http {e.code}: {detail[:150]}"[:200]) from None
+    except Exception as e:
+        _LAST_STDERR = str(e)[:200]
+        raise RuntimeError(f"glm http call failed: {type(e).__name__}") from None
+
+
+def _backend_call(prompt: str, image_path: str | None = None, timeout: int = 120) -> str:
+    """ONE router for the walk's debug drafts: GLM over HTTP when CAREER_GLM_API_KEY is
+    set, else the Claude CLI subprocess exactly as before. The prompt string is passed
+    along untouched by both branches; `image_path` is the screenshot GLM attaches as a
+    data-url (and the CLI ignores — it reads the path embedded in the prompt text)."""
+    if _glm_enabled():
+        return counted(_glm_call, "glm")(prompt, image_path, timeout)
+    return counted(_claude_cli, "claude-cli")(prompt, image_path, timeout)
 
 
 def error_shaped(text) -> bool:
@@ -69,14 +128,15 @@ def counted(llm, name: str):
         atexit.register(lambda: print("[llm] " + ", ".join(f"{k} {v}" for k, v in _CALLS.items()), flush=True))
     _CALLS.setdefault(name, 0)
 
-    def call(prompt):
+    def call(*a, **k):
         _CALLS[name] += 1
-        return llm(prompt)
+        return llm(*a, **k)
     return call
 
 
 def with_claude_fallback(llm):
-    """The local model first; when it is down (Ollama stopped), Claude's CLI drafts instead of a canned template."""
+    """The local model first; when it is down (Ollama stopped), the assist transport's
+    GLM-or-Claude-CLI drafts instead of a canned template."""
     def call(prompt):
         try:
             out = llm(prompt)
@@ -85,7 +145,7 @@ def with_claude_fallback(llm):
         except Exception:
             pass
         print("[llm] local model unavailable -> drafting with Claude", flush=True)
-        return _claude_cli(prompt, timeout=180)
+        return _backend_call(prompt, timeout=180)
     return call
 
 
@@ -115,7 +175,9 @@ def validate(ans: dict | None, controls: list) -> dict | None:
 
 
 class ClaudeAssist:
-    def __init__(self, cap: int = 5, run=_claude_cli, shot_dir: str | None = None):
+    def __init__(self, cap: int = 5, run=_backend_call, shot_dir: str | None = None):
+        # run(prompt, image_path=None, ...) -> raw model reply; the router picks GLM over HTTP
+        # when CAREER_GLM_API_KEY is set, else the Claude CLI with the exact prompt bytes as ever.
         self.cap, self.calls, self._run = cap, 0, run
         # absolute: `claude -p` runs from the temp dir, so a relative screenshot path is "file not found" for it
         self._dir = Path(shot_dir or tempfile.mkdtemp(prefix="career_assist_")).resolve()
@@ -164,7 +226,7 @@ class ClaudeAssist:
             controls = self._controls(page)
             shot = self._dir / f"assist{self.calls}.png"
             page.screenshot(path=str(shot))
-            raw = self._run(self._prompt(page, reason, controls, shot))
+            raw = self._run(self._prompt(page, reason, controls, shot), image_path=str(shot))
             act = validate(parse_action(raw), controls)
             if act is None:
                 print(f"[assist {self.calls}/{self.cap}] no usable action; Claude replied: {(raw or '').strip()[:160]!r}",
