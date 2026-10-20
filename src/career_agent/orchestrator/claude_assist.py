@@ -1,12 +1,12 @@
 """Opt-in help at the walk's dead ends (no_advance_control / advance_failed / stuck).
 
 The deterministic code does everything it can first; only when it would give up does it call
-`ClaudeAssist.recover(page, reason)`. The model backend — GLM over HTTP when CAREER_GLM_API_KEY
-is set, else the Claude CLI — sees a screenshot + the numbered clickable controls and answers
-ONE action from a fixed list; this module validates it and does the click. It never types,
-never submits, never touches captchas or credentials. Capped per run (default 5). The step is
-recorded in the run trail, so a route that worked is promoted into the ATS graph and the next
-run takes it with no model call.
+`ClaudeAssist.recover(page, reason)`. The model backend — the desktop app's own model via the
+OpenCode CLI (CAREER_OCE_MODEL), GLM over HTTP (CAREER_GLM_API_KEY), or the Claude CLI — sees a
+screenshot + the numbered clickable controls and answers ONE action from a fixed list; this
+module validates it and does the click. It never types, never submits, never touches captchas
+or credentials. Capped per run (default 5). The step is recorded in the run trail, so a route
+that worked is promoted into the ATS graph and the next run takes it with no model call.
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -55,7 +56,8 @@ def _claude_cli(prompt: str, image_path: str | None = None, timeout: int = 120) 
     """The Claude CLI subprocess: `prompt` is the whole instruction (both the screenshot
     path the CLI reads itself and everything else). `image_path` is accepted and ignored —
     argv and prompt bytes stay exactly what they were."""
-    global _LAST_STDERR
+    global _LAST_STDERR, _BACKEND
+    _BACKEND = "claude-cli"
     r = subprocess.run(["claude", "-p", prompt, "--allowedTools", "Read", "--max-turns", "4"],
                        capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
     _LAST_STDERR = ((r.stderr or "").strip().splitlines() or [""])[-1]
@@ -65,7 +67,8 @@ def _claude_cli(prompt: str, image_path: str | None = None, timeout: int = 120) 
 def _glm_call(prompt: str, image_path: str | None = None, timeout: int = 120) -> str:
     """One GLM chat-completions call over urllib (no new deps). Text first; the screenshot
     rides as a data-url image part only when the file actually exists."""
-    global _LAST_STDERR
+    global _LAST_STDERR, _BACKEND
+    _BACKEND = "glm"
     base = (os.getenv("CAREER_GLM_BASE_URL") or GLM_BASE_URL).rstrip("/")
     model = os.getenv("CAREER_GLM_MODEL") or GLM_MODEL
     parts: list = [{"type": "text", "text": prompt}]
@@ -97,13 +100,176 @@ def _glm_call(prompt: str, image_path: str | None = None, timeout: int = 120) ->
 
 
 def _backend_call(prompt: str, image_path: str | None = None, timeout: int = 120) -> str:
-    """ONE router for the walk's debug drafts: GLM over HTTP when CAREER_GLM_API_KEY is
-    set, else the Claude CLI subprocess exactly as before. The prompt string is passed
-    along untouched by both branches; `image_path` is the screenshot GLM attaches as a
-    data-url (and the CLI ignores — it reads the path embedded in the prompt text)."""
+    """ONE router for the walk's debug drafts. Precedence (env-gated, no cross-fallback):
+    1. the desktop app's own model via the bundled OpenCode CLI  — CAREER_OCE_MODEL set
+    2. GLM 5.3 Flash over HTTP (z.ai)                            — CAREER_GLM_API_KEY set
+    3. the Claude CLI subprocess                                  — always.
+    The prompt bytes are identical on every branch; the screenshot rides as a file://
+    attachment (opencode — the server reads the file itself), a data-url part (glm), or
+    stays prompt-embedded text (claude-cli reads the file with its own Read tool)."""
+    if _oce_enabled():
+        return counted(_oce_call, "opencode")(prompt, image_path, timeout)
     if _glm_enabled():
         return counted(_glm_call, "glm")(prompt, image_path, timeout)
     return counted(_claude_cli, "claude-cli")(prompt, image_path, timeout)
+
+
+OCE_MODEL = "glm-5.3-flash-free"      # the desktop app's opencode provider
+_OCE_SESSION: str | None = None       # one reusable debug session per process
+_BACKEND = ""                         # backend that answered the last debug call (for the [walk-debug] line)
+
+_NOW = time.monotonic                 # seams for offline tests: clock + poll nap
+_SLEEP = time.sleep
+
+
+def _oce_enabled() -> bool:
+    return bool(os.getenv("CAREER_OCE_MODEL"))
+
+
+def _active_model() -> str:
+    """The model name for the [walk-debug] line, in the router's precedence order."""
+    if _oce_enabled():
+        return os.getenv("CAREER_OCE_MODEL") or OCE_MODEL
+    if _glm_enabled():
+        return os.getenv("CAREER_GLM_MODEL") or GLM_MODEL
+    return "claude"
+
+
+def run_cli(args: list[str], input: str | None = None, timeout: int = 120) -> tuple[int, str, str]:
+    """The OpenCode CLI transport seam (tests monkeypatch this). `args` are the `api`
+    subcommand arguments, e.g. ["post", "/api/session", "--data", "<json>"]; options besides
+    those live here: which binary (CAREER_OCE_CLI, else the newest bundled one) and the
+    optional --server override (CAREER_OCE_SERVER — without it the CLI discovers and
+    authenticates against the running desktop app itself). Returns (rc, stdout, stderr)."""
+    exe = os.getenv("CAREER_OCE_CLI")
+    if not exe:
+        base = Path.home() / "Library/Application Support/ai.opencode.desktop/cli"
+        bundled = sorted(base.glob("*/opencode-cli"),
+                         key=lambda p: [int(x) if x.isdigit() else 0 for x in p.parent.name.split("-")[0].split(".")])
+        exe = str(bundled[-1]) if bundled else "opencode-cli"
+    argv = [exe, "api", *args]
+    if os.getenv("CAREER_OCE_SERVER"):
+        argv += ["--server", os.environ["CAREER_OCE_SERVER"]]
+    try:
+        r = subprocess.run(argv, input=input, capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        return 124, "", f"opencode cli timed out after {timeout}s"
+
+
+def _oce_fail(err: str, detail: str = "") -> RuntimeError:
+    """The one opencode error funnel: short reason to raise, body tail into _LAST_STDERR so
+    error_shaped()'s echo check keeps refusing notices as drafts."""
+    global _LAST_STDERR
+    tail = ((detail or "").strip().splitlines() or [""])[-1][:400]
+    _LAST_STDERR = tail or err[:400]
+    return RuntimeError(("opencode: " + err)[:200])
+
+
+def _oce_brief_error(out: str) -> str:
+    """The CLI's JSON error body (`{"_tag":…,"message":"Invalid attachment URI…"}`) when parseable."""
+    try:
+        d = json.loads(out)
+        if isinstance(d, dict) and d.get("message"):
+            return str(d["message"])[:160]
+    except Exception:
+        pass
+    return ""
+
+
+def _oce_items(out: str) -> list:
+    """The session's messages as dicts: GET /message answers {"data":[…],"cursor":…}; a bare list tolerated."""
+    try:
+        d = json.loads(out)
+    except Exception:
+        raise _oce_fail("unreadable message list", out) from None
+    data = d.get("data", []) if isinstance(d, dict) else d
+    if not isinstance(data, list):
+        raise _oce_fail("unreadable message list", out)
+    return [m for m in data if isinstance(m, dict)]
+
+
+def _oce_reply_shape(m: dict) -> dict:
+    """Assistant items as this API answers them: {id, type:'assistant', content:[{type:'text',text}…],
+    finish, error} — an older {info:{…},parts:[…]} wrapper flattened too."""
+    if isinstance(m.get("info"), dict):
+        info, parts = m["info"], m.get("parts") or []
+        return {"id": info.get("id"), "type": info.get("type"), "finish": info.get("finish"),
+                "content": [p for p in parts if isinstance(p, dict)], "error": info.get("error")}
+    return m
+
+
+def _oce_session() -> str:
+    """Create the reusable debug session (agent 'plan' — read-only conventions) once per process."""
+    global _OCE_SESSION
+    if _OCE_SESSION:
+        return _OCE_SESSION
+    body = json.dumps({"title": "career-agent walk debug",
+                       "model": {"providerID": "opencode", "id": os.getenv("CAREER_OCE_MODEL") or OCE_MODEL},
+                       "agent": "plan"})
+    rc, out, err = run_cli(["post", "/api/session", "--data", body], timeout=30)
+    if rc:
+        brief = _oce_brief_error(out)
+        raise _oce_fail("session create: " + brief, brief or (err + "\n" + out))
+    try:
+        _OCE_SESSION = json.loads(out)["data"]["id"]
+    except Exception:
+        raise _oce_fail("session create: no id in reply", out) from None
+    if not _OCE_SESSION:
+        raise _oce_fail("session create: empty id", out)
+    return _OCE_SESSION
+
+
+def _oce_call(prompt: str, image_path: str | None = None, timeout: int = 120) -> str:
+    """The desktop app's own model, driven as one debug turn over the OpenCode CLI subprocess:
+    post the prompt (+ the screenshot as a file:// attachment the server resolves itself), then
+    poll the message list until a NEW assistant message has finished; its text-part content is
+    the reply. The whole turn is bounded by `timeout`; on expiry the debug turn is interrupted."""
+    global _BACKEND, _LAST_STDERR
+    _BACKEND = "opencode"
+    deadline = _NOW() + timeout
+
+    def left() -> int:
+        return max(5, int(deadline - _NOW()))
+
+    sid = _oce_session()
+    rc, out, err = run_cli(["get", f"/api/session/{sid}/message"], timeout=left())   # ids BEFORE our turn
+    if rc:
+        raise _oce_fail("cannot read the debug session", err + "\n" + out)
+    before = {m.get("id") for m in _oce_items(out)}
+    body: dict = {"text": prompt}
+    if image_path and Path(image_path).exists():
+        f = Path(image_path).resolve()
+        body["files"] = [{"uri": f.as_uri(), "name": f.name}]
+    rc, out, err = run_cli(["post", f"/api/session/{sid}/prompt", "--data", json.dumps(body)], timeout=left())
+    if rc:
+        brief = _oce_brief_error(out)
+        raise _oce_fail("prompt rejected: " + brief, brief or (err + "\n" + out))
+    while True:
+        rc, out, err = run_cli(["get", f"/api/session/{sid}/message"], timeout=left())
+        if rc:
+            raise _oce_fail("cannot poll messages", err + "\n" + out)
+        reply = None                                  # newest new assistant turn; idle/synthetic noise filtered by type
+        for m in _oce_items(out):
+            r = _oce_reply_shape(m)
+            if r.get("type") == "assistant" and r.get("id") not in before:
+                reply = r                             # the only new assistant turn in a debug exchange
+        if reply is not None:
+            fin = reply.get("finish")
+            if fin == "error":
+                raise _oce_fail("reply finished with error", str(reply.get("error") or ""))
+            if fin:                                   # stop / length / tool-calls: done streaming
+                text = "\n".join(c.get("text", "") for c in reply.get("content", []) if c.get("type") == "text")
+                _LAST_STDERR = ""                     # a clean call: no stale echo may name-check wrong later
+                return text.strip()
+        if _NOW() >= deadline:
+            try:
+                run_cli(["post", f"/api/session/{sid}/interrupt"], timeout=10)    # best effort, reason has no shape
+            except Exception:
+                pass
+            raise _oce_fail(f"no reply within {timeout}s", "")
+        _SLEEP(0.5)
+
 
 
 def error_shaped(text) -> bool:
@@ -136,7 +302,7 @@ def counted(llm, name: str):
 
 def with_claude_fallback(llm):
     """The local model first; when it is down (Ollama stopped), the assist transport's
-    GLM-or-Claude-CLI drafts instead of a canned template."""
+    opencode-GLM-Claude drafts instead of a canned template."""
     def call(prompt):
         try:
             out = llm(prompt)
@@ -176,8 +342,8 @@ def validate(ans: dict | None, controls: list) -> dict | None:
 
 class ClaudeAssist:
     def __init__(self, cap: int = 5, run=_backend_call, shot_dir: str | None = None):
-        # run(prompt, image_path=None, ...) -> raw model reply; the router picks GLM over HTTP
-        # when CAREER_GLM_API_KEY is set, else the Claude CLI with the exact prompt bytes as ever.
+        # run(prompt, image_path=None, ...) -> raw model reply; the router sends it to the desktop
+        # app's own model (OpenCode CLI), to GLM over HTTP, or to the Claude CLI — env-gated.
         self.cap, self.calls, self._run = cap, 0, run
         # absolute: `claude -p` runs from the temp dir, so a relative screenshot path is "file not found" for it
         self._dir = Path(shot_dir or tempfile.mkdtemp(prefix="career_assist_")).resolve()
@@ -228,6 +394,8 @@ class ClaudeAssist:
             page.screenshot(path=str(shot))
             raw = self._run(self._prompt(page, reason, controls, shot), image_path=str(shot))
             act = validate(parse_action(raw), controls)
+            print(f"[walk-debug] {_BACKEND} {_active_model()} → {(act or {}).get('action', 'no-action-in-reply')}",
+                  flush=True)
             if act is None:
                 print(f"[assist {self.calls}/{self.cap}] no usable action; Claude replied: {(raw or '').strip()[:160]!r}",
                       flush=True)
