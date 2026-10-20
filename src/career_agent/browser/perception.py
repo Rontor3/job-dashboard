@@ -120,7 +120,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
         )
         _folded.update(b["ref"] for b in boxes[1:])
 
-    for r in merge_date_parts(raw):
+    for r in merge_date_parts(_structure_menu_rows(raw)):
         if r.get("kind") == "checkbox" and r["ref"] in _folded:
             continue                      # a later tail of a checkbox group folded above
         if r.get("kind") == "checkbox" and r["ref"] in _groups:
@@ -201,6 +201,39 @@ def _rows_by_repeat(fields: list[Field]) -> list[Field]:
             f = _dc.replace(f, row=seen.get(k, 0))
             seen[k] = f.row + 1
         out.append(f)
+    return out
+
+
+# Class F, live 2026-10-20: a careers page produced one flat list of 102 "fields" —
+# the site's top-nav buttons — while the affordance that mattered (a Careers ▾ submenu)
+# drowned among them. Rows the JS tags as page chrome are affordances, not the
+# application: cap them. Rows inside a menu/dropdown container keep every item but
+# carry their parent chain in the label ("Careers ▾ > Benefits"), so a nested
+# affordance reads as a parent → child path. Main-content rows (the form itself) are
+# never touched.
+_MENU_CONTEXT_CAP = 8
+_MENU_CONTROL_RE = re.compile(r"\b(next|continue|submit|apply|save|sign|confirm|review|send)\b", re.I)
+
+
+def _structure_menu_rows(raw: list[dict]) -> list[dict]:
+    """Cap chrome-button flooding and name nested menu affordances by their path.
+    Pure: feeds straight into to_form_model; rows without the JS's container keys
+    pass through byte-identical."""
+    out = []
+    chrome_kept = 0
+    for r in raw:
+        c = r.get("container") or ""
+        p = (r.get("menu_path") or "").strip()
+        if c == "chrome" and r.get("kind") == "button" and not p \
+                and not _MENU_CONTROL_RE.search(r.get("label") or ""):
+            chrome_kept += 1
+            if chrome_kept > _MENU_CONTEXT_CAP:
+                continue                      # nav soup: an application never lives here
+        if c == "menu" and r.get("kind") == "button":
+            lab = (r.get("label") or "").strip()
+            if p and lab and not lab.startswith(p):
+                r = dict(r, label=f"{p} > {lab}")
+        out.append(r)
     return out
 
 
@@ -595,6 +628,27 @@ _INPUT_JS = r"""
   // Advance controls (Next/Continue/Submit): buttons and link-buttons. Captured
   // as kind 'button' so the step engine can find them; the mapper skips them
   // (no fillable purpose, not required).
+  // Where a control lives: inside a menu container ([role=menu]/[role=menubar]'s host
+  // or a <details>), inside the page's chrome (header/nav/banner/search/footer) or in
+  // the content itself. Class F 2026-10-20: a careers page produced one flat list of
+  // 102 "fields" — the site's top-nav buttons — while a Careers ▾ submenu drowned in
+  // them. From these two keys the python side (perception._structure_menu_rows)
+  // caps chrome rows and names menu rows by their parent path.
+  const menuInfo = (el) => {
+    const m = el.closest('[role=menu], [role=menubar], details');
+    if (!m) {
+      const chrome = el.closest('header, nav, [role=navigation], [role=banner], [role=search], footer');
+      return {container: chrome ? 'chrome' : '', menu_path: ''};
+    }
+    let path = '';
+    if (m.tagName === 'DETAILS') {
+      path = ((m.querySelector('summary') || {}).innerText || m.getAttribute('aria-label') || '');
+    } else {
+      const h = m.closest('[aria-haspopup], [aria-expanded]');
+      path = ((h && (h.innerText || '')) || '').trim() || (m.getAttribute('aria-label') || '');
+    }
+    return {container: 'menu', menu_path: String(path).trim().slice(0, 40) || 'menu'};
+  };
   for (const el of deepQuery(
         'button, a[href], input[type=submit], input[type=button], [role=button]')) {
     const elRole = (el.getAttribute('role') || '').toLowerCase();
@@ -642,10 +696,12 @@ _INPUT_JS = r"""
       });
       continue;
     }
+    const _menu = menuInfo(el);
     out.push({
       ref: el.id ? `#${CSS.escape(el.id)}` : `button:${label}`,
       kind: 'button', label, required: false,
       options: [], group: null, disabled: !!el.disabled,
+      container: _menu.container, menu_path: _menu.menu_path,
     });
   }
   return out;
