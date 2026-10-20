@@ -1,7 +1,12 @@
 """Board pipeline: blocked? → entry → questions → shared answer ladder → human
 for required gaps → put → advance → gated irreversible click → confirm from the
 board's own response. Never creates accounts, never uses the career-site drill,
-stops on bot challenges. Result dict matches the career-site one (+ `board`)."""
+stops on bot challenges. Result dict matches the career-site one (+ `board`).
+
+Dry-run (submit not authorized) with an entry in front of a fillable flow runs
+fill-probe mode: ctx["fill_probe"] makes every commit-point a stop — the driver
+fills everything reversible and refuses the final click/answer, so the run ends
+`reached_submit_dry_run` with the fills counted instead of frozen `dry_run` at 0."""
 from __future__ import annotations
 
 import dataclasses
@@ -95,6 +100,14 @@ def _form_already_open(page) -> bool:
         }"""))
     except Exception:
         return False
+
+
+def _beyond_entry(board):
+    """A fillable flow lives past the entry click: the chat questionnaire (the chat driver
+    sends answers until the bot applies itself) or declared final/advance controls. A one-click
+    entry whose profile lists neither has nothing reversible to fill — the click IS the whole
+    application (instahyre, iimjobs live 2026-09-27) — so fill-probe stays a dry_run for it."""
+    return board.get("archetype") == "chat" or bool(board.get("final") or board.get("advance"))
 
 
 def _authorized(ctx, board, page, decisions):
@@ -332,7 +345,15 @@ def run_board(page, board, ctx):
                 found = False
             return stop("probe" if found else "no_entry", page)
         if irreversible and not _authorized(ctx, board, page, []):
-            return stop("dry_run", page)
+            # Dry-run with an entry that sits in front of a fillable flow: run the
+            # flow in fill-probe mode — the driver fills everything reversible and
+            # the commit-points below refuse the final click/answer and stop
+            # reached_submit_dry_run with the fills counted (naukri 2026-10-20:
+            # five boards died dry_run, filled=0, without the flow ever running).
+            if _beyond_entry(board):
+                ctx["fill_probe"] = True
+            else:
+                return stop("dry_run", page)       # one-click entry: nothing reversible before the commit
         from ..browser.clicks import pace
         pace(page)
         _before = list(page.context.pages)
@@ -433,6 +454,8 @@ def run_board(page, board, ctx):
                     page.wait_for_timeout(1500)
                     continue
             if nxt is None:
+                if ctx.get("fill_probe"):          # chat flow: the bot applies itself after the
+                    return stop("reached_submit_dry_run", page)   # last answer; the driver withheld it
                 _tabs_before = list(page.context.pages)
                 if assist and assist.recover(page, "no_advance_control"):
                     page = new_tab_since(page, _tabs_before)   # e.g. "Apply on company website" opened the employer's tab
@@ -441,7 +464,9 @@ def run_board(page, board, ctx):
             label, final = nxt
             if final:
                 if not _authorized(ctx, board, page, done_decisions):
-                    return stop("dry_run", page)
+                    # Fill-probe: everything the flow could fill is filled; the final
+                    # click is the commit and it never fires here.
+                    return stop("reached_submit_dry_run" if ctx.get("fill_probe") else "dry_run", page)
                 _untick(page, board)
                 irreversible = True
                 try:

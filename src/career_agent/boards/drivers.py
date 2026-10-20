@@ -129,6 +129,13 @@ class ChatDriver(FormDriver):
     def put(self, page, board, ctx, fields, decisions):
         chat, values = board["chat"], {d.ref: d.value for d in decisions}
         pending = [f for f in fields if f.ref in values]
+        # Fill-probe: answer every bot question but the LAST — its answer completes the
+        # questionnaire, and the bot applies itself right after (isLeafNode -> apply POST,
+        # naukri notes 2026-09-26). Composing and sending questionnaire steps is reversible;
+        # that final state is not.
+        refused = None
+        if ctx.get("fill_probe") and pending:
+            refused, pending = pending[-1], pending[:-1]
         box = page.locator(chat["container"]).first
         for _ in range(len(pending) + 2):
             try:
@@ -149,12 +156,17 @@ class ChatDriver(FormDriver):
                 return
             asked = [f for f in pending if _norm(f.label) in text]
             if not asked:
+                if refused is not None:
+                    print(f"[board] fill-probe: composed {len(decisions)} chat answer(s); '{refused.label[:60]}' withheld — the bot applies itself after the last answer", flush=True)
+                    return
                 print(f"[board] chat asked something not in our answers: {text[-160:]!r}", flush=True)
                 return                        # bot asked something we hold no answer for
             f = max(asked, key=lambda f: text.rfind(_norm(f.label)))   # the latest bubble
             pending.remove(f)
             self._answer(page, chat, str(values[f.ref]))
             page.wait_for_timeout(2500)
+        if refused is not None:
+            print(f"[board] fill-probe: composed {len(decisions)} chat answer(s); '{refused.label[:60]}' withheld — the bot applies itself after the last answer", flush=True)
 
     def _answer(self, page, chat, value):
         opts, hit = page.locator(chat["option"]), False
