@@ -293,7 +293,10 @@ def _answers(fields, board, driver, cap, ctx):
     # radios/selects the rules layer passes over silently.
     decided |= set(pre)
     gaps = [f for f in fields if f.ref not in decided]
-    upfront = gaps if driver.ask_optional_upfront else [f for f in gaps if f.required]
+    # Fill-probe fills every reversible field of the live flow (linkedin's easy-apply
+    # modal ships its contact step with no DOM-required flag — asking only required
+    # gaps filled nothing and the run died dry_run at 0, live 2026-10-20 job 30029).
+    upfront = gaps if (driver.ask_optional_upfront or ctx.get("fill_probe")) else [f for f in gaps if f.required]
     got, left = _ask(upfront, ctx)
     return (decisions + got, [f for f in left if f.required],
             [f for f in gaps if not f.required and f not in upfront] + [f for f in left if not f.required])
@@ -354,6 +357,15 @@ def run_board(page, board, ctx):
                 ctx["fill_probe"] = True
             else:
                 return stop("dry_run", page)       # one-click entry: nothing reversible before the commit
+        elif not irreversible and not ctx.get("do_submit"):
+            # Dry-run behind a plain (non-submitting) entry — linkedin easy-apply,
+            # wellfound, workatastartup (live 2026-10-20, linkedin job 30029: the
+            # flow opened, fields grew 60 -> 87, and the run still died dry_run
+            # filled=0). Same fill-probe spirit: the flow fills every reversible
+            # field, the commit-points below refuse the final click with the fills
+            # counted. An authorized-but-declined run (do_submit=True) keeps the
+            # old immediate dry_run here.
+            ctx["fill_probe"] = True
         from ..browser.clicks import pace
         pace(page)
         _before = list(page.context.pages)
@@ -454,8 +466,8 @@ def run_board(page, board, ctx):
                     page.wait_for_timeout(1500)
                     continue
             if nxt is None:
-                if ctx.get("fill_probe"):          # chat flow: the bot applies itself after the
-                    return stop("reached_submit_dry_run", page)   # last answer; the driver withheld it
+                if ctx.get("fill_probe") and done_decisions:   # chat flow: the bot applies
+                    return stop("reached_submit_dry_run", page)   # itself after the withheld answer
                 _tabs_before = list(page.context.pages)
                 if assist and assist.recover(page, "no_advance_control"):
                     page = new_tab_since(page, _tabs_before)   # e.g. "Apply on company website" opened the employer's tab
@@ -464,9 +476,12 @@ def run_board(page, board, ctx):
             label, final = nxt
             if final:
                 if not _authorized(ctx, board, page, done_decisions):
-                    # Fill-probe: everything the flow could fill is filled; the final
-                    # click is the commit and it never fires here.
-                    return stop("reached_submit_dry_run" if ctx.get("fill_probe") else "dry_run", page)
+                    # Fill-probe: everything the flow could fill is filled and the final
+                    # click is the commit — it never fires here. With nothing actually
+                    # filled there is no fill-probe success to claim: keep the old name.
+                    if ctx.get("fill_probe") and done_decisions:
+                        return stop("reached_submit_dry_run", page)
+                    return stop("dry_run", page)
                 _untick(page, board)
                 irreversible = True
                 try:

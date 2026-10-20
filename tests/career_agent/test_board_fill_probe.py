@@ -284,6 +284,30 @@ class _NoHuman:
         raise AssertionError("run asked questions: " + str([f.label for f in fields]))
 
 
+class FakeHuman:
+    """Answers by field ref from a dict, like the Telegram human; records the labels it saw."""
+
+    def __init__(self, answers):
+        self.answers, self.asked = answers, []
+
+    def approve(self, card):
+        raise AssertionError("run asked the human to authorize a submit in a no-submit test")
+
+    def collect(self, fields):
+        self.asked += [f.label for f in fields]
+        return {f.ref: self.answers.get(f.ref, "") for f in fields}
+
+
+class _DecliningHuman:
+    """--submit given, the human says no: the old dry_run must survive unchanged."""
+
+    def approve(self, card):
+        return False
+
+    def collect(self, fields):
+        raise AssertionError("run asked questions in a declined-authorization test")
+
+
 class RecordingDriver(FormDriver):
     """FormDriver that records whether a run ever handed it ctx['fill_probe']."""
 
@@ -302,11 +326,12 @@ def _answers_ladder(monkeypatch, decisions=()):
     monkeypatch.setattr(run_mod, "answer_fields", lambda fields, c: (list(decisions), list(fields)))
 
 
-def _run(page, board, monkeypatch, cap=None, **ctx):
+def _run(page, board, monkeypatch, cap=None, human=None, **ctx):
     from career_agent.boards import run as run_mod
     cap = cap or FakeCapture()
     monkeypatch.setattr(run_mod, "Capture", lambda ctx_, needles: cap)
-    return run_mod.run_board(page, board, {"deps": page.deps, "human": _NoHuman(), "profile": None, **ctx})
+    return run_mod.run_board(page, board, {"deps": page.deps, "human": human or _NoHuman(),
+                                           "profile": None, **ctx})
 
 
 FORM_SCREEN = [Field("#ctc", "text", CTC, False, [], None, None),
@@ -409,3 +434,75 @@ def test_probe_mode_is_unchanged(monkeypatch):
     out = _run(page, _board_one_click(), monkeypatch, probe=True)
     assert out["stopped_reason"] == "probe" and out["decisions"] == []
     assert not page.entry_clicked and page.deps.fill_calls == []
+
+
+# ── the non-submitting-entry lane (linkedin easy-apply, wellfound, workatastartup) ──
+# live 2026-10-20, linkedin job 30029 on 7358f2e5: the flow opened (snapshot grew
+# 60 -> 87 fields) and the run still died dry_run, filled=0 — ctx["fill_probe"] was only
+# set by the submitting-entry guard, so the form driver never saw it, and with the modal's
+# fields carrying no DOM-required flag the only-required-gaps ask filled nothing at all.
+
+def test_dry_run_of_a_plain_form_board_fills_the_flow_and_parks_at_the_submit(monkeypatch):
+    """(a) entry.submits:'no', dry-run, fillable flow: every reversible field is asked
+    (not just the DOM-required ones) and filled, the final click never fires, and the
+    run stops reached_submit_dry_run with the fills counted."""
+    _answers_ladder(monkeypatch)                       # the ladder knows nothing here
+    b = {**_board_flow(), "entry": {"selector": "#apply", "submits": "no"}}
+    page = FakePage(screens=[[], FORM_SCREEN])
+    human = FakeHuman({"#ctc": "30 LPA"})
+    out = _run(page, b, monkeypatch, human=human)
+    assert out["stopped_reason"] == "reached_submit_dry_run", out
+    assert [d["ref"] for d in out["decisions"]] == ["#ctc"]            # the fill count dashboards read
+    assert page.deps.fill_calls == [["#ctc"]]                          # put actually filled it
+    assert page.entry_clicked and page.deps.clicks == []               # entry opened, final click refused
+    assert out["submitted"] is False
+
+
+def test_linkedin_shape_flow_growth_gets_filled_in_dry_run(monkeypatch):
+    """(c) The live regression: the modal grows the snapshot over the page's own chrome,
+    its new fields carry no required flag, and before this change nothing was filled.
+    Now the modal's new optional fields are asked and filled (the page's chrome is not)
+    and the run parks at the submit line with the fills counted."""
+    _answers_ladder(monkeypatch)
+    chrome = [Field("#company", "text", "Acme", False, [], None, None)]
+    modal = chrome + [Field("#ctc", "text", CTC, False, [], None, None),
+                      Field("#send", "button", "Submit application", False, [], None, None)]
+    b = {**_board_flow(), "entry": {"selector": "#apply", "submits": "no"},
+         "final": ["Submit application"]}
+    page = FakePage(screens=[chrome, modal])
+    human = FakeHuman({"#ctc": "30 LPA"})
+    out = _run(page, b, monkeypatch, human=human)
+    assert out["stopped_reason"] == "reached_submit_dry_run", out
+    assert [d["ref"] for d in out["decisions"]] == ["#ctc"]     # the modal's new field, never the page chrome
+    assert page.deps.fill_calls == [["#ctc"]] and page.deps.clicks == []
+
+
+def test_authorized_plain_form_run_is_unchanged_no_flag_no_optional_asks(monkeypatch):
+    """(b) Authorized on the same board: byte-identical to today — the driver never sees
+    the flag, optional gaps are not asked (the _NoHuman stub would raise), the final
+    click fires and the board's own response confirms."""
+    _answers_ladder(monkeypatch)
+    rec = RecordingDriver()
+    from career_agent.boards import run as run_mod
+    monkeypatch.setattr(run_mod, "DRIVERS", {"form": rec})
+    b = {**_board_flow(), "entry": {"selector": "#apply", "submits": "no"}}
+    page = FakePage(screens=[[], FORM_SCREEN])
+    cap = FakeCapture()
+    click = page.deps.click
+    page.deps.click = lambda pg, label: (click(pg, label),
+                                         cap.responses.append(_Resp("http://board.test/api/confirm", status=200)))
+    out = _run(page, b, monkeypatch, cap=cap, do_submit=True, autonomous=True)
+    assert out["submitted"] and out["stopped_reason"] == "submitted", out
+    assert rec.seen == [None]                                   # the driver saw no fill_probe
+    assert page.deps.clicks == ["Send application"]             # the commit happened, authorized
+
+
+def test_declined_authorization_keeps_the_old_dry_run(monkeypatch):
+    """--submit given but the human declines: no flag (the lane is keyed on do_submit),
+    nothing asked, the final control keeps the plain dry_run stop it always gave."""
+    _answers_ladder(monkeypatch)
+    b = {**_board_flow(), "entry": {"selector": "#apply", "submits": "no"}}
+    page = FakePage(screens=[[], FORM_SCREEN])
+    out = _run(page, b, monkeypatch, human=_DecliningHuman(), do_submit=True)
+    assert out["stopped_reason"] == "dry_run" and out["submitted"] is False
+    assert page.deps.clicks == [] and out["decisions"] == []
