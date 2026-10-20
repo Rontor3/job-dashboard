@@ -45,6 +45,13 @@ Profile data lives at `~/.career_agent/chrome-p3/Profile 3` (symlink → real Ch
 Sessions persist there — log in to job sites once in that Chrome window; future runs are authenticated.
 If Chrome isn't running, `launch()` falls back to `launch_persistent_context` automatically.
 
+**NEVER close or restart Chrome around the user (rule 2026-10-20):** the operator keeps one tab open per
+logged-in site and the runs need those sessions. No `pkill`, no relaunch while pages are open, no
+`/json/close` triage of *any* pre-existing tab — even a "stale-looking" one. `TabLedger` already only
+closes tabs a run opened itself and `mark_user_owned` protects a reused human tab; an assistant/prep
+script must play by the same rule: tabs that existed before our work are not ours to touch. If Chrome is
+dead AND the user confirms, the launch recipe above is the only sanctioned restart.
+
 ## Execution path
 
 ```
