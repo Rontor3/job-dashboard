@@ -506,3 +506,21 @@ def test_declined_authorization_keeps_the_old_dry_run(monkeypatch):
     out = _run(page, b, monkeypatch, human=_DecliningHuman(), do_submit=True)
     assert out["stopped_reason"] == "dry_run" and out["submitted"] is False
     assert page.deps.clicks == [] and out["decisions"] == []
+
+
+def test_result_dict_carries_filled_and_escalated_counts(monkeypatch):
+    """The battle summary reads filled/escalated off the result dict; the keys were
+    missing (the DB run_log showed filled=1, the summary parsed a nonexistent key -> 0).
+    The counts must match decisions/pending_human on every stop."""
+    _answers_ladder(monkeypatch, [FillDecision("#ctc", "text", CTC, "30 LPA", "fill", "profile")])
+    page = FakePage(screens=[[], FORM_SCREEN])
+    out = _run(page, _board_flow(), monkeypatch)
+    assert out["stopped_reason"] == "reached_submit_dry_run"
+    assert out["filled"] == 1 == len(out["decisions"]) and out["escalated"] == 0
+    # a needs_human stop: the escalation count matches the pending list, nothing filled
+    _answers_ladder(monkeypatch)                       # nothing decidable, the human answers nothing
+    page2 = FakePage(screens=[[], [Field("#ctc", "text", CTC, True, [], None, None),
+                                   Field("#send", "button", "Send application", False, [], None, None)]])
+    out2 = _run(page2, _board_flow(), monkeypatch, human=FakeHuman({}))
+    assert out2["stopped_reason"] == "needs_human", out2
+    assert out2["filled"] == 0 and out2["escalated"] == 1 == len(out2["pending_human"])

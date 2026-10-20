@@ -10,6 +10,7 @@ takes it with no Claude call.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -21,11 +22,41 @@ ACTIONS = ("click", "dismiss_modal", "go_back", "give_up")
 _DENY = ("submit", "send application", "captcha", "password", "sign in", "sign up", "log in",
          "login", "register", "create account", "delete", "withdraw", "pay")
 
+# The assist child's own failure/limit notice is never an answer. When the CLI is
+# rate-limited or out of credits it prints that notice as its output, and the notice
+# would otherwise be drafted into a live form field (workatastartup 2026-10-20:
+# "You've hit your weekly limit · resets Oct 22 at 5:30am (Asia/Calcutta)" was filled
+# in as the founder message). Anchored notice shapes only — prose that merely mentions
+# rate limits stays a plausible answer.
+_DRAFT_ERROR_RE = re.compile(
+    r"^you(?:'?ve| have) (hit|used|reached|exhausted)"                       # "You've hit your weekly limit"
+    r"|^your (weekly|daily|monthly|usage|rate|session) limit"
+    r"|^(weekly|daily|monthly|usage|rate|session) limit (hit|reached|exceeded)"
+    r"|resets?\s+(?:on\s+|in\s+)?\w{3}\.?\s+\d{1,2}\b.{0,20}?\d{1,2}:\d{2}"  # "resets Oct 22 at 5:30am"
+    r"|^(?:api )?error\b|^service unavailable|^too many requests|^overloaded"
+    r"|^your (credit|subscription)|^insufficient (credit|balance)", re.I)
+
+_LAST_STDERR = ""        # the assist child's last stderr line, for the echo check
+
 
 def _claude_cli(prompt: str, timeout: int = 120) -> str:
+    global _LAST_STDERR
     r = subprocess.run(["claude", "-p", prompt, "--allowedTools", "Read", "--max-turns", "4"],
                        capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
+    _LAST_STDERR = ((r.stderr or "").strip().splitlines() or [""])[-1]
     return r.stdout
+
+
+def error_shaped(text) -> bool:
+    """The assist child's own limit/error notice (or nothing) — not a drafted answer.
+    An empty draft, a notice-shaped one, or a verbatim echo of the child's last stderr
+    line all mean NO-ANSWER; the field stays open for the human."""
+    t = str(text or "").strip()
+    if not t:
+        return True
+    if _LAST_STDERR and t == _LAST_STDERR.strip():
+        return True
+    return bool(_DRAFT_ERROR_RE.search(t))
 
 
 _CALLS: dict = {}

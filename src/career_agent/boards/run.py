@@ -312,7 +312,9 @@ def run_board(page, board, ctx):
 
     def stop(reason, pg):
         res.update(stopped_reason=reason, url=pg.url, submitted=reason == "submitted",
-                   decisions=[dataclasses.asdict(d) for d in done_decisions])
+                   decisions=[dataclasses.asdict(d) for d in done_decisions],
+                   filled=len(done_decisions),             # the battle summary reads these two
+                   escalated=len(res["pending_human"]))    # keys off the result, not the run_log
         if ctx.get("eligibility"):
             res["eligibility"] = ctx["eligibility"]
         log.finish(pg, reason, res["pending_human"])

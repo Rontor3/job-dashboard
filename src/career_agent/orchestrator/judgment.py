@@ -194,6 +194,18 @@ def short_answer(reply: str) -> str | None:
     return line if line and len(line) <= 60 else None
 
 
+def _reject_error_draft(f, value) -> bool:
+    """True when `value` is the assist child's own limit/error notice, not an answer
+    (workatastartup 2026-10-20: the Claude CLI's "You've hit your weekly limit ·
+    resets Oct 22 …" was drafted into the live message box). The field stays open
+    for the human-ask/park path; a plausible draft is never touched."""
+    from .claude_assist import error_shaped
+    if not error_shaped(value):
+        return False
+    print(f"[assist] rejected error-shaped draft for {(f.label or f.ref or '')[:40]!r}", flush=True)
+    return True
+
+
 def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_draft=None):
     """Answer the fields map_screen escalated. Returns (answered, still_need,
     flagged). Never raises; never answers a sensitive field; never exceeds `cap`
@@ -227,7 +239,7 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
         if f.kind == "combobox" and not f.options:
             calls += 1
             val = judge_combobox_value(f.label, profile_text, llm)
-            if val is None:
+            if val is None or _reject_error_draft(f, val):
                 still_need.append(f)
             else:
                 answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
@@ -255,6 +267,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 on_draft(f, res, not low)
             if low:
                 still_need.append(f); continue      # untrusted -> never filled silently
+            if _reject_error_draft(f, res.get("answer")):
+                still_need.append(f); continue      # the child's own failure text is not an answer
             if orchestrator is None and "general_fallback" in (res.get("flags") or []):
                 still_need.append(f); continue      # a canned template is never filled as the answer
             weak = res.get("flags") or res.get("unsupported_company_claims")
@@ -274,8 +288,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
             replies = {}
         for f in hard:
             ans = replies.get(f.ref)
-            if ans:
-                answered.append(FillDecision(f.ref, f.kind, f.label, ans, "fill", "orchestrator"))
-            else:
+            if not ans or _reject_error_draft(f, ans):
                 still_need.append(f)
+            else:
+                answered.append(FillDecision(f.ref, f.kind, f.label, ans, "fill", "orchestrator"))
     return answered, still_need, flagged
