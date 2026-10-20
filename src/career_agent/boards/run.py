@@ -42,6 +42,18 @@ _APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e =>
     const t = (e.innerText || '').trim();
     return e.checkVisibility() && t.length < 60 && /^\\W*(applied|already applied|application (sent|submitted))\\b/i.test(t);
 })"""
+# An APPLIED BADGE is usually not a button (naukri live 2026-10-20: a green styled span,
+# no form anywhere on the page, and the run kept hunting for an Apply entry until the assist
+# concluded it). A short LEAF element whose whole text is an applied notice says the same
+# thing buttons do; prose longer than 40 chars, containers holding a template, and UI words
+# after the notice (naukri's own "Applied filters") never match. Anchors stay out (a nav
+# item named Applied is a page we can still act on); checked only when no form is open.
+_APPLIED_BADGE_JS = """() => [...document.querySelectorAll('span,div,p,label,i,[role=status]')].some(e => {
+    if (!e.checkVisibility() || e.children.length > 1) return false;
+    const t = (e.innerText || '').trim();
+    return t.length < 40 && /^\\W*(you(?:'?ve| have)? already applied|application (submitted|sent)|applied)\\b/i.test(t)
+        && !/\\b(filters?|jobs?|search|sort|via|salary)\\b/i.test(t);
+})"""
 _ERRORS_JS = """() => [...new Set([...document.querySelectorAll(
     '[role=alert],[aria-live=assertive],[id*=error i],[class*=error i],[class*=invalid i]')]
     .filter(e => e.checkVisibility() && e.innerText && e.innerText.trim().length < 300)
@@ -62,6 +74,14 @@ def _posting_state(page, text):
     try:
         if _APPLIED.search(text or "") or page.evaluate(_APPLIED_BUTTON_JS):
             return "already_applied"
+    except Exception:
+        pass
+    try:
+        # No application form open + a badge saying it's done: the application exists
+        # already (naukri live 2026-10-20, green 'Applied' badge). A distinct, honest
+        # stop name so the queue shows board state, not an engine guess.
+        if not _form_already_open(page) and page.evaluate(_APPLIED_BADGE_JS):
+            return "already_applied_board_state"
     except Exception:
         pass
     return None
