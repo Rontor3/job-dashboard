@@ -48,11 +48,27 @@ class QARecorder:
         # A question-bank best guess is on the form but still needs the
         # human's look before submit, so it's listed with the open questions.
         status = "needs_answer" if d.source == "qbank_likely" else "filled"
-        self._rec(d.ref, d.label, kind=d.kind, answer=str(d.value),
-                  source=d.source, status=status)
+        kw = dict(kind=d.kind, answer=str(d.value), source=d.source, status=status)
+        if getattr(d, "basis", ""):
+            kw["basis"] = d.basis       # e.g. the decline gate's policy note (overrides the retrieval trace)
+        self._rec(d.ref, d.label, **kw)
 
-    def needs(self, f):
-        self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, status="needs_answer")
+    def needs(self, f, basis=None):
+        kw = dict(kind=f.kind, purpose=f.purpose, status="needs_answer")
+        if basis:
+            kw["basis"] = basis
+        self._rec(f.ref, f.label, **kw)
+
+    def held(self, f, basis=None):
+        """A field the decline gate consumed but nothing answers: never a
+        decision, never a model question, never silently missing — one row
+        naming what the gate held back and why. A later needs()/answered()
+        for the same field updates this row in place (status becomes
+        needs_answer when the human is asked at the escalation boundary)."""
+        kw = dict(kind=f.kind, purpose=f.purpose, source="decline_class", status="held")
+        if basis:
+            kw["basis"] = basis
+        self._rec(f.ref, f.label, **kw)
 
     def on_draft(self, f, res, filled):
         self._rec(f.ref, f.label, kind=f.kind, purpose=f.purpose, answer=res.get("answer"),

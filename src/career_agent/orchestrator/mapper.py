@@ -15,6 +15,7 @@ class FillDecision:
     value: object
     action: str
     source: str
+    basis: str = ""        # why this value (audit trail into application_qa.basis); empty = a tier decided silently
 
 
 def _action_for_kind(kind: str) -> str:

@@ -19,7 +19,10 @@ from job_dashboard import qa_store
 
 AUTONOMY_THRESHOLD = 3
 # Decision sources that are your own fixed facts or something you gave this very run: never a guess.
-STABLE_SOURCES = {"resume", "standard", "attestation", "human", "human_prior", "profile", "board_prefill", "upload"}
+# "decline_class" is the orchestrator decline gate's policy answer (decline_class.gate) — deterministic,
+# not a guess: an auto-declined marketing opt-in never blocks a form's autonomy.
+STABLE_SOURCES = {"resume", "standard", "attestation", "human", "human_prior", "profile", "board_prefill", "upload",
+                  "decline_class"}
 
 
 def ensure(conn) -> None:
@@ -80,6 +83,8 @@ def _same(answer, final) -> bool:
     a, f = norm(answer), norm(final)
     if a in ("true", "yes", "checked") and f in ("true", "yes", "checked", "on"):
         return True
+    if a in ("false", "no", "unchecked") and f in ("", "false", "no", "unchecked", "off", "0"):
+        return True      # a decline that read back empty ("", no read for an unticked box) is the same decline
     return a == f or (bool(a) and (a in f or f in a) and min(len(a), len(f)) >= 3)      # "30 days" vs "30"
 
 
