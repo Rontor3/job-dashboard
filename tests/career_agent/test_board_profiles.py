@@ -1,3 +1,5 @@
+import json
+
 from career_agent.boards.profiles import board_for, json_path, load_boards
 
 IDS = {"board:naukri", "board:linkedin", "board:indeed", "board:iimjobs",
@@ -40,3 +42,24 @@ def test_json_path():
     assert json_path(o, "jobs[1].q") is None
     assert json_path(o, "success") is True
     assert json_path(None, "a") is None
+
+
+def test_entry_chain_is_passed_through_and_absence_keeps_the_legacy_selector(tmp_path):
+    # board:indeed declares an ordered entry chain; boards without one keep no
+    # chain key, so the legacy single selector still acts as the only leg.
+    g = tmp_path / "g.json"
+    g.write_text(json.dumps({"nodes": [
+        {"type": "board", "id": "board:indeed", "archetype": "form", "label": "Indeed",
+         "domains": ["indeed.com"], "daily_cap": 5, "confirm": [{"capture": "x"}],
+         "entry": {"selector": "#apply", "submits": "no",
+                   "chain": [{"selector": "#apply", "leg": "native"},
+                             {"selector": "a:has-text('company site')", "leg": "external",
+                              "handoff": "external"}]}},
+        {"type": "board", "id": "board:plain", "archetype": "form", "label": "Plain",
+         "domains": ["plain.test"], "daily_cap": 5, "confirm": [{"capture": "x"}],
+         "entry": {"selector": "button:text-is('Apply')", "submits": "yes"}},
+    ]}))
+    inde, plain = load_boards(g)
+    assert [l["leg"] for l in inde["entry"]["chain"]] == ["native", "external"] \
+        and inde["entry"]["chain"][1]["handoff"] == "external"
+    assert "chain" not in plain["entry"] and plain["entry"]["selector"] == "button:text-is('Apply')"

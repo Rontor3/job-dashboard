@@ -17,7 +17,7 @@ from ..orchestrator.sensitive import split_sensitive
 from .drivers import DRIVERS
 from .run_log import BoardRunLog
 from .profiles import on_board
-from ..browser.page_prep import is_closed_posting, is_login_page
+from ..browser.page_prep import is_closed_posting, is_wall, clear_auth_wall, new_tab_since
 from .signals import confirmed, is_challenge, is_logged_out
 
 MAX_STEPS = 8
@@ -146,6 +146,14 @@ def _interstitials(page, board):
                 page.wait_for_timeout(1500)
         except Exception:
             pass
+
+
+def _entry_legs(board):
+    """The board's ordered entry legs: the graph node's declared `chain` when it
+    has one (an external handoff leg is expected to leave the board), else the
+    legacy single selector as the chain's only leg — boards without a chain
+    behave exactly as they did."""
+    return board["entry"].get("chain") or [{"selector": board["entry"]["selector"]}]
 
 
 _REF_NOISE = {"react", "select", "form", "input", "field", "data", "cref", "id", "qualification",
@@ -289,6 +297,8 @@ def _answers(fields, board, driver, cap, ctx):
     decided |= set(pre)
     gaps = [f for f in fields if f.ref not in decided]
     upfront = gaps if driver.ask_optional_upfront else [f for f in gaps if f.required]
+    if upfront and ctx.get("fill_first") and decisions:
+        ctx["fill_first"](decisions)        # what is already answered goes in before the human is asked about the rest
     got, left = _ask(upfront, ctx)
     return (decisions + got, [f for f in left if f.required],
             [f for f in gaps if not f.required and f not in upfront] + [f for f in left if not f.required])
@@ -296,6 +306,7 @@ def _answers(fields, board, driver, cap, ctx):
 
 def run_board(page, board, ctx):
     ctx = dict(ctx)
+    ctx.setdefault("intended_url", page.url)     # the job page this run set out for (apply.py passes args.url)
     res = {"url": page.url, "job_id": ctx.get("job_id"), "board": board["id"], "submitted": False,
            "stopped_reason": None, "decisions": [], "pending_human": []}
     done_decisions = []
@@ -344,24 +355,34 @@ def run_board(page, board, ctx):
         from ..browser.clicks import pace
         pace(page)
         _before = list(page.context.pages)
-        entry = page.locator(board["entry"]["selector"]).filter(visible=True).first
-        try:
+        legs = _entry_legs(board)
+        clicked, err = None, None
+        for leg in legs:
+            entry = page.locator(leg["selector"]).filter(visible=True).first
             try:
-                entry.click(timeout=8000, no_wait_after=True)
-            except Exception:
-                # Covered control (Instahyre lays an "Apply now" link over its
-                # button): click what is on top at its centre, as a person would.
-                entry.evaluate("""e => { const r = e.getBoundingClientRect();
-                    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-                    (top || e).click(); }""", timeout=5000)
-        except Exception as e:
+                try:
+                    if len(legs) > 1 and not entry.is_visible():
+                        continue            # a chain leg not on this page: the next leg decides
+                    entry.click(timeout=8000, no_wait_after=True)
+                except Exception:
+                    # Covered control (Instahyre lays an "Apply now" link over its
+                    # button): click what is on top at its centre, as a person would.
+                    entry.evaluate("""e => { const r = e.getBoundingClientRect();
+                        const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                        (top || e).click(); }""", timeout=5000)
+                clicked, err = leg, None
+                break
+            except Exception as e:
+                err = e                     # a visible leg may be unclickable: a later leg still can
+        if clicked is not None:
+            res["entry"] = {"leg": clicked.get("leg") or "selector"}    # which leg fired, for the run log
+        else:
             if _form_already_open(page):
                 ctx["baseline"] = set()           # an earlier run left the form open: every field on it is the form's
             elif not (assist and assist.recover(page, "no_entry")):     # a recovery click replaces the entry click
-                res["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+                res["error"] = (f"{type(err).__name__}: {str(err)[:300]}" if err else "no entry leg on the page")
                 return stop("no_entry", page)
         page.wait_for_timeout(3000)
-        from ..browser.page_prep import new_tab_since
         page = new_tab_since(page, _before)      # the entry click may open a new tab
         _interstitials(page, board)
         try:
@@ -383,13 +404,30 @@ def run_board(page, board, ctx):
                 break
             from ..browser.clicks import wait_until_stable
             wait_until_stable(page)                   # the step may still be drawing after the URL changed
+            from ..browser.page_health import recover
+            if recover(page, ctx["intended_url"]) == "dead":
+                return stop("dead_page", page)        # Chrome's error shell and the fresh GET already failed once
             blocked = _blocked(page, board)
             if blocked:
                 return stop(blocked, page)
             if not on_board(page.url, board):
                 return stop("left_board", page)     # e.g. "Apply on company site": another engine takes over
-            if is_login_page(page):
-                return stop("auth_wall", page)      # a login/sign-up wall is never a question for a human
+            if is_wall(page, page.url):
+                # A login / sign-up wall is never a question for a human, and never
+                # reaches the perception below. One pass of the board ctx's
+                # credential provider (guest apply -> stored creds -> register,
+                # clear_auth_wall's contract), then the wall is re-checked: still
+                # walled -> stop as before. After form work started there is no
+                # rewinding into an account flow.
+                if done_decisions:
+                    return stop("auth_wall", page)
+                _wall_tabs = list(page.context.pages)
+                clear_auth_wall(page, ctx.get("cred_provider"))
+                page = new_tab_since(page, _wall_tabs)        # guest apply may continue in a fresh tab
+                page.wait_for_timeout(1500)                   # the provider's last hop may still be settling
+                if is_wall(page, page.url):
+                    return stop("auth_wall", page)
+                continue
             ctx["page_index"] = log.page(page)
             fields, blocked = split_sensitive(driver.fields(page, board, ctx, cap))
             if any(f.required for f in blocked):          # bank / ID details: yours to fill, never asked
@@ -398,6 +436,7 @@ def run_board(page, board, ctx):
             sig = (page.url, tuple(sorted((f.label, f.kind) for f in fields)))
             errs = _visible_errors(page) if clicked_sig is not None and sig == clicked_sig else []
             bounced = bool(errs)       # same fields back and the board shows an error: it rejected an answer (a slow page is the stuck path)
+            ctx["fill_first"] = None if ctx.get("probe") else (lambda ds: driver.put(page, board, ctx, fields, ds))
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
             if bounced:
                 # Next/Continue was clicked but the form did not move on: the board
@@ -422,6 +461,8 @@ def run_board(page, board, ctx):
                 res["fields"] = [dataclasses.asdict(f) for f in fields]
                 return stop("probe", page)
             if needs:
+                if not ctx.get("probe"):
+                    driver.put(page, board, ctx, fields, decisions)     # leave the page as full as the answers allow
                 res["pending_human"] = [dataclasses.asdict(f) for f in needs]
                 return stop("needs_human", page)
             driver.put(page, board, ctx, fields, decisions)

@@ -761,7 +761,22 @@
       "archetype": "form",
       "entry": {
         "selector": "#indeedApplyButton, button:has-text(\"Apply now\"), a:has-text(\"Apply now\")",
-        "submits": "no"
+        "submits": "no",
+        "chain": [
+          {
+            "selector": "#indeedApplyButton",
+            "leg": "native"
+          },
+          {
+            "selector": "button:has-text(\"Apply now\"), a:has-text(\"Apply now\")",
+            "leg": "native"
+          },
+          {
+            "selector": "a:has-text(\"Apply on company site\"), [aria-label*='company site' i], button:has-text('Apply on company site'), a:has-text(\"Apply to the employer's site\")",
+            "leg": "external",
+            "handoff": "external"
+          }
+        ]
       },
       "advance": [
         "Continue",
@@ -1244,6 +1259,17 @@
         "I'm interested"
       ],
       "reach_end": "form"
+    },
+    {
+      "id": "site:docs.google.com",
+      "type": "site",
+      "label": "docs.google.com",
+      "domains": [
+        "docs.google.com"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run"
+      ]
     }
   ],
   "edges": [

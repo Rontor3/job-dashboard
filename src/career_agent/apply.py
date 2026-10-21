@@ -413,6 +413,15 @@ def _apply(args, box: dict) -> None:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
             pass
+        # A re-run re-enters through history state; Chrome answers a stale POST with
+        # its own error shell (job 29987: ERR_CACHE_MISS on chrome-error://). ONE
+        # fresh GET of the job URL, then this run has nothing readable to work with.
+        from .browser.page_health import recover as _page_recover
+        if _page_recover(page, args.url) == "dead":
+            print("[stop] the tab is stuck on Chrome's error page after a fresh reload.", flush=True)
+            box["out"] = {"url": args.url, "stopped_reason": "dead_page"}
+            _close_dead_tab(page)
+            return
         _record_run_tab(context, page, args)
         # Scrape JD text from the landing page before clicking Apply Now.
         # Used only this run to ground company-specific Telegram questions.
@@ -448,11 +457,21 @@ def _apply(args, box: dict) -> None:
         _board = board_for(page.url) or board_for(args.url)
         _run_dir = str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         _assist = _make_assist(args, _run_dir)         # one assist for whichever engine runs this job
+        # The credential provider is built once and shared by both engines: the career-site
+        # engine's clear_auth_wall and the board engine's sign-up wall (run.py) both call
+        # provide(page, gate, site, ...) — guest apply -> stored creds -> register.
+        from .browser.credential_provider import provide as _provide
+        from .browser.page_prep import clear_auth_wall
+        _job_url = args.url
+        _profile_email = contact.get("email", "")
+        _provide_url = lambda pg, gate, site: _provide(
+            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""))
         if _board:
             out = _run_board(_board, page, args, autosubmit_policy=_policy_fn, on_submit=_on_submit,
                              profile=profile, human=human, resume_pdf=resume_pdf,
                              judge_fn=judge_fn, learn=learn, human_wait_s=args.human_wait,
-                             option_matcher=option_matcher, qa=qa_rec, run_dir=_run_dir, assist=_assist)
+                             option_matcher=option_matcher, qa=qa_rec, run_dir=_run_dir, assist=_assist,
+                             cred_provider=_provide_url, intended_url=args.url)
             if out.get("stopped_reason") == "left_board":
                 # The flow moved off the board (e.g. "Apply on company site"): the career-site engine takes over
                 # on that page, with its account/login handling. The board's own run log is not written.
@@ -513,13 +532,6 @@ def _apply(args, box: dict) -> None:
         except ImportError:
             pass  # google client libs not installed yet
 
-        from .browser.credential_provider import provide as _provide
-        from .browser.page_prep import clear_auth_wall
-        _job_url = args.url
-        _profile_email = contact.get("email", "")
-        _provide_url = lambda pg, gate, site: _provide(
-            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""))
-
         if kind == "password":
             print("[password] attempting credential provider...")
             _before = list(page.context.pages)
@@ -572,6 +584,7 @@ def _apply(args, box: dict) -> None:
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text
             "run_dir": run_dir, "qa": qa_rec, "assist": _assist,
             "autosubmit_policy": _policy_fn, "on_submit": _on_submit,
+            "intended_url": args.url,        # the job page the run set out for (page-health replay)
             # a JD-tailored résumé is GENERATED, not the one the candidate supplied: only on explicit request
             "tailor_cv": bool(args.tailor_cv or os.getenv("CAREER_AGENT_TAILOR_CV") == "1"),
         }}

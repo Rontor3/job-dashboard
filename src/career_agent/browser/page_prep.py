@@ -67,6 +67,179 @@ _DIALOG_DISMISS = ["Continue Working", "Continue", "Stay", "Stay signed in", "Di
 _IDLE_DIALOG_RE = re.compile(r"session|timed? ?out|inactiv|idle|still (there|working|here)|are you there"
                              r"|stay signed in|continue working|about to expire|log(ged)? out", re.I)
 
+# Marketing-upsell modals (job 31867's "don't let your application get lost in the pile" AI
+# pitch): the right move is a dismissal affordance, never the primary buy button.
+_UPSELL_RE = re.compile(
+    r"generate (a )?(cover letter|resume)|ai (cover letter|writer)|premium|boost|upgrade|"
+    r"credits?|unlock|don'?t let your application", re.I)
+
+# Their close affordances, in click order. "Continue" is deliberately absent: on an
+# upsell that is the sell, not the exit.
+_UPSELL_CLOSE = ["No thanks", "No thank you", "Skip for now", "Skip", "Maybe later",
+                 "Not now", "Dismiss", "Cancel", "Close"]
+
+# The site's own apply handoff ("I'm ready to apply" on 31867): only the modal's sole
+# named control may be clicked as the LAST rung, and never when the modal markup
+# carries ad machinery — an ad unit's Apply is not the site's handoff.
+_HANDOFF_RE = re.compile(
+    r"(?:i'?m |im )?(?:ready|here) to apply|apply (?:now|on |to |for )"
+    r"|start (?:the |my |this |an )?(?:application|apply)|begin (?:the |my |a )?application", re.I)
+_AD_DIALOG_CSS = "ins.adsbygoogle,[id^=div-gpt-ad],[data-ad-slot],[data-google-av-attrs]"
+_CLOSE_X_CSS = ('[aria-label="Close" i],[aria-label="Dismiss" i],[title="Close" i],'
+                '[title="Dismiss" i],button:text-is("×"),button:text-is("✕"),button:text-is("⨯")')
+
+# Failed attempts per modal snapshot (page.url + trimmed dialog text). Module-global
+# like _TRAIL: one apply run per process; entries clear when the modal resolves.
+_MODAL_ATTEMPTS: dict = {}
+_STUCK_NOTED: set = set()
+
+
+def _click_close_x(page, dialog):
+    """The icon-only close (×) an upsell offers when no named exit exists."""
+    try:
+        btn = dialog.locator(_CLOSE_X_CSS).first
+        if btn.count() == 0:
+            return None
+        from .clicks import act
+        act(page, lambda: btn.click(timeout=3000), max_wait_ms=3000)
+        return "close ×"
+    except Exception:
+        return None
+
+
+def _press_escape(page) -> bool:
+    """Escape as the last dismissal rung: modals without an explicit close mostly honor it."""
+    try:
+        from .clicks import act
+        act(page, lambda: page.keyboard.press("Escape"), max_wait_ms=2000)
+        return True
+    except Exception:
+        return False
+
+
+def _click_handoff(page, dialog, names):
+    """Final rung, tried once per modal snapshot: the ONLY named control is the
+    site's own continue-style handoff ("I'm ready to apply" skipped the upsell and
+    opened the form on 31867). An ad-marked dialog is never a handoff — its Apply
+    is the ad's — so that closes via Escape instead."""
+    controls = [" ".join(n.split()) for n in names if n.strip()]
+    if len(controls) != 1 or len(controls[0]) > 80 or not _HANDOFF_RE.search(controls[0].lower()):
+        return None
+    try:
+        ad_marked = dialog.locator(_AD_DIALOG_CSS).count() > 0
+    except Exception:
+        ad_marked = False
+    from .cta_arbiter import is_ad_like
+    if is_ad_like({"name": controls[0], "attrs": "advert" if ad_marked else ""}):
+        return None
+    return _click_first(page, [controls[0]], within=dialog)
+
+
+def _note_stuck(sig):
+    """Mark the 2-strike degrade. Contract note: prepare() discards dismiss_dialogs'
+    bool today and no stopped-reason channel exists without touching the walk
+    engines, so the degrade shows up as attempts stopping plus this trail/print pair."""
+    if sig in _STUCK_NOTED:
+        return
+    _STUCK_NOTED.add(sig)
+    trail_note(step="modal_stuck", attempts=2, url=_bare(sig.split("|", 1)[0]))
+    print("[prep] modal stuck: identical snapshot survived 2 attempts — attempts stopped", flush=True)
+
+
+def _survived(page, sig, strikes):
+    """Strike bookkeeping: an attempt counts only when the SAME snapshot (url plus
+    trimmed visible text) is still on screen after the click. Two surviving
+    snapshots in a row stop all further attempts for that signature."""
+    text = ""
+    try:
+        d = page.locator("[role=dialog]:visible, [role=alertdialog]:visible").first
+        if d.count() > 0:
+            text = d.inner_text(timeout=1000)
+    except Exception:
+        text = ""
+    if not text or f"{page.url}|{' '.join(text.split())[:400]}" != sig:
+        _MODAL_ATTEMPTS.pop(sig, None)     # resolved or re-rendered: no streak carries over
+        return
+    n = _MODAL_ATTEMPTS[sig] = strikes + 1
+    if n >= 2:
+        _note_stuck(sig)
+
+
+def dismiss_dialogs(page) -> bool:
+    """Dismiss an idle/blocking modal (e.g. Oracle 'Continue Working'). Never a destructive/submit control, and
+    never a button OUTSIDE the modal: a page that merely carries a (hidden) dialog element has its own "Continue"
+    that advances the form, and clicking that here skipped a whole step (Indeed's questions page).
+
+    Marketing upsells get a ladder before the old rules: dismiss with the affordance
+    they offer ("No thanks"/close ×; Escape last); their primary CTA is never clicked,
+    except the site's own apply handoff when it is the modal's ONLY named control and
+    the markup shows no ad machinery — clicked once per snapshot, as the last rung.
+    The 2-strike rule ends the old six-in-a-row modal loop: the same snapshot gets
+    two attempts total, then this stops attempting and records modal_stuck."""
+    try:
+        dialog = page.locator("[role=dialog]:visible, [role=alertdialog]:visible").first
+        if dialog.count() == 0:
+            return False
+        names = dialog.locator("a[href], button").all_inner_texts()
+        text = dialog.inner_text(timeout=1000)
+        fillable = dialog.locator("textarea:visible, select:visible, input:visible:not([type=hidden]):not([type=checkbox])"
+                                  ":not([type=radio]):not([type=submit]):not([type=button])").count() > 0
+    except Exception:
+        return False
+    # Where a modal that offers an Apply step sits in the ladder: the upsell archetype
+    # dismisses it, a sole continue-CTA handoff is clicked ONCE (an apply-boundary modal
+    # is the site's handoff, never an ad unit), anything else keeps today's rules (kept
+    # for the drill to click); the 2-strike line comes first — before any dismiss attempt
+    # this run already knows this exact snapshot never answers.
+    sig = f"{page.url}|{' '.join(text.split())[:400]}"
+    strikes = _MODAL_ATTEMPTS.get(sig, 0)
+    if strikes >= 2:
+        _note_stuck(sig)                       # the degrade: never a third attempt, never a sixth
+        return False
+    upsell = not fillable and bool(_UPSELL_RE.search(text))
+    degraded = strikes >= 1                    # this snapshot survived one dismiss attempt already
+    if upsell:
+        via = _click_first(page, _UPSELL_CLOSE, within=dialog)
+        if not via:
+            via = _click_close_x(page, dialog)
+        if via:
+            trail_note(step="modal_dismissed", via=via, upsell=True)
+        elif strikes == 0:
+            via = _click_handoff(page, dialog, names)
+            if via:
+                trail_note(step="modal_advanced", via=via)
+        if not via and _press_escape(page):
+            via = "Escape"
+            trail_note(step="modal_dismissed", via=via, upsell=True)
+        _survived(page, sig, strikes)
+        return via is not None
+    if not degraded and _best_apply([{"name": " ".join(n.split())} for n in names]) is not None:
+        hand = None if fillable else _click_handoff(page, dialog, names)   # the (b) sole-continue rung
+        if hand:
+            trail_note(step="modal_advanced", via=hand)
+            _survived(page, sig, strikes)
+            return True
+        trail_note(step="modal_kept", why="offers an apply control")
+        return False
+    # An application form is often itself a dialog (Work at a Startup, Wellfound): its
+    # "Close"/"Continue" would close or advance the application under the agent.
+    if fillable and not _IDLE_DIALOG_RE.search(text):
+        return False
+    via = None
+    if degraded:                               # a failing modal deepens its rungs once, then stops
+        via = _click_first(page, _UPSELL_CLOSE, within=dialog)
+        if not via:
+            via = _click_close_x(page, dialog)
+        if not via and _press_escape(page):
+            via = "Escape"
+            trail_note(step="modal_dismissed", via=via)
+    if not via:
+        via = _click_first(page, _DIALOG_DISMISS, within=dialog)
+    if via:
+        trail_note(step="modal_dismissed", via=via)
+    _survived(page, sig, strikes)
+    return via is not None
+
 
 def _name_re(name: str):
     """A control whose name STARTS with `name` as whole words ("Reject" -> "Reject all"). A substring match let
@@ -116,34 +289,6 @@ def dismiss_consent(page) -> bool:
         if attempt == 0:
             page.wait_for_timeout(1500)
     return False
-
-
-def dismiss_dialogs(page) -> bool:
-    """Dismiss an idle/blocking modal (e.g. Oracle 'Continue Working'). Never a destructive/submit control, and
-    never a button OUTSIDE the modal: a page that merely carries a (hidden) dialog element has its own "Continue"
-    that advances the form, and clicking that here skipped a whole step (Indeed's questions page)."""
-    try:
-        dialog = page.locator("[role=dialog]:visible, [role=alertdialog]:visible").first
-        if dialog.count() == 0:
-            return False
-        # A modal that offers an Apply step ("I'm ready to apply") is the next hop, not noise.
-        names = dialog.locator("a[href], button").all_inner_texts()
-        if _best_apply([{"name": " ".join(n.split())} for n in names]) is not None:
-            trail_note(step="modal_kept", why="offers an apply control")
-            return False
-        text = dialog.inner_text(timeout=1000)
-        fillable = dialog.locator("textarea:visible, select:visible, input:visible:not([type=hidden]):not([type=checkbox])"
-                                  ":not([type=radio]):not([type=submit]):not([type=button])").count() > 0
-    except Exception:
-        return False
-    # An application form is often itself a dialog (Work at a Startup, Wellfound): its "Close"/"Continue" would close or
-    # advance the application under the agent. A dialog with fields to fill stays, unless it is an idle/session prompt.
-    if fillable and not _IDLE_DIALOG_RE.search(text):
-        return False
-    via = _click_first(page, _DIALOG_DISMISS, within=dialog)       # inside the modal only
-    if via:
-        trail_note(step="modal_dismissed", via=via)
-    return via is not None
 
 
 _CLOSED_RE = re.compile(
@@ -259,6 +404,52 @@ def login_from_signals(d: dict) -> bool:
 def is_login_page(page) -> bool:
     try:
         return login_from_signals(page.evaluate(_LOGIN_SIGNALS_JS))
+    except Exception:
+        return False
+
+
+# An auth word standing as its own path segment (not mentioned inside a job slug)
+_WALL_WORDS = ("register", "signup", "sign-up", "login", "log-in", "signin",
+               "authenticate", "create-account")
+
+# "sign up / log in" still being sold in the site's own chrome — the header/nav is
+# how you land on the wall from a logged-out page (mirrors the structural chrome
+# skip in credential_provider._is_page_chrome / perception's header skip).
+_CHROME_AUTH_JS = r"""() => {
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  return Array.from(document.querySelectorAll('header a, header button, nav a, nav button, [role=banner] a, [role=banner] button'))
+    .filter(vis).some(e => /sign ?up|log ?in|sign ?in|register|create (an? )?account/i.test(e.innerText || ''));
+}"""
+
+
+def wallish_url(url) -> bool:
+    """Pure: the path itself IS the account wall — an auth word standing as one of
+    the first two path segments (instahyre /candidates/register/, job 30076). A job
+    slug that merely mentions "register" deeper in the path never trips it."""
+    from urllib.parse import urlparse
+    try:
+        segs = [s for s in (urlparse(url or "").path or "").lower().split("/") if s]
+    except ValueError:
+        return False
+    return any(seg in _WALL_WORDS for seg in segs[:2])
+
+
+def is_wall(page, url) -> bool:
+    """A login / SIGN-UP wall on screen? URL tell first (cheap), then the DOM:
+    the password-box crowd (login_from_signals) or an email-first form whose
+    header chrome still sells creating an account. Consulted BEFORE perception
+    so a register page is never read as the application's fields."""
+    try:
+        if wallish_url(url):
+            return True
+        d = page.evaluate(_LOGIN_SIGNALS_JS) or {}
+        if isinstance(d, dict) and login_from_signals(d):
+            return True
+    except Exception:
+        return False
+    try:
+        from .credential_provider import _is_email_first
+        return bool(_is_email_first(page)) and bool(page.evaluate(_CHROME_AUTH_JS))
     except Exception:
         return False
 
@@ -418,16 +609,13 @@ _APPLY_DENY = (
 )
 
 
-_AD_HOSTS = ("doubleclick.net", "googlesyndication.com", "googleadservices.com",
-             "adservice.google", "amazon-adsystem.com", "taboola.com", "outbrain.com")
-
-
 def _is_ad_frame(url: str, title: str = "", name: str = "") -> bool:
-    """True for an advertising iframe: ad-network host, <iframe title="Advertisement">,
-    or an AdSense slot name (aswift_*, google_ads_*). Its "Apply Now" is an ad's, not the job's."""
-    u, t, n = (url or "").lower(), (title or "").lower(), (name or "").lower()
-    return (any(h in u for h in _AD_HOSTS) or t == "advertisement"
-            or n.startswith(("aswift_", "google_ads_")))
+    """True for an advertising iframe: ad-network host (the superset list lives in
+    browser/cta_arbiter — one table, shared with the perception frame deny),
+    <iframe title="Advertisement">, or an AdSense slot name (aswift_*, google_ads_*).
+    Its "Apply Now" is an ad's, not the job's."""
+    from .cta_arbiter import is_ad_like
+    return is_ad_like({"url": url or "", "frame_title": title or "", "frame_name": name or ""})
 
 
 # "Autofill with Resume", "Apply with my CV", "Upload your resume to autofill": the site reads the résumé and fills the
@@ -466,6 +654,90 @@ def _best_apply(cands, exclude=(), prefer=()):
                     best, best_rank = c, rank
                 break
     return best
+
+
+def _arb_candidate(c, exclude) -> bool:
+    """The only candidates worth arbitrating: same accept rules `best_apply`
+    applies (an allow phrase, no deny term, usable name, not already clicked)."""
+    name = (c.get("name") or "").strip().lower()
+    return (bool(name) and len(name) <= 80 and c.get("ref") not in exclude
+            and not any(d in name for d in _APPLY_DENY)
+            and any(a in name for a in _APPLY_ALLOW))
+
+
+def _frame_seat(page, fr) -> dict:
+    """The owning <iframe>'s descriptors: its attribute tells (src/title/name/id/class)
+    plus how it sits in the viewport (banner-sized, or pinned in a top corner band) —
+    the sit evidence `cta_arbiter` uses to sink corner ad units below real controls."""
+    seat = {"frame_url": fr.url or "", "small_frame": False, "corner_frame": False}
+    try:
+        el = fr.frame_element()
+        seat["attrs"] = f"{el.get_attribute('id') or ''} {el.get_attribute('class') or ''}"
+        title, name = el.get_attribute("title") or "", el.get_attribute("name") or ""
+        if title:
+            seat["frame_title"] = title
+        if name:
+            seat["frame_name"] = name
+        box = el.bounding_box()
+        vw = page.viewport_size or {}
+        if box and vw.get("width") and vw.get("height"):
+            seat["small_frame"] = box["width"] < 420 and box["height"] < 420
+            seat["corner_frame"] = ((box["x"] <= 80 or box["x"] + box["width"] >= vw["width"] - 80)
+                                    and box["y"] < min(300, vw["height"] * 0.4))
+    except Exception:
+        pass                                  # detached / cross-origin mid-scan: attribute-less seat
+    return seat
+
+
+def _enrich_sit(page, eligible):
+    """Attach the arbiter's sit attributes to each candidate: one cheap JS pass
+    per frame that already produced rows (the sticky/footer/ad-container read),
+    plus the owning frame's seat. Multi-candidate pages only — the common path
+    never pays for this."""
+    from .cta_arbiter import SIT_REPORT_JS
+    sit, seats = {}, {}
+    for idx, fr in enumerate(page.frames):
+        here = [c for c in eligible if c.get("frame") == idx]
+        if not here:
+            continue
+        refs = [c.get("ref") for c in here if c.get("ref")]
+        try:
+            sit.update({r.get("ref", ""): r for r in fr.evaluate(SIT_REPORT_JS, refs) or []
+                        if isinstance(r, dict) and r.get("ref")})
+        except Exception:
+            pass                              # frame closed mid-scan: those candidates stay attribute-less
+        if idx:
+            seats[idx] = _frame_seat(page, fr)
+    out = []
+    for c in eligible:
+        d = sit.get(c.get("ref") or "", {})
+        seat = seats.get(c.get("frame"), {})
+        out.append({**c, **{k: d.get(k) for k in ("sticky", "fixed_bottom", "in_footer") if d.get(k)},
+                    "attrs": f"{c.get('attrs') or ''} {d.get('ad_mark') or ''} {seat.pop('attrs', '')}".strip(),
+                    **seat})
+    return out
+
+
+def _pick_best(page, cands, exclude=(), prefer=()):
+    """More than one plausible Apply control on screen? Let the arbiter rank their
+    provenance (frame class, position, label) and take the best. Nothing to
+    arbitrate — none/single candidate, a learned-route hit or a resume-autofill
+    control in play — and the pick is exactly `best_apply`'s, today's rules."""
+    best = _best_apply(cands, exclude, prefer)
+    prefer = [p.strip().lower() for p in prefer]
+    if (best is None
+            or any((c.get("name") or "").strip().lower() in prefer for c in cands)
+            or any(_RESUME_AUTOFILL.search((c.get("name") or "").strip().lower()) for c in cands)):
+        return best
+    eligible = [c for c in cands if _arb_candidate(c, exclude)]
+    if len(eligible) < 2:
+        return best
+    try:
+        from .cta_arbiter import rank          # pure module: ranks descriptors, never gates behavior
+        ranked = rank(_enrich_sit(page, eligible), allow=_APPLY_ALLOW)
+    except Exception:
+        return best                            # arbiter trouble must never change today's pick
+    return ranked[0] if ranked else best
 
 
 def _real_field_count(page) -> int:
@@ -546,7 +818,9 @@ def _is_wizard_step(page) -> bool:
 def find_apply_affordance(page, exclude=(), prefer=()):
     """The best Apply button/link across all frames, as {'name','role','frame',
     'ref'}, skipping refs in `exclude` (already clicked). `frame` is the index
-    into page.frames the control lives in."""
+    into page.frames the control lives in. When more than one plausible Apply
+    control is visible the arbiter (browser/cta_arbiter) ranks them; with none/one
+    visible the pick stays exactly the phrase rank — no change for clean boards."""
     cands = []
     for idx, fr in enumerate(page.frames):
         if idx and _frame_is_ad(fr):
@@ -558,7 +832,7 @@ def find_apply_affordance(page, exclude=(), prefer=()):
         for c in (rows or []):
             c["frame"] = idx
             cands.append(c)
-    return _best_apply(cands, exclude, prefer)
+    return _pick_best(page, cands, exclude, prefer)
 
 
 def _frame_is_ad(fr) -> bool:

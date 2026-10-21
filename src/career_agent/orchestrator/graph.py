@@ -239,6 +239,10 @@ def perceive_node(state: AgentState, config) -> dict:
     except Exception:
         pass
 
+    from ..browser.page_health import recover
+    if recover(page, c.get("intended_url") or state.get("url") or page.url) == "dead":
+        return {"stopped_reason": "dead_page"}      # Chrome's error shell; the one fresh GET already failed
+
     from ..browser.page_prep import dismiss_consent
     from ..browser.gate_probe import HANDLERS
     dismiss_consent(page)          # clear async cookie banners before gate check

@@ -191,3 +191,68 @@ def test_a_not_accepting_banner_under_the_title_marks_a_full_page_closed():
     assert _looks_closed("This job has expired. " + "x " * 800)
     jd = "Senior Data Engineer. " + "We build pipelines. " * 200 + " Note: if the role is filled we will keep your CV."
     assert not _looks_closed(jd)                                   # mentioned deep in a JD, not a banner
+
+
+def test_wallish_url_sees_auth_paths_in_the_first_two_segments_only():
+    from career_agent.browser.page_prep import wallish_url
+    # the instahyre sign-up redirect (job 30076): the wall IS the path
+    assert wallish_url("https://www.instahyre.com/candidates/register/")
+    assert wallish_url("https://x.test/login") and wallish_url("https://x.test/users/sign-up/")
+    assert wallish_url("https://x.test/account/create-account/extra")
+    # a job slug that merely mentions a wall word deeper in the path is NOT a wall
+    assert not wallish_url("https://x.test/jobs/senior-frontend-engineer-register-30-lpa")
+    assert not wallish_url("https://x.test/jobs/9771/senior-developer-register-your-interest")
+    assert not wallish_url("") and not wallish_url("https://x.test/search?q=/login/")
+
+
+class _DomPage:
+    """A tab whose DOM answers what a wall check asks: which JS ran."""
+
+    def __init__(self, login_signals, chrome_auth=False):
+        self.url = "https://x.test/job"
+        self._signals, self._chrome = login_signals, chrome_auth
+
+    def evaluate(self, js, *a, **k):
+        if "hasPassword" in js:
+            return self._signals
+        if "role=banner" in js:
+            return self._chrome
+        return ""                                    # structural probes answer empty
+
+    def query_selector_all(self, sel):               # no elements: never email-first
+        return []
+
+
+class _EmailFirstPage(_DomPage):
+    """An email-first signIn on a clean URL (no password box yet), whose header
+    chrome still sells Sign up / Log in — instahyre walls before the password step."""
+
+    def query_selector_all(self, sel):
+        from types import SimpleNamespace as NS
+        return [] if "password" in sel else [NS(is_visible=lambda: True)]
+
+    def evaluate(self, js, *a, **k):
+        if "hasPassword" in js:
+            return {"hasPassword": False, "hasUser": True, "authControl": True, "credInputs": 1}
+        if "role=banner" in js:
+            return True                              # header has "Sign up"
+        if "every" in js:                            # alert_box_only says this is not a job-alert box
+            return False
+        return ""
+
+
+def test_is_wall_combines_url_and_dom_tells():
+    from career_agent.browser.page_prep import is_wall
+    wall = {"hasPassword": True, "hasUser": True, "authControl": True, "credInputs": 2}
+    job = {"hasPassword": False, "hasUser": False, "authControl": False, "credInputs": 0}
+    # the URL tell is decisive on its own — even when the DOM shows no auth signals
+    assert is_wall(_DomPage(job), "https://x.test/candidates/register/")
+    # DOM tell alone (SuccessFactors-style login box on a clean URL)
+    assert is_wall(_DomPage(wall), "https://x.test/job")
+    assert is_wall(_DomPage(wall), "https://companies.test/careers/opening-9")
+    # email-first form + header chrome still selling the account: a wall, too
+    assert is_wall(_EmailFirstPage(job), "https://x.test/job")
+    # each confirm alone is not enough: header chrome without an email-first form
+    # (or plain job fields) must read as a healthy JD page
+    assert not is_wall(_DomPage(job, chrome_auth=True), "https://x.test/job")
+    assert not is_wall(_DomPage(job), "https://x.test/job")

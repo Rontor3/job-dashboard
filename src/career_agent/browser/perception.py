@@ -108,11 +108,14 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             if r.get("group_label") and not g["group_label"]:
                 g["group_label"] = r["group_label"]
             continue
+        label = r["label"]
+        if kind == "checkbox" and len((label or "").split()) <= 2 and len(r.get("group_label") or "") > len(label or ""):
+            label = r["group_label"]      # a lone tick named only "Confirmed" / "I agree": the statement is the group's legend
         fields.append(Field(
-            ref=r["ref"], kind=kind, label=r["label"],
-            required=bool(r.get("required")) or bool(re.search(r"^\s*\*|\*\s*$", r["label"] or "")), options=list(r.get("options", [])),
+            ref=r["ref"], kind=kind, label=label,
+            required=bool(r.get("required")) or bool(re.search(r"^\s*\*|\*\s*(required)?\s*$", label or "", re.I)), options=list(r.get("options", [])),
             group=r.get("group"),
-            purpose=guess_purpose(r["label"], kind),
+            purpose=guess_purpose(label, kind),
             description=r.get("description", ""),
             input_type=r.get("input_type", ""),
             autocomplete=r.get("autocomplete", ""),
@@ -170,6 +173,17 @@ _INPUT_JS = r"""
   // as a fallback for forms with no formal association at all (e.g. Greenhouse).
   // A file input labelled only by its button word ("Attach", "Upload") is named by the group around it:
   // <div role="group" aria-labelledby="upload-label-cover_letter"> ... "Cover Letter".
+  // A box with no maxlength that shows a live counter ("535 / 1500", Indeed) states its limit there.
+  const counterMax = (el) => {
+    if (el.tagName !== 'TEXTAREA') return 0;
+    let n = el.parentElement;
+    for (let i = 0; n && i < 3; i++, n = n.parentElement) {
+      const m = (n.innerText || '').slice(-400).match(/\b\d+\s*\/\s*(\d{2,5})\b/);
+      if (m) return parseInt(m[1], 10);
+      if (n.querySelectorAll('textarea').length > 1) break;
+    }
+    return 0;
+  };
   const _BUTTON_WORD = /^(attach|upload|browse|choose( a)? file|select( a)? file|add( a)? file|drop files?)\b/i;
   const labelFor = (el) => {
     const own = labelFor0(el);
@@ -410,7 +424,7 @@ _INPUT_JS = r"""
       placeholder: (el.getAttribute('placeholder') || '').trim().slice(0, 60),
       unit: ['text', 'number', 'tel'].includes(type) ? unitOf(el) : '',
       part_hint: [tag === 'select' && el.options.length ? el.options[0].text : '', el.name || '', el.id || ''].join(' ').trim().slice(0, 80),
-      max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : 0,
+      max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : counterMax(el),
     });
   }
   // A combobox that is not an <input>/<select>/<button>: a styled <div role="combobox"> that opens a listbox popup
@@ -619,8 +633,14 @@ _CAPTCHA_FIELD = re.compile(r"captcha|turnstile|g-recaptcha-response", re.I)
 
 
 def is_denied_frame(url: str) -> bool:
-    """Known not to be an application (captcha / analytics / ads / chat / media), or empty."""
-    return not url or url == "about:blank" or any(h in url for h in NON_APPLICATION_FRAME_HOSTS)
+    """Known not to be an application (captcha / analytics / ads / chat / media), or empty.
+    The ad half of the deny reads cta_arbiter's shared host list, so
+    emerging ad networks are refused the same day page_prep refuses them (a decoy
+    pseudo-form inside an ad frame must never reach looks_like_application)."""
+    from .cta_arbiter import AD_HOST_FRAGMENTS
+    return (not url or url == "about:blank"
+            or any(h in url for h in NON_APPLICATION_FRAME_HOSTS)
+            or any(h in url for h in AD_HOST_FRAGMENTS))
 
 
 def is_trusted_frame(url: str) -> bool:
