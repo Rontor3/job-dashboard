@@ -31,7 +31,7 @@ class _Page:
 
 def test_recover_is_capped_and_gives_up_cleanly(tmp_path):
     replies = iter(['{"action":"go_back"}'] * 10)
-    a = ClaudeAssist(cap=2, run=lambda prompt: next(replies), shot_dir=str(tmp_path))
+    a = ClaudeAssist(cap=2, run=lambda prompt, timeout=120: (next(replies), None), shot_dir=str(tmp_path))
     p = _Page()
     assert a.recover(p, "stuck") and a.recover(p, "stuck")
     assert p.went_back == 2
@@ -41,7 +41,8 @@ def test_recover_is_capped_and_gives_up_cleanly(tmp_path):
 def test_recover_survives_claude_failure(tmp_path):
     def boom(prompt): raise TimeoutError("claude hung")
     assert ClaudeAssist(cap=5, run=boom, shot_dir=str(tmp_path)).recover(_Page(), "stuck") is False
-    assert ClaudeAssist(cap=5, run=lambda p: "garbage", shot_dir=str(tmp_path)).recover(_Page(), "stuck") is False
+    assert ClaudeAssist(cap=5, run=lambda p, timeout=120: ("garbage", None),
+                        shot_dir=str(tmp_path)).recover(_Page(), "stuck") is False
 
 
 def test_the_screenshot_dir_is_absolute_so_claude_p_can_read_it(tmp_path, monkeypatch):
@@ -49,7 +50,7 @@ def test_the_screenshot_dir_is_absolute_so_claude_p_can_read_it(tmp_path, monkey
     a = ClaudeAssist(cap=1, run=lambda p: '{"action":"give_up"}', shot_dir="rel/agent_runs/9")
     assert a._dir.is_absolute() and a._dir.exists() and a._dir == (tmp_path / "rel/agent_runs/9").resolve()
     seen = []
-    a._run = lambda prompt: seen.append(prompt) or '{"action":"give_up"}'
+    a._run = lambda prompt: seen.append(prompt) or ('{"action":"give_up"}', None)
 
     class P:
         url, frames = "https://x.example/job", []

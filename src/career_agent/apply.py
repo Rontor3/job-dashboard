@@ -785,13 +785,15 @@ def _page_at(context, url, fallback):
     return next((p for p in reversed(context.pages) if p.url == url), fallback)
 
 
-def _make_assist(args, run_dir):
-    """The opt-in Claude assist (max 5 calls per run) for the board engine and the career-site engines, or None."""
+def _make_assist(args, run_dir, db_path=None):
+    """The opt-in Claude assist (max 5 calls per run) for the board engine and the career-site engines, or None.
+    `db_path` feeds its quota ladder (agent_settings.assist_cap_until in jobs.db): once the CLI reports a usage
+    limit, recover() skips Claude until the TTL passes instead of spending calls on a dead channel."""
     if not (args.claude_assist or os.getenv("CAREER_AGENT_CLAUDE_ASSIST") == "1"):
         return None
     from .orchestrator.claude_assist import ClaudeAssist
     print("[assist] Claude assist ON (cap 5) — logged as '[assist n/5]' lines", flush=True)
-    return ClaudeAssist(cap=5, shot_dir=run_dir)
+    return ClaudeAssist(cap=5, shot_dir=run_dir, db_path=db_path or getattr(args, "db", None))
 
 
 def _run_board(board, page, args, *, option_matcher=None, limiter=None, **ctx) -> dict:

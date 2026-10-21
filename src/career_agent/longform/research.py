@@ -33,6 +33,11 @@ def haiku_lookup(company: str, title: str, timeout: int = 180) -> list[dict]:
         raw = r.stdout or ""
         i = raw.find("{")
         data = json.JSONDecoder().raw_decode(raw[i:])[0] if i >= 0 else {}
+    except (BrokenPipeError, subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        m = {BrokenPipeError: "epipe", subprocess.TimeoutExpired: "timeout", FileNotFoundError: "cli_missing"}
+        print(f"[assist] company research unavailable ({next((v for k, v in m.items() if isinstance(e, k)), 'os_error')})",
+              flush=True)
+        return []
     except Exception:
         return []
     out = []

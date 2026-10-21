@@ -322,9 +322,16 @@ def claude_cli_llm(model: str = "haiku", timeout: int = 120,
     import tempfile
 
     def llm(prompt: str) -> str:
-        r = subprocess.run(["claude", "-p", "--model", model, "--max-turns", "1", "--tools", "",
-                            "--system-prompt", system],
-                           input=prompt, capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
+        try:
+            r = subprocess.run(["claude", "-p", "--model", model, "--max-turns", "1", "--tools", "",
+                                "--system-prompt", system],
+                               input=prompt, capture_output=True, text=True, timeout=timeout,
+                               cwd=tempfile.gettempdir())
+        except (BrokenPipeError, subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            m = {BrokenPipeError: "epipe", subprocess.TimeoutExpired: "timeout", FileNotFoundError: "cli_missing"}
+            why = next((v for k, v in m.items() if isinstance(e, k)), "os_error")
+            print(f"[assist] facts model unavailable ({why}) — no model plans", flush=True)
+            raise RuntimeError(f"claude -p: {why}") from e          # same shape as a planned failure
         if r.returncode != 0 or not r.stdout.strip():
             raise RuntimeError((r.stderr or r.stdout or "claude -p failed").strip()[:200])
         return r.stdout
