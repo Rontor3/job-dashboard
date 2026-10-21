@@ -59,7 +59,10 @@ def default_engines(db_path) -> Callable:
         job = {**_job(conn, row["job_id"]), "id": row["job_id"]}
         run = None
         if (row.get("kind") or "") == "textarea":
-            run = make_longform_or_none(conn, job, _contact(conn), llm, None,
+            from career_agent.longform.research import research_for
+            # The company's stored research (company_resources; selected sources first) reaches the essay
+            # writer — a rewrite asked to "use company research" must have facts to use, not none.
+            run = make_longform_or_none(conn, job, _contact(conn), llm, research_for(conn, job),
                                         str(Path(db_path).parent / "answer_style" / "ingredients.json"), row["job_id"])
         longform = (lambda q, steer: run(q, steer=steer)) if run else None
         return Engines(llm=llm, embed=qbank.default_embed, facts_llm=facts.claude_cli_llm("haiku"), longform=longform)

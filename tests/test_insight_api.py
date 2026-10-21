@@ -70,3 +70,34 @@ def test_backlog_groups_the_same_gap_across_applications(env):
     top = groups[0]
     assert top["label"] == "Acknowledge" and top["rows"] >= 3 and "Acknowledge *" in top["examples"]
     assert all("Notice period" not in g["examples"] or g is not top for g in groups)
+
+
+def test_default_research_reaches_the_essay_writer(tmp_path, fake_embed, monkeypatch):
+    """The default engines hand the company's stored research to the essay writer. It used to pass
+    None, so a rewrite asked for 'company research' had no facts to work from even when the
+    company's research was already sitting in company_resources."""
+    import career_agent.longform.pipeline as pipeline
+    from job_dashboard.api.insight_routes import default_engines
+    from job_dashboard.artifacts_store import upsert_company_resources
+
+    db = str(tmp_path / "t.db")
+    c = init_db(db)
+    insert_job(c, JobListing(source="s", title="DS", company="Twilio", location="Pune", job_url="https://x/1",
+                             description="jd"))
+    qbank.ensure(c)
+    qa_store.record(c, job_id=1, run_key="r", ref="#q", label="Why Twilio?", kind="textarea",
+                    status="filled", source="judgment", answer="old essay")
+    upsert_company_resources(c, "twilio", [
+        {"source_url": "https://twilio.com/blog/x", "title": "Twilio",
+         "summary": "Twilio's segment platform serves ten thousand customers."},
+    ])
+    captured = {}
+
+    def fake_longform(conn, job, contact, llm, research, style_path, job_id=None):
+        captured["facts"] = [f.text for f in (research.facts or [])]
+        return None
+
+    monkeypatch.setattr(pipeline, "make_longform_or_none", fake_longform)
+    default_engines(db)(c, {"job_id": 1, "kind": "textarea"})
+    c.close()
+    assert captured["facts"] == ["Twilio's segment platform serves ten thousand customers."]

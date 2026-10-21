@@ -1178,7 +1178,8 @@
       "errors_seen": [
         "auth_wall",
         "gate:cloudflare_interstitial",
-        "no_advance_control"
+        "no_advance_control",
+        "stuck"
       ],
       "reach_path": [
         "click link 'Apply for this position' (frame 0) -> lemon.io/for-developers/",
@@ -1244,6 +1245,39 @@
         "I'm interested"
       ],
       "reach_end": "form"
+    },
+    {
+      "id": "site:ibmglobal.avature.net",
+      "type": "site",
+      "label": "ibmglobal.avature.net",
+      "domains": [
+        "ibmglobal.avature.net"
+      ],
+      "errors_seen": [
+        "auth_wall"
+      ]
+    },
+    {
+      "id": "site:ars2.equest.com",
+      "type": "site",
+      "label": "ars2.equest.com",
+      "domains": [
+        "ars2.equest.com"
+      ],
+      "errors_seen": [
+        "auth_wall"
+      ]
+    },
+    {
+      "id": "site:innocode.in",
+      "type": "site",
+      "label": "innocode.in",
+      "domains": [
+        "innocode.in"
+      ],
+      "errors_seen": [
+        "no_advance_control"
+      ]
     }
   ],
   "edges": [
