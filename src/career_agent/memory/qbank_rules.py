@@ -150,6 +150,23 @@ _AUTOCOMPLETE = {"street-address": "address", "address-line1": "address", "posta
 _LABEL = [(r"\bstreet\b|\baddress line\b", "address"), (r"\bpin ?code\b|\bpostal code\b|\bzip\b", "postcode"),
           (r"\bphone\b|\bmobile number\b", "phone"), (r"\be-?mail\b", "email")]
 
+# Labels that ask for the calling/dial code itself ("Country Phone Code",
+# Keka's plain "Country Code"): the value is '+NN', never a ten-digit number.
+# The shape tier keeps calling such an input 'phone' (the promotion guard in
+# qa_store._candidate_guard_reason counts on it), so this intent is consulted
+# where the fill is typed, not by renaming the shape.
+_DIAL_LABEL = re.compile(
+    r"\bcountry ?(?:phone|dial(l?ing)?|call)? ?code\b|\bdial(l?ing)? ?code\b"
+    r"|\bcalling ?code\b|\bisd ?code\b|\bphone ?(?:country ?)?(?:code|prefix)\b", re.I)
+# …unless the label asks for a whole number ("Phone number (with country code)")
+_FULL_NUMBER_ASK = re.compile(r"\b(?:phone|mobile|contact|tel(?:ephone)?)\b.{0,14}\b(?:number|no)\b", re.I)
+
+
+def dial_label(label: str) -> bool:
+    """The label asks for a dial code ('+91'), not a phone number."""
+    lab = label or ""
+    return bool(_DIAL_LABEL.search(lab)) and not _FULL_NUMBER_ASK.search(lab)
+
 
 def infer_shape(entry_shape, input_type, autocomplete, label):
     """Entry's declared shape, else what the page declares (input type,

@@ -9,13 +9,14 @@ row, or a deterministic rule (qbank_rules). Bands:
 Spec: docs/superpowers/specs/2026-09-26-question-bank-design.md §2."""
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field as _field
 
 import numpy as np
 
 from . import qbank
-from .qbank_rules import RULES, RuleCtx, infer_shape, shape_ok
+from .qbank_rules import RULES, RuleCtx, dial_label, infer_shape, shape_ok
 
 # Starting values — re-derive with `scripts/qbank.py calibrate`.
 FLOOR = 0.55          # top score below this = no match (result discarded)
@@ -192,19 +193,157 @@ def resolve_value(conn, entry, *, question, escape, job, contact, options=(), _d
 
 def fit_option(label, value, options, synonyms, llm=None):
     """Canonical value -> one of the page's options, or None (flag). No static
-    options (text box, or a combobox whose options load live) -> the value."""
+    options (text box, or a combobox whose options load live) -> the value.
+    Order: (1) exact wording of the value or a stored synonym; (2) the
+    vocabulary bridge — deterministic containment against the site's own
+    phrasing; (3) the orchestrator's option coercer; (4) the LLM, last."""
     if not options:
         return value
     by_norm = {qbank.norm(o): o for o in options}
-    for cand in [value, *(synonyms or {}).get(value, [])]:
+    cands = [value, *(synonyms or {}).get(value, [])]
+    for cand in cands:
         if qbank.norm(cand) in by_norm:
             return by_norm[qbank.norm(cand)]
+    for cand in cands:                        # bridge: same event, site's wording
+        hit = bridge_option(cand, options)
+        if hit is not None:
+            return hit
     from ..orchestrator.screen_review import _coerce_option
     hit = _coerce_option(value, options)
     if hit is None and llm is not None:
         from ..orchestrator.judgment import match_value_to_option
         hit = match_value_to_option(label, value, options, llm)
     return hit
+
+
+# ── the vocabulary bridge (fit_option rung 2) ────────────────────────────────
+_GAP = re.compile(r"[^a-z0-9+]+")            # punctuation/space -> one space; '+', letters, digits stay
+
+_SOLITUDE = ("self", "not", "no", "none", "non", "un", "anti", "without", "never",
+             "former", "ex", "refuse", "decline", "declined", "unavailable")
+
+
+def vocab_norm(text: str) -> str:
+    """'India (+91)' -> 'india +91': casefolded, punctuation to single spaces,
+    '+' kept so a dial code means itself ('+91' never reads as '91') and can
+    never band-match another number crossing the word boundary."""
+    s = _GAP.sub(" ", str(text or "").casefold())
+    s = re.sub(r"\+\s+(?=\w)", "+", s)       # '+ 91' -> '+91'
+    return " ".join(s.split())
+
+
+def _knows(inner_norm: str, outer_norm: str) -> bool:
+    """The inner phrase occurs inside `outer_norm` word-aligned, and the tokens
+    around it add wording, never meaning: 'LinkedIn', 'Other' are benign
+    qualifiers; 'Self-Employed' or 'Not employed' are different answers."""
+    a, b = inner_norm.split(), outer_norm.split()
+    for i in range(len(b) - len(a) + 1):
+        if b[i:i + len(a)] == a:
+            flanks = b[:i] + b[i + len(a):]
+            return not (set(_SOLITUDE) & set(flanks))
+    return False           # not word-aligned inside outer after all: distrust it
+
+
+def bridge_option(value, options) -> str | None:
+    """The deterministic containment rung of fit_option: the option and the
+    value share a phrasing — one contains the other at a word boundary
+    ('+91' in 'India (+91)', 'Job Board' in 'Job board (LinkedIn)', 'Other'
+    inside a stored 'Other - please specify'). Returns the option, or None:
+
+    * exactly one survivor -> it;
+    * several survivors of the SAME relation -> the least-qualified one:
+      shortest option when qualifiers were added to the value, longest when the
+      option is the qualifier-free pith (screen_review already prefers the
+      longest subset for that direction);
+    * survivors that mean different things — both directions at once, or a
+      polarity-bearing qualifier — -> None: let the existing matchers decide,
+      this rung never votes on a meaning it can't read."""
+    vn = vocab_norm(value)
+    if not vn:
+        return None
+    vf = f" {vn} "
+    wider, narrower = [], []
+    for o in options or []:
+        on = vocab_norm(o)
+        if not on or on == vn:
+            continue                          # equal forms: rung 1 owned it
+        if vf in f" {on} ":
+            wider.append((o, on))
+        elif f" {on} " in vf:
+            narrower.append((o, on))
+    if wider and narrower:
+        return None                           # both directions relate: different things
+    if wider:
+        ok = [o for o, on in wider if _knows(vn, on)]
+        return min(ok, key=len) if ok else None
+    ok = [o for o, on in narrower if _knows(on, vn)]
+    return max(ok, key=len) if ok else None
+
+
+# ── typed fills without options (the empty combobox / plain text box) ────────
+_DIAL_CODE = re.compile(r"\+\d{1,4}\b")      # a stored dial code always carries its '+'
+_DIAL_VALUE = re.compile(r"\+?[1-9]\d{0,3}", re.A)   # a dial value: short digits, never 0-led
+
+
+def _stored_dial(*texts) -> str | None:
+    """The one dial code ('+91') these stored texts hold: a value that is only
+    a country name ('India') can still be written as the code the bank's own
+    answer/synonyms record. Several distinct codes -> None: don't guess."""
+    dials = []
+    for text in texts:
+        if not text:
+            continue
+        s = text if isinstance(text, str) else json.dumps(text, ensure_ascii=False)
+        for t in _DIAL_CODE.findall(s):
+            if t not in dials:
+                dials.append(t)
+        if len(dials) > 1:
+            return None
+    return dials[0] if len(dials) == 1 else None
+
+
+def _typed_shape(shape, value, entry, label, has_options) -> tuple[str | None, str | None, str]:
+    """(value, basis note, gate) for a fill that goes out TYPED — because the
+    field offers nothing to fit (an options_json-empty combobox, a plain box)
+    or as the raw form before the options are matched.
+
+    gate:
+
+    'proceed'           the value now fits the field's real form: the dial code
+                        a code-asking label wants, as stored, completed with
+                        its '+', or rescued from the entry's own stored
+                        answer/synonyms; nothing is invented and '+' is read,
+                        never stripped;
+    'refuse'            an empty-options field with a phone-shaped value it
+                        cannot take — dead on arrival, so the field escalates
+                        with a crisp basis instead of a doomed typed fill;
+    'proceed-flagged'   everything else: with no options the site's own
+                        validator still gets the value, band as today.
+
+    Real-world knowledge ('Senior Data Scientist' <-> a category option) is
+    NEVER spent here — the judgment tier keeps that job."""
+    v = str(value).strip()
+    dial_intent = dial_label(label)
+    if shape != "phone" and not dial_intent:
+        return v, None, "proceed-flagged"
+    if not v:
+        return None, "the stored answer is blank", "refuse"
+    if dial_intent:
+        if _DIAL_VALUE.fullmatch(v):                      # '+91'; a bare '91' gets its '+' back
+            dial = v if v.startswith("+") else f"+{v}"
+            return dial, (None if dial == v else f"dial code written as {dial!r}"), "proceed"
+        dial = _stored_dial(v, entry.get("answer"), entry.get("synonyms"))
+        if dial:
+            return dial, f"dial code {dial!r} read from the stored answer ({v!r} alone is not a code)", "proceed"
+        if has_options:
+            return v, None, "proceed-flagged"             # the options will be asked to say what they mean
+        return None, f"{v!r} is not a dial code and the stored answer supplies none", "refuse"
+    if _DIAL_VALUE.fullmatch(v) and not has_options:
+        return None, (f"{v!r} reads as a dial code but this label asks for a full "
+                      "phone number"), "refuse"
+    if not has_options:
+        return None, f"{v!r} is not a value this field's shape can take", "refuse"
+    return v, None, "proceed-flagged"
 
 
 def _yes_no_from_facts(f, question, facts, llm):
@@ -325,8 +464,24 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
             return m, None
     shape = infer_shape(entry["shape"], getattr(f, "input_type", ""),
                         getattr(f, "autocomplete", ""), f.label)
-    if not shape_ok(shape, value, escape):
-        m.band, m.note = LIKELY, f"shape {shape} failed"
+    escaped = bool(escape) and str(value).strip().lower() == str(escape).strip().lower()
+    if not escaped and (dial_label(f.label) or not shape_ok(shape, value, escape)):
+        shaped, how, gate = _typed_shape(shape, value, entry, f.label, bool(f.options))
+        if gate == "refuse":
+            # Empty options and no deterministic way to shape the value: the
+            # fill would be typed straight into a field that can't take it.
+            # Today's unsupported signal — no value — sends the field up with
+            # this basis instead of a 'did not take' the human reads later.
+            m.band = NONE
+            m.note = (f"shape {shape} failed, no options to fit: {how}" if not m.note
+                      else f"{m.note}; shape {shape} failed, no options to fit: {how}")
+            return m, None
+        if gate == "proceed":
+            if how:
+                m.note = f"{m.note}; {how}" if m.note else how
+            value = shaped
+        else:
+            m.band, m.note = LIKELY, f"shape {shape} failed"
     fitted = fit_option(f.label, value, f.options, entry["synonyms"], llm)
     if fitted is None:
         fitted = _yes_no_from_value(f, question, entry, value, llm)
