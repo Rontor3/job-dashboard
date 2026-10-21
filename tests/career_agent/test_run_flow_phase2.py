@@ -7,13 +7,21 @@ class FakePage:
     def click_submit(self): self.submitted = True
 
 
+class FakeNotifier:
+    def __init__(self): self.started = []
+    def start(self, url, gate, deadline_s):
+        import threading
+        self.started.append((url, gate)); return threading.Event()
+    def close(self, cleared=None): pass
+
+
 class HumanStub:
     def __init__(self, approve, solve):
         self._a = approve
         self._s = solve
     def approve(self, card): return self._a
-    def remote_solve(self, page, gate, on_link):
-        if on_link: on_link("http://mac.ts.net:8765/s/abc")
+    def remote_solve(self, page, gate, notifier):
+        if notifier: notifier.start("http://mac.ts.net:8765/s/abc", gate, 300)
         return self._s
 
 
@@ -37,13 +45,14 @@ def test_interactive_gate_triggers_remote_solve_then_submits(monkeypatch):
     _patch(monkeypatch, ["hcaptcha_checkbox", "none"])  # after solve -> none
     page = FakePage()
     human = HumanStub(approve=True, solve=True)
-    seen = {}
+    notifier = FakeNotifier()
     out = runmod.run_once(page, {"full_name": "T"}, None, _meta(), human,
-                          do_submit=True, on_link=lambda u: seen.setdefault("u", u))
+                          do_submit=True, notifier=notifier)
     assert out["remote_solve_attempted"] is True
     assert out["gate_after_solve"] == "none"
     assert out["submitted"] is True and page.submitted is True
-    assert seen["u"].endswith("/s/abc")
+    # the link + gate were forwarded to the notifier for delivery
+    assert notifier.started == [("http://mac.ts.net:8765/s/abc", "hcaptcha_checkbox")]
 
 
 def test_failed_remote_solve_blocks_submit(monkeypatch):

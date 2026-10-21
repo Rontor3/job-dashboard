@@ -45,12 +45,16 @@ class RemoteSolveSession:
         self._server.start()
         return url
 
-    def wait_until_cleared(self, timeout_s) -> bool:
+    def wait_until_cleared(self, timeout_s, abort_event=None) -> bool:
         from career_agent.browser.live_view.cdp_bridge import forward_pointer
 
         vp = self.page.viewport_size or {"width": 900, "height": 1600}
         start = self._clock()
         while self._clock() - start < timeout_s:
+            # An Abort tap from the phone cancels the solve: stop pumping and
+            # report not-cleared so the caller degrades to stop-and-report.
+            if abort_event is not None and abort_event.is_set():
+                return False
             self._drain_pointers(forward_pointer, vp)
             if self.is_cleared(self.page):
                 self._drain_pointers(forward_pointer, vp)   # apply any final taps

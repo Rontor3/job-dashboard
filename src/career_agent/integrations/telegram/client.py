@@ -34,9 +34,20 @@ class TelegramClient:
         payload = {"timeout": timeout_s, "offset": self._offset,
                    "allowed_updates": ["callback_query"]}
         resp = self._t("getUpdates", payload)
+        match = None
         for upd in resp.get("result", []):
             self._offset = max(self._offset, upd["update_id"] + 1)
-            data = upd.get("callback_query", {}).get("data")
-            if data in valid:
-                return data
-        return None
+            cq = upd.get("callback_query", {})
+            if match is None and cq.get("data") in valid:
+                match = cq["data"]
+                # Ack the tapped button so the phone's inline-button spinner
+                # resolves instead of hanging.
+                if cq.get("id"):
+                    self.answer_callback(cq["id"])
+        return match
+
+    def answer_callback(self, callback_id: str, text: str = "") -> None:
+        payload = {"callback_query_id": callback_id}
+        if text:
+            payload["text"] = text
+        self._t("answerCallbackQuery", payload)

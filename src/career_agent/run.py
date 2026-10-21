@@ -26,7 +26,7 @@ def _click_submit(page) -> None:
         page.get_by_role("button", name="Submit").click()
 
 
-def run_once(page, profile, resume_path, meta, human, do_submit, on_link=None) -> dict:
+def run_once(page, profile, resume_path, meta, human, do_submit, notifier=None) -> dict:
     form = snapshot_form(page)
     gate = classify_gate(page)
     decisions = map_fields(form, profile, resume_path)
@@ -36,7 +36,7 @@ def run_once(page, profile, resume_path, meta, human, do_submit, on_link=None) -
     gate_after_solve = None
     if HANDLERS.get(gate, "escalate") == "escalate" and gate in INTERACTIVE_GATES:
         remote_solve_attempted = True
-        if human.remote_solve(page, gate, on_link or (lambda u: None)):
+        if human.remote_solve(page, gate, notifier):
             gate = classify_gate(page)       # re-read after the human solved it
             gate_after_solve = gate
 
@@ -63,6 +63,7 @@ def main() -> None:
     from .integrations.live_view.session import RemoteSolveSession
     from .integrations.telegram.client import TelegramClient
     from .integrations.telegram.approver import TelegramApprover
+    from .integrations.telegram.remote_solve import RemoteSolveNotifier
 
     ap = argparse.ArgumentParser(description="Career agent — Phase 1 harness")
     ap.add_argument("--url", required=True)
@@ -76,21 +77,23 @@ def main() -> None:
     settings = load_settings()
     profile = load_profile(args.profile)
 
-    on_link = None
+    notifier = None
     if settings.telegram_bot_token and settings.telegram_chat_id:
         telegram_client = TelegramClient(settings.telegram_bot_token, settings.telegram_chat_id)
         approver = TelegramApprover(telegram_client)
-        on_link = lambda url: telegram_client.send_message(url)
+        # Delivers the remote-solve card (gate + link + countdown + Abort) and
+        # watches for an Abort tap; shares the client with the approver.
+        notifier = RemoteSolveNotifier(telegram_client)
     else:
         approver = CliApprover()
 
     # Remote solve needs BOTH a tailnet host AND a channel to deliver the link
     # (Telegram). Without a delivery channel the link would go nowhere and the
-    # run would hang, so we only enable it when on_link exists — otherwise an
+    # run would hang, so we only enable it when a notifier exists — otherwise an
     # interactive gate degrades to stop-and-report.
     remote_solve_factory = None
     host = detect_host(settings)
-    if host is not None and on_link is not None:
+    if host is not None and notifier is not None:
         remote_solve_factory = lambda page: RemoteSolveSession(
             page, host, settings.remote_solve_port, settings.remote_solve_ttl,
             settings.remote_solve_allow_public, is_cleared)
@@ -104,7 +107,7 @@ def main() -> None:
     try:
         page.goto(args.url)
         meta = {"company": args.company, "role": args.role, "portal": args.url}
-        out = run_once(page, profile, args.resume, meta, human, args.submit, on_link=on_link)
+        out = run_once(page, profile, args.resume, meta, human, args.submit, notifier=notifier)
         print(out["card"])
         print(f"\n[gate={out['gate']}] submitted={out['submitted']}")
     finally:
