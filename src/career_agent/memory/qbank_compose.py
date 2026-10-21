@@ -140,6 +140,32 @@ def _grounded(value: str, facts) -> bool:
     return bool(nums) and all(n in set(re.findall(r"\d+", text)) for n in nums)
 
 
+_UNIT_DAYS = {"day": 1, "week": 7, "month": 30, "year": 365}
+_OPEN_ENDED = re.compile(r"\+|more than|over|above|beyond", re.I)
+
+
+def option_days(option: str) -> float | None:
+    """How long a duration option stands for ('Immediately' 0, 'Within 2 weeks' 14, '1-2 months' 60, '3+ months' inf);
+    None when it is not a duration ('Other (please specify)')."""
+    t = (option or "").lower()
+    if re.search(r"immediate|right away|\basap\b|\bnow\b", t):
+        return 0
+    m = re.search(r"(\d+)(?:\s*-\s*(\d+))?\s*\+?\s*(day|week|month|year)", t)
+    if not m:
+        return None
+    return float("inf") if _OPEN_ENDED.search(t) else int(m.group(2) or m.group(1)) * _UNIT_DAYS[m.group(3)]
+
+
+def option_for_days(options, days: int) -> str | None:
+    """The shortest duration option that covers `days` (a 30-day notice -> 'Within 1 month'), else the longest one;
+    None unless the options really are durations (two or more of them)."""
+    timed = [(d, o) for o in options or [] if (d := option_days(o)) is not None]
+    if len(timed) < 2:
+        return None
+    timed.sort(key=lambda x: x[0])
+    return next((o for d, o in timed if d >= days), timed[-1][1])
+
+
 def compose(question, f, facts, llm, today: date | None = None, date_only: bool | None = None) -> str | None:
     """The value the model chose from `facts`, or None. A date counted from today is worked out here, not by the model."""
     if llm is None or not facts:
@@ -162,6 +188,9 @@ def compose(question, f, facts, llm, today: date | None = None, date_only: bool 
     if isinstance(days, (int, float)) and not isinstance(days, bool) and -3660 <= days <= 3660:
         if (getattr(f, "input_type", "") or getattr(f, "kind", "")) == "number":
             return str(int(days))                       # a number field wants the count itself, never a date
+        pick = option_for_days(getattr(f, "options", None), int(days))
+        if pick:
+            return pick                                 # "Immediately / Within 2 weeks / Within 1 month ...": a period, not a date
         return _date_text(today + timedelta(days=int(days)), question, f)
     if date_only:
         return None                                    # a date comes only from a day count, never from the model's own text

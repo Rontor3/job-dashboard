@@ -176,6 +176,10 @@ _ATTEST = re.compile(
     re.I,
 )
 
+# A statement the applicant ticks to proceed ("By applying you acknowledge…"). Only for a checkbox: as a question
+# ("Do you agree to relocate?") the same words ask for an answer.
+_ATTEST_BOX = re.compile(r"\byou (acknowledge|consent|agree|confirm|declare|certify)\b|\bby (applying|submitting|continuing)\b", re.I)
+
 
 # Purposes that resolve to a TEXT value to type — nonsensical on a checkbox
 # ("Use name only" must not become full_name).
@@ -197,14 +201,14 @@ def guess_purpose(label: str, kind: str) -> str | None:
     text = (label or "").strip().lower()
     if not text:
         return None
-    if re.match(r"(if|in case)\s+(yes|so|no|not|applicable|you answered|you selected)\b", text):
+    if re.match(r"(if|in case)\s+(yes|so|no|not|applicable|you (have )?(answered|selected|chosen|picked))\b", text):
         return None            # a follow-up to an earlier answer ("If yes, give the name, job title…") is not a profile field
     if _SITE_SEARCH.match(text):
         return None            # the site's own search box ("Search title or skill...") — never a form question
     if kind == "file":
         return "resume_upload" if _RESUME_RE.search(text) else None
     if kind == "checkbox":
-        if _ATTEST.search(text):
+        if _ATTEST.search(text) or _ATTEST_BOX.search(text):
             return "attestation"
         for pattern, purpose in _RULES:      # keep only question purposes, not text ones
             if re.search(pattern, text):

@@ -91,6 +91,8 @@ def create_app(
         app.state.submit_watcher.start()
     app.state.queue_runner = QueueRunner(str(db_path), queue_launch or make_agent_launch(agent_state),
                                          watcher=app.state.submit_watcher)
+    if app.state.submit_watcher is not None:        # a run the watcher re-queues must start again on its own
+        app.state.submit_watcher.on_requeue = app.state.queue_runner.run_one_detached
     app.include_router(build_queue_router(db_path, app.state.queue_runner))
     # Mail scan: ``mail_scanner`` overrides Gmail + the LLM (tests); serve.py runs its daily loop.
     app.state.mail_scanner = mail_scanner or MailScanner(db_path)

@@ -20,6 +20,9 @@ def ensure(conn) -> None:
         added_at TEXT NOT NULL,
         started_at TEXT,
         finished_at TEXT)""")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(apply_queue)").fetchall()]
+    if "watch_cycles" not in cols:
+        conn.execute("ALTER TABLE apply_queue ADD COLUMN watch_cycles INTEGER NOT NULL DEFAULT 0")
 
 
 def _now() -> str:

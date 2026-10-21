@@ -255,6 +255,27 @@ def _compose_from_facts(conn, f, question, entry, embed, llm, job, contact):
     return (value, "; ".join(q for q, _, _ in facts)) if value else (None, None)
 
 
+_TOTAL_EXP = re.compile(r"\b(total|overall)\b[^?]{0,40}\bexperience\b", re.I)
+
+
+def _rating_from_level(conn, f, m, job, contact):
+    """(option, level) for "Rate your English on a scale of 1 to 5": the options are a plain number scale and the nearest
+    bank entry holds a level word (Fluent) — position it on the scale: native/fluent top, professional one below, basic
+    bottom, conversational between. None for anything else."""
+    from .facts import LEVELS, level
+    nums = [o.strip() for o in f.options or []]
+    if len(nums) < 3 or not all(o.isdigit() for o in nums) or not re.search(r"\b(rate|scale|rating)\b", f.label or "", re.I):
+        return None
+    for eid, score in m.candidates:
+        entry = qbank.get_entry(conn, eid)
+        lv = level(resolve_value(conn, entry, question=entry["question"], escape=None, job=job, contact=contact)) if entry and score >= 0.7 else None
+        if lv:
+            ordered = sorted(nums, key=int)
+            top = {"native": 1, "fluent": 1, "professional": 2, "conversational": 3, "basic": len(ordered)}[lv]
+            return (ordered[-top] if lv != "basic" else ordered[0]), lv
+    return None
+
+
 def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAULT_HIGH):
     if f.kind in ("file", "button") or f.purpose == "attestation":
         return Match(NONE, note="not a bank field"), None
@@ -268,6 +289,15 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
     else:
         m = match_question(conn, without_format_hint(question), embed=embed, llm=llm, high=high)
     m.escape = escape
+    if m.entry_id is None and _TOTAL_EXP.search(question) and any(re.search(r"\d", o) for o in f.options or []):
+        # "Total full-time experience in Data Scientist / AI / ML (internships not included)?" with year-range options:
+        # the qualifiers keep the model from calling it the total-experience question, but it is that question.
+        hit = next((e for e, sc in m.candidates if e == "total_experience_years" and sc >= 0.6), None)
+        if hit:
+            m = Match(LIKELY, hit, dict(m.candidates)[hit], "structure", m.candidates, escape, "total experience by its shape")
+    if m.entry_id is None and (pick := _rating_from_level(conn, f, m, job, contact)):
+        m.band, m.kind, m.note = LIKELY, "composed", f"scale position of your saved level: {pick[1]}"
+        return m, pick[0]
     if m.entry_id is None:
         value, composed = _compose_from_facts(conn, f, question, None, embed, llm, job, contact)
         fitted = fit_option(f.label, value, f.options, None, llm) if value else None
