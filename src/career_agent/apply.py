@@ -175,6 +175,9 @@ def _apply(args, box: dict) -> None:
     from job_dashboard.apply.store import get_application_profile
 
     conn = sqlite3.connect(args.db)
+    from job_dashboard.db import get_job
+    from .browser.page_prep import set_job_hint
+    set_job_hint(((get_job(conn, args.job_id) if args.job_id else None) or {}).get("title", ""))  # reach opens THIS job's card on a listing
     contact = get_application_profile(conn) or {}
     profile = load_candidate_profile(conn, args.resume_version, contact=contact)
 
@@ -234,6 +237,11 @@ def _apply(args, box: dict) -> None:
     def _on_submit(values, how, url):
         """A submit was CONFIRMED: its form values become approvals (unchanged +1, edited 0) and the site's history."""
         try:
+            from .browser.credential_provider import confirm_pending_credentials
+            confirm_pending_credentials(url)        # the account made inside THIS application exists now
+        except Exception:
+            pass
+        try:
             _autonomy.record_submission(conn, args.job_id, qa_rec.run_key, {_autonomy.key(k): v for k, v in values.items()}, how, url)
         except Exception as e:
             print(f"[policy] could not record the submit: {e}", flush=True)
@@ -252,7 +260,9 @@ def _apply(args, box: dict) -> None:
             _qbank.ensure(conn)
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
-            llm = _with_claude_fallback(make_default_llm())
+            from .orchestrator.claude_assist import with_claude_fallback
+            from .orchestrator.claude_assist import counted
+            llm = counted(with_claude_fallback(make_default_llm()), "local")
             _vendor = _ats_lookup(args.url)
             _ats_notes = ""
             if _vendor:
@@ -261,6 +271,7 @@ def _apply(args, box: dict) -> None:
                 if hints:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
+                                  companies=tuple(e.company for e in profile.experiences),
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             if not args.no_longform and os.getenv("CAREER_AGENT_LONGFORM") != "0":
@@ -306,7 +317,8 @@ def _apply(args, box: dict) -> None:
         print("[warn] facts-and-plans off: the `claude` CLI is not installed (the bank and rules still answer)")
     else:
         from .memory.facts import claude_cli_llm
-        _facts_llm = claude_cli_llm("haiku")
+        from .orchestrator.claude_assist import counted
+        _facts_llm = counted(claude_cli_llm("haiku"), "haiku")
         try:
             _skills = json.loads((_RunPath(args.db).parent / "answer_style" / "ingredients.json").read_text())["skills_pool"]
         except Exception as e:
@@ -323,6 +335,7 @@ def _apply(args, box: dict) -> None:
     if learn is not None:
         qa_rec.tracer = learn.explain
         qa_rec.promote_embed = learn.embed         # human replies (Telegram too) join the Answers tab
+        qa_rec.promote_missing = learn.missing_for # ...as the fact Haiku named, when no fact covered the field
 
     settings = load_settings()
 
@@ -398,7 +411,6 @@ def _apply(args, box: dict) -> None:
                 pass
             page, resp = _open, None
             _tabs.mark_user_owned(_open)             # the human's own tab: never closed by the run
-            page.bring_to_front()
         else:
             # DOM-ready, not 'load': LinkedIn's ad/tracker frames can hold the
             # load event past 30s; the networkidle settle below still runs.
@@ -466,15 +478,24 @@ def _apply(args, box: dict) -> None:
         _board = board_for(page.url) or board_for(args.url)
         _run_dir = str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         _assist = _make_assist(args, _run_dir)         # one assist for whichever engine runs this job
-        # The credential provider is built once and shared by both engines: the career-site
-        # engine's clear_auth_wall and the board engine's sign-up wall (run.py) both call
-        # provide(page, gate, site, ...) — guest apply -> stored creds -> register.
-        from .browser.credential_provider import provide as _provide
-        from .browser.page_prep import clear_auth_wall
-        _job_url = args.url
-        _profile_email = contact.get("email", "")
-        _provide_url = lambda pg, gate, site: _provide(
-            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""))
+        if not _board:
+            # Apply by email (a mailto: Apply link): a Gmail draft with the résumé, never another form on the page
+            from .browser.email_apply import mailto_apply, draft_application
+            _em = mailto_apply(page)
+            if _em:
+                try:
+                    from job_dashboard.db import get_job as _gj
+                    _job = (_gj(conn, args.job_id) if args.job_id else None) or {}
+                except Exception:
+                    _job = {}
+                _d = draft_application(_em["to"], _em["subject"], (_job or {}).get("title") or "",
+                                       (_job or {}).get("company") or "", contact, resume_pdf)
+                print(f"[email-apply] Apply is an email to {_em['to']}: "
+                      + (f"draft ready in Gmail -> {_d['gmail_url']}" if _d.get("drafted") else f"no draft ({_d.get('problem')})"),
+                      flush=True)
+                box["out"] = {"url": page.url, "stopped_reason": "email_apply_drafted" if _d.get("drafted") else "email_apply",
+                              "email_to": _em["to"], "gmail_url": _d.get("gmail_url"), "submitted": False}
+                return
         if _board:
             out = _run_board(_board, page, args, autosubmit_policy=_policy_fn, on_submit=_on_submit,
                              profile=profile, human=human, resume_pdf=resume_pdf,
@@ -497,17 +518,35 @@ def _apply(args, box: dict) -> None:
                 return
         # kind=="none" = clear JD page; kind=="form" can false-positive on pages
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
-        if kind == "none" or (kind == "form" and not is_application_form(page)):
-            # Close stale ATS tabs from previous runs so pages[-1] after Apply
-            # click reliably points to the new (fresh-session) login tab.
-            _ATS_HOSTS = ("taleo.net", "greenhouse.io", "icims.com", "workday.com",
-                          "darwinbox.in", "successfactors.com", "ashbyhq.com",
-                          "lever.co", "recruitee.com", "jobvite.com")
-            for _sp in list(page.context.pages):
-                if _sp is not page and any(h in (_sp.url or "") for h in _ATS_HOSTS):
-                    try: _sp.close()
-                    except Exception: pass
-            page, _ = reach_application_form(page)      # the tab the drill ended on (a new one only if one opened)
+        from .browser import page_prep as _pp
+        _listing = bool(_pp._JOB_TITLE) and _pp._listing_pick(page, _pp._JOB_TITLE)[0] == "match"
+
+        def _stop_site_refused():
+            """reach found the dead-end apply modal (site_refused): stop before the walk and escalate,
+            quoting the site's own words — the human decides whether updating the profile unblocks it."""
+            from .browser.page_prep import announce_site_refusal
+            out = {"url": args.url, **announce_site_refusal(page),
+                   "decisions": [], "pending_human": [], "submitted": False}
+            box["out"] = out
+            print(out, flush=True)
+            _write_run_log(conn, args.url, args.job_id, out)
+            _append_pending_memory(args.db, args.url, args.job_id, out)
+            return out
+
+        # a listing that shows OUR job's card is entered by that card's Apply, whatever other form is on the page
+        # (Micraft live 2026-10-19: its contact form passed for the application)
+        if kind == "none" or _listing or (kind == "form" and not is_application_form(page)):
+            # (Other ATS tabs are NOT closed here any more: they are other jobs' parked forms — live 2026-10-19 a
+            # Worksbot run closed Twilio's filled Greenhouse form. The tab an Apply click opens is found by
+            # page_prep.new_tab_since, not by "the last tab".)
+            import time as _time
+            print(f"[reach] enter url={page.url[:90]}", flush=True)
+            _t0 = _time.monotonic()
+            page, _reach_status = reach_application_form(page)      # the tab the drill ended on (a new one only if one opened)
+            print(f"[reach] exit status={_reach_status} in {_time.monotonic() - _t0:.1f}s", flush=True)
+            if _reach_status == "site_refused":                     # himalayas 2026-10-20: the wall is the site itself saying no
+                _stop_site_refused()
+                return
             _tabs.trim(keep=page)
             prepare(page); kind = classify_entry(page)
         if kind == "closed":
@@ -541,17 +580,32 @@ def _apply(args, box: dict) -> None:
         except ImportError:
             pass  # google client libs not installed yet
 
+        from .browser.credential_provider import provide as _provide
+        from .browser.page_prep import clear_auth_wall
+        _job_url = args.url
+        _profile_email = contact.get("email", "")
+        _provide_url = lambda pg, gate, site: _provide(
+            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""),
+            collector=collector)
+
         if kind == "password":
-            print("[password] attempting credential provider...")
+            print("[password] delegating to credential provider", flush=True)
             _before = list(page.context.pages)
-            clear_auth_wall(page, credential_provider=_provide_url)
+            _cleared = clear_auth_wall(page, credential_provider=_provide_url)
+            print(f"[password] credential provider returned cleared={_cleared}", flush=True)
             page = new_tab_since(page, _before)       # adopt a tab only if guest-apply really opened one
             _tabs.trim(keep=page)
             kind = classify_entry(page)
             # After Darwinbox registration the provider navigates back to the JD
             # page; re-enter the application so walk() lands on the form.
             if kind in ("none", "form") and not is_application_form(page):
-                page, _ = reach_application_form(page)
+                print(f"[reach] enter url={page.url[:90]}", flush=True)
+                _t0 = _time.monotonic()
+                page, _reach_status = reach_application_form(page)
+                print(f"[reach] exit status={_reach_status} in {_time.monotonic() - _t0:.1f}s", flush=True)
+                if _reach_status == "site_refused":
+                    _stop_site_refused()
+                    return
                 prepare(page); kind = classify_entry(page)
             # Registration+application on one page (e.g. SAP SuccessFactors): the
             # credential provider fills the auth fields; walk() fills the rest.
@@ -647,10 +701,15 @@ def _apply(args, box: dict) -> None:
                 _out.setdefault("run_key", qa_rec.run_key)
                 _out.setdefault("final_tab_id", tab_id_for(context, _final))
             # the tab the result points at stays; the working variable only when the result names no URL
-            _tabs.close_all_but(keep=[page] if (args.review and not _final) else [], keep_urls=[_final] if args.review else [])
+            # --review: the tab the run was working in always stays — the form may have moved off the URL the result
+            # names (Twilio/Greenhouse, Worksbot live 2026-10-19: the filled form was closed)
+            _tabs.close_all_but(keep=[page] if args.review else [], keep_urls=[_final] if args.review else [])
         except Exception:
             pass
-        close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
+        # shutdown close: only a tab THIS run opened. A reused operator tab (marked user-owned above)
+        # is where the human's logged-in session lives — the 2026-10-20 rule makes it untouchable.
+        _mine_tab = None if (_tabs.is_user_owned(page) or args.review) else page
+        close(pw, context, page=_mine_tab, cdp_browser=_cdp_browser)
 
 
 def _bare_url(u: str) -> str:
@@ -720,21 +779,6 @@ def _close_dead_tab(page):
         page.close()
     except Exception:
         pass
-
-
-def _with_claude_fallback(llm):
-    """The local model first; when it is down (Ollama stopped), Claude's CLI drafts instead of a canned template."""
-    def call(prompt):
-        try:
-            out = llm(prompt)
-            if isinstance(out, str) and out.strip():
-                return out
-        except Exception:
-            pass
-        from .orchestrator.claude_assist import _claude_cli
-        print("[llm] local model unavailable -> drafting with Claude", flush=True)
-        return _claude_cli(prompt, timeout=180)
-    return call
 
 
 def _escalation_context(conn, job_id, jd_text):

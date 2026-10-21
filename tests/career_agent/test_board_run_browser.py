@@ -296,6 +296,10 @@ def test_closed_and_already_applied_postings_are_named(monkeypatch):
     assert out["stopped_reason"] == "closed" and hits == []
     out, hits = _run(APPLIED, _board("yes", "/api/apply"), Human(), monkeypatch, do_submit=True)
     assert out["stopped_reason"] == "already_applied" and hits == []
+    sent = ('<html><body><h1>Data Scientist at GeoIQ</h1><button disabled>Application sent!</button>'
+            '<p>Applied on Oct 3, 2026</p></body></html>')                 # Instahyre, live 2026-10-18
+    out, hits = _run(sent, _board("yes", "/api/apply"), Human(), monkeypatch, do_submit=True)
+    assert out["stopped_reason"] == "already_applied" and hits == []
 
 
 def test_form_that_does_not_advance_stops_with_the_boards_error(monkeypatch):

@@ -14,10 +14,7 @@ export default function ThemeToggle() {
     setTheme(next);
   };
   return (
-    <button onClick={flip} aria-label="Toggle theme"
-      style={{ background: "transparent", border: "0.5px solid var(--hairline)",
-               borderRadius: "var(--radius-pill)", padding: "6px 10px", cursor: "pointer",
-               color: "var(--ink-soft)", fontSize: 13 }}>
+    <button className="icon-btn" onClick={flip} aria-label="Toggle theme">
       {theme === "dark" ? "☀︎" : "☾"}
     </button>
   );

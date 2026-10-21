@@ -2,6 +2,7 @@ python-jobspy>=1.1.80
 requests>=2.31
 feedparser>=6.0
 pytest>=8.0
+pytest-timeout>=2.4
 sentence-transformers>=2.2
 fastapi>=0.110
 uvicorn>=0.29

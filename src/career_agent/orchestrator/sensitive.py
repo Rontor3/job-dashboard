@@ -29,8 +29,13 @@ _NOT_A_VALUE = {"checkbox", "radio", "radio_group", "file", "button"}
 def is_sensitive(f) -> bool:
     if getattr(f, "kind", "") in _NOT_A_VALUE:
         return False
-    text = f"{getattr(f, 'label', '') or ''} {getattr(f, 'description', '') or ''}"
-    return bool(_SENSITIVE.search(text))
+    if _SENSITIVE.search(getattr(f, "label", "") or ""):
+        return True
+    # The help text only counts for a box that takes a typed value: a closed choice that merely MENTIONS an ID
+    # ("Gender — as declared in the Aadhar card", Deloitte live 2026-10-18) asks for the choice, not the number.
+    if getattr(f, "options", None):
+        return False
+    return bool(_SENSITIVE.search(getattr(f, "description", "") or ""))
 
 
 def split_sensitive(fields) -> tuple[list, list]:

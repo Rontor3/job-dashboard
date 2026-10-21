@@ -12,11 +12,7 @@ import re
 
 MAX_FIELDS = 150          # a form with more than this is not being filled, it is looping
 
-_SIG_JS = """() => {
-  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
-  const els = Array.from(document.querySelectorAll('input,select,textarea,[role=combobox],[role=radiogroup]')).filter(vis);
-  return els.length + '|' + els.map(e => (e.id || e.name || e.getAttribute('aria-label') || '').slice(0, 24)).join(',');
-}"""
+from ..browser.perception import FIELD_SIG_JS as _SIG_JS          # one copy of "the fields on screen"
 
 
 def field_keys(fields) -> dict:
@@ -57,6 +53,26 @@ def _apply_one(deps, page, d) -> None:
         deps.fill(page, [d])
 
 
+# Only a model's judgment is a guess. A bank answer marked "likely" is the stored answer not yet confirmed by a submit
+# (live Cummins 2026-10-18: First Name "Rakshit" was qbank_likely, so the résumé parse's "GenAI" stood) — it still
+# beats a parser's value.
+_GUESSES = {"judgment"}
+
+
+def _norm_val(v) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(v or "").lower())
+
+
+def site_value_stands(site, decision) -> bool:
+    """Keep what the site pre-filled (a résumé parse) only when it agrees with our answer or ours is a guess.
+    Live Oracle at Cummins (2026-10-18): the profile import put 'GenAI' in First Name and the agent kept it — a value
+    from the profile, the bank or an agreed fact that differs from the site's is ours to write."""
+    a, b = _norm_val(site), _norm_val(decision.value)
+    if not a or not b or a == b or a in b or b in a:      # '7565052330' vs '+91 7565052330' is the same phone
+        return True
+    return decision.source in _GUESSES
+
+
 def fill_top_down(page, deps, fields, decisions, needs, ctx, *, answer_fn=None, skip_prefilled=False, settle_ms=250):
     """Apply `decisions` in page order, re-reading the form whenever it changes. Returns (applied, needs): the
     decisions that were applied, in the order they were applied, and the fields still needing a human."""
@@ -80,9 +96,13 @@ def fill_top_down(page, deps, fields, decisions, needs, ctx, *, answer_fn=None, 
         d = plan[k]
         done.add(k)
         if skip_prefilled and d.kind != "textarea" and d.action in ("fill", "select", "combobox") and _holds_value(page, d):
-            print(f"[fill] kept site's value: {d.label[:50]!r} = {str(_value(page, d))[:40]!r}", flush=True)
-            continue          # the site already filled it (résumé parse); a long answer is ours, never the parser's: write it
+            site = _value(page, d)
+            if site_value_stands(site, d):
+                print(f"[fill] kept site's value: {d.label[:50]!r} = {str(site)[:40]!r}", flush=True)
+                continue      # the site already filled it (résumé parse); a long answer is ours, never the parser's: write it
+            print(f"[fill] replaced site's value {d.label[:50]!r}: {str(site)[:30]!r} -> {str(d.value)[:30]!r}", flush=True)
         _apply_one(deps, page, d)
+        print(f"[fill] {len(done)} applied", flush=True)       # progress for the stall watchdog, one line per field
         try:
             page.wait_for_timeout(settle_ms)
         except Exception:

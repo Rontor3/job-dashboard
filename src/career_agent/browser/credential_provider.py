@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re as _re
 import secrets
 import string
 from pathlib import Path
@@ -38,12 +39,13 @@ def _fill_otp_generic(page, code: str) -> bool:
                 except Exception:
                     pass
             return True
-    single = page.query_selector(
-        'input[name*="otp" i], input[id*="otp" i], '
-        'input[name*="code" i], input[id*="code" i], '
-        'input[inputmode="numeric"]'
-    )
-    if single and single.is_visible():
+    # The first VISIBLE match: a page can hold several 'code' inputs, hidden ones first (Azure B2C, Accenture live
+    # 2026-10-18 — the code arrived from Gmail but was never typed, and the run looped on it)
+    single = next((el for el in page.query_selector_all(
+        'input[name*="otp" i], input[id*="otp" i], input[autocomplete="one-time-code"], '
+        'input[aria-label*="verification code" i], input[name*="code" i], input[id*="code" i], '
+        'input[inputmode="numeric"]') if el.is_visible()), None)
+    if single is not None:
         _type_into(page, single, digits)
         return True
     return False
@@ -77,12 +79,58 @@ def save_credential(site: str, username: str, password: str, label: str = "",
     _STORE.write_text(json.dumps(data, indent=2))
 
 
+_LOGIN_ERROR = _re.compile(r"invalid|incorrect|wrong (e-?mail|password|user)|not (found|recogni[sz]ed|registered)|does ?n.?t "
+                          r"(exist|match)|no account|unable to (log|sign) ?in|login failed|authentication failed", _re.I)
+
+
+def _login_rejected(page) -> bool:
+    """The site said no to the login (a slow redirect is not a rejection: only an error message counts)."""
+    try:
+        return bool(_LOGIN_ERROR.search(page.inner_text("body") or ""))
+    except Exception:
+        return False
+
+
+def retire_credential(site: str, label: str = "") -> None:
+    """A stored login the site rejects: keep it under '<key>:stale' (history, never re-used) so the next visit registers."""
+    key = f"{site}:{label}" if label else site
+    if not _STORE.exists():
+        return
+    data = json.loads(_STORE.read_text())
+    if key in data:
+        data[key + ":stale"] = data.pop(key)
+        _STORE.write_text(json.dumps(data, indent=2))
+
+
 def load_credential(site: str, label: str = "") -> dict | None:
-    """Return ``{"username": ..., "password": ..., "label": ...}`` or ``None``."""
+    """Return ``{"username": ..., "password": ..., "label": ...}`` or ``None``. A pending credential (typed into a
+    sign-up that is also the application, not yet submitted) is no account yet: None."""
     if not _STORE.exists():
         return None
     key = f"{site}:{label}" if label else site
-    return json.loads(_STORE.read_text()).get(key)
+    cred = json.loads(_STORE.read_text()).get(key)
+    return None if cred and cred.get("pending") else cred
+
+
+def confirm_pending_credentials(url: str = "") -> int:
+    """A submit went through on `url`: the pending credential of THAT site is now a real account (another site's stays
+    pending — live 2026-10-19: a MetLife submit promoted Koch's never-created account). Returns how many."""
+    if not _STORE.exists() or not url:
+        return 0
+    from urllib.parse import urlparse
+    host = (urlparse(url).hostname or "").lower()
+    if not host:
+        return 0
+    data = json.loads(_STORE.read_text())
+    n = 0
+    for k, v in data.items():
+        site = k.split(":", 1)[0].lower()
+        same = host == site or host.endswith("." + site) or site.endswith("." + host)
+        if same and isinstance(v, dict) and v.pop("pending", None):
+            n += 1
+    if n:
+        _STORE.write_text(json.dumps(data, indent=2))
+    return n
 
 
 def _default_email() -> str:
@@ -114,6 +162,92 @@ import hashlib as _hashlib
 import re as _re
 import time as _time
 
+# A code mailed before this run started belongs to an earlier attempt (Accenture live 2026-10-18: the previous run's
+# code was typed, the sign-up failed). Codes are read only from mail newer than this.
+_RUN_START = _time.time()
+
+
+_SEND_CODE_BTN = _re.compile(r"send (a |the )?(verification )?code|send otp|verify email|get code", _re.I)
+_VERIFY_CODE_BTN = _re.compile(r"verify( code)?|confirm", _re.I)
+_CODE_INPUT_SEL = ('input[id*="verificationcode" i], input[name*="verificationcode" i], input[id*="otp" i],'
+                   'input[name*="otp" i], input[autocomplete="one-time-code"], input[name*="code" i]')
+
+
+def _inline_email_verify_state(page) -> bool:
+    """Sign-up that verifies the email inline (Accenture Azure AD B2C): a visible EMPTY email box and a visible
+    'Send verification code' button, before any code was sent. Its own button text says 'verification code', so
+    the OTP regexes in _classify_page_state would fire and poll Gmail for a code that is never requested."""
+    try:
+        boxes = [el for el in page.query_selector_all(_EMAIL_ATTR_SEL) if el.is_visible()]
+        if not boxes or any(el.input_value() for el in boxes):
+            return False
+        return page.get_by_role("button", name=_SEND_CODE_BTN).first.is_visible()
+    except Exception:
+        return False
+
+
+def _body_text(page) -> str:
+    try:
+        return page.inner_text("body") or ""
+    except Exception:
+        return ""
+
+
+def _handle_inline_verify(page, cred: dict, site: str) -> None:
+    """Email → Send code → OTP from Gmail → Verify → account fields (names, password, consent) → Create."""
+    from ..integrations.gmail_otp import poll_otp, available
+    boxes = [el for el in page.query_selector_all(_EMAIL_ATTR_SEL) if el.is_visible()]
+    if not boxes or not available():
+        print("[cred] inline verification: no email box or Gmail OTP unavailable", flush=True)
+        return
+    _type_into(page, boxes[0], cred["username"])
+    sent_at = int(_time.time()) - 30                       # only a code mailed after this click is ours
+    if not _safe_click(page.get_by_role("button", name=_SEND_CODE_BTN).first):
+        print("[cred] inline verification: could not click send-code", flush=True)
+        return
+    print("[cred] sent the inline verification code", flush=True)
+    try:
+        code_el = page.wait_for_selector(_CODE_INPUT_SEL, state="visible", timeout=15000)
+    except Exception:
+        code_el = None
+    if code_el is None:
+        print("[cred] inline verification: code input never appeared", flush=True)
+        return
+    collector = _ASK["collector"]
+    if collector is not None:                     # attended: one short human ask, no silent half-hour
+        code = _otp_from_human(collector, site)
+        if not code:
+            _otp_unanswered(site)
+            return
+    else:
+        code = poll_otp(timeout_s=1800, sender_hint=site, after_epoch=sent_at)
+        if not code:
+            print(f"[cred] OTP timeout for {site}", flush=True)
+            return
+    digits = "".join(c for c in str(code) if c.isdigit()) or str(code).strip()
+    _type_into(page, code_el, digits)
+    if not _safe_click(page.get_by_role("button", name=_VERIFY_CODE_BTN).first):
+        print("[cred] inline verification: could not click verify", flush=True)
+        return
+    page.wait_for_timeout(800)
+    _fill_visible_fields(page, cred)          # names, passwords, consent; the email box re-types the same value
+    page.wait_for_timeout(500)
+    before = _body_text(page)
+    if not _click_non_social_submit(page, ("Create", "Sign up", "Register", "Continue")):
+        print("[cred] inline verification: no create button clicked", flush=True)
+        return
+    page.wait_for_timeout(1500)                   # let the create request land; the page text is the signal
+    if _body_text(page) == before:                # the account form did not take it: nothing to save
+        print("[cred] inline verification: the account form did not advance", flush=True)
+        return
+    save_credential(site, cred["username"], cred["password"], label=cred.get("label", ""),
+                    first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+    print(f"[cred] saved credential for {site}", flush=True)
+    # Chain only on a real next step: "verification code" text often outlives the code box, so 'otp' here is a misread.
+    state = _classify_page_state(page)
+    if state not in ("unknown", "inline_verify", "otp"):
+        _handle_state(page, state, cred, site)
+
 
 def _classify_page_state(page) -> str:
     """Read DOM + URL → return next-action hint."""
@@ -124,6 +258,8 @@ def _classify_page_state(page) -> str:
         return "unknown"
     if any(d in url for d in ("accounts.google.com", "accounts.facebook.com", "linkedin.com/oauth")):
         return "oauth"
+    if _inline_email_verify_state(page):
+        return "inline_verify"
     # OTP input present
     otp_el = page.query_selector(
         'input[name*="otp" i], input[id*="otp" i],'
@@ -281,16 +417,22 @@ def _click_non_social_submit(page, btn_names=("Continue", "Create Account", "Sig
     return False
 
 
-_CONSENT_KEYWORDS = ("privacy", "consent", "terms", "agree", "policy")
+# Hitachi Workday (live 2026-10-18): "I confirm Hitachi will process my personal data as per the GDPR Notice"
+_CONSENT_KEYWORDS = ("privacy", "consent", "terms", "agree", "policy", "gdpr", "personal data", "data protection",
+                     "i confirm", "acknowledge")
 
 
-def _check_consent_checkboxes(page) -> None:
-    """Check any unchecked checkbox whose label suggests T&C/privacy consent."""
-    for cb in page.query_selector_all('input[type="checkbox"]'):
+def _check_consent_checkboxes(page) -> int:
+    """Tick every unticked checkbox whose label is T&C/privacy consent; returns how many. A styled box hides the real
+    input (Oracle Candidate Experience: 'I agree with … Privacy Notice', live 2026-10-18 — Next did nothing until it
+    was ticked): then its label is clicked instead. ARIA checkboxes ([role=checkbox]) count too."""
+    ticked = 0
+    for cb in page.query_selector_all('input[type="checkbox"], [role="checkbox"]'):
         try:
-            if not cb.is_visible() or cb.is_checked():
+            aria = cb.get_attribute("role") == "checkbox"
+            if (cb.get_attribute("aria-checked") == "true") if aria else cb.is_checked():
                 continue
-            label_text = ""
+            label_text, lbl = "", None
             cb_id = cb.get_attribute("id")
             if cb_id:
                 lbl = page.query_selector(f'label[for="{cb_id}"]')
@@ -302,14 +444,110 @@ def _check_consent_checkboxes(page) -> None:
                 ).as_element()
                 if container:
                     label_text = (container.inner_text() or "").lower()
-            if any(k in label_text for k in _CONSENT_KEYWORDS):
-                cb.check()
+                    lbl = lbl or container
+            if not any(k in label_text for k in _CONSENT_KEYWORDS):
+                continue
+            from ..orchestrator.screen_review import _MARKETING
+            if _MARKETING.search(label_text):                # "I agree to receive job alerts" is not consent to apply
+                continue
+            done = False
+            if cb.is_visible():
+                try:
+                    cb.click(timeout=2000) if aria else cb.check(timeout=2000)
+                    done = True
+                except Exception:                          # covered by the drawn box: the label below
+                    pass
+            is_on = (lambda: cb.get_attribute("aria-checked") == "true") if aria else cb.is_checked
+            if not done and lbl is not None and lbl.is_visible():
+                lbl.click(timeout=2000)                    # the drawn box: its label toggles the hidden input
+                done = is_on()
+            if not done and not aria:
+                # a 0x0 input whose visible "label" is a span (Oracle Candidate Experience, live 2026-10-18: clicking
+                # the wrapper did nothing): click the input in-page — it toggles and fires click/change like a person
+                cb.evaluate("e => e.click()")
+                done = is_on()
+            ticked += bool(done)
         except Exception:
             pass
+    return ticked
 
 
 _CONSENT_LINK = _re.compile(r"(read|review|open)?.{0,12}accept.{0,30}(privacy|terms|agreement|statement|policy)", _re.I)
 _ACCEPT_BTN = _re.compile(r"^(i )?(accept|agree|i agree|accept and continue|ok)$", _re.I)
+
+
+# ── OTP via the connected human (class C, live 2026-10-20) ──────────────────
+# The provider used to poll Gmail for the code for 1800 s in silence; eight queued
+# jobs burned the full half hour. When a human channel is wired, ask it ONCE for
+# the code (or the magic link — the handlers already branch on a leading "http"),
+# with the collector's per-ask window briefly shrunk to _OTP_ASK_S the same way
+# integrations/escalation.py bounds each of its asks, and park the run with a
+# named reason on silence: the queue re-drains those jobs later. Only a vraiment
+# headless run (no channel) keeps the old 1800 s poll, so unattended semantics
+# don't regress.
+_OTP_ASK_S = 120
+_OTP_UNANSWERED = "otp_unanswered"
+_ASK = {"collector": None}            # run-scoped ask channel (provider flows are serial)
+_PARK = {"reason": None}
+
+
+def _otp_field(site: str):
+    from ..browser.form_model import Field
+    return Field(ref="otp_code", kind="text",
+                 label=f"🔑 OTP / verification link for {site} — paste the code or link",
+                 required=True, options=[], group=None, purpose="otp")
+
+
+def _otp_from_human(collector, site: str) -> str | None:
+    """ONE short ask to the connected human channel: the code (or magic link) if
+    they answered inside the shrunk window, None on silence or failure. The
+    collector's own settable per-ask wait is trimmed for this call only and
+    restored after."""
+    if collector is None:
+        return None
+    f = _otp_field(site)
+    saved = {}
+    try:
+        for attr in ("deadline_s", "text_deadline_s"):
+            v = getattr(collector, attr, None)
+            if isinstance(v, (int, float)):
+                saved[attr] = v
+                if v > _OTP_ASK_S:
+                    setattr(collector, attr, _OTP_ASK_S)
+        answers = collector([f]) or {}
+    except Exception as e:
+        print(f"[cred] OTP ask failed ({type(e).__name__})", flush=True)
+        answers = {}
+    finally:
+        for attr, v in saved.items():
+            try:
+                setattr(collector, attr, v)
+            except Exception:
+                pass
+    val = str(answers.get(f.ref) or "").strip()
+    return val or None
+
+
+def _confirm_consent_dialog(page) -> bool:
+    """Ticking a consent box can open the notice itself with an Agree button that must be pressed (Oracle at Cummins,
+    live 2026-10-18: a 'Privacy Notice' dialog with AGREE blocked Next). Press Agree/Accept in a visible dialog only."""
+    try:
+        page.wait_for_timeout(800)
+        dialog = page.locator("[role=dialog], [aria-modal=true], [class*=modal i], [class*=dialog i]").filter(
+            has_text=_re.compile(r"privacy|terms|consent|notice|agree", _re.I))
+        for i in range(min(dialog.count(), 4)):
+            d = dialog.nth(i)
+            if not d.is_visible():
+                continue
+            btn = d.get_by_role("button", name=_ACCEPT_BTN).first
+            if btn.count() and btn.is_visible():
+                _safe_click(btn)
+                page.wait_for_timeout(800)
+                print("[cred] agreed in the consent dialog", flush=True)
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def _accept_consent_link(page) -> bool:
@@ -443,53 +681,77 @@ def _fill_visible_fields(page, cred: dict) -> None:
             _type_into(page, el, cred["password"])
     for name_sel, val in [
         ('input[name*="fName" i], input[id*="first" i], input[name*="firstName" i],'
-         'input[placeholder*="first" i]', cred.get("first_name", "")),
+         'input[placeholder*="first" i], input[autocomplete="given-name"], input[id*="given" i], input[name*="given" i]',
+         cred.get("first_name", "")),
         ('input[name*="lName" i], input[id*="last" i], input[name*="lastName" i],'
-         'input[placeholder*="last" i]', cred.get("last_name", "")),
+         'input[placeholder*="last" i], input[autocomplete="family-name"], input[id*="surname" i],'
+         'input[name*="surname" i], input[id*="family" i]', cred.get("last_name", "")),
     ]:
         if not val:
             continue
-        el = page.query_selector(name_sel)
-        if el and el.is_visible():
+        # first VISIBLE match; Azure B2C names them givenName / surname (Accenture, live 2026-10-18: CREATE failed blank)
+        el = next((e for e in page.query_selector_all(name_sel) if e.is_visible()), None)
+        if el is not None and not (el.input_value() or "").strip():
             _type_into(page, el, val)
     _check_consent_checkboxes(page)
     _fill_phone_and_country(page, cred)
     _accept_consent_link(page)
 
 
+def _apply_otp_code(page, code: str, cred: dict, site: str) -> None:
+    """Use a code (or magic link) that this provider already has: verify and chain."""
+    print(f"[cred] got OTP code={code!r}, filling now", flush=True)
+    if code.startswith("http"):
+        page.goto(code, wait_until="domcontentloaded")
+        next_state = _observe_until_change(page, "otp_link")
+    else:
+        filled = _fill_otp_generic(page, code)
+        print(f"[cred] OTP fill result: {filled}", flush=True)
+        page.wait_for_timeout(500)
+        clicked = _click_non_social_submit(page, ("Verify", "Continue", "Submit", "Sign In"))
+        print(f"[cred] OTP submit clicked: {clicked}", flush=True)
+        next_state = _observe_until_change(page, "otp_submit")
+    print(f"[cred] post-OTP state: {next_state}", flush=True)
+    # Keep the chain going — Phenom shows password/registration step after OTP
+    if next_state not in ("unknown", "otp"):
+        _handle_state(page, next_state, cred, site)
+
+
+def _otp_unanswered(site: str) -> None:
+    print(f"[cred] otp_unanswered for {site} — parked; the human can answer on the tracker "
+          f"and the queue re-drains this job", flush=True)
+    _PARK["reason"] = _OTP_UNANSWERED
+
+
 def _handle_otp_state(page, site: str, cred: dict) -> None:
     """Get OTP from Gmail, fill it, then continue handling whatever page comes next."""
     from ..integrations.gmail_otp import poll_otp, available
+    collector = _ASK["collector"]
+    if collector is not None:                     # attended: the connected human is the OTP source
+        code = _otp_from_human(collector, site)
+        if code:
+            _apply_otp_code(page, code, cred, site)
+        else:
+            _otp_unanswered(site)
+        return
     if not available():
         print("[cred] Gmail OTP not available", flush=True)
         return
     try:
-        code = poll_otp(timeout_s=1800, sender_hint=site)
+        code = poll_otp(timeout_s=1800, sender_hint=site, after_epoch=int(_RUN_START) - 60)
         if not code:
             print(f"[cred] OTP timeout for {site}", flush=True)
             return
-        print(f"[cred] got OTP code={code!r}, filling now", flush=True)
-        if code.startswith("http"):
-            page.goto(code, wait_until="domcontentloaded")
-            next_state = _observe_until_change(page, "otp_link")
-        else:
-            filled = _fill_otp_generic(page, code)
-            print(f"[cred] OTP fill result: {filled}", flush=True)
-            page.wait_for_timeout(500)
-            clicked = _click_non_social_submit(page, ("Verify", "Continue", "Submit", "Sign In"))
-            print(f"[cred] OTP submit clicked: {clicked}", flush=True)
-            next_state = _observe_until_change(page, "otp_submit")
-        print(f"[cred] post-OTP state: {next_state}", flush=True)
-        # Keep the chain going — Phenom shows password/registration step after OTP
-        if next_state not in ("unknown", "otp"):
-            _handle_state(page, next_state, cred, site)
+        _apply_otp_code(page, code, cred, site)
     except Exception as e:
         print(f"[cred] _handle_otp_state error: {e}", flush=True)
 
 
 def _handle_state(page, state: str, cred: dict, site: str) -> None:
     """Act on an observed page state: fill what's now visible, then re-observe."""
-    if state == "otp":
+    if state == "inline_verify":
+        _handle_inline_verify(page, cred, site)
+    elif state == "otp":
         _handle_otp_state(page, site, cred)
     elif state == "verify_email":
         _handle_otp_state(page, site, cred)  # poll_otp returns link or code
@@ -542,6 +804,9 @@ def _is_combined_form(page) -> bool:
 def _fill_wall(page, gate: str, cred: dict, site: str = "") -> None:
     """Fill all visible auth fields, submit, then observe and handle the resulting state."""
     try:
+        if _inline_email_verify_state(page):          # submitting here would only wait for a code nobody sent
+            _handle_state(page, "inline_verify", cred, site)
+            return
         _fill_visible_fields(page, cred)
         page.wait_for_timeout(800)
         if _is_combined_form(page):
@@ -956,13 +1221,22 @@ _SIGNUP_TEXTS = [
     "sign up", "register", "create account", "create an account",
     "new user", "don't have an account", "no account", "new here",
     "join now", "get started", "new to",
+    # the account is created as the application's first step (Deloitte "First time applicant — Create profile",
+    # Accenture B2C "To apply, please create a profile — START APPLICATION")
+    "create profile", "create a profile", "create your profile", "start application", "start your application",
+    "start an application", "new applicant", "first time applicant",
 ]
 # Some sites offer registration as a block of alternative ways in ("Create an account using any of the following
 # options: Upload file / Self-complete / Upload CV later") with no link that says "sign up". The manual options start
 # the same form without handing over a file or a social profile.
 _REGISTRATION_OPTIONS = ["self-complete", "self complete", "fill in manually", "fill manually", "enter manually",
-                         "manual registration", "upload cv later", "upload resume later", "continue without"]
-_REGISTRATION_CUE = _re.compile(r"create (an )?account (using|with|by)|register (using|with|by)|sign up (using|with|by)", _re.I)
+                         "manual registration", "upload cv later", "upload resume later", "continue without",
+                         "without resume", "without a resume", "without cv", "without a cv"]
+# Avature (Koch, live 2026-10-18): "Choose any option to apply — From Device / Copy & Paste / Without Resume / Indeed /
+# Google / XING" behind its "Create an account" link.
+_REGISTRATION_CUE = _re.compile(r"create (an )?account (using|with|by)|register (using|with|by)|sign up (using|with|by)"
+                                r"|choose (any|an|one|a) (option|way|method) to apply|choose a method"
+                                r"|how (would|do) you (like|want) to apply|ways to apply|first time here", _re.I)
 # Keywords that, if present in ANY visible link/button text, aria-label, or title
 # on a login/signup wall, indicate an account-free path. Checked as substrings.
 _GUEST_KEYWORDS = ["guest", "without account", "without sign", "without log",
@@ -989,34 +1263,94 @@ def _is_page_chrome(el) -> bool:
 def _navigate_to_form(page, link_texts: list[str], label: str) -> bool:
     try:
         sel = "a, button, input[type='button'], input[type='submit']"
+        chrome = []
         for el in page.query_selector_all(sel):
             if not el.is_visible():
                 continue
             text = (el.text_content() or el.get_attribute("value") or "").strip().lower()
             # Skip social-login buttons (e.g. "Sign in with Google")
-            if any(s in text for s in _SOCIAL_KEYWORDS):
+            if any(s in text for s in _SOCIAL_KEYWORDS) or not any(t in text for t in link_texts):
                 continue
             # Prefer an in-flow control over global site chrome (a header often
             # has its own generic "Sign In" that opens an unrelated auth modal)
             if _is_page_chrome(el):
+                chrome.append((el, text))
                 continue
-            if any(t in text for t in link_texts):
-                print(f"[cred] navigating to {label}: {text!r}", flush=True)
-                if not _safe_click(el):
-                    continue
-                state = _observe_until_change(page, "navigate_form")
-                print(f"[cred] after nav click state: {state}", flush=True)
+            if _go(page, el, text, label):
+                return True
+        for el, text in chrome:                       # only in the header: still the way in (Avature 'Create an account')
+            if _go(page, el, text, label):
                 return True
     except Exception:
         pass
     return False
 
 
-def _registration_options_offered(page) -> bool:
-    try:
-        return bool(_REGISTRATION_CUE.search(page.inner_text("body") or ""))
-    except Exception:
+def _go(page, el, text, label) -> bool:
+    print(f"[cred] navigating to {label}: {text!r}", flush=True)
+    if not _safe_click(el):
         return False
+    state = _observe_until_change(page, "navigate_form")
+    print(f"[cred] after nav click state: {state}", flush=True)
+    return True
+
+
+def _registration_options_offered(page, wait_ms: int = 5000) -> bool:
+    """The page offers ways in ('First time here? Choose a method...'). Polled briefly: the block renders after the
+    login panel, and a check made at first paint missed it (MetLife live 2026-10-19: escalated as 'no signup form')."""
+    for _ in range(max(1, wait_ms // 500)):
+        try:
+            if _REGISTRATION_CUE.search(page.inner_text("body") or ""):
+                return True
+        except Exception:
+            pass
+        page.wait_for_timeout(500)
+    return False
+
+
+def _start_by_resume_upload(page, site: str) -> bool:
+    """Registration options offered but no manual option: the résumé upload is the start of the application (Avature
+    'From Device'). Click the upload option and hand the résumé to the file chooser it opens (as on Deloitte, live
+    2026-10-18), else set it on the page's file input. True once the résumé is in: the page's own Continue is the
+    filler's next step. (The same page keeps a login password box beside the options, so 'no password box' is no test.)"""
+    from career_agent.apply import supplied_resume_pdf
+    named = sorted(Path("data/resumes/upload").glob("*_Resume.pdf"))   # the copy named for employers, made by apply.py
+    resume = str(named[0]) if named else supplied_resume_pdf()
+    if not resume:
+        return False
+    try:
+        opt = next((el for el in page.query_selector_all("a, button, [role=button], label")
+                    if el.is_visible() and _UPLOAD_OPTION.search((el.text_content() or "").strip())), None)
+        done = False
+        if opt is not None:
+            try:
+                with page.expect_file_chooser(timeout=5000) as fc:
+                    opt.click()
+                fc.value.set_files(resume)
+                done = True
+            except Exception:
+                pass
+        if not done:
+            file_el = page.query_selector('input[type="file"]')
+            if file_el is None:
+                return False
+            file_el.set_input_files(resume)
+        print(f"[cred] {site}: started the application by uploading the résumé", flush=True)
+        page.wait_for_timeout(1500)
+        # The upload only arms the choice: the page's Continue takes it on (MetLife -> Register, live 2026-10-18)
+        # by name only: the first submit on this page is the login panel's 'Log In'
+        for name in ("Continue", "Next", "Proceed"):
+            btn = page.get_by_role("button", name=_re.compile(rf"^\s*{name}\b", _re.I)).first
+            if btn.count() and btn.is_visible() and _safe_click(btn):
+                _observe_until_change(page, "resume_upload")
+                break
+        return True
+    except Exception as _e:
+        print(f"[cred] résumé upload failed on {site}: {_e!r}", flush=True)
+        return False
+
+
+_UPLOAD_OPTION = _re.compile(r"^(from (device|computer)|upload (a |your )?(cv|resume|résumé|file)|upload)\b", _re.I)
 
 
 def _try_guest_apply(page) -> bool:
@@ -1055,8 +1389,57 @@ def _ensure_signup_form(page) -> None:
     _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
 
 
+def _reveal_email_form(page) -> bool:
+    """An email-first wall ("Sign in with email" beside social buttons) hides its email and password boxes until that
+    control is clicked. Click it once and wait for the password box; False if there was no such control (or it was
+    already clicked and the form is open). Matched by page_prep.EMAIL_REVEAL_RE, the same rule that classifies the wall."""
+    from .page_prep import EMAIL_REVEAL_RE
+    try:
+        if any(el.is_visible() for el in page.query_selector_all('input[type="password"]')):
+            return False                     # the form is already open
+        for el in page.query_selector_all("button, a, [role=button], input[type='button'], input[type='submit']"):
+            if not el.is_visible():
+                continue
+            text = " ".join((el.text_content() or el.get_attribute("value") or "").split())
+            if not EMAIL_REVEAL_RE.match(text):
+                continue
+            print(f"[cred] revealing the email form: {text!r}", flush=True)
+            if not _safe_click(el):
+                return False
+            try:
+                page.wait_for_selector('input[type="password"]', state="visible", timeout=10000)
+            except Exception:
+                _observe_until_change(page, "reveal_email")
+            return True
+    except Exception as e:
+        print(f"[cred] reveal scan error: {e!r}", flush=True)
+    return False
+
+
 def provide(page, gate: str, site: str, original_url: str | None = None,
-            email: str = "", phone: str = "") -> tuple[bool, str | None]:
+            email: str = "", phone: str = "", collector=None, _retried: bool = False) -> tuple[bool, str | None]:
+    """Boundary print around _provide_attempt: the cred machinery must name itself in the run log
+    above and below every attempt, so a stall (a silent 660 s wall, battle #1) shows its edges.
+
+    `collector` (optional) is the run's human-ask channel: with one wired, an OTP
+    wall gets a single short human ask and — on silence — the provider reports
+    the honest action ``"otp_unanswered"`` so the queue re-drains the job."""
+    print(f"[cred] provide(site={site}): starting", flush=True)
+    _ASK["collector"] = collector
+    _PARK["reason"] = None
+    try:
+        ok, action = _provide_attempt(page, gate, site, original_url, email, phone, _retried)
+    finally:
+        parked, _ASK["collector"] = _PARK["reason"], None
+    if parked and not ok:
+        action = parked                            # the honest park reason, not a plain failed attempt
+    print(f"[cred] provide(site={site}): done outcome={'handled' if ok else 'unhandled'}:"
+          f"{action or 'none'}", flush=True)
+    return ok, action
+
+
+def _provide_attempt(page, gate: str, site: str, original_url: str | None = None,
+                     email: str = "", phone: str = "", _retried: bool = False) -> tuple[bool, str | None]:
     """Fill an account/login wall using stored or freshly-generated credentials.
 
     Flow:
@@ -1075,6 +1458,7 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
     # Step 1 — guest apply (always try first; no account needed)
     if _try_guest_apply(page):
         return True, "guest"
+    _reveal_email_form(page)                 # an email-first wall hides its password box behind one click
     cred = load_credential(site, label=gate)
 
     is_new = cred is None
@@ -1110,7 +1494,10 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
         _infosys_login(page, cred, original_url=original_url)
     else:
         # Generic path — observation-driven: look at the page, then act.
-        if _is_email_first(page):
+        if is_new and _inline_email_verify_state(page):
+            # Email verified inline on this page (Accenture B2C): not an email-first form.
+            _handle_state(page, "inline_verify", cred, site)
+        elif _is_email_first(page):
             # Email-only form visible (no password field yet).
             # Fill email, click Continue, then observe and handle whatever appears.
             print(f"[cred] email-first form detected on {site}", flush=True)
@@ -1121,6 +1508,9 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                     _type_into(page, el, cred["username"])
                     break
             page.wait_for_timeout(500)
+            if _check_consent_checkboxes(page) or _accept_consent_link(page):   # a required "I agree" gates Next
+                print("[cred] ticked the required privacy/terms consent", flush=True)
+                _confirm_consent_dialog(page)                                    # the notice may open: press Agree
             _click_non_social_submit(page, ("Continue", "Next", "Sign In", "Log In", "Submit"))
             state = _observe_until_change(page, "email_first_continue")
             print(f"[cred] after email+Continue: {state}", flush=True)
@@ -1141,21 +1531,53 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
                 why = "this is a login page" if _form_already_visible(page) else "no stored cred"
                 print(f"[cred] {why} for {site} — navigating to signup", flush=True)
                 found = _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
-                if not found and _registration_options_offered(page):
+                no_password = lambda: not any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))  # noqa: E731
+                # the sign-up link may lead to a "choose how to apply" page (Avature) rather than a form
+                if (not found or no_password()) and _registration_options_offered(page):
                     found = _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual registration option")
-                    if found and not any(el.is_visible() for el in page.query_selector_all('input[type="password"]')):
+                    if found and no_password():
                         # The option opened the application's own profile form (no password box): the normal filler
                         # takes it from here. Nothing to save: no account credential was created.
                         print(f"[cred] {site}: registration is part of the application form — handing over to the filler", flush=True)
                         return True, "register_inline"
+                    if not found and _start_by_resume_upload(page, site):
+                        return True, "register_inline"
                 if not found:
                     print(f"[cred] no signup form found on {site} — escalating", flush=True)
                     return False, "register"
+            # Save only when a password box was there to take it: a sign-up click that opened nothing yet (Deloitte
+            # 'Create profile', live 2026-10-18) saved a credential for an account that never existed, and every later
+            # visit tried to LOG IN with it.
+            had_password = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
+            combined = _is_combined_form(page)
             _fill_wall(page, gate, cred, site=site)
-            save_credential(site, cred["username"], cred["password"], label=gate,
-                            first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+            combined = combined or _is_combined_form(page)        # read again once settled: the first look can be early
+            if had_password:
+                # A sign-up that IS the application form makes the account only when the application goes in (MetLife,
+                # live 2026-10-19): keep the password PENDING — never used to log in — until a submit is confirmed.
+                save_credential(site, cred["username"], cred["password"], label=gate, pending=combined,
+                                first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+            else:
+                print(f"[cred] {site}: no password box yet — nothing saved, the account does not exist", flush=True)
+        elif _is_combined_form(page) and not _is_login_form(page):
+            # A sign-up that is also the application form, back on screen (its Continue was refused): the account is
+            # made when THIS form goes through, so fill it again with the same password — never go off to a login
+            # page with a credential the site has not accepted yet (MetLife Register, live 2026-10-19).
+            print(f"[cred] {site}: the registration form is back — filling it with the same credential", flush=True)
+            _fill_visible_fields(page, cred)
         else:
             # Traditional form, have credentials — login
             _ensure_login_form(page)
             _fill_wall(page, gate, cred, site=site)
+            if not _retried and _is_login_form(page) and _login_rejected(page):
+                # Still the login form: the stored account does not open (Koch, Deloitte live 2026-10-18 — a password
+                # was saved for an account whose sign-up was never sent). Retire it and register instead, once.
+                print(f"[cred] {site}: the stored login did not open — retiring it and registering", flush=True)
+                retire_credential(site, label=gate)
+                try:                  # the login page has no way to sign up; the page before it (choose-a-method) does
+                    page.go_back(wait_until="domcontentloaded", timeout=15000)
+                    page.wait_for_timeout(1500)
+                except Exception:
+                    pass
+                return provide(page, gate, site, original_url, email, phone, _retried=True)
     return True, ("register" if is_new else "login")

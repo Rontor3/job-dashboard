@@ -50,9 +50,15 @@ class TelegramCollector:
         self._last_events: dict[str, str] = {}
         # Draft shown per ref — used by caller to determine approve vs edit
         self._last_drafts: dict[str, str] = {}
+        # the site's own rejection text for the field being asked (from the validation
+        # refill's escalation); shown so the question quotes the site, not a guess
+        self._site_msg = ""
 
     def _head(self):
-        return f"{self.context} —\n" if self.context else ""
+        base = f"{self.context} —\n" if self.context else ""
+        if self._site_msg:
+            base += f"⚠️ The site rejected the previous answer: \"{self._site_msg[:200]}\" — reply a new one.\n"
+        return base
 
     def _await(self, deadline_s: int | None = None):
         waited = 0
@@ -98,6 +104,10 @@ class TelegramCollector:
             label = (f.label or "").strip() or f.ref
             if f.kind != "file" and label.strip().lower() in _JUNK:
                 continue                       # unresolved placeholder -> leave for browser
+            self._site_msg = ""
+            if "Site says:" in (f.description or ""):
+                # the site itself rejected the last attempt: make its words the question's preamble
+                self._site_msg = f.description.split("Site says:", 1)[1].strip()
 
             if f.kind == "file":
                 self.client.send_message(
@@ -119,6 +129,29 @@ class TelegramCollector:
                     self._last_events[f.ref] = "approve"
                 elif low in _NO:
                     out[f.ref] = "No"
+                    self._last_events[f.ref] = "approve"
+                continue
+
+            if f.kind == "checkbox_group" and f.options:
+                body = "\n".join(f"  {i+1}) {o}" for i, o in enumerate(f.options))
+                self.client.send_message(
+                    f"{self._head()}Pick all that apply — reply with numbers, e.g. *2,5*:\n\n"
+                    f"\"{label}\"\n{body}\n\n(or *skip* to leave them all)")
+                r = self._await()
+                if r is None or r.strip().lower() in _SKIP:
+                    continue
+                picks = []
+                for tok in re.split(r"[,\s]+", r.strip()):
+                    if not tok:
+                        continue
+                    if tok.isdigit() and 1 <= int(tok) <= len(f.options):
+                        opts_add = f.options[int(tok) - 1]
+                    else:
+                        opts_add = self._match_option(tok, f.options)
+                    if opts_add and opts_add not in picks:
+                        picks.append(opts_add)
+                if picks:
+                    out[f.ref] = ", ".join(picks)
                     self._last_events[f.ref] = "approve"
                 continue
 

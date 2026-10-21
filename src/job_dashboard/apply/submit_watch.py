@@ -122,6 +122,8 @@ class SubmitWatcher:
                 continue
             self._finalize(conn, job_id, run_key or "", last, how or "manual", url,
                            (getattr(tab, "url", None) if tab else None) or url, proof)
+            if tab is not None and hasattr(tab, "close"):    # the confirmation page has nothing left to do: free the tab
+                tab.close()
             done.append(job_id)
         return done
 
@@ -129,6 +131,11 @@ class SubmitWatcher:
         """The application went in: mark applied, file the submit and turn the form's final values into approvals."""
         out = autonomy.record_submission(conn, job_id, run_key, json.loads(last or "{}"), how or "manual", tab_url or url)
         set_job_status(conn, job_id, "applied")
+        try:                                          # an account made inside that application exists now
+            from career_agent.browser.credential_provider import confirm_pending_credentials
+            confirm_pending_credentials(tab_url or url)
+        except Exception:
+            pass
         conn.execute("DELETE FROM submission_watch WHERE job_id=?", (job_id,))
         conn.commit()
         print(f"[watch] job {job_id} submitted ({proof}); approvals {out}", flush=True)
@@ -292,6 +299,12 @@ class _Tab:
         from career_agent.browser.form_values import read_form_values
         return read_form_values(self.page)
 
+    def close(self):
+        try:
+            self.page.close()
+        except Exception:
+            pass
+
 
 class CdpTabs:
     """The Chrome the agent drives, reached over CDP. Finds a tab by Chrome's own id (survives navigation), else by URL."""
@@ -302,7 +315,16 @@ class CdpTabs:
     def __enter__(self):
         from playwright.sync_api import sync_playwright
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.connect_over_cdp(self.cdp_url)
+        try:
+            # never wake tabs from a background watcher: that flips through the user's tabs every pass; a pass that
+            # cannot attach just waits for the next one
+            self._browser = self._pw.chromium.connect_over_cdp(self.cdp_url, timeout=30000)
+        except BaseException:
+            # __exit__ never runs when __enter__ raises: a playwright left started keeps its event loop in this
+            # thread, and every later pass then fails "Sync API inside the asyncio loop" (live 2026-10-17: 453
+            # skipped passes, no hand submit tracked) — stop it here
+            self._pw.stop()
+            raise
         return self
 
     def __exit__(self, *a):

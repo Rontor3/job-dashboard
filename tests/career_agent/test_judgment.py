@@ -2,7 +2,7 @@ from career_agent.browser.form_model import Field
 from career_agent.memory.candidate_profile import CandidateProfile, Experience, Education
 from career_agent.orchestrator.judgment import (
     JudgmentContext, profile_to_text, _is_sensitive, map_option, judge,
-    _looks_like_question, judge_combobox_value,
+    _looks_like_question, judge_combobox_value, cover_note_question, COVER_NOTE_ASK,
 )
 
 
@@ -238,3 +238,95 @@ def test_judge_never_fills_canned_fallback_answer():
     finally:
         J.draft_screening_answer = orig
     assert not answered and still == [f]
+
+
+def test_cover_note_question_matches_generic_free_text_boxes_only():
+    for label in ("Message", "Your message", "Comments", "Additional information", "Cover letter*",
+                  "Anything else you would like us to know", "Additional comments:"):
+        assert cover_note_question(label) == COVER_NOTE_ASK, label
+    assert cover_note_question("Why do you want to work here?") is None
+    assert cover_note_question("Postal Code") is None
+
+
+def test_judge_writes_a_bare_message_box_as_a_cover_note():
+    # Live insyncanalytics.com/apply-now and infoveritech.com/careers: the required "Message" textarea was
+    # escalated (one word, no "?") and the run waited on Telegram forever. It is now the cover-note ask.
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme", "description": "..."}, profile_text="x")
+    msg = _f("#msg", "Message", kind="textarea", required=True)
+    asked = []
+    def longform(question, field, job):
+        asked.append(question)
+        return {"answer": "Short cover note.", "confidence": 90, "flags": [], "unsupported_company_claims": []}
+    answered, still_need, _ = judge([msg], JudgmentContext(job=ctx.job, profile_text="x", longform=longform),
+                                    lambda p: "")
+    assert asked == [COVER_NOTE_ASK]
+    assert [x.ref for x in answered] == ["#msg"] and answered[0].value == "Short cover note."
+    assert still_need == []
+
+
+def test_judge_falls_back_to_the_drafter_with_the_cover_note_ask(monkeypatch):
+    from career_agent.orchestrator import judgment
+    seen = {}
+    def fake_draft(job, q, profile_text, research, resume_text, llm=None, story_text=""):
+        seen["q"] = q
+        return {"answer": "Short cover note.", "confidence": 90, "basis": "", "prompt": "", "flags": [],
+                "unsupported_company_claims": []}
+    monkeypatch.setattr(judgment, "draft_screening_answer", fake_draft)
+    ctx = JudgmentContext(job={"title": "t", "company": "c", "description": ""})
+    answered, still_need, _ = judge([_f("#c", "Comments", kind="textarea", required=True)], ctx, lambda p: "")
+    assert seen["q"] == COVER_NOTE_ASK
+    assert [x.ref for x in answered] == ["#c"] and still_need == []
+
+
+
+# ── the assist child's own failure text is never an answer ──
+# Live workatastartup 2026-10-20 (build acf4591f): the Claude CLI hit its weekly
+# limit and the notice ITSELF was drafted into the live founder-message box
+# (source 'judgment'). Error-shaped drafts must leave the field open instead.
+
+LIMIT_NOTICE = "You've hit your weekly limit · resets Oct 22 at 5:30am (Asia/Calcutta)"
+
+
+def test_error_shaped_flags_limit_notices_empties_and_stderr_echoes_only(monkeypatch):
+    import career_agent.orchestrator.claude_assist as ca
+    # the notice shapes
+    assert ca.error_shaped(LIMIT_NOTICE)
+    assert ca.error_shaped("You've used your usage limit. Your limit will reset at 2am UTC.")
+    assert ca.error_shaped("error: authentication failed")
+    assert ca.error_shaped("Service unavailable, try again later")
+    # empty / whitespace
+    assert ca.error_shaped("") and ca.error_shaped("   ") and ca.error_shaped(None)
+    # verbatim echo of the child's last stderr line
+    monkeypatch.setattr(ca, "_LAST_STDERR", "connect ECONNREFUSED api.anthropic.com")
+    assert ca.error_shaped("connect ECONNREFUSED api.anthropic.com")
+    # plausible answers are never touched — not even ones that mention rate limits
+    assert not ca.error_shaped("I have shipped ML products for five years and led data teams.")
+    assert not ca.error_shaped("I debugged a tricky rate limit issue at work last year.")
+
+
+def test_judge_never_adopts_an_error_shaped_draft(capsys):
+    # the live run's exact shape: min_conf off, the llm reply IS the limit notice
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    msg = _f("#m", "Start a conversation with the team at Acme. Why does Acme interest you?",
+             kind="textarea", purpose="motivation")
+    answered, still_need, flagged = judge([msg], ctx, lambda p: LIMIT_NOTICE)
+    assert answered == [] and flagged == set()
+    assert "#m" in {f.ref for f in still_need}          # the field stays open for the human/park
+    assert "rejected error-shaped draft" in capsys.readouterr().out
+
+
+def test_judge_combobox_rejects_an_error_shaped_value():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#cb", "Are you legally authorized to work in India?", kind="combobox", required=True)
+    answered, still_need, _ = judge([q], ctx, lambda p: LIMIT_NOTICE)
+    assert answered == [] and "#cb" in {f.ref for f in still_need}
+
+
+def test_judge_still_adopts_a_plausible_draft():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    msg = _f("#m", "Start a conversation with the team at Acme. Why does Acme interest you?",
+             kind="textarea", purpose="motivation")
+    llm = lambda p: "I have led data science teams for five years and love shipping ML products."
+    answered, still_need, _ = judge([msg], ctx, llm)
+    assert [x.ref for x in answered] == ["#m"] and answered[0].source == "judgment"
+    assert still_need == []

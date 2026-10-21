@@ -243,3 +243,38 @@ export const saveGmailConfirmation = (on) =>
 export const fetchJobMail = (id) => fetch(`/api/jobs/${id}/mail`).then(json).then((d) => d.mail || []);
 export const startMailScan = () => fetch("/api/mail-scan", { method: "POST" }).then(json);
 export const fetchMailScanStatus = () => fetch("/api/mail-scan/status").then(json);
+
+// Jobs tab: queue many at once, and the clicks that teach the ranking (match/preferences.py).
+export const addManyToQueue = (jobIds, { start = true } = {}) =>          // {items, queued, skipped, …}
+  fetch("/api/queue/batch", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_ids: jobIds, start }),
+  }).then(json);
+export const sendJobFeedback = (id, verdict, reasons = []) =>
+  fetch(`/api/jobs/${id}/feedback`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ verdict, reasons }),
+  }).then(json);
+export const fetchPreferences = () => fetch("/api/preferences").then(json);
+export const forgetPreference = (feature) =>
+  fetch(`/api/preferences/${encodeURIComponent(feature)}`, { method: "DELETE" }).then(json);
+
+// Inbox: what the apply agent needs from you (feedback_routes.py), profile readiness (profile_routes.py) and the
+// updates feed (notification_routes.py).
+export const fetchInbox = () => fetch("/api/inbox").then(json);   // {questions, guesses, bank}
+export const snoozeInbox = (keys, days = 30) => fetch("/api/inbox/snooze", jsonBody("POST", { keys, days })).then(json);
+export const fetchReadiness = () => fetch("/api/profile/readiness").then(json);
+export const autofillProfile = () => fetch("/api/profile/autofill", { method: "POST" }).then(json);
+export const saveFacts = (answers) => fetch("/api/profile/facts", jsonBody("POST", { answers })).then(json);
+export const interpretAnswer = (question, text, entry_id, choices) =>
+  fetch("/api/answers/interpret", jsonBody("POST", { question, text, entry_id, choices })).then(json);
+export const fetchNotifications = () => fetch("/api/notifications").then(json);   // {items, unread}
+export const readNotifications = (ids) => fetch("/api/notifications/read", jsonBody("POST", ids ? { ids } : {})).then(json);
+export const dismissNotification = (id) => fetch(`/api/notifications/${id}/dismiss`, { method: "POST" }).then(json);
+
+// Insights beside a run's answers (insight_routes.py): rewrite from your note, then file what it taught.
+export const rewriteAnswer = (rowId, notes) =>
+  fetch(`/api/application-qa/${rowId}/rewrite`, jsonBody("POST", { notes })).then(json);
+export const saveLesson = (proposal, answer) => fetch("/api/lessons", jsonBody("POST", { proposal, answer })).then(json);
+export const fetchLessons = () => fetch("/api/lessons").then(json);          // {lessons}
+export const updateLesson = (id, patch) => fetch(`/api/lessons/${id}`, jsonBody("PUT", patch)).then(json);
+export const lessonReach = (body) => fetch("/api/lessons/reach", jsonBody("POST", body)).then(json);
+export const fetchInsightBacklog = (limit = 5) => fetch(`/api/insight/backlog?limit=${limit}`).then(json);   // {groups}

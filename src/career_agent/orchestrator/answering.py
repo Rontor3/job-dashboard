@@ -128,6 +128,12 @@ def answer_fields(fields, ctx):
     their required variants back from every ask tier — before the screen-review
     tier and before judge() ever sees a question."""
     qa = ctx.get("qa")
+    learn = ctx.get("learn")
+    if learn is not None and hasattr(learn, "prime"):
+        try:
+            learn.prime(fields)                    # section by section, before the per-field path (memory/sections.py)
+        except Exception as e:
+            print(f"[warn] section answering failed, falling back to one field at a time: {type(e).__name__}: {e}")
     if qa:
         if ctx.get("page_index") is not None:
             qa.page = ctx["page_index"]            # the tracker groups questions by form page
@@ -161,6 +167,11 @@ def answer_fields(fields, ctx):
     unit = {f.ref: getattr(f, "unit", "") or "" for f in fields}
     decisions = [replace(d, value=shape_value(d.value, d.label, itype.get(d.ref, ""), unit.get(d.ref, ""), absolute=cur))
                  if d.action == "fill" and d.value is not None else d for d in decisions]
+    # A city box takes the city alone: a stored "Mumbai, India" (qbank current_city) gives "Mumbai".
+    purpose = {f.ref: f.purpose for f in fields}
+    decisions = [replace(d, value=d.value.split(",")[0].strip())
+                 if d.action == "fill" and purpose.get(d.ref) == "city" and isinstance(d.value, str) else d
+                 for d in decisions]
     dial, by_ref = has_dial_field(fields), {f.ref: f for f in fields}
     decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))
                  if d.action == "fill" and d.ref in by_ref and _is_phone(by_ref[d.ref]) else d for d in decisions]

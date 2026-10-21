@@ -41,6 +41,14 @@ def test_open_only_when_newest_row_still_open(conn):
     assert qa_store.open_questions(conn, 1) == []
 
 
+def test_a_later_run_of_the_same_field_closes_it_even_relabelled(conn):
+    _q(conn, 1, "r1", "#f3", "cards[15ba][field3]", status="needs_answer", page=0)    # label not perceived yet
+    _q(conn, 1, "r1", "#f9", "Why us?", status="needs_answer", page=1)
+    _q(conn, 1, "r2", "#f3", "Which harnesses have you built?", status="filled", page=0)  # same box, read now
+    assert [q["label"] for q in qa_store.open_questions(conn, 1)] == ["Why us?"]     # page 1 not re-seen: open
+    assert qa_store.open_counts(conn) == {1: 1}
+
+
 def test_mark_answered_closes_and_counts_by_job(conn):
     _q(conn, 1, "r1", "#a", "Why us?", status="needs_answer")
     _q(conn, 2, "r9", "#a", "Why us?", status="needs_answer")
@@ -118,3 +126,18 @@ def test_recent_retrievals_newest_first_with_job(conn):
     _seed(conn)
     r = qa_store.recent_retrievals(conn, 3)
     assert len(r) == 3 and r[0]["label"] == "Tell me more" and r[0]["title"] == "T2"
+
+
+def test_a_choice_fields_options_round_trip(tmp_path):
+    from job_dashboard.db import init_db
+    from job_dashboard import qa_store
+    from career_agent.orchestrator.qa_recorder import QARecorder
+    from types import SimpleNamespace
+    conn = init_db(str(tmp_path / "t.db"))
+    rec = QARecorder(conn, 1, run_key="r")
+    f = SimpleNamespace(ref="#c", label="Currency", kind="select", purpose=None, options=["INR", "USD"])
+    rec.trace_all([f])
+    rec.needs(f)
+    cur = conn.execute("SELECT * FROM application_qa")
+    row = qa_store._row(cur, cur.fetchone())
+    assert row["options_json"] == ["INR", "USD"]

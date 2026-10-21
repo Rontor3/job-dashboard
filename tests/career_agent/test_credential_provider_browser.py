@@ -66,3 +66,21 @@ def test_navigate_to_form_skips_header_chrome_prefers_in_form_link():
 
     assert found is True
     assert clicked_in_form is True
+
+
+def test_a_hidden_privacy_checkbox_is_ticked_through_its_label():
+    """Oracle email-first: the real box is hidden; Next does nothing until it is ticked (Cummins, live 2026-10-18)."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.credential_provider import _check_consent_checkboxes, _confirm_consent_dialog
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page()
+        page.goto(_fixture_url("oracle_email_first_consent.html"))
+        page.fill("#email", "a@b.com")
+        _check_consent_checkboxes(page)                    # ticking opens the Privacy Notice dialog
+        assert _confirm_consent_dialog(page)               # ... whose AGREE is what really ticks it
+        page.click("#next")
+        moved = page.locator("#otp").count() == 1
+        browser.close()
+    assert moved

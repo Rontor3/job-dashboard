@@ -40,6 +40,9 @@ class Field:
     placeholder: str = ""      # what the box shows when empty ("DD/MM/YYYY") — the page's own format hint
     max_length: int = 0        # HTML maxlength (0 = none)
     unit: str = ""             # what the box is measured in, from controls sharing its row ("INR", "Years")
+    section: str = ""          # the heading the field sits under ("Education", "Contact Information") — answering context
+    row: int = -1              # which repeated entry block it is in (Education 1/2/3 -> 0/1/2); -1 = not repeated
+    value: str = ""            # what the box holds on the page now (text boxes only; "" = empty or not read)
 
 
 # Ordered most-specific-first; first hit wins.
@@ -54,7 +57,8 @@ _RULES: list[tuple[str, str]] = [
     # country rules — they want "+91", not the number or the country name.
     # "Phone number (including country code)" asks for the whole number, not just the dial code
     (r"\b(phone|mobile|contact|telephone|whatsapp|cell)\b.{0,12}\b(number|no\.?)\b.{0,25}\b(incl\w*|with|along with|and)\b.{0,10}\b(country|dial\w*|calling) code\b", "phone"),
-    (r"\bcountry (dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
+    # "Country Phone Code" (MetLife, live 2026-10-18) — the country word sits before "phone", so it must match too
+    (r"\bcountry (phone |dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
     # Sponsorship/work-auth must precede employer — "require employer sponsorship"
     # contains \bemployer\b and would otherwise be misclassified as a company-name field.
     (r"\bsponsor(ship)?\b", "visa_sponsorship"),

@@ -37,7 +37,8 @@ def test_result_summary_keeps_what_the_queue_needs():
            "decisions": [{"ref": "x"}], "pending_human": [{"ref": "a", "label": "Expected CTC"}, {"ref": "b"}]}
     assert result_summary(out) == {"url": "u", "board": "board:naukri", "submitted": False,
                                    "stopped_reason": "needs_human", "filled": 1,
-                                   "pending_human": ["Expected CTC", "b"]}
+                                   "pending_human": ["Expected CTC", "b"],
+                                   "gate_notice": None}      # the gate trail rides along when it exists
     assert result_summary(None)["stopped_reason"] == "error"
 
 

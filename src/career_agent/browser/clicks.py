@@ -36,8 +36,13 @@ _WATCH_JS = """() => {
 }"""
 _STATE_JS = """() => {
   const q = window.__agentQ; if (!q) return null;
-  const busy = [...document.querySelectorAll('[aria-busy=true],[role=progressbar],.spinner,.loading,.loader')]
-    .some(e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden');
+  const shown = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  // A loading placeholder (skeleton, spinner, or a loading region) that covers a fifth of the viewport: the step is
+  // still drawing even though nothing mutates (Workday's sign-in placeholder). A small icon does not count.
+  const bigPlaceholder = e => { const r = e.getBoundingClientRect(); return shown(e) && r.width * r.height >= 0.2 * innerWidth * innerHeight; };
+  const busy = [...document.querySelectorAll('[aria-busy=true],[role=progressbar],.spinner,.loading,.loader')].some(shown)
+    || [...document.querySelectorAll('[data-automation-id*="loading" i],[class*="skeleton" i],[class*="spinner" i],[class*="loading" i]')]
+         .some(bigPlaceholder);
   // visible controls: a form/menu revealed by a class or style flip (not counted as a mutation) still shows up here
   const vis = [...document.querySelectorAll('input:not([type=hidden]),select,textarea,button,[role=button],[role=menuitem],'
     + '[role=option],[role=combobox],[role=radio],[role=checkbox]')].filter(e => e.getClientRects().length > 0).length;

@@ -9,10 +9,20 @@ from ..browser.clicks import act
 class BrowserDeps:
     def __init__(self, option_matcher=None):
         self.option_matcher = option_matcher   # rung-3 value->option llm (comboboxes)
+        self._scrolled = None                  # fingerprint of the page as it stood after its last scroll pass
 
     def snapshot(self, page, scroll: bool = True):
-        from ..browser.perception import snapshot_form
-        return snapshot_form(page, scroll=scroll)
+        """Read the form. The slow top->bottom->top scroll pass (it loads lazy fields) runs once per page state: a
+        page already scrolled and unchanged since — same address, same fields on screen in every frame — is re-read
+        where it stands. Live 2026-10-18: a board step scrolled up and down 3-4 times (fields, then buttons, then a
+        moved-check), a career-site page twice (the advance check, then the next perceive)."""
+        from ..browser.perception import page_fingerprint, snapshot_form
+        if scroll and self._scrolled is not None and page_fingerprint(page) == self._scrolled:
+            scroll = False
+        fields = snapshot_form(page, scroll=scroll)
+        if scroll:
+            self._scrolled = page_fingerprint(page)        # taken back at the top, after the pass
+        return fields
 
     def gate(self, page):
         from ..browser.gate_probe import classify_gate

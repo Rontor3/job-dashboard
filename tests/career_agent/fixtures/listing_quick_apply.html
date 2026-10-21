@@ -1,0 +1,20 @@
+<!doctype html><html><body>
+  <h1>Open positions</h1>
+  <div class="job"><h3>Data Analyst</h3><p>SQL and dashboards.</p><a href="#openings" class="qa">Quick Apply</a></div>
+  <div class="job"><h3>Machine Learning Engineer</h3><p>PyTorch, MLOps.</p><a href="#openings" class="qa">Quick Apply</a></div>
+  <div class="job"><h3>Product Designer</h3><p>Figma and research.</p><a href="#openings" class="qa">Quick Apply</a></div>
+  <form class="newsletter" id="nl"><input aria-label="Email address" type="email"><input aria-label="Your name"><button type="button">Subscribe</button></form>
+  <form class="site-search"><input type="search" aria-label="Search jobs"><button type="button">Search</button></form>
+  <form id="contact"><h3>Contact us</h3><input aria-label="Your name"><input type="email" aria-label="Email"><textarea aria-label="Message"></textarea></form>
+  <div id="app1" style="display:none"><form><input aria-label="Full name"><input type="email" aria-label="Email"><input type="file" aria-label="Resume"></form><p>Data Analyst application</p></div>
+  <div id="app2" style="display:none"><form><input aria-label="Full name"><input type="email" aria-label="Email"><input type="file" aria-label="Resume"></form><p>Machine Learning Engineer application</p></div>
+  <div id="app3" style="display:none"><form><input aria-label="Full name"><input type="email" aria-label="Email"><input type="file" aria-label="Resume"></form><p>Product Designer application</p></div>
+  <script>
+    const cards = document.querySelectorAll('.job');
+    cards.forEach((c, i) => c.querySelector('.qa').addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelectorAll('[id^=app]').forEach(x => x.style.display = 'none');
+      document.getElementById('app' + (i + 1)).style.display = 'block';
+    }));
+  </script>
+</body></html>

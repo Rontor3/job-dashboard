@@ -284,3 +284,28 @@ def test_draft_marks_drafted_and_status_endpoint(tmp_path, monkeypatch):
     assert c.post(f"/api/hiring/posts/{pid}/status", json={"status": "bogus"}).status_code == 422
     assert c.post("/api/hiring/posts/9999/status", json={"status": "applied"}).status_code == 404
     assert c.post(f"/api/hiring/posts/{pid}/status", json={"status": None}).json()["status"] is None
+
+
+def test_an_expired_drafting_login_is_reported_not_silently_replaced(tmp_path, monkeypatch):
+    """Live 2026-10-18: the compose token said invalid_grant; Draft mail quietly opened a compose link for an account
+    the browser wasn't signed in to. It must say the login needs reconnecting instead."""
+    import job_dashboard.api.hiring_routes as R
+    c = TestClient(create_app(db_path=str(tmp_path / "t.db"), hiring_fetcher=_Fetcher(), embed_model=None))
+    c.post("/api/hiring/refresh")
+    pid = c.get("/api/hiring/posts").json()["posts"][0]["id"]
+    monkeypatch.setattr(R.gmail_draft, "authorized", lambda: True)
+    monkeypatch.setenv("CURRENT_RESUME_PDF", str(tmp_path / "cv.pdf"))
+    (tmp_path / "cv.pdf").write_bytes(b"%PDF-1.4")
+
+    class RefreshError(Exception):
+        pass
+
+    def expired(msg):
+        raise RefreshError("invalid_grant: Token has been expired or revoked.")
+    monkeypatch.setattr(R.gmail_draft, "create_draft", expired)
+    d = c.post(f"/api/hiring/posts/{pid}/email-draft").json()
+    assert "reconnect" in d and "authorize" in d["reconnect"] and d["attached"] is None
+
+    monkeypatch.setattr(R.gmail_draft, "create_draft", lambda msg: (_ for _ in ()).throw(ConnectionError("offline")))
+    d = c.post(f"/api/hiring/posts/{pid}/email-draft").json()
+    assert "reconnect" not in d and "ConnectionError" in d["problem"]

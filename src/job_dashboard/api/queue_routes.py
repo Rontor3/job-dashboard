@@ -11,12 +11,13 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from job_dashboard import qa_store
 from job_dashboard.apply import queue as q
 from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.db import init_db, set_job_status
+from job_dashboard.match import preferences
 
 AUTOSUBMIT_PREFIX = "autosubmit_"
 
@@ -24,6 +25,11 @@ AUTOSUBMIT_PREFIX = "autosubmit_"
 class QueueAdd(BaseModel):
     job_id: int
     front: bool = False
+    start: bool = False
+
+
+class QueueBatch(BaseModel):
+    job_ids: list[int] = Field(min_length=1, max_length=100)
     start: bool = False
 
 
@@ -49,7 +55,7 @@ class AutosubmitSet(BaseModel):
 def make_agent_launch(state, poll_s: float = 2.0):
     """launch(job_id, argv, result_path) -> exit code, via the shared AgentRunState.
     Waits for a busy agent (e.g. a manual /apply-agent run) instead of failing."""
-    from job_dashboard.api.agent_routes import REPO_ROOT, _ensure_cdp_chrome, _log_path
+    from job_dashboard.api.agent_routes import DATA_DIR, REPO_ROOT, _ensure_cdp_chrome, _log_path
 
     def launch(job_id, argv, result_path):
         from career_agent.config.settings import load_settings
@@ -58,13 +64,15 @@ def make_agent_launch(state, poll_s: float = 2.0):
             problem = _ensure_cdp_chrome(cdp_url)
             if problem:
                 raise RuntimeError(problem)
-        env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
-        while not state.start(job_id, argv, str(REPO_ROOT), env, _log_path(job_id)):
+        # The agent runs THIS code (src beside this file) on the dashboard's own data (its working dir: data/, .env)
+        # — the same when both are the checkout root; a worktree's code still fills from the real data.
+        env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONUNBUFFERED": "1"}
+        while not state.start(job_id, argv, str(DATA_DIR.parent), env, _log_path(job_id)):
             time.sleep(poll_s)
-        from job_dashboard.apply.stall import STALL_EXIT, watch
+        from job_dashboard.apply.stall import STALL_EXIT, UNANSWERED_EXIT, watch
         stalled = watch(lambda: state.poll()["running"], state.stop, str(_log_path(job_id)))
         code = state.wait()
-        return STALL_EXIT if stalled else code
+        return {"stalled": STALL_EXIT, "unanswered": UNANSWERED_EXIT}.get(stalled, code)
 
     return launch
 
@@ -98,11 +106,35 @@ def build_queue_router(db_path, runner: QueueRunner) -> APIRouter:
             if row is None:
                 raise HTTPException(status_code=404, detail="job not found")
             q.enqueue(conn, body.job_id, front=body.front)
+            preferences.record(conn, body.job_id, "more", ["applied"])   # queueing = "more like this"
             if row[0] is None:
                 set_job_status(conn, body.job_id, "saved")        # queued jobs show on the tracker
             if body.start:
                 runner.start()
             return snapshot(conn)
+        finally:
+            conn.close()
+
+    @router.post("/api/queue/batch")
+    def add_many(body: QueueBatch):
+        """Queue many jobs in one go, in the order given (the Jobs tab's "Apply to N").
+        Jobs already applied to, or unknown, are skipped and reported."""
+        conn = db()
+        try:
+            queued, skipped = [], []
+            for job_id in dict.fromkeys(body.job_ids):
+                row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                if row is None or row[0] in ("applied", "interviewing", "offer"):
+                    skipped.append({"job_id": job_id, "why": "not found" if row is None else row[0]})
+                    continue
+                q.enqueue(conn, job_id)
+                preferences.record(conn, job_id, "more", ["applied"])
+                if row[0] is None:
+                    set_job_status(conn, job_id, "saved")
+                queued.append(job_id)
+            if body.start and queued:
+                runner.start()
+            return {**snapshot(conn), "queued": queued, "skipped": skipped}
         finally:
             conn.close()
 

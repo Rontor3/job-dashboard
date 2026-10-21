@@ -112,7 +112,7 @@ def test_history_endpoint_attaches_each_pages_questions(tmp_path, monkeypatch):
     _rec(conn, "r", "#b", "Expected CTC?", 1, status="needs_answer")
     qa_store.record(conn, job_id=1, run_key="r", ref="#z", label="Legacy row", status="filled", source="human")
     conn.close()
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     run_dir = tmp_path / "data" / "agent_runs" / "1"
     run_dir.mkdir(parents=True)
     (run_dir / "board_run.json").write_text(json.dumps([
@@ -122,3 +122,11 @@ def test_history_endpoint_attaches_each_pages_questions(tmp_path, monkeypatch):
     assert [q["label"] for q in body["steps"][0]["questions"]] == ["Notice period?"]
     assert [q["label"] for q in body["steps"][1]["questions"]] == ["Expected CTC?"]
     assert [q["label"] for q in body["unpaged"]] == ["Legacy row"]
+
+
+def test_answers_on_a_page_the_trail_does_not_list_are_still_shown():
+    from job_dashboard.api.agent_routes import _with_questions
+    by_page = {0: [{"id": 1}], 2: [{"id": 5}, {"id": 6}], None: [{"id": 3}]}
+    body = _with_questions(9, [{"step": 0}], by_page)
+    assert body["steps"][0]["questions"] == [{"id": 1}]
+    assert [q["id"] for q in body["unpaged"]] == [3, 5, 6]

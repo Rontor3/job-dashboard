@@ -20,20 +20,20 @@ test("renders feed and stats from the API", async () => {
   expect(screen.getByTestId("stats").textContent).toContain("2 jobs");
 });
 
-test("switches between Browse and Tracker tabs", async () => {
+test("switches between Browse and Applications tabs", async () => {
   render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: /tracker/i }));
+  fireEvent.click(screen.getByRole("button", { name: /applications/i }));
   expect(await screen.findByText(/Nothing tracked yet/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /browse/i }));
   expect(screen.getByTestId("feed-slot")).toBeInTheDocument();
 });
 
-test("sidebar holds the nav, the filters (Browse only) and the queue", async () => {
+test("top bar holds the tabs; filters show on Browse only; the tab lives in the URL", async () => {
   render(<App />);
   const nav = screen.getByRole("navigation", { name: "Sections" });
-  expect(nav.querySelectorAll("button")).toHaveLength(5);
+  expect(nav.querySelectorAll("button")).toHaveLength(7);
   expect(screen.getByRole("region", { name: "Filters" })).toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "Apply queue" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: /tracker/i }));
+  fireEvent.click(screen.getByRole("button", { name: /hiring/i }));
   expect(screen.queryByRole("region", { name: "Filters" })).toBeNull();
+  expect(window.location.hash).toBe("#hiring");
 });

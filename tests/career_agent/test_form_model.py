@@ -24,7 +24,7 @@ def test_postal_code_and_phone_extension_classified_distinctly():
     assert guess_purpose("Zip Code", "text") == "postal_code"
     assert guess_purpose("Phone Number", "text") == "phone"
     assert guess_purpose("Phone Extension", "text") == "phone_extension"
-    assert guess_purpose("Country Phone Code", "text") == "phone"
+    assert guess_purpose("Country Phone Code", "select") == "phone_country_code"
 
 
 def test_attestation_detected_for_consent_checkbox():

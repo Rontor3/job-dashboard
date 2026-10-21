@@ -14,19 +14,21 @@ class QARecorder:
         self.tracer = None      # f -> retrieval fields (QBankMemory.explain)
         self.page = None            # form page being answered (set by answer_fields)
         self.promote_embed = None   # set -> human answers also join the Answers tab (qbank_promote)
+        self.promote_missing = None  # f -> the fact Haiku said f needs (QBankMemory.missing_for): saved as that fact
         self._labels: dict = {}
         self._meta: dict = {}   # ref -> retrieval fields, merged into that ref's row
 
     def trace_all(self, fields):
         """Snapshot what memory retrieval sees for each field. Called before any
         answer is recorded, so the trace reflects the state retrieval used."""
-        if self.tracer is None:
-            return
         for f in fields:
+            meta = {"options_json": list(f.options)} if getattr(f, "options", None) else {}
             try:
-                self._meta[f.ref] = self.tracer(f)
+                meta.update(self.tracer(f) if self.tracer else {})
             except Exception as e:
                 print(f"[qa] trace failed: {e!r}", flush=True)
+            if meta:
+                self._meta[f.ref] = meta
 
     def outcome(self, ref, outcome):
         self._rec(ref, self._labels.get(ref, ref), outcome=outcome)
@@ -78,7 +80,7 @@ class QARecorder:
                   source="judgment", status="filled" if filled else "needs_answer",
                   confidence=res.get("confidence"), basis=res.get("basis"),
                   context_json={"prompt": res.get("prompt"),
-                                **{k: res[k] for k in ("needs", "project_id", "used") if res.get(k) is not None},
+                                **{k: res[k] for k in ("needs", "project_id", "used", "lessons") if res.get(k) is not None},
                                 **({"flags": res["flags"]} if res.get("flags") else {}),
                                 **{k: res[k] for k in ("plan_source", "plan_reason") if res.get(k)}},
                   unsupported_claims=res.get("unsupported_company_claims") or [])
@@ -89,7 +91,8 @@ class QARecorder:
         if self.promote_embed is not None:      # no embedder: the answer stays with the application only
             try:
                 from ..memory.qbank_promote import promote_answer
-                promoted = promote_answer(self.conn, f, answer, self.promote_embed)
+                missing = self.promote_missing(f) if self.promote_missing else None
+                promoted = promote_answer(self.conn, f, answer, self.promote_embed, missing=missing)
                 if promoted:
                     print(f"[qa] saved to Answers: {f.label[:60]!r}", flush=True)
             except Exception as e:

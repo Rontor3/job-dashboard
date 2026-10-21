@@ -11,6 +11,7 @@ class FakeTab:
         self.url, self._v, self._c = url, values, confirmed
     def read_values(self): return self._v
     def confirmed(self): return self._c
+    def close(self): self.closed = True
 
 
 class FakeTabs:
@@ -48,8 +49,9 @@ def test_a_hand_submit_is_noticed_marked_applied_and_turned_into_approvals(tmp_p
     assert w.poll_once(c, FakeTabs(FakeTab("https://careers.example.com/apply?step=4", {"Notice period": "30 days"}))) == []
     assert c.execute("SELECT job_id FROM submission_watch").fetchone() == (7,)
     # 2) the page now confirms (the form is gone: nothing readable): the remembered values are the final ones
-    done = w.poll_once(c, FakeTabs(FakeTab("https://careers.example.com/thanks", {}, (True, "page says 'application submitted'"))))
-    assert done == [7]
+    thanks = FakeTab("https://careers.example.com/thanks", {}, (True, "page says 'application submitted'"))
+    done = w.poll_once(c, FakeTabs(thanks))
+    assert done == [7] and thanks.closed                              # the confirmation tab is closed
     assert c.execute("SELECT status FROM jobs WHERE id=7").fetchone()[0] == "applied"
     assert c.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0
     assert autonomy.approvals(c, "notice_period") == 1 and autonomy.has_confirmed_submit(c, "careers.example.com")
@@ -200,3 +202,25 @@ def test_run_log_discovery_ignores_rows_already_queued_or_settled(tmp_path):
     conn.execute("UPDATE jobs SET status='applied' WHERE id=7"); conn.commit()
     w.register_fresh_blocks(conn)
     assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0
+def test_a_failed_attach_stops_playwright_so_the_next_pass_can_start(monkeypatch):
+    """__exit__ never runs when __enter__ raises: a playwright left started poisoned every later pass."""
+    import pytest
+    from job_dashboard.apply import submit_watch
+    state = {"stopped": 0, "woke": 0}
+
+    class Chromium:
+        def connect_over_cdp(self, url, timeout=None):
+            raise TimeoutError("sleeping tab")
+
+    class PW:
+        chromium = Chromium()
+
+        def stop(self):
+            state["stopped"] += 1
+
+    monkeypatch.setattr("playwright.sync_api.sync_playwright", lambda: type("S", (), {"start": lambda self: PW()})())
+    monkeypatch.setattr("career_agent.browser.runner.wake_tabs", lambda url: state.update(woke=state["woke"] + 1) or 3)
+    with pytest.raises(TimeoutError):
+        with submit_watch.CdpTabs("http://localhost:9222"):
+            pass
+    assert state == {"stopped": 1, "woke": 0}       # a background watcher never flips through the user's tabs

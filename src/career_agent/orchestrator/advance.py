@@ -16,8 +16,11 @@ NEVER_NAMES = ["back", "cancel", "previous", "logout", "sign out",
                "apply with"]
 
 
-def screen_signature(url, form):
-    return (urlparse(url).path, frozenset(f.label.strip().lower() for f in form if f.label))
+def screen_signature(url, form, extra: str = ""):
+    """What makes a screen what it is: its path, the field labels, and where the progress
+    indicator stands (an `extra` from validation.progress_signature — a Workday wizard
+    re-labels nothing but its stepper between steps)."""
+    return (urlparse(url).path, frozenset(f.label.strip().lower() for f in form if f.label), extra)
 
 
 def changed(before, after):
@@ -66,6 +69,31 @@ def advance_names(form):
     if has_control(form, SUBMIT_NAMES):
         return [n for n in ADVANCE_NAMES if n != "review"]
     return list(ADVANCE_NAMES)
+
+
+def submit_seen(form) -> bool:
+    """A real Submit-family control on the screen. A bare 'Apply' does not count: on a job or choose-how-to-apply page it
+    opens the form (see entry_apply_label), it does not send one. Avature (live 2026-10-18) had only a hidden 'Default
+    Apply' and was reported 'reached_submit_dry_run' with 0 fields filled."""
+    return has_control(form, [n for n in SUBMIT_NAMES if n != "apply"])
+
+
+def entry_apply_label(form, decisions, visible=None):
+    """The 'Apply' control of a job page, when nothing has been filled yet: it opens the form, it does not send one.
+    'apply' is a submit word on a form's last page, but a description page with an Apply button and no form (FedEx,
+    live 2026-10-18: parked 'ready to submit' with 0 fields filled) must be clicked through. Only the apply family:
+    a bare Submit/Send/Finish/Confirm is never treated this way. `visible` (lowercased names of controls the page shows,
+    from page_prep.visible_clickable_names) drops a hidden control the snapshot still lists. None when it doesn't apply."""
+    if decisions:
+        return None
+    for f in form:
+        low = (f.label or "").strip().lower()
+        if not low or not _matches(low, "apply") or any(_matches(low, n) for n in SUBMIT_NAMES if n != "apply"):
+            continue
+        if visible is not None and not any(low == v or low in v for v in visible):
+            continue
+        return f.label.strip()
+    return None
 
 
 def pick_advance_label(form, is_last):

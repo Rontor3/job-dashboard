@@ -81,11 +81,55 @@ def merge_date_parts(raw: list[dict]) -> list[dict]:
     return out
 
 
+_CSS_RULE = re.compile(r"\{[^}]*\b(position|left|display|visibility|opacity)\s*:", re.I)
+
+
 def to_form_model(raw: list[dict]) -> list[Field]:
     fields: list[Field] = []
     radio_groups: dict[str, dict] = {}
 
-    for r in merge_date_parts(raw):
+    # Multi-choice checkbox clusters ("How did you hear about us?" with nine boxes) are ONE
+    # question: fold every checkbox sharing a group heading into a single checkbox_group
+    # field whose options are the boxes' own labels. Each option then answers once
+    # (or the group is left blank) instead of nine yes/no prompts (Twilio, live 2026-10-19).
+    cb_groups: dict[str, list[dict]] = {}
+    for r in raw:
+        if r.get("kind") == "checkbox" and (r.get("group_label") or "").strip() \
+                and not _CSS_RULE.search(r["group_label"] or "") \
+                and not r.get("disabled") and not _CSS_RULE.search(r.get("label") or ""):
+            cb_groups.setdefault(r["group_label"].strip(), []).append(r)
+    _folded: set = set()
+    _groups: dict[str, Field] = {}
+    for gl, boxes in cb_groups.items():
+        labels = [(b.get("label") or "").strip() for b in boxes]
+        # 2+ boxes, each with its own distinct option label, none named after the group
+        if (len(boxes) < 2 or len(set(labels)) != len(boxes)
+                or any(not l or l == gl for l in labels)):
+            continue
+        first = boxes[0]
+        _groups[first["ref"]] = Field(
+            ref=first["ref"], kind="checkbox_group", label=gl,
+            required=any(b.get("required") for b in boxes),
+            options=labels, group=gl,
+            purpose=guess_purpose(gl, "checkbox_group"),
+            description=(first.get("description") or ""),
+            input_type="", autocomplete="", placeholder="",
+            max_length=0, value="", unit="",
+            section=(first.get("section") or ""),
+            row=int(first.get("row", -1) if first.get("row") is not None else -1),
+        )
+        _folded.update(b["ref"] for b in boxes[1:])
+
+    for r in merge_date_parts(_structure_menu_rows(raw)):
+        if r.get("kind") == "checkbox" and r["ref"] in _folded:
+            continue                      # a later tail of a checkbox group folded above
+        if r.get("kind") == "checkbox" and r["ref"] in _groups:
+            fields.append(_groups[r["ref"]])   # the group takes the first box's place
+            continue
+        # a 'label' that is a stylesheet rule names a honeypot (Aezion: ".x { position: absolute !important; left:
+        # -9999vw }") — a trap for bots, never a question
+        if _CSS_RULE.search(r.get("label") or ""):
+            continue
         # Disabled / read-only inputs aren't part of the fillable form — a human
         # can't type in them either. Drop them so the mapper never targets one
         # (a strict fill on a disabled field blocks and crashes the run).
@@ -104,6 +148,8 @@ def to_form_model(raw: list[dict]) -> list[Field]:
                 {"labels": [], "required": False, "label": r["group"], "group_label": ""},
             )
             g["labels"].append(r["label"])
+            g.setdefault("section", r.get("section", "") or "")
+            g.setdefault("row", r.get("row", -1) if r.get("row") is not None else -1)
             g["required"] = g["required"] or bool(r.get("required"))
             if r.get("group_label") and not g["group_label"]:
                 g["group_label"] = r["group_label"]
@@ -121,17 +167,77 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             autocomplete=r.get("autocomplete", ""),
             placeholder=r.get("placeholder", ""),
             max_length=int(r.get("max_length") or 0),
+            value=r.get("value", "") or "",
             unit=r.get("unit", ""),
+            section=r.get("section", "") or "",
+            row=int(r.get("row", -1) if r.get("row") is not None else -1),
         ))
 
     for name, g in radio_groups.items():
+        if not any((o or "").strip() for o in g["labels"]):
+            continue          # every option unnamed: a hidden template row (Avature 'sample_' entry), not a question
         label = g.get("group_label") or name
         fields.append(Field(
             ref=f"group:{name}", kind="radio_group", label=label,
             required=g["required"], options=g["labels"], group=name,
             purpose=guess_purpose(label, "radio_group"),
+            section=g.get("section", ""), row=g.get("row", -1),
         ))
-    return fields
+    return _rows_by_repeat(fields)
+
+
+def _rows_by_repeat(fields: list[Field]) -> list[Field]:
+    """A question asked again in the same section belongs to the next entry: the Nth 'Current?' under Employment
+    History is entry N. Layout-independent (Koch Avature lays its entries out flat; live 2026-10-19)."""
+    import re as _re
+    key = lambda f: (f.section, _re.sub(r"[\s*:]+", " ", (f.label or "").lower()).strip())   # noqa: E731
+    counts: dict = {}
+    for f in fields:
+        if f.kind != "button" and f.section:
+            counts[key(f)] = counts.get(key(f), 0) + 1
+    import dataclasses as _dc
+    seen: dict = {}
+    out = []
+    for f in fields:
+        k = key(f)
+        if f.kind != "button" and f.section and counts.get(k, 0) >= 2:
+            f = _dc.replace(f, row=seen.get(k, 0))
+            seen[k] = f.row + 1
+        out.append(f)
+    return out
+
+
+# Class F, live 2026-10-20: a careers page produced one flat list of 102 "fields" —
+# the site's top-nav buttons — while the affordance that mattered (a Careers ▾ submenu)
+# drowned among them. Rows the JS tags as page chrome are affordances, not the
+# application: cap them. Rows inside a menu/dropdown container keep every item but
+# carry their parent chain in the label ("Careers ▾ > Benefits"), so a nested
+# affordance reads as a parent → child path. Main-content rows (the form itself) are
+# never touched.
+_MENU_CONTEXT_CAP = 8
+_MENU_CONTROL_RE = re.compile(r"\b(next|continue|submit|apply|save|sign|confirm|review|send)\b", re.I)
+
+
+def _structure_menu_rows(raw: list[dict]) -> list[dict]:
+    """Cap chrome-button flooding and name nested menu affordances by their path.
+    Pure: feeds straight into to_form_model; rows without the JS's container keys
+    pass through byte-identical."""
+    out = []
+    chrome_kept = 0
+    for r in raw:
+        c = r.get("container") or ""
+        p = (r.get("menu_path") or "").strip()
+        if c == "chrome" and r.get("kind") == "button" and not p \
+                and not _MENU_CONTROL_RE.search(r.get("label") or ""):
+            chrome_kept += 1
+            if chrome_kept > _MENU_CONTEXT_CAP:
+                continue                      # nav soup: an application never lives here
+        if c == "menu" and r.get("kind") == "button":
+            lab = (r.get("label") or "").strip()
+            if p and lab and not lab.startswith(p):
+                r = dict(r, label=f"{p} > {lab}")
+        out.append(r)
+    return out
 
 
 _INPUT_JS = r"""
@@ -232,16 +338,49 @@ _INPUT_JS = r"""
     // (a web component's box sits in its shadow root; its words are the host's light-DOM / slotted text: step out to the host)
     const parentOf = n => n.parentElement || ((n.getRootNode && n.getRootNode().host) || null);
     let up = parentOf(el);
+    // A block's words WITHOUT the field's own options: a wrapper holding only the <select> reads empty and the walk
+    // climbs to the block that also holds the question (Lever card: .application-label beside .application-field).
+    const blockText = (n) => { const c = n.cloneNode(true); c.querySelectorAll('select,option,[role=listbox],[role=option],[role=status],[role=alert],[aria-live],[hidden],[aria-hidden=true],script,style').forEach(x => x.remove()); return c.textContent || ''; };
     for (let i = 0; i < 4 && up; i++, up = parentOf(up)) {
       if (up.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;   // reached other fields
-      const raw = (up.innerText || up.textContent || '').trim().slice(0, 300);
+      const raw = scrubStatus((el.tagName === 'SELECT' ? blockText(up) : (up.innerText || up.textContent || '')).trim().slice(0, 300));
       const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
       if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;           // the star moves to the end: still marks it required
+    }
+    // A container holding SEVERAL questions (Lever: one li with a label + textarea per question, or a card whose
+    // inputs are named cards[uuid][fieldN]): the question is the nearest preceding sibling of the control's branch,
+    // at each level, that holds text and no other control. The walk stops at the form, never past it.
+    let branch = el;
+    for (let d = 0; d < 6 && branch && !/^(FORM|BODY|MAIN)$/.test(branch.tagName); d++) {
+      let prev = branch.previousElementSibling, sc = 0;
+      while (prev && sc++ < 3) {
+        if (!prev.querySelector(CONTROL_SEL) && !prev.matches(CONTROL_SEL) && prev.getAttribute('aria-hidden') !== 'true') {
+          const raw = scrubStatus(blockText(prev).trim().slice(0, 300));
+          const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
+          if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;
+        }
+        prev = prev.previousElementSibling;
+      }
+      branch = parentOf(branch);
     }
     return (el.getAttribute('placeholder') || el.name || '').trim();   // 5: last resort
   };
   // a name that says something: not empty, not just a required-star / colon
-  const ok = (t) => !!t && t.replace(/[*✱:\s]/g, '').length > 0;
+  // A generic control name ("Checkbox field", "Radio input") is junk, not a question: treat it as no name so the
+  // nearby-text fallbacks run (Koch Avature, 2026-10-18: a required 'I Agree' checkbox was named "Checkbox field").
+  const GENERIC_NAME = /^(checkbox|radio|text|input|select|combobox|option)( ?(field|input|box|button|control))?$/i;
+  // A code identifier is no name either: an accessibility overlay (UserWay) stamps aria-label="hidden-control-element"
+  // on Koch's required 'I Agree' box (live 2026-10-19).
+  const CODE_NAME = /^[a-z0-9]+([-_][a-z0-9]+)+$|^[a-z]+([A-Z][a-z0-9]*)+$/;
+  const ok = (t) => {
+    const core = (t || '').replace(/[*✱:]/g, ' ').replace(/\s+/g, ' ').trim();
+    return core.length > 0 && !GENERIC_NAME.test(core) && !CODE_NAME.test(core);
+  };
+  const CONTROL_SEL = 'input:not([type=hidden]),select,textarea';
+  // Live-region chatter is not a question: a typeahead's "No location found. Try entering a different location" and its
+  // "Loading" line leak into the block text beside the box. Strip them from any label text.
+  const scrubStatus = (t) => (t || '').replace(/\bno [^.]{0,80}?\bfound\b\.?(\s*try [^.]*\.?)?/gi, ' ')
+                                      .replace(/\bloading\b\.{0,3}\s*$/i, ' ').replace(/\s+/g, ' ').trim();
   // What the box is measured in, from the controls that share its row: a read-only "INR" box or a currency <select>
   // beside an amount, "Years" beside a number, an addon/prefix chip ("₹", "days"). Empty when the row holds other fields.
   const unitOf = (el) => {
@@ -349,6 +488,15 @@ _INPUT_JS = r"""
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
     if (type === 'hidden' || type === 'submit' || type === 'button') continue;
+    // A honeypot: a box parked off-screen (left:-9999px) or with its own CSS for a label exists only to catch bots —
+    // never filled, never asked (Aezion, live 2026-10-19: two were escalated to the human)
+    // Only a TYPED box whose label is off-screen too: a radio/checkbox parked at left:-9990 under a drawn button is a
+    // styled control (Koch's real Yes/No), not a trap.
+    if (tag === 'textarea' || ['text', 'email', 'tel', 'number', 'url', 'search', ''].includes(type)) {
+      const off = n => { const r = n.getBoundingClientRect(); return r.right < -100 || r.left > (window.innerWidth || 1200) * 3; };
+      const lab = (el.labels && el.labels[0]) || null;
+      if (off(el) && (!lab || off(lab))) continue;     // (a CSS-rule 'label' is dropped in to_form_model)
+    }
     // Skip inputs inside page chrome (header, nav, search bar) — they are site
     // navigation controls, not application form fields (Phenom/Mastercard has
     // a jobs-search bar in the header whose selects navigate the page if filled).
@@ -378,7 +526,10 @@ _INPUT_JS = r"""
     // the only signal is this vendor attribute. It also needs typing (not just
     // a click) to reveal any options, unlike a plain click-to-open listbox.
     const uxiWidget = (el.getAttribute('data-uxi-widget-type') || '').toLowerCase();
-    const isUxiSelect = uxiWidget.includes('select');
+    // Workday's prompt widgets (searchBox inside multiselectInputContainer) are the same kind: a popup that opens on
+    // click and lists the choices, not free text.
+    const isPromptBox = !!el.closest('[data-automation-id="multiselectInputContainer"]') || el.getAttribute('data-automation-id') === 'searchBox';
+    const isUxiSelect = uxiWidget.includes('select') || isPromptBox;
     let kind = tag === 'textarea' ? 'textarea'
              : tag === 'select' ? 'select'
              : isUxiSelect ? 'combobox'
@@ -425,13 +576,18 @@ _INPUT_JS = r"""
       unit: ['text', 'number', 'tel'].includes(type) ? unitOf(el) : '',
       part_hint: [tag === 'select' && el.options.length ? el.options[0].text : '', el.name || '', el.id || ''].join(' ').trim().slice(0, 80),
       max_length: (typeof el.maxLength === 'number' && el.maxLength > 0 && el.maxLength < 100000) ? el.maxLength : counterMax(el),
+      value: (tag === 'input' || tag === 'textarea') && type !== 'password' ? (el.value || '').slice(0, 200) : '',
     });
   }
   // A combobox that is not an <input>/<select>/<button>: a styled <div role="combobox"> that opens a listbox popup
   // (Indeed's single-select employer question). Same kind as the input comboboxes; the filler opens it and picks.
+  // Skip only what THIS read already took: the data-cref stamp outlives the read, and checking it hid every styled
+  // combobox from the second read on (MetLife select2 'Country Phone Code', live 2026-10-19 — Continue refused forever).
+  const _comboSeen = new Set();
   for (const el of deepQuery('[role="combobox"]')) {
     const tag = el.tagName.toLowerCase();
-    if (['input', 'select', 'textarea', 'button'].includes(tag) || el.hasAttribute('data-cref')) continue;
+    if (['input', 'select', 'textarea', 'button'].includes(tag) || _comboSeen.has(el)) continue;
+    _comboSeen.add(el);
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
     const cref = 'f' + (_ci++);
@@ -486,11 +642,33 @@ _INPUT_JS = r"""
   // Advance controls (Next/Continue/Submit): buttons and link-buttons. Captured
   // as kind 'button' so the step engine can find them; the mapper skips them
   // (no fillable purpose, not required).
+  // Where a control lives: inside a menu container ([role=menu]/[role=menubar]'s host
+  // or a <details>), inside the page's chrome (header/nav/banner/search/footer) or in
+  // the content itself. Class F 2026-10-20: a careers page produced one flat list of
+  // 102 "fields" — the site's top-nav buttons — while a Careers ▾ submenu drowned in
+  // them. From these two keys the python side (perception._structure_menu_rows)
+  // caps chrome rows and names menu rows by their parent path.
+  const menuInfo = (el) => {
+    const m = el.closest('[role=menu], [role=menubar], details');
+    if (!m) {
+      const chrome = el.closest('header, nav, [role=navigation], [role=banner], [role=search], footer');
+      return {container: chrome ? 'chrome' : '', menu_path: ''};
+    }
+    let path = '';
+    if (m.tagName === 'DETAILS') {
+      path = ((m.querySelector('summary') || {}).innerText || m.getAttribute('aria-label') || '');
+    } else {
+      const h = m.closest('[aria-haspopup], [aria-expanded]');
+      path = ((h && (h.innerText || '')) || '').trim() || (m.getAttribute('aria-label') || '');
+    }
+    return {container: 'menu', menu_path: String(path).trim().slice(0, 40) || 'menu'};
+  };
   for (const el of deepQuery(
         'button, a[href], input[type=submit], input[type=button], [role=button]')) {
     const elRole = (el.getAttribute('role') || '').toLowerCase();
     if (elRole === 'radio' || elRole === 'checkbox') continue;  // handled above
-    if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;   // invisible (self or ancestor) shadow/duplicate control
+    // visibility:hidden / opacity:0 buttons (Avature's hidden "Default Apply") are not on screen; plain checkVisibility() misses them
+    if (el.checkVisibility ? !el.checkVisibility({visibilityProperty: true, opacityProperty: true}) : getComputedStyle(el).display === 'none') continue;   // invisible (self or ancestor) shadow/duplicate control
     let label = ((el.textContent || el.value || el.getAttribute('aria-label') || '')).trim().slice(0, 100);
     if (!label) continue;
     // A native-select stand-in (Workday Canvas Kit, etc.): a <button
@@ -532,10 +710,12 @@ _INPUT_JS = r"""
       });
       continue;
     }
+    const _menu = menuInfo(el);
     out.push({
       ref: el.id ? `#${CSS.escape(el.id)}` : `button:${label}`,
       kind: 'button', label, required: false,
       options: [], group: null, disabled: !!el.disabled,
+      container: _menu.container, menu_path: _menu.menu_path,
     });
   }
   return out;
@@ -628,19 +808,26 @@ NON_APPLICATION_FRAME_HOSTS = (  # captcha, analytics, ads, chat / media widgets
 )
 _MIN_FRAME_W, _MIN_FRAME_H = 200, 100       # a reCAPTCHA checkbox is ~300x78; trackers are 0-1px
 _LOAD_WAIT_MS, _TRUSTED_LOAD_WAIT_MS = 1500, 8000
+# Widget junk frames (chat bubbles, cookie banners, embedded feeds) that pass the
+# deny/size checks but hold no real form: they may add only this many rows each, and
+# this many in aggregate, so they can't flood the primary fields with nav-button "fields".
+_HEAP_FRAME_FIELDS, _HEAP_FRAME_TOTAL = 12, 60
 _FIELD_KINDS = {"text", "email", "tel", "number", "url", "textarea", "select", "combobox", "date", "password"}
 _CAPTCHA_FIELD = re.compile(r"captcha|turnstile|g-recaptcha-response", re.I)
 
 
 def is_denied_frame(url: str) -> bool:
-    """Known not to be an application (captcha / analytics / ads / chat / media), or empty.
-    The ad half of the deny reads cta_arbiter's shared host list, so
-    emerging ad networks are refused the same day page_prep refuses them (a decoy
-    pseudo-form inside an ad frame must never reach looks_like_application)."""
+    """Known not to be an application (captcha / analytics / ads / chat / media), or
+    empty or opaque (no url, about:blank, injected javascript / blob / data widgets):
+    such a frame can only be an overlay, widget, or decoration — never the application form.
+    The ad half of the deny reads cta_arbiter's shared host list, so emerging ad networks
+    are refused the same day page_prep refuses them (a decoy pseudo-form inside an ad
+    frame must never reach looks_like_application)."""
+    u = url or ""
     from .cta_arbiter import AD_HOST_FRAGMENTS
-    return (not url or url == "about:blank"
-            or any(h in url for h in NON_APPLICATION_FRAME_HOSTS)
-            or any(h in url for h in AD_HOST_FRAGMENTS))
+    return (not u or u.startswith(("about:blank", "javascript:", "blob:", "data:"))
+            or any(h in u for h in NON_APPLICATION_FRAME_HOSTS)
+            or any(h in u for h in AD_HOST_FRAGMENTS))
 
 
 def is_trusted_frame(url: str) -> bool:
@@ -666,12 +853,78 @@ def _frame_is_visible_and_sizeable(fr) -> bool:
         return False                              # detached / not attached to a visible element
 
 
+# Each field's SECTION (the nearest heading above it in document order: h1-h6, role=heading, a fieldset legend) and
+# ROW (its index among sibling blocks that repeat the same class and each hold form controls: Education 1/2/3). Pure
+# DOM; used to answer a section's fields together (orchestrator/sections.py).
+_SECTION_JS = r"""
+(refs) => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const CTL = 'input:not([type=hidden]),select,textarea,[role=combobox]';
+  // distinct questions inside a block: radio/checkbox options of one group count once
+  function fields(root) {
+    const keys = new Set();
+    for (const c of root.querySelectorAll(CTL)) keys.add((c.type === 'radio' || c.type === 'checkbox') && c.name ? 'n:' + c.name : c);
+    return keys.size;
+  }
+  const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],legend'))
+    .filter(h => vis(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80
+                 && !(h.tagName === 'LEGEND' && h.closest('fieldset') && fields(h.closest('fieldset')) < 2));   // a question, not a section
+  const sectionOf = el => {
+    let best = '';
+    for (const h of heads) {
+      if (h === el || h.contains(el)) { if (h.tagName === 'LEGEND') best = h.innerText.trim(); continue; }
+      if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) best = h.innerText.trim(); else break;
+    }
+    // a fieldset's legend names a SECTION only when the fieldset holds several questions; a radio group's own
+    // fieldset legend is the question itself (Koch Avature 'Current? *', live 2026-10-19)
+    const fs = el.closest('fieldset'); const lg = fs && fs.querySelector(':scope > legend');
+    const ownGroup = fs && fields(fs) < 2;
+    return (lg && !ownGroup && lg.innerText.trim() && lg.innerText.trim().length <= 80) ? lg.innerText.trim() : best;
+  };
+  const rowOf = el => {
+    let a = el.parentElement;
+    for (let d = 0; a && a.parentElement && d < 8; d++, a = a.parentElement) {
+      // an ENTRY repeats (School + Degree + Major...), not one field's wrapper: each repeat holds 2+ controls and is
+      // shown; class names may differ between repeats (MetLife Avature live 2026-10-19: 'TableSampleRow' then rows,
+      // and field wrappers were numbered School 0 / Degree 1 / Major 2 as if they were entries)
+      if (fields(a) < 2) continue;
+      const sibs = Array.from(a.parentElement.children).filter(s => s.tagName === a.tagName && vis(s) && fields(s) >= 2);
+      if (sibs.length >= 2) return sibs.indexOf(a);
+    }
+    return -1;
+  };
+  return refs.map(ref => {
+    let el = null;
+    try { el = document.querySelector(ref); } catch (e) {}
+    if (!el) return {section: '', row: -1};
+    return {section: sectionOf(el).replace(/\s+/g, ' ').slice(0, 80), row: rowOf(el)};
+  });
+}
+"""
+
+
+def _add_sections(fr, rows) -> None:
+    try:
+        info = fr.evaluate(_SECTION_JS, [r["ref"] for r in rows])
+    except Exception:
+        return                                    # a frame mid-navigation: fields just have no section
+    for r, s in zip(rows, info or []):
+        r["section"], r["row"] = s.get("section", ""), s.get("row", -1)
+
+
 def collect_raw(page) -> list[dict]:
     """Scan the main frame AND the child frames that can hold an application (embedded
-    ATS iframes). Child frames' refs are frame-qualified so the filler targets the right frame."""
+    ATS iframes). Child frames' refs are frame-qualified so the filler targets the right frame.
+
+    A frame that dies mid-scan (detached, cross-origin, still navigating) is skipped and
+    logged — one dead frame must not kill the whole snapshot (live 2026-10-20, class H:
+    a LinkedIn job view with 14 frames died mid-snapshot, no result row written). Frames
+    that are neither trusted nor real application content (opaque widget junk) get a row
+    bound so they can't flood the primary fields."""
     out = []
     frames = page.frames
     print(f"[perc] {len(frames)} frames", flush=True)
+    heap_total = 0
     for idx, fr in enumerate(frames):        # frames[0] is the main frame
         url = fr.url or ""
         print(f"[perc] frame {idx}: {url[:60]!r}", flush=True)
@@ -685,15 +938,56 @@ def collect_raw(page) -> list[dict]:
                     continue                      # hidden, tracking pixel or widget-sized
                 fr.wait_for_load_state("domcontentloaded", timeout=_TRUSTED_LOAD_WAIT_MS if trusted else _LOAD_WAIT_MS)
             rows = fr.evaluate(_INPUT_JS)
-        except Exception:
+            _add_sections(fr, rows)
+        except Exception as e:
+            print(f"[perc] frame {idx} dead: {type(e).__name__}", flush=True)
             continue                              # detached / cross-origin / still loading / blocked
         if idx == 0:
-            out.extend(rows)
+            out.extend(rows)                               # main-frame content: unconditional priority
         elif trusted or looks_like_application(rows):
+            for r in rows:                                 # a real embedded ATS form: read whole
+                r["ref"] = f"f{idx}{_FRAME_SEP}{r['ref']}"
+                out.append(r)
+        else:
+            budget = min(_HEAP_FRAME_FIELDS, _HEAP_FRAME_TOTAL - heap_total)   # widget junk: bounded
+            if budget <= 0:
+                print(f"[perc] frame {idx}: junk capped ({_HEAP_FRAME_TOTAL} frame fields max)", flush=True)
+                continue
+            if len(rows) > budget:
+                rows = rows[:budget]
+            heap_total += len(rows)
             for r in rows:
                 r["ref"] = f"f{idx}{_FRAME_SEP}{r['ref']}"
                 out.append(r)
     return out
+
+
+# The fields on screen, cheaply: how many, and each one's id/name/label. Read without scrolling. Also the fill loop's
+# "did this answer change the form?" check (orchestrator/top_down.py).
+FIELD_SIG_JS = """() => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
+  const els = Array.from(document.querySelectorAll('input,select,textarea,[role=combobox],[role=radiogroup]')).filter(vis);
+  return els.length + '|' + els.map(e => (e.id || e.name || e.getAttribute('aria-label') || '').slice(0, 24)).join(',');
+}"""
+_NOT_FORM_FRAMES = ("hcaptcha.com", "recaptcha", "googletagmanager", "google-analytics", "doubleclick",
+                    "challenges.cloudflare")
+
+
+def page_fingerprint(page) -> str | None:
+    """Address + the fields on screen, per frame (a Workday/iCIMS step changes inside its frame, not the outer page).
+    None when it can't be read — the caller then scrolls, as before."""
+    try:
+        parts = [page.url]
+        for fr in page.frames:
+            if any(s in (fr.url or "") for s in _NOT_FORM_FRAMES):
+                continue
+            try:
+                parts.append(f"{fr.url}#{fr.evaluate(FIELD_SIG_JS)}")
+            except Exception:
+                parts.append(f"{fr.url}#?")       # a frame mid-navigation: still part of what the page is
+        return "\n".join(parts)
+    except Exception:
+        return None
 
 
 def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:

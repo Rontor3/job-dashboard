@@ -18,6 +18,7 @@ function mock() {
 test("edits a unit and keeps the verbatim source locked until unlocked", async () => {
   const calls = mock();
   render(<IngredientsPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Fraud" }));
   fireEvent.change(await screen.findByLabelText("Problem of Fraud"), { target: { value: "manual review was slow" } });
   fireEvent.change(screen.getByLabelText("Tech (comma separated) of Fraud"), { target: { value: "ML, AWS, Spark" } });
   expect(screen.getByLabelText("Source of Fraud")).toHaveAttribute("readonly");
@@ -34,6 +35,7 @@ test("edits a unit and keeps the verbatim source locked until unlocked", async (
 test("an unlocked, changed source is sent with confirm_source", async () => {
   const calls = mock();
   render(<IngredientsPanel />);
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Fraud" }));
   await screen.findByLabelText("Source of Fraud");
   fireEvent.click(screen.getByRole("button", { name: "Unlock source of Fraud" }));
   fireEvent.change(screen.getByLabelText("Source of Fraud"), { target: { value: "new verbatim" } });

@@ -15,6 +15,9 @@ import types
 from datetime import datetime, timezone
 
 DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
+                    "profile_autofill_at": "",         # when the résumé was last read into the profile
+                    "inbox_snoozed": "{}",             # Inbox items skipped: {key: ISO until}
+                    "insight_local_only": "0",         # 1 = rewriting an answer never falls back to Claude
                     "telegram_wait_minutes": "10",     # apply queue: live Telegram questions, then park
                     "answer_confidence_min": "60", "qbank_confident_min": "87", "browser_min_interval_hours": "48", "browser_linkedin_enabled": "0",
                     "browser_naukri_enabled": "0", "browser_wellfound_enabled": "0",
@@ -33,7 +36,7 @@ _COLS = (
     "qkey", "label", "kind", "purpose", "answer", "source", "status",
     "confidence", "basis", "context_json", "unsupported_claims",
     "retrieval_kind", "retrieved_qkey", "retrieval_score", "candidates_json",
-    "outcome", "page", "policy_verdict",
+    "outcome", "page", "options_json", "policy_verdict",
 )
 
 # Job statuses whose lifecycle is over — the same settled set submit_watch's
@@ -64,6 +67,8 @@ def ensure(conn) -> None:
         conn.execute("ALTER TABLE application_qa ADD COLUMN page INTEGER")      # which form page asked it
     if "policy_verdict" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
         conn.execute("ALTER TABLE application_qa ADD COLUMN policy_verdict TEXT")   # D-lite: decline/held verdict (qa_recorder)
+    if "options_json" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
+        conn.execute("ALTER TABLE application_qa ADD COLUMN options_json TEXT")  # a choice field's options
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_job_status ON application_qa(job_id, status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_qkey ON application_qa(qkey)")
     conn.execute("CREATE TABLE IF NOT EXISTS agent_settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -114,7 +119,7 @@ def record(conn, *, job_id, run_key: str, ref: str, label: str, **fields) -> Non
 
 def _row(cur, r) -> dict:
     d = dict(zip([c[0] for c in cur.description], r))
-    for k in ("context_json", "unsupported_claims", "candidates_json"):
+    for k in ("context_json", "unsupported_claims", "candidates_json", "options_json"):
         if d.get(k):
             try:
                 d[k] = json.loads(d[k])
@@ -126,12 +131,16 @@ def _row(cur, r) -> dict:
 def open_questions(conn, job_id: int) -> list[dict]:
     """Questions still needing an answer for this job: the newest row per
     question, and only if that newest row is still `needs_answer` (a later run
-    that filled it, or a reply, closes it)."""
+    that filled it, or a reply, closes it). A later run's row for the same field
+    (ref, page) also closes it — its label may read differently now (a raw
+    `cards[..][field3]` name the next run perceived as the real question)."""
     ensure(conn)
     cur = conn.execute(
         """SELECT * FROM application_qa a WHERE job_id = ? AND status = 'needs_answer'
            AND id = (SELECT MAX(id) FROM application_qa b
                      WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
+           AND NOT EXISTS (SELECT 1 FROM application_qa c WHERE c.job_id = a.job_id AND c.ref = a.ref
+                           AND c.page IS a.page AND c.run_key != a.run_key AND c.id > a.id)
            ORDER BY id""", (job_id,))
     return [_row(cur, r) for r in cur.fetchall()]
 
@@ -152,6 +161,8 @@ def open_counts(conn) -> dict[int, int]:
            AND job_id IS NOT NULL
            AND id = (SELECT MAX(id) FROM application_qa b
                      WHERE b.job_id = a.job_id AND b.qkey = a.qkey)
+           AND NOT EXISTS (SELECT 1 FROM application_qa c WHERE c.job_id = a.job_id AND c.ref = a.ref
+                           AND c.page IS a.page AND c.run_key != a.run_key AND c.id > a.id)
            GROUP BY job_id""").fetchall()
     return {j: n for j, n in rows}
 
@@ -429,7 +440,8 @@ def questions_by_page(conn, job_id: int) -> dict:
             "status": d["status"], "origin": origin(d), "matched": d["retrieved_qkey"],
             "match_kind": d["retrieval_kind"], "score": d["retrieval_score"], "confidence": d["confidence"],
             "basis": d["basis"], "unsupported_claims": d["unsupported_claims"] or [],
-            "prompt": ctx.get("prompt") if isinstance(ctx, dict) else None, "outcome": d["outcome"]})
+            "prompt": ctx.get("prompt") if isinstance(ctx, dict) else None, "outcome": d["outcome"],
+            "lessons": (ctx.get("lessons") if isinstance(ctx, dict) else None) or []})
     return out
 
 

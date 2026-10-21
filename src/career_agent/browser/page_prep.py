@@ -4,6 +4,7 @@ control; suppress_noise is pure. LLM-free."""
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 # Fields that are never real application inputs.
 _NOISE_RE = re.compile(
@@ -32,6 +33,7 @@ def suppress_noise(fields):
 # Ordered most-specific first so "Reject all" beats "Reject" etc.
 _DECLINE = [
     "Reject all", "Decline all", "Decline all cookies", "Reject all cookies",
+    "Reject optional cookies", "Reject optional", "Decline optional cookies", "Reject non-essential",
     "Use necessary cookies only", "Necessary cookies only", "Only necessary cookies",
     "Only essential", "Essential only",
     "Decline", "Reject", "Only necessary", "Necessary only", "Refuse",
@@ -42,6 +44,7 @@ _ACCEPT = [
     "Accept", "Agree", "Allow", "OK", "Got it", "I understand",
     "I agree", "I accept",
 ]
+_JOB_TITLE: str = ""   # ponytail: module-global like _TRAIL; one apply run per process. Set by apply.py before reach.
 _TRAIL: list = []   # ponytail: module-global; one apply run per process. Per-run object if runs ever share a process.
 
 
@@ -180,8 +183,14 @@ def dismiss_dialogs(page) -> bool:
         dialog = page.locator("[role=dialog]:visible, [role=alertdialog]:visible").first
         if dialog.count() == 0:
             return False
-        names = dialog.locator("a[href], button").all_inner_texts()
-        text = dialog.inner_text(timeout=1000)
+        # [role=button]/[role=link] matter: design-system CTAs are often not <button> (Himalayas
+        # 2026-10-20 — the "Apply to X" modal's only apply control was a role=button div, the keep
+        # check missed it, Close fired, and the walker re-clicked Apply in a loop forever).
+        names = dialog.locator("a[href], button, [role=button], [role=link]").all_inner_texts()
+        try:
+            text = dialog.inner_text(timeout=1000)
+        except Exception:
+            text = ""
         fillable = dialog.locator("textarea:visible, select:visible, input:visible:not([type=hidden]):not([type=checkbox])"
                                   ":not([type=radio]):not([type=submit]):not([type=button])").count() > 0
     except Exception:
@@ -220,6 +229,13 @@ def dismiss_dialogs(page) -> bool:
             _survived(page, sig, strikes)
             return True
         trail_note(step="modal_kept", why="offers an apply control")
+        return False
+    # A dialog whose HEADER reads like an apply continuation ("Apply to NVIDIA", "Start your
+    # application") is the next hop by definition: its Close never fires unconditionally. This
+    # keep is reached only when the widened scan above couldn't find the apply control, and it
+    # is the merged half of the stack's modal rule (real T&C dialogs never carry this wording).
+    if _APPLY_MODAL_RE.search(text):
+        trail_note(step="modal_kept", why="the modal IS the apply step")
         return False
     # An application form is often itself a dialog (Work at a Startup, Wellfound): its
     # "Close"/"Continue" would close or advance the application under the agent.
@@ -266,11 +282,25 @@ def _click_first(page, names, within=None):
     return None
 
 
+# The page's text plus the text of every open shadow root: consent managers such as Usercentrics draw the whole banner
+# inside one (FedEx careers, live 2026-10-18 — the banner covered Apply and the text check never saw it).
+_CONSENT_TEXT_JS = """() => {
+  const re = /cookie|consent|privacy preferences|we use cookies/i;
+  if (re.test((document.body ? document.body.innerText : '').slice(0, 4000))) return true;
+  const seen = []; const walk = root => { for (const e of root.querySelectorAll('*')) if (e.shadowRoot) seen.push(e.shadowRoot); };
+  walk(document);
+  for (let i = 0; i < seen.length && i < 50; i++) {
+    const r = seen[i];
+    if (re.test((r.textContent || '').slice(0, 4000))) return true;
+    walk(r);
+  }
+  return false;
+}"""
+
+
 def _looks_consent(page) -> bool:
     try:
-        return bool(page.evaluate(
-            "() => /cookie|consent|privacy preferences|we use cookies/i"
-            ".test(document.body.innerText.slice(0,4000))"))
+        return bool(page.evaluate(_CONSENT_TEXT_JS))
     except Exception:
         return False
 
@@ -289,6 +319,72 @@ def dismiss_consent(page) -> bool:
         if attempt == 0:
             page.wait_for_timeout(1500)
     return False
+
+
+# A dialog titled/introduced like an apply continuation ("Apply to NVIDIA", “Start your application”)
+# is the next hop by definition: its Close never fires unconditionally. Only consent/idle text
+# opt-out; real T&C dialogs never carry this wording.
+_APPLY_MODAL_RE = re.compile(r"\bapply (to|now|for|online)\b|\bstart (your|the) application\b|"
+                             r"\b(job )?application (form|portal|step)\b", re.I)
+
+
+# Himalayas 2026-10-20 (live CDP probe): after Apply, the site answers with an "Apply to Upstart"
+# modal (~512×440) holding ZERO input/select/textarea elements and no way forward — its only
+# clickables are Close, "Update your working permit information" (a→/profile/preferences),
+# "Update profile" (a→/profile/preferences) and "Find similar jobs". Walking that formless state
+# burned ~110 s, filled 0 of the 4 buttons it perceived as rows, and ended no_form_found. That
+# modal is the site itself refusing the application (a profile-preferences nag), so reach must
+# stop and escalate, quoting the site's own words. All three must hold before it is called a
+# refusal: (a) no real field inside the dialog (invisible hidden-type inputs only), (b) the head
+# matches _APPLY_MODAL_RE, (c) none of its clickables names a way on — a no-inputs modal WITH a
+# Continue/Submit/Sign-in hand-off opens another surface and keeps the existing modal_kept flow.
+_APPLY_REFUSAL_JS = """(applyPat) => {
+  const big = e => { const r = e.getBoundingClientRect(); return r.width >= 200 && r.height >= 200; };
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+  const text = e => (e.innerText || '').trim().replace(/\\s+/g, ' ');
+  let dlg = null, area = 0;
+  for (const d of document.querySelectorAll('[role=dialog],[role=alertdialog]'))
+    if (big(d)) {
+      const r = d.getBoundingClientRect();
+      if (r.width * r.height > area) { dlg = d; area = r.width * r.height; }
+    }
+  if (!dlg) return null;
+  const he = dlg.querySelector('h1, h2, h3');
+  const head = ((he && text(he)) || (dlg.getAttribute('aria-label') || '')).replace(/\\s+/g, ' ').trim();
+  if (!new RegExp(applyPat, 'i').test(head)) return null;
+  // (a) no real fields: a hidden-type box is effectively invisible, anything shown kills it
+  if (Array.from(dlg.querySelectorAll('input,select,textarea')).filter(e => vis(e) && e.type !== 'hidden').length) return null;
+  // (c) a clickable named like a way on = hands off elsewhere, never a refusal
+  const PROCEED = /apply|continue|next|submit|start|sign[\\s-]?in|sign[\\s-]?up|create|register/i;
+  if (Array.from(dlg.querySelectorAll('a,button,[role=button]')).filter(vis).some(c => PROCEED.test(text(c)))) return null;
+  return { head: head, quote: (dlg.innerText || '').slice(0, 600) };
+}"""
+
+
+def _kept_modal_refusal(page) -> dict | None:
+    """The kept apply modal that is not an apply: no fields and no way forward — the site itself
+    refusing the application. Returns {"head", "quote"} for the escalation's message, else None
+    (a modal WITH a field or a proceed CTA stays on the existing modal_kept / walk flow)."""
+    try:
+        d = page.evaluate(_APPLY_REFUSAL_JS, _APPLY_MODAL_RE.pattern)
+    except Exception:
+        return None
+    if isinstance(d, dict) and isinstance(d.get("head"), str) and isinstance(d.get("quote"), str) \
+            and d["head"] and d["quote"]:
+        return d
+    return None
+
+
+def announce_site_refusal(page) -> dict:
+    """The one-line [stop] quoting the site's own words, plus the {stopped_reason, site_said} bits
+    callers merge into their result dicts (reach boundary in apply.py, walk step in step_engine,
+    graph perceive). Always prints — empty quote when the modal already left between the stop
+    decision and this read — so the run log names the stall either way."""
+    r = _kept_modal_refusal(page) or {}
+    head = str(r.get("head") or "")
+    said = str(r.get("quote") or "")[:240]
+    print(f'[stop] the site itself refuses this application: {head} — "{said}"', flush=True)
+    return {"stopped_reason": "site_refused", "site_said": said}
 
 
 _CLOSED_RE = re.compile(
@@ -327,6 +423,15 @@ def is_closed_posting(page) -> bool:
         return False
 
 
+# An email-first account wall: the password box sits behind a "Sign in with email" control, beside social sign-in
+# buttons (Workday; live Hitachi 2026-10-18). Matched on the control's whole text, so the same words inside a long
+# form can't make it a wall. Shared by classify_entry (detection) and credential_provider (the click that reveals it).
+EMAIL_REVEAL_RE = re.compile(r"^(?:(?:sign ?in|log ?in|sign ?up|register|continue) with (?:e-?mail|email address)"
+                             r"|(?:use|continue with) e-?mail)$", re.I)
+SOCIAL_SIGNIN_RE = re.compile(r"^(?:sign ?in|log ?in|sign ?up|continue) with (?:apple|google|linkedin|facebook|microsoft|github)$",
+                              re.I)
+
+
 def classify_entry(page, status=None) -> str:
     """Which of the two application shapes (or a JD/password gate) is on screen:
     'closed' | 'form' | 'email_auth' | 'password' | 'none'.
@@ -343,8 +448,13 @@ def classify_entry(page, status=None) -> str:
     if "darwinbox.com/cookie-policy" in _u or "/ms/candidatev2/main/auth/" in _u:
         return "password"
     try:
-        d = page.evaluate("""() => {
+        d = page.evaluate("""(pats) => {
           const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+          const ctlText = e => (e.innerText || e.value || '').trim().replace(/\\s+/g, ' ');
+          const ctls = Array.from(document.querySelectorAll('button,a[href],[role=button],input[type=button],input[type=submit]'))
+            .filter(vis).map(ctlText);
+          const emailReveal = ctls.some(t => new RegExp(pats[0], 'i').test(t));
+          const social = ctls.some(t => new RegExp(pats[1], 'i').test(t));
           const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
           const txt = document.body.innerText.slice(0, 4000);
           const hasPw = ins.some(e => e.type === 'password')
@@ -357,13 +467,16 @@ def classify_entry(page, status=None) -> str:
           // a sign-in step's own button (IBMid: "Continue"), not a job-alert box's "Subscribe"
           const authBtn = Array.from(document.querySelectorAll('button,input[type=submit],[role=button]')).filter(vis)
             .some(e => /^(continue|next|sign ?in|log ?in|login)$/i.test((e.innerText || e.value || '').trim()));
-          return { hasPw, hasEmail: !!email, authBtn,
+          return { hasPw, hasEmail: !!email, authBtn, emailReveal, social,
             verify: /verify|one-time|we'll send|continue with email|create .*profile|create (an |your )?account|confirm your identity|start application|begin.*apply|sign.?in|sign.?up|log.?in or|register/i.test(txt),
             fillable };
-        }""")
+        }""", [EMAIL_REVEAL_RE.pattern, SOCIAL_SIGNIN_RE.pattern])
     except Exception:
         return "none"
     if d["hasPw"]:
+        return "password"
+    # Social buttons + "Sign in with email" on a small page: the password gate, one click away (no box shown yet).
+    if d.get("emailReveal") and d.get("social") and d["fillable"] <= 4:
         return "password"
     # An email-first gate is a tiny page; a long form that merely mentions "signing"/"sign in" is not.
     from .credential_provider import alert_box_only
@@ -487,9 +600,13 @@ _REAL_FIELDS_JS = r"""() => {
       catch(e) { return ''; }
     }).join(' ');
   };
+  // A site search box or newsletter/subscribe signup is not the application, whatever its labels say.
+  const SUB = /newsletter|subscribe|search/i;
+  const junkBox = e => e.type === 'search' || !!e.closest('[role=search]') || (() => {
+    const f = e.closest('form'); return !!f && SUB.test((f.id||'')+' '+(f.className||'')+' '+(f.getAttribute('action')||'')+' '+(f.getAttribute('aria-label')||'')); })();
   // file inputs are styled invisible (display:none) but are real upload fields
   const ins = shadowAll(document.body, 'input,select,textarea').filter(e =>
-    e.type === 'file' || vis(e));
+    e.type === 'file' || (vis(e) && !junkBox(e)));
   const seen = new Set();
   for (const e of ins) {
     if (['hidden','submit','button'].includes(e.type)) continue;
@@ -510,13 +627,28 @@ _REAL_FIELDS_JS = r"""() => {
 # nests an icon, so its accname isn't exactly "Apply Now" and get_by_role(name=)
 # times out. data-aff sidesteps that.
 _CLICKABLES_JS = r"""() => {
-  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
+  // A visibility:hidden or opacity:0 control has a box but is not shown: not a control the agent may click.
+  const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4
+    && (e.checkVisibility ? e.checkVisibility({visibilityProperty:true, opacityProperty:true}) : true); };
   if (window.__affN === undefined) window.__affN = 0;
   const out = [];
   // Controls inside an open modal/dialog come first: a modal is what the page is asking
   // about right now, and it sits at the end of the DOM — past the 200 cap on busy pages.
   const inModal = e => !!e.closest('[role=dialog],[aria-modal=true],dialog[open]');
-  const els = [...document.querySelectorAll('button, a[href], [role=button], input[type=submit], input[type=button]')]
+  const CTRL = 'button, a[href], [role=button], input[type=submit], input[type=button]';
+  const applyLike = x => /apply/i.test(x.getAttribute('aria-label') || x.value || x.textContent || '');
+  // The job card = the largest ancestor that still holds exactly ONE apply-like control (the nearest ancestor is
+  // just the button's wrapper, which lacks the job's title). A listing's cards each hold their own Apply.
+  const cardOf = e => {
+    let card = '';
+    for (let a = e.parentElement, i = 0; a && a !== document.body && i < 12; a = a.parentElement, i++) {
+      const n = [...a.querySelectorAll(CTRL)].filter(applyLike).length;
+      if (n > 1) break;
+      if (n === 1) card = (a.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 400);
+    }
+    return card;
+  };
+  const els = [...document.querySelectorAll(CTRL)]
     .filter(vis).sort((a, b) => inModal(b) - inModal(a));
   for (const e of els) {
     const name = (e.getAttribute('aria-label') || e.value || e.textContent || '').trim().replace(/\s+/g,' ');
@@ -526,7 +658,8 @@ _CLICKABLES_JS = r"""() => {
     // the revealed menu OPTION next, instead of re-toggling.
     let aff = e.getAttribute('data-aff');
     if (!aff) { aff = 'a' + (window.__affN++); e.setAttribute('data-aff', aff); }
-    out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]' });
+    out.push({ name, role: e.tagName === 'A' ? 'link' : 'button', ref: '[data-aff="' + aff + '"]',
+               card: applyLike(e) ? cardOf(e) : '' });
   }
   return out.slice(0, 200);
 }"""
@@ -738,6 +871,31 @@ def _pick_best(page, cands, exclude=(), prefer=()):
     except Exception:
         return best                            # arbiter trouble must never change today's pick
     return ranked[0] if ranked else best
+def visible_clickable_names(page):
+    """Lowercased names of the controls the page actually shows (same visibility rule as the Apply search), across
+    frames. None when the page can't be read. The snapshot also lists hidden buttons; this is the check for them."""
+    names = set()
+    try:
+        for fr in page.frames:
+            for row in (fr.evaluate(_CLICKABLES_JS) or []):
+                names.add((row.get("name") or "").strip().lower())
+    except Exception:
+        return None
+    return names
+
+
+def _manual_option_hop(page) -> bool:
+    """A choose-how-to-apply page (Avature: 'Choose any option to apply': From Device / Copy & Paste / Without Resume /
+    LinkedIn ...) has no form yet. Its manual option ('Without Resume') is the way into the form: click it."""
+    from .credential_provider import (_REGISTRATION_OPTIONS, _navigate_to_form, _registration_options_offered,
+                                      _start_by_resume_upload)
+    if not _registration_options_offered(page, wait_ms=500):   # one look: this runs on every reached page
+        return False
+    if _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual application option"):
+        return True
+    # no manual option (Deloitte/MetLife Avature: From Device / Copy & Paste / LinkedIn): the résumé upload starts it
+    from urllib.parse import urlparse
+    return _start_by_resume_upload(page, urlparse(page.url).netloc)
 
 
 def _real_field_count(page) -> int:
@@ -772,12 +930,17 @@ _FILLABLE_JS = r"""() => {
     walk(root); return r;
   }
   const vis = e => { try { const r=e.getBoundingClientRect(); return r.width>4&&r.height>4; } catch(e){ return false; } };
+  // A site search box or newsletter/subscribe signup is not the application, whatever its labels say.
+  const SUB = /newsletter|subscribe|search/i;
+  const junkBox = e => e.type === 'search' || !!e.closest('[role=search]') || (() => {
+    const f = e.closest('form'); return !!f && SUB.test((f.id||'')+' '+(f.className||'')+' '+(f.getAttribute('action')||'')+' '+(f.getAttribute('aria-label')||'')); })();
   return shadowAll(document.body, 'input,select,textarea').filter(e => {
     const t = (e.getAttribute('type') || 'text').toLowerCase();
     // file inputs are always styled invisible but are real upload fields — count them regardless
     if (t === 'file') return true;
     if (!vis(e)) return false;
     if (['hidden','submit','button','password'].includes(t)) return false;
+    if (junkBox(e)) return false;
     return !/search/i.test((e.getAttribute('aria-label') || e.name || ''));
   }).length;
 }"""
@@ -833,6 +996,52 @@ def find_apply_affordance(page, exclude=(), prefer=()):
             c["frame"] = idx
             cands.append(c)
     return _pick_best(page, cands, exclude, prefer)
+
+
+def set_job_hint(title: str) -> None:
+    """The job being applied for. A listing page (several cards, each with its own Apply) is opened at THIS job's card."""
+    global _JOB_TITLE
+    _JOB_TITLE = (title or "").strip()
+
+
+def _listing_pick(page, title):
+    """(state, cand). None when the page is not a listing: fewer than two same-named apply controls that each sit in a
+    card. 'match' + the control whose card names `title` (>=60% of its words); 'no_match' when it is a listing but no
+    card names this job, so we must not click a random one. Pure reading: clicks nothing."""
+    toks = set(re.findall(r"[a-z0-9]+", title.lower()))
+    if not toks:
+        return None, None
+    # the page IS this job's posting (its heading / title names it): several Apply buttons are the same job's top and
+    # bottom buttons, not a listing (Accenture: two 'Apply for this job')
+    try:
+        head = page.evaluate("() => ((document.querySelector('h1') || {}).innerText || '') + ' ' + document.title") or ""
+    except Exception:
+        head = ""
+    htoks = set(re.findall(r"[a-z0-9]+", head.lower()))
+    if len(toks & htoks) >= max(1, round(0.6 * len(toks))):
+        return None, None
+    cands = []
+    for idx, fr in enumerate(page.frames):
+        if idx and _frame_is_ad(fr):
+            continue
+        try:
+            rows = fr.evaluate(_CLICKABLES_JS) or []
+        except Exception:
+            continue
+        for c in rows:
+            name = (c.get("name") or "").strip().lower()
+            if c.get("card") and _best_apply([{"name": name}]) is not None:
+                c["frame"] = idx
+                cands.append(c)
+    if not any(n >= 2 for n in Counter((c.get("name") or "").strip().lower() for c in cands).values()):
+        return None, None
+    best, best_score = None, 0.0
+    for c in cands:
+        words = set(re.findall(r"[a-z0-9]+", c["card"].lower()))
+        score = len(toks & words) / len(toks)
+        if score >= 0.6 and score > best_score:
+            best, best_score = c, score
+    return ("match", best) if best else ("no_match", None)
 
 
 def _frame_is_ad(fr) -> bool:
@@ -909,7 +1118,9 @@ def _reach(page, max_hops=4):
     """Drill from any landing (JD / search / SPA) to the real application form by
     following the Apply affordance until real applicant fields appear. Bounded and
     loop-safe (a no-progress hop stops it). Login/OTP/captcha gates are returned
-    for the caller to escalate — never auto-passed. Returns (active_page, status)."""
+    for the caller to escalate — never auto-passed; a kept apply modal with no
+    fields and no way forward returns "site_refused" (the site refuses the
+    application — see _kept_modal_refusal). Returns (active_page, status)."""
     active = page
     clicked = set()                        # affordance refs already clicked
     last_url = active.url
@@ -926,6 +1137,19 @@ def _reach(page, max_hops=4):
         if st in ("email_auth", "password"):
             return active, st              # account/login wall FIRST — an account
             # page has applicant fields AND a password; the wall wins -> escalate
+        # A listing (several job cards, each with its own Apply): open THIS job's card before accepting any form on the
+        # page — the form already shown may be a site contact form. Once that card is open, its form is the application.
+        listing, pick = _listing_pick(active, _JOB_TITLE) if _JOB_TITLE else (None, None)
+        if listing == "no_match":
+            trail_note(step="listing", result="no_match", url=_bare(active.url))
+            return active, "none"
+        if listing == "match" and pick.get("ref") not in clicked:
+            clicked.add(pick.get("ref"))
+            before = active.url
+            active = _hop(active, pick)
+            trail_note(step="hop", click=pick["name"], role=pick["role"], frame=pick.get("frame", 0),
+                       url_before=_bare(before), url_after=_bare(active.url), listing=True)
+            continue
         if is_application_form(active):    # a real personal-info form -> arrived
             return active, "form"
         # Follow an Apply affordance FIRST: a JD/search page has one, a real form
@@ -958,6 +1182,9 @@ def _reach(page, max_hops=4):
             trail_note(step="hop", click=aff["name"], role=aff["role"], frame=aff.get("frame", 0),
                        url_before=_bare(before), url_after=_bare(active.url))
             continue
+        if _manual_option_hop(active):      # no Apply left, but a choose-how-to-apply page: its manual option opens the form
+            trail_note(step="hop", click="manual application option", url_before=_bare(active.url))
+            continue
         # No Apply left to follow: are we already ON a form step (wizard whose
         # first screen is a screening question, so is_application_form missed it)?
         if _is_wizard_step(active):
@@ -969,7 +1196,13 @@ def _reach(page, max_hops=4):
             continue
         break
     reached = is_application_form(active) or _is_wizard_step(active)
-    return active, ("form" if reached else classify_entry(active))
+    if reached:
+        return active, "form"
+    refusal = _kept_modal_refusal(active)     # a formless, dead-end apply modal = the site refusing
+    if refusal:
+        trail_note(step="site_refused", modal=refusal["head"][:60], quote=refusal["quote"][:160])
+        return active, "site_refused"
+    return active, classify_entry(active)
 
 
 def _try_url_variants(page):
@@ -1098,6 +1331,32 @@ def email_auth(page, email, otp_reader, on_captcha=None) -> str:
                 page.goto(code, wait_until="domcontentloaded")
                 wait_until_stable(page)
     return classify_entry(page)
+
+
+def untick_opt_ins(page, extra_patterns=(), tag="fill") -> int:
+    """Untick pre-ticked OPTIONAL opt-ins before moving on (LinkedIn's "Follow <company>", Indeed's job-alert mails, an
+    Oracle career site's "I agree to receive updates about new job opportunities" — live Cummins 2026-10-18): applying
+    is not consent to be followed or mailed. Only checked, non-required boxes whose label reads as an opt-in
+    (screen_review._MARKETING) or matches `extra_patterns`. Returns how many were unticked."""
+    from ..orchestrator.screen_review import _MARKETING
+    pats = [re.compile(p, re.I) for p in extra_patterns] + [_MARKETING]
+    n = 0
+    try:
+        boxes = page.locator("input[type=checkbox]:checked:not([required]):not([aria-required=true])")
+        for i in reversed(range(boxes.count())):
+            b = boxes.nth(i)
+            label = b.evaluate("e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label')"
+                               " || (e.closest('label') || e.parentElement || {}).innerText || '').trim()")
+            if label and any(p.search(label) for p in pats):
+                try:
+                    b.uncheck(timeout=5000, force=True)
+                except Exception:
+                    b.evaluate("e => e.click()")          # a drawn box over a hidden input (as Oracle's consent box)
+                n += 1
+                print(f"[{tag}] unticked optional box {label[:60]!r}", flush=True)
+    except Exception:
+        pass
+    return n
 
 
 def prepare(page) -> None:

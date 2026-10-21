@@ -23,6 +23,8 @@ def _action_for_kind(kind: str) -> str:
         return "select"
     if kind == "radio_group":
         return "check_group"
+    if kind == "checkbox_group":
+        return "check_multi"        # tick each named option; one decision per question
     if kind == "combobox":
         return "combobox"           # open the fake dropdown + click a live option
     if kind in ("datepicker", "date_parts"):

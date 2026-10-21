@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .screen_review import PROSE_PURPOSES
+from .screen_review import PROSE_PURPOSES, _EMPLOYMENT_SECTION
 try:
     from job_dashboard.apply.screening import draft_screening_answer
 except Exception:
@@ -21,6 +21,7 @@ class JudgmentContext:
     ats_notes: str = ""            # vendor notes from ats-graph (e.g. "Direct, no-login")
     story_text: str = ""           # candidate's own long-form answers (qbank topic=story)
     longform: object = None        # callable(question, field, job) -> dict | None: the need-based long-answer pipeline
+    companies: tuple = ()          # employer per experience entry (index = a repeated Experience row)
 
 
 _SENSITIVE_RE = re.compile(
@@ -138,6 +139,33 @@ def _looks_like_question(label: str) -> bool:
     return len(text.split()) >= 4
 
 
+# A bare free-text box on an application ("Message", "Comments", "Cover letter") is a cover note, not a
+# question: it is not phrased as one, so the question gate would escalate it. Routed to the same long-form writer.
+_COVER_NOTE_LABEL = re.compile(
+    r"^\s*(your )?(message|comments?|additional (info(rmation)?|comments?)|cover (letter|note)|anything else.*)\s*:?\s*\*?\s*$",
+    re.I)
+COVER_NOTE_ASK = "Write a short cover note for this application"
+
+
+def cover_note_question(label: str) -> str | None:
+    """The ask for a generic free-text box (by its label's shape), or None when the label is a question of its own."""
+    return COVER_NOTE_ASK if _COVER_NOTE_LABEL.match(label or "") else None
+
+
+_ROLE_BOX_LABEL = re.compile(
+    r"^(roles?( and| &)? responsibilities|responsibilities|job description|description|duties|key achievements?)\s*\*?$", re.I)
+def role_description_question(f, companies) -> str | None:
+    """The ask for a 'Roles & Responsibilities' box inside an Experience entry, written from that role (same path as a
+    cover note). None when the box is not a role description of an employment entry."""
+    if f.kind != "textarea" or not _ROLE_BOX_LABEL.match((f.label or "").strip()):
+        return None
+    if not _EMPLOYMENT_SECTION.search(f.section or ""):
+        return None
+    company = companies[f.row] if 0 <= f.row < len(companies) else ""
+    base = "Describe your responsibilities and achievements in this role"
+    return f"{base} at {company}" if company else base
+
+
 def judge_combobox_value(label, profile_text, llm) -> str | None:
     """A combobox whose live options aren't visible yet to Phase E (this tier has
     no browser access, so it can't open the widget to read them) — ask for a
@@ -164,6 +192,18 @@ def short_answer(reply: str) -> str | None:
     line = next((ln.strip() for ln in (reply or "").splitlines() if ln.strip()), "")
     line = re.sub(r"\s*\(.*$", "", line).strip(" \"'*.`")
     return line if line and len(line) <= 60 else None
+
+
+def _reject_error_draft(f, value) -> bool:
+    """True when `value` is the assist child's own limit/error notice, not an answer
+    (workatastartup 2026-10-20: the Claude CLI's "You've hit your weekly limit ·
+    resets Oct 22 …" was drafted into the live message box). The field stays open
+    for the human-ask/park path; a plausible draft is never touched."""
+    from .claude_assist import error_shaped
+    if not error_shaped(value):
+        return False
+    print(f"[assist] rejected error-shaped draft for {(f.label or f.ref or '')[:40]!r}", flush=True)
+    return True
 
 
 def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_draft=None):
@@ -199,25 +239,26 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
         if f.kind == "combobox" and not f.options:
             calls += 1
             val = judge_combobox_value(f.label, profile_text, llm)
-            if val is None:
+            if val is None or _reject_error_draft(f, val):
                 still_need.append(f)
             else:
                 answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
             continue
         if f.kind in ("textarea", "text") and (f.purpose is None or f.purpose in PROSE_PURPOSES):
+            question = cover_note_question(f.label) or role_description_question(f, ctx.companies) or f.label
             if (_NOT_A_QUESTION.search(f.label or "")
-                    or not _looks_like_question(f.label)
+                    or (question == f.label and not _looks_like_question(f.label))
                     or draft_screening_answer is None):
                 still_need.append(f); continue   # search box, or answerer unavailable
             calls += 1
             res = None
             if ctx.longform is not None:
                 try:
-                    res = ctx.longform(f.label, f, ctx.job)
+                    res = ctx.longform(question, f, ctx.job)
                 except Exception:
                     res = None                       # never let the new pipeline stop an application
             if res is None:
-                res = draft_screening_answer(ctx.job, f.label, profile_text,
+                res = draft_screening_answer(ctx.job, question, profile_text,
                                              ctx.research, ctx.resume_text, llm=llm,
                                              story_text=ctx.story_text)
             conf = res.get("confidence")
@@ -226,6 +267,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
                 on_draft(f, res, not low)
             if low:
                 still_need.append(f); continue      # untrusted -> never filled silently
+            if _reject_error_draft(f, res.get("answer")):
+                still_need.append(f); continue      # the child's own failure text is not an answer
             if orchestrator is None and "general_fallback" in (res.get("flags") or []):
                 still_need.append(f); continue      # a canned template is never filled as the answer
             weak = res.get("flags") or res.get("unsupported_company_claims")
@@ -245,8 +288,8 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
             replies = {}
         for f in hard:
             ans = replies.get(f.ref)
-            if ans:
-                answered.append(FillDecision(f.ref, f.kind, f.label, ans, "fill", "orchestrator"))
-            else:
+            if not ans or _reject_error_draft(f, ans):
                 still_need.append(f)
+            else:
+                answered.append(FillDecision(f.ref, f.kind, f.label, ans, "fill", "orchestrator"))
     return answered, still_need, flagged

@@ -6,12 +6,17 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from job_dashboard.tracker import set_status
+from job_dashboard.match import preferences
 from job_dashboard.api.agent_routes import AgentRunState, build_agent_router
 from job_dashboard.api.mail_routes import MailScanner, build_mail_router
 from job_dashboard.api.queue_routes import build_queue_router, make_agent_launch
 from job_dashboard.apply.queue_runner import QueueRunner
 from job_dashboard.api.apply_routes import build_apply_router
 from job_dashboard.api.hiring_routes import build_hiring_router
+from job_dashboard.api.feedback_routes import build_feedback_router
+from job_dashboard.api.notification_routes import build_notification_router
+from job_dashboard.api.profile_routes import build_profile_router
+from job_dashboard.api.insight_routes import build_insight_router
 from job_dashboard.api.letter_routes import build_letter_router
 from job_dashboard.api.qa_routes import build_qa_router
 from job_dashboard.api.refresh_job import RefreshState, default_pipeline_runner
@@ -33,7 +38,7 @@ def create_app(
     db_path=DEFAULT_DB, pipeline_runner=None, resume_engine=None,
     resume_llm=None, jd_keyword_extractor=None, letter_engine=None,
     screening_engine=None, hiring_fetcher=None, embed_model=None, qa_embed=None,
-    hiring_role_fn=None, queue_launch=None, mail_scanner=None,
+    hiring_role_fn=None, queue_launch=None, mail_scanner=None, profile_llm=None, insight_engines=None,
 ):
     """``resume_llm`` overrides the default engine's ``LlmFn`` (tests inject
     a fake here to exercise the default ``resume_engine=None`` wiring
@@ -98,6 +103,10 @@ def create_app(
     app.state.mail_scanner = mail_scanner or MailScanner(db_path)
     app.include_router(build_mail_router(db_path, app.state.mail_scanner))
     app.include_router(build_qa_router(db_path, qa_embed))
+    app.include_router(build_feedback_router(db_path, qa_embed))
+    app.include_router(build_notification_router(db_path))
+    app.include_router(build_profile_router(db_path, profile_llm, qa_embed))
+    app.include_router(build_insight_router(db_path, insight_engines, qa_embed, manage_model=insight_engines is None))
 
     @contextmanager
     def db():
@@ -112,15 +121,21 @@ def create_app(
                   source: str = None, industry: str = None, company_type: str = None,
                   status: str = None, verdict: str = None, min_score: float = None,
                   include_dismissed: bool = False, sort: str = "embed",
-                  limit: int = 50, offset: int = 0, india: bool = False):
+                  limit: int = 50, offset: int = 0, india: bool = False, ids: str = None):
+        id_list = [int(x) for x in (ids or "").split(",") if x.strip().isdigit()][:200] or None
+        learned = sort == "learned"           # base fit + what Skip/Apply clicks taught (match/preferences.py)
         with db() as conn:
             jobs, total = query_jobs(
                 conn, q=q, remote=remote, job_type=job_type, source=source,
                 industry=industry, company_type=company_type,
                 status=status, verdict=verdict, min_score=min_score,
-                include_dismissed=include_dismissed, sort=sort,
-                limit=limit, offset=offset, india=india,
+                include_dismissed=include_dismissed, sort="embed" if learned else sort,
+                limit=5000 if learned else limit, offset=0 if learned else offset, india=india, ids=id_list,
             )
+            if learned:
+                preferences.ensure(conn)
+                ranked = preferences.rerank(jobs, preferences.learn(conn))
+                jobs, total = ranked[offset:offset + limit], len(ranked)
         from job_dashboard.match.apply_type import classify_apply_type
         for j in jobs:
             j["apply_type"] = classify_apply_type(j.get("source"), j.get("job_url"), j.get("apply_kind"), j.get("apply_url"))
@@ -145,7 +160,27 @@ def create_app(
                 raise HTTPException(status_code=422, detail=str(exc))
             except KeyError:
                 raise HTTPException(status_code=404, detail="job not found")
+            if body.status == "applied":
+                _record_hand_submit(conn, job_id)
         return {"ok": True, "status": body.status}
+
+    def _record_hand_submit(conn, job_id: int) -> None:
+        """You marked a job the agent had left for you as Applied: that IS your hand submit on that site, which is what
+        lets the site auto-submit later (autonomy: the first submit on a site is yours). Live 2026-10-18: three iimjobs
+        jobs applied by hand were never seen by the watcher (the tab moved to iimjobs' 'Job Applied' page), so iimjobs
+        kept asking for a first submit. Only for a job the agent parked or was watching, and only once per job."""
+        from job_dashboard import autonomy
+        from job_dashboard.apply import queue as apply_queue
+        autonomy.ensure(conn)
+        apply_queue.ensure(conn)
+        watch = conn.execute("SELECT url, run_key FROM submission_watch WHERE job_id=?", (job_id,)).fetchone()
+        parked = conn.execute("SELECT 1 FROM apply_queue WHERE job_id=? AND state='parked'", (job_id,)).fetchone()
+        if not (watch or parked) or conn.execute("SELECT 1 FROM submit_history WHERE job_id=?", (job_id,)).fetchone():
+            return
+        url = (watch[0] if watch else None) or (conn.execute("SELECT job_url FROM jobs WHERE id=?", (job_id,)).fetchone() or [""])[0]
+        autonomy.record_submission(conn, job_id, (watch[1] if watch else None) or "", {}, "manual", url or "")
+        conn.execute("DELETE FROM submission_watch WHERE job_id=?", (job_id,))
+        conn.commit()
 
     @app.get("/api/duplicates")
     def list_duplicates():

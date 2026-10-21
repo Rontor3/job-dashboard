@@ -22,7 +22,8 @@ from job_dashboard.qa_store import norm_key as norm
 SEED_PATH = Path(__file__).with_name("qbank_seed.json")
 _JSON_COLS = ("slots", "synonyms")
 _DEF_COLS = ("question", "topic", "atype", "profile_ref", "rule", "slots", "synonyms", "shape")
-_KIND_ATYPE = {"select": "choice", "radio_group": "choice", "combobox": "choice", "checkbox": "bool"}
+_KIND_ATYPE = {"select": "choice", "radio_group": "choice", "combobox": "choice", "checkbox": "bool",
+               "checkbox_group": "choice"}   # multi tick list: the answer text carries the picks
 
 
 def ensure(conn) -> None:
@@ -73,7 +74,15 @@ def upsert_entry(conn, e: dict) -> None:
     conn.commit()
 
 
+# What a model writes when the source does not say (résumé extraction, live 2026-10-19: School = "Not provided in
+# text", then filled into MetLife). Never an answer: the entry keeps what it had.
+_NOT_AN_ANSWER = re.compile(r"^\s*(not (provided|mentioned|specified|stated|available|found|given)( in (the )?"
+                            r"(text|resume|résumé|cv|document|source))?|no (information|data) (provided|available))\s*\.?\s*$", re.I)
+
+
 def set_answer(conn, entry_id, answer) -> bool:
+    if answer is not None and _NOT_AN_ANSWER.match(str(answer)):
+        return False
     cur = conn.execute("UPDATE qbank_entry SET answer=?, updated_at=? WHERE id=?",
                        (None if answer is None else str(answer).strip(), _now(), entry_id))
     conn.commit()

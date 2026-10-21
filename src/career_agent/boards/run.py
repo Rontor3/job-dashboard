@@ -1,7 +1,12 @@
 """Board pipeline: blocked? → entry → questions → shared answer ladder → human
 for required gaps → put → advance → gated irreversible click → confirm from the
 board's own response. Never creates accounts, never uses the career-site drill,
-stops on bot challenges. Result dict matches the career-site one (+ `board`)."""
+stops on bot challenges. Result dict matches the career-site one (+ `board`).
+
+Dry-run (submit not authorized) with an entry in front of a fillable flow runs
+fill-probe mode: ctx["fill_probe"] makes every commit-point a stop — the driver
+fills everything reversible and refuses the final click/answer, so the run ends
+`reached_submit_dry_run` with the fills counted instead of frozen `dry_run` at 0."""
 from __future__ import annotations
 
 import dataclasses
@@ -31,10 +36,25 @@ def _needles(board):
 
 _APPLIED = re.compile(r"\byou(?:'ve| have)? already applied\b|\bapplied \d+ (?:second|minute|hour|day|week|month)s? ago\b",
                       re.I)
-# A visible BUTTON reading just "Applied" ("✓ Applied"): nav links named
-# "Applied" (Wellfound's sidebar) are anchors, so only buttons count.
-_APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e =>
-    e.checkVisibility() && /^\\W*applied\\W*$/i.test((e.innerText || '').trim()))"""
+# A visible BUTTON saying it's done: "✓ Applied", Instahyre's "Application sent!" (live 2026-10-18: GeoIQ, applied
+# Oct 3, was searched for an Apply button instead). Nav links named "Applied" (Wellfound's sidebar) are anchors, so only
+# buttons count, and only a short label (not a paragraph that mentions it).
+_APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e => {
+    const t = (e.innerText || '').trim();
+    return e.checkVisibility() && t.length < 60 && /^\\W*(applied|already applied|application (sent|submitted))\\b/i.test(t);
+})"""
+# An APPLIED BADGE is usually not a button (naukri live 2026-10-20: a green styled span,
+# no form anywhere on the page, and the run kept hunting for an Apply entry until the assist
+# concluded it). A short LEAF element whose whole text is an applied notice says the same
+# thing buttons do; prose longer than 40 chars, containers holding a template, and UI words
+# after the notice (naukri's own "Applied filters") never match. Anchors stay out (a nav
+# item named Applied is a page we can still act on); checked only when no form is open.
+_APPLIED_BADGE_JS = """() => [...document.querySelectorAll('span,div,p,label,i,[role=status]')].some(e => {
+    if (!e.checkVisibility() || e.children.length > 1) return false;
+    const t = (e.innerText || '').trim();
+    return t.length < 40 && /^\\W*(you(?:'?ve| have)? already applied|application (submitted|sent)|applied)\\b/i.test(t)
+        && !/\\b(filters?|jobs?|search|sort|via|salary)\\b/i.test(t);
+})"""
 _ERRORS_JS = """() => [...new Set([...document.querySelectorAll(
     '[role=alert],[aria-live=assertive],[id*=error i],[class*=error i],[class*=invalid i]')]
     .filter(e => e.checkVisibility() && e.innerText && e.innerText.trim().length < 300)
@@ -55,6 +75,14 @@ def _posting_state(page, text):
     try:
         if _APPLIED.search(text or "") or page.evaluate(_APPLIED_BUTTON_JS):
             return "already_applied"
+    except Exception:
+        pass
+    try:
+        # No application form open + a badge saying it's done: the application exists
+        # already (naukri live 2026-10-20, green 'Applied' badge). A distinct, honest
+        # stop name so the queue shows board state, not an engine guess.
+        if not _form_already_open(page) and page.evaluate(_APPLIED_BADGE_JS):
+            return "already_applied_board_state"
     except Exception:
         pass
     return None
@@ -95,6 +123,14 @@ def _form_already_open(page) -> bool:
         return False
 
 
+def _beyond_entry(board):
+    """A fillable flow lives past the entry click: the chat questionnaire (the chat driver
+    sends answers until the bot applies itself) or declared final/advance controls. A one-click
+    entry whose profile lists neither has nothing reversible to fill — the click IS the whole
+    application (instahyre, iimjobs live 2026-09-27) — so fill-probe stays a dry_run for it."""
+    return board.get("archetype") == "chat" or bool(board.get("final") or board.get("advance"))
+
+
 def _authorized(ctx, board, page, decisions):
     """The irreversible click: allowed by the dashboard's policy (switch for this site, answers with 3 approvals, a first
     submit there already done by you, daily cap), or by --submit plus a human yes. ctx["how"] records which."""
@@ -121,21 +157,10 @@ def _authorized(ctx, board, page, decisions):
 
 
 def _untick(page, board):
-    """Before the final click, untick pre-ticked optional opt-ins (LinkedIn's "Follow <company> to stay up to date",
-    Indeed's job-alert emails): applying is not consent to follow or to be mailed. Any checked, non-required box whose
-    label reads as an opt-in (screen_review._MARKETING) goes, plus any pattern the board profile lists."""
-    from ..orchestrator.screen_review import _MARKETING
-    pats = [re.compile(p, re.I) for p in board.get("uncheck", [])] + [_MARKETING]
-    try:
-        boxes = page.locator("input[type=checkbox]:checked:not([required]):not([aria-required=true])")
-        for i in reversed(range(boxes.count())):
-            b = boxes.nth(i)
-            label = b.evaluate("e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label') || '').trim()")
-            if label and any(p.search(label) for p in pats):
-                b.uncheck(timeout=5000, force=True)
-                print(f"[board] unticked optional box {label[:60]!r}", flush=True)
-    except Exception:
-        pass
+    """Before the final click, untick pre-ticked optional opt-ins (shared with career sites: page_prep.untick_opt_ins),
+    plus any pattern the board profile lists."""
+    from ..browser.page_prep import untick_opt_ins
+    untick_opt_ins(page, board.get("uncheck", []), tag="board")
 
 
 def _interstitials(page, board):
@@ -299,7 +324,10 @@ def _answers(fields, board, driver, cap, ctx):
     # radios/selects the rules layer passes over silently.
     decided |= set(pre)
     gaps = [f for f in fields if f.ref not in decided]
-    upfront = gaps if driver.ask_optional_upfront else [f for f in gaps if f.required]
+    # Fill-probe fills every reversible field of the live flow (linkedin's easy-apply
+    # modal ships its contact step with no DOM-required flag — asking only required
+    # gaps filled nothing and the run died dry_run at 0, live 2026-10-20 job 30029).
+    upfront = gaps if (driver.ask_optional_upfront or ctx.get("fill_probe")) else [f for f in gaps if f.required]
     if upfront and ctx.get("fill_first") and decisions:
         ctx["fill_first"](decisions)        # what is already answered goes in before the human is asked about the rest
     got, left = _ask(upfront, ctx)
@@ -320,7 +348,9 @@ def run_board(page, board, ctx):
 
     def stop(reason, pg):
         res.update(stopped_reason=reason, url=pg.url, submitted=reason == "submitted",
-                   decisions=[dataclasses.asdict(d) for d in done_decisions])
+                   decisions=[dataclasses.asdict(d) for d in done_decisions],
+                   filled=len(done_decisions),             # the battle summary reads these two
+                   escalated=len(res["pending_human"]))    # keys off the result, not the run_log
         if ctx.get("eligibility"):
             res["eligibility"] = ctx["eligibility"]
         log.finish(pg, reason, res["pending_human"])
@@ -359,7 +389,24 @@ def run_board(page, board, ctx):
                 found = False
             return stop("probe" if found else "no_entry", page)
         if irreversible and not _authorized(ctx, board, page, []):
-            return stop("dry_run", page)
+            # Dry-run with an entry that sits in front of a fillable flow: run the
+            # flow in fill-probe mode — the driver fills everything reversible and
+            # the commit-points below refuse the final click/answer and stop
+            # reached_submit_dry_run with the fills counted (naukri 2026-10-20:
+            # five boards died dry_run, filled=0, without the flow ever running).
+            if _beyond_entry(board):
+                ctx["fill_probe"] = True
+            else:
+                return stop("dry_run", page)       # one-click entry: nothing reversible before the commit
+        elif not irreversible and not ctx.get("do_submit"):
+            # Dry-run behind a plain (non-submitting) entry — linkedin easy-apply,
+            # wellfound, workatastartup (live 2026-10-20, linkedin job 30029: the
+            # flow opened, fields grew 60 -> 87, and the run still died dry_run
+            # filled=0). Same fill-probe spirit: the flow fills every reversible
+            # field, the commit-points below refuse the final click with the fills
+            # counted. An authorized-but-declined run (do_submit=True) keeps the
+            # old immediate dry_run here.
+            ctx["fill_probe"] = True
         from ..browser.clicks import pace
         pace(page)
         _before = list(page.context.pages)
@@ -498,6 +545,8 @@ def run_board(page, board, ctx):
                     page.wait_for_timeout(1500)
                     continue
             if nxt is None:
+                if ctx.get("fill_probe") and done_decisions:   # chat flow: the bot applies
+                    return stop("reached_submit_dry_run", page)   # itself after the withheld answer
                 _tabs_before = list(page.context.pages)
                 if assist and assist.recover(page, "no_advance_control"):
                     page = new_tab_since(page, _tabs_before)   # e.g. "Apply on company website" opened the employer's tab
@@ -506,6 +555,11 @@ def run_board(page, board, ctx):
             label, final = nxt
             if final:
                 if not _authorized(ctx, board, page, done_decisions):
+                    # Fill-probe: everything the flow could fill is filled and the final
+                    # click is the commit — it never fires here. With nothing actually
+                    # filled there is no fill-probe success to claim: keep the old name.
+                    if ctx.get("fill_probe") and done_decisions:
+                        return stop("reached_submit_dry_run", page)
                     return stop("dry_run", page)
                 _untick(page, board)
                 irreversible = True

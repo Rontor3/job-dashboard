@@ -122,3 +122,11 @@ def test_a_human_reply_about_such_a_field_is_never_saved_to_the_answers(tmp_path
     before = len(qbank.entries(conn))
     assert promote_answer(conn, _f("Bank account number"), "000111222", fake_embed) is None
     assert len(qbank.entries(conn)) == before
+
+
+def test_a_choice_that_only_mentions_an_id_in_its_help_text_is_not_sensitive():
+    from types import SimpleNamespace as F
+    from career_agent.orchestrator.sensitive import is_sensitive
+    gender = F(kind="select", label="Gender *", options=["Male", "Female"], description="as declared in the Aadhar card")
+    number = F(kind="text", label="Number *", options=[], description="Your Aadhaar number")
+    assert not is_sensitive(gender) and is_sensitive(number)

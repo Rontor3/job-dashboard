@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import time
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, END
@@ -40,8 +41,12 @@ class AgentState(TypedDict):
     pending_human: list[dict]
     # accumulated FillDecision dicts across all screens
     decisions: list[dict]
+    # assembled between nodes; add new keys here or LangGraph drops them
     submitted: bool
     stopped_reason: str | None
+    site_said: str | None       # the site's own refusal words on stopped_reason="site_refused"
+    # screen signatures the validation refill already ran once for (stop double rounds)
+    refilled: list[str]
 
 
 def initial_state(url: str, *, job_id=None, jd_text=None,
@@ -53,7 +58,7 @@ def initial_state(url: str, *, job_id=None, jd_text=None,
         "cred_provided": False, "cred_action": None, "gate_notice": None,
         "form": [], "form_sig": None,
         "pending_human": [], "decisions": [],
-        "submitted": False, "stopped_reason": None,
+        "submitted": False, "stopped_reason": None, "site_said": None, "refilled": [],
     }
 
 
@@ -79,20 +84,47 @@ def _d2dec(d: dict):
 
 # ── Memory helpers ────────────────────────────────────────────────────────────
 
-def _notify_gate(c, gate: str, message: str) -> dict:
-    """Try to send `message` via the configured Telegram on_link. Never raises.
-    Returns {"attempted": bool, "sent": bool} — attempted is False only when
-    Telegram isn't configured at all (on_link is None), so a stop's
-    ``gate_notice`` always says honestly whether a human was actually pinged."""
+def _gate_sender(c) -> object | None:
+    """A channel that can physically deliver a notice right now. The captcha-link
+    sender first; else the collector's own Telegram notify (park mode wires
+    client.send_message there); else a Telegram collector's client. None only
+    when no Telegram channel is wired at all — a CLI/offline run has a human in
+    the room."""
     on_link = c.get("on_link")
-    if on_link is None:
-        return {"attempted": False, "sent": False}
-    try:
-        on_link(message)
-        return {"attempted": True, "sent": True}
-    except Exception as e:
-        print(f"[notify] on_link failed: {e!r}", flush=True)
-        return {"attempted": True, "sent": False}
+    if on_link is not None:
+        return on_link
+    col = c.get("collector")
+    if col is None:
+        return None
+    notify = getattr(col, "notify", None)
+    if notify:
+        return notify
+    client = getattr(col, "client", None)
+    if client is not None and hasattr(client, "send_message"):
+        return lambda text: client.send_message(text)
+    return None
+
+
+_NOTIFY_RETRY_S, _NOTIFY_TRIES = 0.5, 3
+
+def _notify_gate(c, gate: str, message: str) -> dict:
+    """Deliver `message` via the run's Telegram channel. Never raises; never
+    skipped when the channel merely looks down: Telegram sends are idempotent
+    text, so a failed attempt is retried, and if every attempt fails the
+    gate_notice records queued=True — the run's result then says honestly that
+    a human must look (rather than 'notified: False' over a blip)."""
+    sender = _gate_sender(c)
+    if sender is None:
+        return {"attempted": False, "sent": False, "queued": False}
+    for attempt in range(1, _NOTIFY_TRIES + 1):
+        try:
+            sender(message)
+            return {"attempted": True, "sent": True, "queued": False}
+        except Exception as e:
+            print(f"[notify] on_link failed (attempt {attempt}/{_NOTIFY_TRIES}): {e!r}", flush=True)
+            if attempt < _NOTIFY_TRIES:
+                time.sleep(_NOTIFY_RETRY_S * attempt)
+    return {"attempted": True, "sent": False, "queued": True}
 
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
@@ -175,7 +207,8 @@ def cred_provide_node(state: AgentState, config) -> dict:
     _cred_result: dict = {}
 
     def _prov(pg, gate, site):
-        handled, action = _provide(pg, gate, site, original_url=original_url, email=_email, phone=_phone)
+        handled, action = _provide(pg, gate, site, original_url=original_url, email=_email, phone=_phone,
+                                   collector=c.get("collector"))
         _cred_result["action"] = action
         return handled
 
@@ -198,7 +231,10 @@ def cred_provide_node(state: AgentState, config) -> dict:
             print("[auth-wall] registration is part of the application form — continuing to fill", flush=True)
             cleared = True
     if not cleared:
-        return {"stopped_reason": "auth_wall", "cred_provided": True, "cred_action": cred_action}
+        # otp_unanswered: the provider asked the connected human once and was
+        # silent within the short window — an honest park, the queue re-drains it.
+        reason = cred_action if cred_action == "otp_unanswered" else "auth_wall"
+        return {"stopped_reason": reason, "cred_provided": True, "cred_action": cred_action}
     kind = classify_entry(page)
     # After registration Darwinbox lands back on the JD page — re-enter apply
     if kind in ("none", "form") and not is_application_form(page):
@@ -280,7 +316,7 @@ def perceive_node(state: AgentState, config) -> dict:
     if gate in _INTERACTIVE and gate not in _SUBMIT_GATED:
         if HANDLERS.get(gate, "escalate") != "proceed":
             human = c["human"]
-            on_link = c.get("on_link") or (lambda u: None)
+            on_link = _gate_sender(c) or (lambda u: None)
             print(f"[gate] {gate} — sending live-view link via Telegram...", flush=True)
             result = human.remote_solve(page, gate, on_link)
             if not result:
@@ -307,6 +343,18 @@ def perceive_node(state: AgentState, config) -> dict:
 
     # Snapshot form — stored in state so advance_node can check controls
     form = deps.snapshot(page)
+    # A kept apply modal with no fields and no way on, before this walk filled ONE field, is
+    # the site itself refusing: the walker's own advance click is what opens it (himalayas
+    # 'Apply to Upstart', live 2026-10-20 — the reach-level check cannot see a modal that did
+    # not exist yet, so the walk burned steps at 0 filled and died no_form_found). Stop and
+    # quote the site's words. A walk that already filled something is a modal mid-form, never
+    # a refusal; firing stops the walk here, so it can never fire twice.
+    if not (state.get("decisions") or []):
+        from ..browser.page_prep import _kept_modal_refusal, announce_site_refusal, trail_note
+        _refused = _kept_modal_refusal(page)
+        if _refused:
+            trail_note(step="site_refused", modal=_refused["head"][:60], quote=_refused["quote"][:160])
+            return announce_site_refusal(page)      # stopped_reason + site_said: the walk ends here
     from ..orchestrator.advance import screen_signature
     sig = screen_signature(deps.url(page), form)
     return {"form": [_f2d(f) for f in form], "form_sig": sig, "pending_human": [],
@@ -458,6 +506,65 @@ def human_gate_node(state: AgentState, config) -> dict:
     }
 
 
+def _validation_refill(page, deps, failing, c, state) -> dict:
+    """The site answered our click with field errors: answer those fields once more — the bank
+    re-recalled, prior values re-typed with real keystrokes (React drops programmatic fills) —
+    and hand what still fails to the human, quoting the site's own message in the question."""
+    ctx = {**c, "page_index": state.get("steps", 0)}
+    from ..browser.validation import read_errors
+    from ..browser.filler import has_value
+    from .answering import answer_fields
+    from .mapper import FillDecision, _action_for_kind
+    from .top_down import fill_top_down
+
+    live = deps.snapshot(page, scroll=False)
+    present = {f.ref: f for f in live}
+    # only fields still on the page — the site may have dropped a step or answered a box
+    # for itself while we were away
+    fields = []
+    for f in failing:
+        lf = present.get(f.ref)
+        if lf is None or lf.kind == "button":
+            continue
+        fields.append(lf)
+    # a value the site filled for itself is not ours to fix
+    from ..browser.filler import has_value
+    fields = [f for f in fields
+              if not (has_value(page, f) and f.kind not in ("combobox", "select", "radio_group", "checkbox_group"))]
+    if not fields:
+        return {}
+    print(f"[advance] the site rejected: {[f.label for f in fields]} — one refill round", flush=True)
+    decs, needs = answer_fields(fields, ctx)
+
+    # a field we already decided but the site now rejects: send the SAME answer again,
+    # this time with real keystrokes (the answer itself is not the problem — the fill was)
+    prior = {d.get("ref"): d for d in (state.get("decisions") or [])}
+    for f in fields:
+        pd = prior.get(f.ref)
+        if not pd or pd.get("value") in (None, ""):
+            continue
+        needs = [n for n in needs if n.ref != f.ref]
+        decs = [d for d in decs if d.ref != f.ref]
+        decs.append(FillDecision(ref=f.ref, kind=f.kind, label=f.label, value=pd.get("value"),
+                                 action=pd.get("action") or _action_for_kind(f.kind),
+                                 source="revalidate"))
+
+    live2 = deps.snapshot(page, scroll=False)
+    applied, needs = fill_top_down(page, deps, live2, decs, needs, ctx, skip_prefilled=False)
+    decs = list(decs) + list(applied)
+
+    # what still fails after this one round?
+    live3 = deps.snapshot(page, scroll=False)
+    still, _ = failing_fields(read_errors(page), live3)
+    wanted = {f.ref for f in fields}
+    still = [f for f in still if f.ref in wanted]
+    out = {"decisions": (state.get("decisions") or []) + [_dec2d(d) for d in decs]}
+    if still:
+        print(f"[advance] still failing after the refill: {[f.label for f in still]}", flush=True)
+        out["pending_human"] = [_f2d(f) for f in still]
+    return out
+
+
 def advance_node(state: AgentState, config) -> dict:
     """Click Next or Submit; detect stuck; route back for more screens."""
     if state.get("stopped_reason"):
@@ -474,16 +581,25 @@ def advance_node(state: AgentState, config) -> dict:
         if not (assist and assist.recover(page, reason)):
             return None
         nf = deps.snapshot(page)
-        return {"form": [_f2d(f) for f in nf], "form_sig": screen_signature(deps.url(page), nf),
+        from ..browser.validation import progress_signature
+        return {"form": [_f2d(f) for f in nf], "form_sig": screen_signature(deps.url(page), nf, progress_signature(page)),
                 "url": page.url}
 
     form = [_d2f(d) for d in state["form"]]
     from ..orchestrator.advance import (
         has_control, pick_advance_label, screen_signature, changed,
-        ADVANCE_NAMES, SUBMIT_NAMES, advance_names,
+        ADVANCE_NAMES, SUBMIT_NAMES, advance_names, entry_apply_label, submit_seen,
     )
+    from ..browser.page_prep import untick_opt_ins, visible_clickable_names
+    untick_opt_ins(page)                                  # applying is not consent to be mailed (board path does this too)
     has_advance = has_control(form, advance_names(form))
     has_submit = has_control(form, SUBMIT_NAMES)
+    entry = None
+    if has_submit and not has_advance:
+        entry = entry_apply_label(form, state.get("decisions"), visible_clickable_names(page))
+    if entry:                                             # a job page's Apply: open the form, then perceive it
+        print(f"[advance] nothing filled yet: {entry!r} opens the form, not a submit", flush=True)
+        has_submit = False
 
     if state.get("steps", 0) >= 4 and not state.get("decisions") and not has_submit:
         # Four screens in, not one field filled or asked, and no Submit in sight: this is not an application form (a dead
@@ -491,7 +607,11 @@ def advance_node(state: AgentState, config) -> dict:
         print("[stop] four steps and no form field found — not an application form", flush=True)
         return {"stopped_reason": "no_form_found"}
 
-    if not has_advance and has_submit:
+    if not has_advance and has_submit and submit_seen(form):
+        if not state.get("decisions") and not submit_seen(form):
+            # Nothing filled and the only 'submit' is an Apply that opens nothing: not a form, not ready for review
+            print("[stop] nothing filled and no submit control — not an application form", flush=True)
+            return {"stopped_reason": "no_form_found"}
         policy = c.get("autosubmit_policy")
         verdict = policy(page.url, state.get("decisions") or []) if policy else None
         policy_allows = bool(verdict and verdict["allow"])
@@ -503,7 +623,7 @@ def advance_node(state: AgentState, config) -> dict:
                         "hcaptcha_checkbox", "hcaptcha_image"}
         pre_gate = deps.gate(page)
         if HANDLERS.get(pre_gate, "escalate") != "proceed":
-            on_link = c.get("on_link") or (lambda u: None)
+            on_link = _gate_sender(c) or (lambda u: None)
             if pre_gate in _INTERACTIVE and human.remote_solve(page, pre_gate, on_link):
                 if HANDLERS.get(deps.gate(page), "escalate") != "proceed":
                     return {"stopped_reason": f"gate:{pre_gate}"}
@@ -541,20 +661,49 @@ def advance_node(state: AgentState, config) -> dict:
             c["on_submit"](before_submit, how, page.url)
         return {"submitted": True, "stopped_reason": "submitted"}
 
-    if not has_advance:
+    if not has_advance and not entry:
         # File upload may have just enabled a previously-disabled advance button.
         # Re-snapshot once before giving up.
         page.wait_for_timeout(1500)
         form = deps.snapshot(page, scroll=False)
         has_advance = has_control(form, advance_names(form))
         has_submit = has_control(form, SUBMIT_NAMES)
-        if not has_advance and not has_submit:
+        if not has_advance and not has_submit and not state.get("decisions"):
+            # Nothing applied to a form field and the snapshot shows no advance/submit: a job-description page whose
+            # visible 'Apply Now' link opens the form (insyncanalytics, live 2026-10-18: stopped 'no_advance_control').
+            from ..browser.page_prep import find_apply_affordance
+            aff = find_apply_affordance(page)
+            if aff is not None:
+                print(f"[advance] nothing applied yet: visible {aff['name']!r} opens the form", flush=True)
+                entry = aff["name"]
+        if not has_advance and not has_submit and not entry:
             return _recovered("no_advance_control") or {"stopped_reason": "no_advance_control"}
         if has_submit and not has_advance:
-            if not state["do_submit"]:
-                return {"stopped_reason": "reached_submit_dry_run"}
+            if not state.get("decisions") and not submit_seen(form):
+                return {"stopped_reason": "no_form_found"}
+            if submit_seen(form):
+                if not state["do_submit"]:
+                    return {"stopped_reason": "reached_submit_dry_run"}
+            # only the 'Apply' family matched with fields already filled: it opens/advances
+            # the form, it does not send one — click through below instead of claiming a submit
 
-    deps.click(page, pick_advance_label(form, is_last=False))
+    deps.click(page, entry or pick_advance_label(form, is_last=False))
+    if page.url.startswith("chrome-error://"):
+        # The connection dropped as the page went (live Koch 2026-10-19: ERR_INTERNET_DISCONNECTED after a full page):
+        # wait for the network, step back to the form; the next pass re-reads and re-fills what the back lost.
+        print("[advance] network error page — waiting for the connection, then back to the form", flush=True)
+        import urllib.request
+        for _ in range(24):
+            try:
+                urllib.request.urlopen("https://www.google.com/generate_204", timeout=5)
+                break
+            except Exception:
+                page.wait_for_timeout(5000)
+        try:
+            page.go_back(wait_until="domcontentloaded", timeout=30000)
+        except Exception:
+            pass
+        return {"form": [_f2d(f) for f in deps.snapshot(page)], "url": page.url}
 
     # Mid-walk credential wall (e.g. iCIMS "Create a login" on screen 2).
     from ..browser.page_prep import classify_entry, clear_auth_wall
@@ -568,12 +717,34 @@ def advance_node(state: AgentState, config) -> dict:
         _prov = lambda pg, gate, site: _provide(pg, gate, site, original_url=_job_url, email=_adv_email, phone=_adv_phone)
         print(f"[cred] {_kind} wall mid-walk — credential provider...", flush=True)
         clear_auth_wall(page, credential_provider=_prov)
-        if classify_entry(page) in ("password", "email_auth"):
+        from ..browser.page_prep import is_application_form
+        # A sign-up that IS a form (name, email, phone... plus a password: Deloitte/Avature 'Register', live 2026-10-18)
+        # is the filler's next screen, not a wall: the credentials are already in, the rest is filled like any form.
+        if classify_entry(page) in ("password", "email_auth") and not is_application_form(page):
             return {"stopped_reason": "auth_wall"}
 
     new_form = deps.snapshot(page)
-    after = screen_signature(deps.url(page), new_form)
+    from ..browser.validation import failing_fields, progress_signature, read_errors, ref_key
+    after = screen_signature(deps.url(page), new_form, progress_signature(page))
+    errs = read_errors(page)
+    if errs:
+        shown = "; ".join(dict.fromkeys(e["message"] for e in errs if e["message"]))[:240]
+        print(f"[advance] the site says: {shown or '(invalid fields, no messages)'}", flush=True)
     if state.get("form_sig") and not changed(state["form_sig"], after):
+        # The page did not move. The site has the floor: bind its complaints to fields and
+        # refill those once (MetLife's phone code, Koch's Education/Current?, Workday's loops
+        # all stalled here yesterday with the red text unread).
+        fail, _banners = failing_fields(errs, new_form)
+        done = list(state.get("refilled") or [])
+        if fail and ref_key(after) not in done:
+            upd = _validation_refill(page, deps, fail, c, state)
+            if upd:
+                upd.setdefault("form", [_f2d(f) for f in new_form])
+                upd["form_sig"] = after
+                upd["url"] = page.url
+                upd["refilled"] = done + [ref_key(after)]
+                return upd
+        print("[stop] the page did not change — stuck", flush=True)
         return _recovered("stuck") or {"stopped_reason": "stuck"}
     return {"form": [_f2d(f) for f in new_form], "form_sig": after, "url": page.url}
 
@@ -609,6 +780,10 @@ def _route_fill(state: AgentState) -> str:
 def _route_advance(state: AgentState) -> str:
     if state.get("stopped_reason") or state.get("submitted"):
         return END
+    if state.get("pending_human"):
+        # the validation refill found fields it cannot answer — ask the person,
+        # quoting the site's own message, then advance again
+        return "human_gate"
     return "perceive"
 
 
@@ -636,6 +811,7 @@ def build_graph(checkpointer=None):
     g.add_conditional_edges("fill", _route_fill,
                             {"human_gate": "human_gate", "advance": "advance", END: END})
     g.add_edge("human_gate", "advance")
-    g.add_conditional_edges("advance", _route_advance, {"perceive": "perceive", END: END})
+    g.add_conditional_edges("advance", _route_advance,
+                            {"perceive": "perceive", "human_gate": "human_gate", END: END})
 
     return g.compile(checkpointer=checkpointer)

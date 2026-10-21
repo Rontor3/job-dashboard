@@ -49,7 +49,8 @@ def test_phone_country_code_label_and_value():
     assert guess_purpose("Mobile phone number*", "tel") == "phone"
     p = NS(contact={"phone": "+91 9876543210"})
     assert resolve("phone_country_code", p) == "+91"
-    assert resolve("phone_country_code", NS(contact={"phone": "9876543210"})) is None
+    assert resolve("phone_country_code", NS(contact={"phone": "9876543210"})) is None          # nothing to go on
+    assert resolve("phone_country_code", NS(contact={"phone": "9876543210", "location": "Mumbai, India"})) == "+91"
 
 
 
