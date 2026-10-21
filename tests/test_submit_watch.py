@@ -21,6 +21,10 @@ class FakeTabs:
 def _setup(tmp_path):
     conn = init_db(str(tmp_path / "t.db"))
     qa_store.ensure(conn); autonomy.ensure(conn)
+    conn.execute("""CREATE TABLE IF NOT EXISTS run_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, url TEXT, job_id INTEGER,
+                    stopped_reason TEXT, filled INTEGER, escalated INTEGER, submitted INTEGER, result_json TEXT)""")
+    conn.commit()
     conn.execute("INSERT INTO jobs (id, job_url, title, company) VALUES (7, 'https://x/j', 'ML Eng', 'Acme')") if False else None
     return conn
 
@@ -96,3 +100,103 @@ def test_the_confirmation_email_finalizes_a_submit_even_when_the_tab_is_gone(tmp
     c.execute("UPDATE submission_watch SET created_at=?", ((datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),)); c.commit()
     w._last_email[7] = _time.time() - 10
     assert w.poll_once(c, FakeTabs(None), lambda *a: None) == [] and len(asked) == 1
+
+
+class BlockedTab(FakeTab):
+    def __init__(self, url, state, values=None, confirmed=(False, "no confirmation text")):
+        super().__init__(url, values or {}, confirmed)
+        self._state = state
+    def blocked(self, board): return self._state
+
+
+def _queued(conn, job_id=7, state="failed", reason="challenge"):
+    conn.execute("INSERT INTO apply_queue (job_id, position, state, reason, added_at) VALUES (?,?,?,?,?)",
+                 (job_id, 0.0, state, reason, "now")); conn.commit()
+
+
+def test_a_block_the_human_has_not_cleared_keeps_the_watch_row(tmp_path):
+    conn = _setup(tmp_path); _job(conn); _queued(conn)
+    w = SubmitWatcher(str(tmp_path / "t.db"))
+    w.register(conn, 7, "https://in.indeed.com/viewjob?jk=x", "r", "T", how="challenge")
+    assert conn.execute("SELECT how FROM submission_watch WHERE job_id=7").fetchone()[0] == "challenge"
+    assert w.poll_once(conn, FakeTabs(BlockedTab("https://in.indeed.com/viewjob?jk=x", "challenge"))) == []
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 1
+    assert conn.execute("SELECT state FROM apply_queue WHERE job_id=7").fetchone()[0] == "failed"
+    assert conn.execute("SELECT watch_cycles FROM apply_queue WHERE job_id=7").fetchone()[0] == 0
+
+
+def test_clearing_the_block_on_the_tab_puts_the_job_back_in_the_queue(tmp_path):
+    conn = _setup(tmp_path); _job(conn); _queued(conn)
+    w = SubmitWatcher(str(tmp_path / "t.db"))
+    w.register(conn, 7, "https://in.indeed.com/viewjob?jk=x", "r", "T", how="challenge")
+    assert w.poll_once(conn, FakeTabs(BlockedTab("https://in.indeed.com/viewjob?jk=x", None))) == []
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0
+    assert conn.execute("SELECT state FROM apply_queue WHERE job_id=7").fetchone()[0] == "queued"
+    assert conn.execute("SELECT watch_cycles FROM apply_queue WHERE job_id=7").fetchone()[0] == 1
+    assert conn.execute("SELECT status FROM jobs WHERE id=7").fetchone()[0] != "applied"
+
+
+def test_a_cleared_block_that_also_proves_the_submit_marks_the_job_applied(tmp_path):
+    conn = _setup(tmp_path); _job(conn); _queued(conn)
+    w = SubmitWatcher(str(tmp_path / "t.db"))
+    w.register(conn, 7, "https://in.indeed.com/viewjob?jk=x", "r", "T", how="gate:recaptcha_v2_checkbox")
+    done = w.poll_once(conn, FakeTabs(BlockedTab("https://in.indeed.com/viewjob?jk=x", None,
+                                                 confirmed=(True, "page says application submitted"))))
+    assert done == [7]
+    assert conn.execute("SELECT status FROM jobs WHERE id=7").fetchone()[0] == "applied"
+    assert conn.execute("SELECT COUNT(*) FROM submit_history WHERE job_id=7").fetchone()[0] == 1
+
+
+def test_no_entry_is_requeued_after_the_wait_and_three_cycles_cap_it(tmp_path):
+    conn = _setup(tmp_path); _job(conn); _queued(conn, reason="no_entry")
+    w = SubmitWatcher(str(tmp_path / "t.db"))
+    w.register(conn, 7, "https://in.indeed.com/viewjob?jk=x", "r", None, how="no_entry")
+    assert w.poll_once(conn, FakeTabs(None)) == []                                  # inside its 15-minute wait
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 1
+    conn.execute("UPDATE submission_watch SET created_at=?",
+                 ((datetime.now(timezone.utc) - timedelta(minutes=16)).isoformat(),)); conn.commit()
+    w.poll_once(conn, FakeTabs(None))
+    assert conn.execute("SELECT state FROM apply_queue WHERE job_id=7").fetchone()[0] == "queued"
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0
+    conn.execute("UPDATE apply_queue SET watch_cycles=3 WHERE job_id=7"); conn.commit()
+    w.register(conn, 7, "https://in.indeed.com/viewjob?jk=x", "r", None, how="no_entry")
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0  # the cap: no more rows
+
+
+def test_a_relaunch_from_the_watcher_skips_the_queue_row(tmp_path):
+    conn = _setup(tmp_path); _job(conn); _queued(conn)
+    w = SubmitWatcher(str(tmp_path / "t.db"), on_requeue=lambda job_id, url: True)
+    w.register(conn, 7, "https://in.indeed.com/viewjob?jk=x", "r", "T", how="challenge")
+    w.poll_once(conn, FakeTabs(BlockedTab("https://in.indeed.com/viewjob?jk=x", None)))
+    assert conn.execute("SELECT state FROM apply_queue WHERE job_id=7").fetchone()[0] == "failed"
+    assert conn.execute("SELECT watch_cycles FROM apply_queue WHERE job_id=7").fetchone()[0] == 1
+
+
+def test_a_blocked_run_from_any_runner_is_discovered_from_run_log(tmp_path):
+    conn = _setup(tmp_path); _job(conn); _queued(conn)
+    for _ in range(3):                                                          # an older challenge before it
+        conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason) VALUES (?,?,?,?)",
+                     ("2026-10-19T10:00:00", "u", 7, "challenge"))
+    rs = ("2026-10-20T10:30:00", "https://in.indeed.com/viewjob?jk=x", 7, "challenge",
+          '{"run_key": "kk", "final_tab_id": "T9"}')                            # the latest one counts
+    conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason, result_json) VALUES (?,?,?,?,?)", rs)
+    conn.execute("INSERT INTO jobs (id, title, source, company, description, job_url, fetched_at) "
+                 "VALUES (8, 'other', 'x', 'c', 'd', 'u8', 'now')"); conn.commit()  # a job whose latest run is fine
+    conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason) VALUES ('2026-10-20T11:00:00','u',8,'submitted')")
+    w = SubmitWatcher(str(tmp_path / "t.db")); w.register_fresh_blocks(conn)
+    row = conn.execute("SELECT url, run_key, tab_id, how FROM submission_watch WHERE job_id=7").fetchone()
+    assert row == ("https://in.indeed.com/viewjob?jk=x", "kk", "T9", "challenge")
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 1  # job 8's submitted run not watched
+
+
+def test_run_log_discovery_ignores_rows_already_queued_or_settled(tmp_path):
+    conn = _setup(tmp_path); _job(conn)
+    _queued(conn, state="queued", reason="challenge")
+    conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason) VALUES ('2026-10-20T10:00:00','u',7,'challenge')")
+    conn.commit()
+    w = SubmitWatcher(str(tmp_path / "t.db")); w.register_fresh_blocks(conn)
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0
+    conn.execute("UPDATE apply_queue SET state='failed' WHERE job_id=7")          # but once settled it stays watched off
+    conn.execute("UPDATE jobs SET status='applied' WHERE id=7"); conn.commit()
+    w.register_fresh_blocks(conn)
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0

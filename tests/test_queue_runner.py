@@ -134,7 +134,8 @@ def test_only_a_form_left_open_for_review_is_watched_for_a_hand_submit(tmp_path)
     results = {1: (0, {"url": "https://x/form", "stopped_reason": "ready_for_review", "run_key": "r1", "final_tab_id": "T1"}),
                2: (0, {"url": "https://x/dead", "stopped_reason": "no_entry"})}
     QueueRunner(path, FakeLaunch(results), result_dir=str(tmp_path), watcher=w).drain()
-    assert w.reg == [(1, "https://x/form", "r1", "T1")]                  # the dead end has nothing to submit
+    assert w.reg == [(1, "https://x/form", "r1", "T1"),                      # the open form: you can submit it there
+                     (2, "https://x/dead", None, None)]                     # the dead end: watched to re-run it, not to submit
 
 
 def test_drain_requeues_orphaned_running_rows(tmp_path):

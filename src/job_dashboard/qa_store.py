@@ -35,6 +35,13 @@ _COLS = (
     "outcome", "page",
 )
 
+# Job statuses whose lifecycle is over — the same settled set submit_watch's
+# requeue treats as done. Deliberately NOT 'failed': a failed (or parked) job
+# re-queues once its last open question is answered (qa_routes._requeue_if_unblocked
+# reads open_questions for that), so those asks must stay live. And NOT
+# 'dismissed': a dismissed job is merely out of the review feed and can return.
+SETTLED_JOB_STATUSES = ("applied", "interviewing", "offer", "rejected", "closed")
+
 
 def norm_key(label: str) -> str:
     """The question key: label lowercased, spaces collapsed, edge ' ?:.' stripped (application_qa.qkey, qbank_wording.norm)."""
@@ -144,6 +151,32 @@ def mark_answered(conn, job_id: int, qkey: str, answer: str, *, keep_source: boo
         f"UPDATE application_qa SET status='answered', answer=?, {set_source}"
         "updated_at=? WHERE job_id=? AND qkey=? AND status='needs_answer'",
         (answer, _now(), job_id, qkey))
+    conn.commit()
+    return cur.rowcount
+
+
+def resolve_settled_questions(conn) -> int:
+    """Retire open questions on jobs that settled while the questions waited.
+    A job that is applied / interviewing / offer / rejected / closed will never
+    go back to asking, yet its needs_answer rows still count in open_questions,
+    open_counts and the stats forever. They flip to 'obsolete' and `basis`
+    records why, citing the job's own status. Nothing becomes an answer here:
+    `answer` stays NULL and `source` is untouched, so prior_answers never picks
+    these rows up — a reconciliation that fabricated answers would poison the
+    re-run dedupe. Failed/parked jobs keep their asks (answering the last one
+    re-queues the job). Idempotent: only still-open rows change, so it can be
+    called on schedule — the submit watcher's reconcile pass does every 30 min.
+    Returns the number of rows retired."""
+    ensure(conn)
+    cur = conn.execute(f"""
+        UPDATE application_qa SET status = 'obsolete',
+            basis = 'job is ' || (SELECT status FROM jobs WHERE id = application_qa.job_id)
+                    || ' — question no longer answerable, resolved obsolete',
+            updated_at = ?
+        WHERE status = 'needs_answer' AND job_id IS NOT NULL
+          AND job_id IN (SELECT id FROM jobs
+                         WHERE status IN ({', '.join('?' * len(SETTLED_JOB_STATUSES))}))""",
+        (_now(), *SETTLED_JOB_STATUSES))
     conn.commit()
     return cur.rowcount
 
