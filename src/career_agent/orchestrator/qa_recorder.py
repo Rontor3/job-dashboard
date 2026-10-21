@@ -49,6 +49,8 @@ class QARecorder:
         # human's look before submit, so it's listed with the open questions.
         status = "needs_answer" if d.source == "qbank_likely" else "filled"
         kw = dict(kind=d.kind, answer=str(d.value), source=d.source, status=status)
+        if d.source == "decline_class":
+            kw["policy_verdict"] = "decline"   # D-lite: the gate's own fills carry their policy verdict
         if getattr(d, "basis", ""):
             kw["basis"] = d.basis       # e.g. the decline gate's policy note (overrides the retrieval trace)
         self._rec(d.ref, d.label, **kw)
@@ -65,7 +67,8 @@ class QARecorder:
         naming what the gate held back and why. A later needs()/answered()
         for the same field updates this row in place (status becomes
         needs_answer when the human is asked at the escalation boundary)."""
-        kw = dict(kind=f.kind, purpose=f.purpose, source="decline_class", status="held")
+        kw = dict(kind=f.kind, purpose=f.purpose, source="decline_class", status="held",
+                  policy_verdict="held-required")   # D-lite: held back from every ask tier by policy
         if basis:
             kw["basis"] = basis
         self._rec(f.ref, f.label, **kw)
@@ -82,11 +85,17 @@ class QARecorder:
 
     def answered(self, f, answer):
         self._rec(f.ref, f.label, answer=str(answer), source="human", status="answered")
-        if self.promote_embed is None:
-            return
-        try:
-            from ..memory.qbank_promote import promote_answer
-            if promote_answer(self.conn, f, answer, self.promote_embed):
-                print(f"[qa] saved to Answers: {f.label[:60]!r}", flush=True)
-        except Exception as e:
-            print(f"[qa] could not save to Answers: {e!r}", flush=True)
+        promoted = None
+        if self.promote_embed is not None:      # no embedder: the answer stays with the application only
+            try:
+                from ..memory.qbank_promote import promote_answer
+                promoted = promote_answer(self.conn, f, answer, self.promote_embed)
+                if promoted:
+                    print(f"[qa] saved to Answers: {f.label[:60]!r}", flush=True)
+            except Exception as e:
+                print(f"[qa] could not save to Answers: {e!r}", flush=True)
+        if promoted is None:                # the bank did not take it: propose so curate can close the gap
+            try:
+                qa_store.propose_candidate(self.conn, self.job_id, f.label, str(answer), kind=f.kind)
+            except Exception as e:
+                print(f"[qa] candidate proposal failed: {e!r}", flush=True)

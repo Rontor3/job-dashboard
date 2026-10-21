@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import types
 from datetime import datetime, timezone
 
 DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
@@ -32,7 +33,7 @@ _COLS = (
     "qkey", "label", "kind", "purpose", "answer", "source", "status",
     "confidence", "basis", "context_json", "unsupported_claims",
     "retrieval_kind", "retrieved_qkey", "retrieval_score", "candidates_json",
-    "outcome", "page",
+    "outcome", "page", "policy_verdict",
 )
 
 # Job statuses whose lifecycle is over — the same settled set submit_watch's
@@ -61,9 +62,23 @@ def ensure(conn) -> None:
         UNIQUE(run_key, ref))""")
     if "page" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
         conn.execute("ALTER TABLE application_qa ADD COLUMN page INTEGER")      # which form page asked it
+    if "policy_verdict" not in [r[1] for r in conn.execute("PRAGMA table_info(application_qa)")]:
+        conn.execute("ALTER TABLE application_qa ADD COLUMN policy_verdict TEXT")   # D-lite: decline/held verdict (qa_recorder)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_job_status ON application_qa(job_id, status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_aqa_qkey ON application_qa(qkey)")
     conn.execute("CREATE TABLE IF NOT EXISTS agent_settings (key TEXT PRIMARY KEY, value TEXT)")
+    # qbank_candidate (Candidate B, closed feedback loop — docs/career-agent/triage/answer-redteam.md §5):
+    # PROPOSALS of bank-worthy human answers. Nothing here feeds an answer to the
+    # agent and no reader of application_qa/qbank sees this table; only a deliberate
+    # operator action (scripts/qbank.py curate --approve) promotes a row into the bank.
+    conn.execute("""CREATE TABLE IF NOT EXISTS qbank_candidate (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER, qkey TEXT NOT NULL, label TEXT NOT NULL,
+        question_text TEXT NOT NULL, answer TEXT NOT NULL,
+        kind TEXT, source TEXT NOT NULL DEFAULT 'human',
+        status TEXT NOT NULL DEFAULT 'pending', notes TEXT,
+        created_at TEXT, decided_at TEXT,
+        UNIQUE(qkey, answer))""")
     conn.commit()
 
 
@@ -151,7 +166,16 @@ def mark_answered(conn, job_id: int, qkey: str, answer: str, *, keep_source: boo
         f"UPDATE application_qa SET status='answered', answer=?, {set_source}"
         "updated_at=? WHERE job_id=? AND qkey=? AND status='needs_answer'",
         (answer, _now(), job_id, qkey))
+    label = None
+    if cur.rowcount:      # the replied row carries the label/kind the candidate proposal needs
+        label = conn.execute("SELECT label, kind FROM application_qa WHERE job_id=? AND qkey=? "
+                             "AND status='answered' ORDER BY id DESC LIMIT 1", (job_id, qkey)).fetchone()
     conn.commit()
+    if job_id is not None and label and str(answer or "").strip():
+        try:              # a human reply (incl. confirming a bank guess) proposes a bank candidate
+            propose_candidate(conn, job_id, label[0], answer, kind=label[1] or "", source="human")
+        except Exception as e:
+            print(f"[qa] candidate proposal failed: {e!r}", flush=True)
     return cur.rowcount
 
 
@@ -227,6 +251,134 @@ def qbank_confident_min(conn) -> int:
         return max(0, min(100, int(get_setting(conn, "qbank_confident_min"))))
     except (TypeError, ValueError):
         return int(DEFAULT_SETTINGS["qbank_confident_min"])
+
+
+# ── bank-candidate proposals (Candidate B) ───────────────────────────────────
+# A human-typed answer becomes a PENDING qbank_candidate proposal. Candidates are
+# write-only for the pipeline — no answer tier, stat or autonomy check reads them;
+# only the operator closes the loop (scripts/qbank.py curate --approve/--reject).
+
+_BOOLEAN_ANSWERS = {"y", "n", "yes", "no", "true", "false", "checked", "unchecked", "on", "off"}
+
+
+def propose_candidate(conn, job_id, label: str, answer, *, kind: str = "", source: str = "human"):
+    """The PENDING proposal for one human-typed answer; None = nothing to propose.
+    Dedupe: skip when the exact qkey+answer row already exists (UNIQUE(qkey, answer)) or
+    when the bank's exact-normalized wording is already answered (a zombie otherwise)."""
+    text = str(answer or "").strip()
+    question = (label or "").strip()
+    if job_id is None or not text or not question:
+        return None
+    try:      # the bank sees the question without its 'type "X" if …' instruction
+        from career_agent.memory.qbank_match import split_escape
+        question = split_escape(question)[0] or question
+    except Exception:                       # career_agent not importable here: use the label as-is
+        pass
+    qkey = norm_key(question)
+    if not qkey or _bank_answered(conn, qkey):
+        return None
+    ensure(conn)
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO qbank_candidate (job_id, qkey, label, question_text, answer, kind, source, created_at) "
+        "VALUES (?,?,?,?,?,?,?,?)", (job_id, qkey, (label or "").strip(), question, text, kind or None, source, _now()))
+    conn.commit()
+    return cur.lastrowid if cur.rowcount else None       # rowcount 0 = dupe of an existing proposal
+
+
+def _bank_answered(conn, qkey: str) -> bool:
+    try:
+        return conn.execute(
+            "SELECT 1 FROM qbank_wording w JOIN qbank_entry e ON e.id=w.entry_id WHERE w.norm=? "
+            "AND e.status='active' AND e.topic IS NOT 'story' AND TRIM(COALESCE(e.answer,'')) != '' LIMIT 1",
+            (qkey,)).fetchone() is not None
+    except Exception:
+        return False     # the bank's tables aren't there yet — nothing can be in the bank
+
+
+def candidate(conn, cid: int):
+    ensure(conn)
+    cur = conn.execute("""SELECT c.*, j.title, j.company FROM qbank_candidate c
+                          LEFT JOIN jobs j ON j.id = c.job_id WHERE c.id=?""", (cid,))
+    r = cur.fetchone()
+    return dict(zip([d[0] for d in cur.description], r)) if r else None
+
+
+def pending_candidates(conn) -> list[dict]:
+    """Pending proposals with the job they came from, oldest first."""
+    ensure(conn)
+    cur = conn.execute("""SELECT c.*, j.title, j.company FROM qbank_candidate c
+                          LEFT JOIN jobs j ON j.id = c.job_id
+                          WHERE c.status='pending' ORDER BY c.id""")
+    return [dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()]
+
+
+def set_candidate_status(conn, cid: int, status: str, notes: str = "") -> bool:
+    """pending -> approved/rejected only; notes keep the reason. A re-replied
+    answer re-proposes automatically, so nothing can go back to pending."""
+    if status not in ("approved", "rejected"):
+        raise ValueError(status)
+    ensure(conn)
+    cur = conn.execute("UPDATE qbank_candidate SET status=?, decided_at=?, "
+                       "notes=CASE WHEN ? != '' THEN ? ELSE notes END WHERE id=? AND status='pending'",
+                       (status, _now(), notes, notes, cid))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def promote_candidate(conn, cid: int, embed=None) -> dict:
+    """Approve ONE pending candidate into the bank through the exact path a human answer
+    enters today (qbank_promote.promote_answer: wording rows, approvals, dedupe).
+    The guards REJECT with the reason on failure; no bulk import — one row per call."""
+    ensure(conn)
+    c = candidate(conn, cid)
+    if c is None:
+        return {"promoted": False, "reason": f"no candidate {cid}"}
+    if c["status"] != "pending":
+        return {"promoted": False, "reason": f"candidate {cid} is {c['status']}, not pending"}
+    reason = _candidate_guard_reason(conn, c)
+    if reason:
+        set_candidate_status(conn, cid, "rejected", reason)
+        return {"promoted": False, "reason": reason}
+    try:
+        from career_agent.memory.qbank_promote import promote_answer
+        field = types.SimpleNamespace(label=c["question_text"], kind=c["kind"] or "text", description="", ref="#candidate")
+        eid = promote_answer(conn, field, c["answer"], embed)
+    except Exception as e:                  # a dead embedder/bank must not wedge the row pending
+        return {"promoted": False, "reason": f"bank promote failed: {e!r}"}
+    if eid is None:                         # the bank's own guards (company-specific/sensitive) refused
+        reason = "bank refused the promote (company-specific or sensitive question)"
+        set_candidate_status(conn, cid, "rejected", reason)
+        return {"promoted": False, "reason": reason}
+    note = f"promoted to qbank entry {eid}"
+    set_candidate_status(conn, cid, "approved", note)
+    return {"promoted": True, "entry_id": eid, "reason": note}
+
+
+def _candidate_guard_reason(conn, c: dict) -> str:
+    """'' = promotable. The display `label` may carry the 'type "X" if …' sentence;
+    question_text is what promotion saves, so IT must match the key (red-team §5:
+    exact-normalized matching, shaped values, bank dedupe)."""
+    question = c["question_text"]
+    answer = (c["answer"] or "").strip()
+    if norm_key(question) != c["qkey"]:
+        return (f"question {question[:60]!r} does not normalize to its key "
+                f"{c['qkey']!r} — exact-normalized matching required")
+    if not answer:
+        return "empty answer"
+    if answer.lower() in _BOOLEAN_ANSWERS:
+        return ("boolean-ambiguous answer: the bank stores shaped values for this "
+                "question — save the wording with its option list on the dashboard instead")
+    try:
+        from career_agent.memory.qbank_rules import infer_shape, shape_ok
+        shape = infer_shape(None, "", "", question)
+        if shape and not shape_ok(shape, answer):
+            return (f"answer {answer[:40]!r} does not fit the {shape} shape the question "
+                    "asks for — not promotable unshaped")
+    except Exception:                       # shape tier optional: don't block curate on it
+        pass
+    if _bank_answered(conn, c["qkey"]):
+        return "bank already answers this question (its entry is never overwritten)"
+    return ""
 
 
 # ── review + retrieval analytics ─────────────────────────────────────────────
