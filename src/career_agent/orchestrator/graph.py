@@ -609,7 +609,7 @@ def advance_node(state: AgentState, config) -> dict:
         print("[stop] four steps and no form field found — not an application form", flush=True)
         return {"stopped_reason": "no_form_found"}
 
-    if not has_advance and has_submit and submit_seen(form):
+    if not has_advance and has_submit:
         if not state.get("decisions") and not submit_seen(form):
             # Nothing filled and the only 'submit' is an Apply that opens nothing: not a form, not ready for review
             print("[stop] nothing filled and no submit control — not an application form", flush=True)
