@@ -317,8 +317,10 @@ def perceive_node(state: AgentState, config) -> dict:
         if HANDLERS.get(gate, "escalate") != "proceed":
             human = c["human"]
             on_link = _gate_sender(c) or (lambda u: None)
+            _notifier = c.get("remote_solve_notifier")
             print(f"[gate] {gate} — sending live-view link via Telegram...", flush=True)
-            result = human.remote_solve(page, gate, on_link)
+            result = human.remote_solve(page, gate, on_link,
+                                        **({"notifier": _notifier} if _notifier is not None else {}))
             if not result:
                 return {"stopped_reason": f"gate:{gate}",
                         "gate_notice": {"gate": gate, "attempted": c.get("on_link") is not None,
@@ -624,7 +626,10 @@ def advance_node(state: AgentState, config) -> dict:
         pre_gate = deps.gate(page)
         if HANDLERS.get(pre_gate, "escalate") != "proceed":
             on_link = _gate_sender(c) or (lambda u: None)
-            if pre_gate in _INTERACTIVE and human.remote_solve(page, pre_gate, on_link):
+            _notifier = c.get("remote_solve_notifier")
+            if pre_gate in _INTERACTIVE and human.remote_solve(
+                    page, pre_gate, on_link,
+                    **({"notifier": _notifier} if _notifier is not None else {})):
                 if HANDLERS.get(deps.gate(page), "escalate") != "proceed":
                     return {"stopped_reason": f"gate:{pre_gate}"}
             else:

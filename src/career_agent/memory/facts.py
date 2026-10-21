@@ -452,12 +452,12 @@ def compile_question(question, kind, options, job, facts, llm, guidance="") -> d
         f"Field ({kind}): {question}{opt}{told}\n\n"
         f"Stored facts:\n{schema(facts)}\n\n{OPS_HELP}\n\n"
         f"{COMPILE_RULES}" + PLAN_SHAPES)
-    reply = _THINK.sub("", llm(prompt) or "")             # a failed call raises: the caller fails closed
     try:
+        reply = _THINK.sub("", llm(prompt) or "")
         obj, _ = json.JSONDecoder().raw_decode(reply[reply.find("{"):])
         return obj if isinstance(obj, dict) else {}
     except Exception:
-        return {}
+        return {}        # a broken/quota-capped model is a missing plan, never a run killer (O3 fusion)
 
 
 def job_facts(job) -> dict:

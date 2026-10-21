@@ -343,6 +343,7 @@ def _apply(args, box: dict) -> None:
     # when TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set; otherwise fall back to CLI.
     on_link = None
     remote_solve_factory = None
+    notifier = None
     if not args.no_telegram and settings.telegram_bot_token and settings.telegram_chat_id:
         from .integrations.telegram.client import TelegramClient
         from .integrations.telegram.approver import TelegramApprover
@@ -366,6 +367,10 @@ def _apply(args, box: dict) -> None:
             remote_solve_factory = lambda page, gate: RemoteSolveSession(
                 page, host, settings.remote_solve_port, settings.remote_solve_ttl,
                 settings.remote_solve_allow_public, is_cleared_for(gate), captcha_kind=gate)
+            # The remote-solve card (gate name + link + countdown + Abort button) shares the
+            # mail client with the approver; it replaces the bare-link broadcast for gates.
+            from .integrations.telegram.remote_solve import RemoteSolveNotifier
+            notifier = RemoteSolveNotifier(_tg)
             print(f"[remote-solve] enabled via Telegram — host={host}")
         else:
             print("[remote-solve] DISABLED — Tailscale host not detected")
@@ -393,6 +398,7 @@ def _apply(args, box: dict) -> None:
                            wait_s=int(args.ask_wait_minutes * 60),
                            context_fn=lambda: _escalation_context(conn, args.job_id, jd_seen.get("text")))
         collector, on_link = human.collector, None
+        notifier = None
     from .browser.page_prep import (prepare, classify_entry, enter_application, email_auth, is_application_form,
                                     is_closed_posting, new_tab_since, reach_application_form)
     _cdp_url = args.cdp_url or settings.cdp_url
@@ -643,7 +649,8 @@ def _apply(args, box: dict) -> None:
             "thread_id": tid, "page": page, "profile": profile, "deps": deps,
             "human": human, "collector": collector, "resume_pdf": resume_pdf,
             "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
-            "on_link": on_link, "human_wait_s": args.human_wait,
+            "on_link": on_link, "remote_solve_notifier": notifier,
+            "human_wait_s": args.human_wait,
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text
             "run_dir": run_dir, "qa": qa_rec, "assist": _assist,
             "autosubmit_policy": _policy_fn, "on_submit": _on_submit,
@@ -658,7 +665,7 @@ def _apply(args, box: dict) -> None:
                         max_steps=args.max_steps, do_submit=args.submit,
                         autonomous=args.autonomous, resume_pdf=resume_pdf,
                         judge_fn=judge_fn, prep_fn=prepare, learn=learn,
-                        on_link=on_link, cred_provider=_provide_url, assist=_assist)
+                        on_link=(notifier or on_link), cred_provider=_provide_url, assist=_assist)
 
         if not args.no_langgraph:
             try:

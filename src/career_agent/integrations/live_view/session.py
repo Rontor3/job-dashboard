@@ -125,7 +125,7 @@ class RemoteSolveSession:
         self._server.start()
         return url
 
-    def wait_until_cleared(self, timeout_s) -> bool:
+    def wait_until_cleared(self, timeout_s, abort_event=None) -> bool:
         from career_agent.browser.live_view.cdp_bridge import forward_pointer
         from career_agent.browser.gate_probe import classify_gate
 
@@ -136,6 +136,10 @@ class RemoteSolveSession:
         gone_since = None
         captcha_was_seen = False   # only start absence timer once captcha confirmed present
         while True:
+            # An Abort tap from the phone cancels the solve: stop pumping and
+            # report not-cleared so the caller degrades to stop-and-report.
+            if abort_event is not None and abort_event.is_set():
+                return False
             # Apply queued taps immediately (low input latency).
             self._drain_pointers(forward_pointer, vp)
             if self._human_done:          # human tapped "Done" — canonical close
@@ -152,11 +156,13 @@ class RemoteSolveSession:
             # Pump Playwright for a short slice so the CDP screencast keeps
             # delivering frames to the viewer. A dead sleep here froze the live
             # view between polls, so taps landed on stale/refreshed tiles.
-            try:
-                self.page.wait_for_timeout(self._frame_slice_ms)
-            except Exception as _pe:
-                print(f"[lv] page pump error: {_pe!r}", flush=True)
-                return False   # page / browser gone
+            # Stubs without a Playwright page have nothing to pump.
+            if hasattr(self.page, "wait_for_timeout"):
+                try:
+                    self.page.wait_for_timeout(self._frame_slice_ms)
+                except Exception as _pe:
+                    print(f"[lv] page pump error: {_pe!r}", flush=True)
+                    return False   # page / browser gone
             if self.interactive:
                 continue       # edit session: only the human's "Done" (checked above) completes
             # Check periodically (cheaper than per frame).
@@ -199,6 +205,10 @@ class RemoteSolveSession:
         (e.g. reCAPTCHA checkbox), OR solving it advanced the flow — the form
         submitted and the page navigated past the gate (e.g. an ATS email step).
         Watching only for the in-place token missed the navigation case."""
+        # Stubs without a Playwright page (unit tests) have no observer latch to
+        # consult; their callback IS the cleared signal.
+        if not hasattr(self.page, "evaluate"):
+            return bool(self.is_cleared(self.page))
         # The response token is the ONLY unambiguous proof of a solve. Detect
         # nothing else: URL changes / widget-gone / nav-errors all false-fire on
         # benign things like dismissing a consent popup. The token is latched by

@@ -5,6 +5,7 @@ end falls through to its existing stop path. O4: a usage-limit reply persists `a
 jobs.db `agent_settings` table (plain SQL, table owned by the dashboard's qa_store) so later dead ends skip
 Claude with ZERO calls until the 60-minute TTL passes.
 """
+import inspect
 import sqlite3
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -93,7 +94,10 @@ def test_recover_degrades_to_no_action_on_every_cli_failure(tmp_path):
 
 
 def test_the_hardened_helper_is_the_default_run():
-    assert ClaudeAssist(shot_dir="/tmp")._run is CA._run_cli
+    # the fusion: the router is the default entry (stack's precedence), and its claude leg is the
+    # hardened O3 core (quota-aware, never OS-fatal).
+    assert ClaudeAssist(shot_dir="/tmp").  _run is CA._backend_call
+    assert "_claude_cli" in inspect.getsource(CA._backend_call)
 
 
 def test_recover_still_acts_on_a_healthy_reply(tmp_path):
