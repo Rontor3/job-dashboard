@@ -11,6 +11,7 @@ from job_dashboard.sources.cdp.session import Capture
 
 from ..orchestrator.answering import answer_fields, record_answers
 from ..orchestrator.mapper import FillDecision, _action_for_kind
+from .. import run_trace
 from ..orchestrator.screen_review import apply_answers
 from ..browser.form_model import Field
 from ..orchestrator.sensitive import split_sensitive
@@ -267,6 +268,7 @@ def _ask_human(needs, ctx):
     collector = getattr(human, "collector", None)
     if collector is not None and ctx.get("ask_context") and hasattr(collector, "context"):
         collector.context = ctx["ask_context"]       # "Wellfound — AI Engineer at VisionSure"
+    run_trace.start("ask", asked=len(needs))         # the human question round is the slow step worth tracing
     try:
         answers = {}
         choice, value = _paired(needs)
@@ -280,6 +282,7 @@ def _ask_human(needs, ctx):
     except Exception as e:                 # no terminal / Telegram down: leave the gap open
         print(f"[board] could not ask the human ({type(e).__name__}); leaving {len(needs)} field(s) open", flush=True)
         answers = {}
+    run_trace.end("ask", "done", given=len(answers), asked=len(needs))
     record_answers(needs, answers, ctx)
     return apply_answers(needs, answers), [f for f in needs if not str(answers.get(f.ref) or "").strip()]
 
@@ -311,6 +314,8 @@ def run_board(page, board, ctx):
            "stopped_reason": None, "decisions": [], "pending_human": []}
     done_decisions = []
     log = BoardRunLog(ctx.get("run_dir"))           # screenshots + steps for the tracker
+    run_trace.start("board_run", board=board["id"], probe=bool(ctx.get("probe")),
+                    run_dir=ctx.get("run_dir"))     # trace start first; stop() below closes it on every exit
     assist = ctx.get("assist")                      # opt-in Claude help at dead ends (orchestrator/claude_assist.py)
 
     def stop(reason, pg):
@@ -319,6 +324,9 @@ def run_board(page, board, ctx):
         if ctx.get("eligibility"):
             res["eligibility"] = ctx["eligibility"]
         log.finish(pg, reason, res["pending_human"])
+        # one final trace record for the whole board pass; every return passes through stop()
+        run_trace.end("board_run", "done", stopped_reason=reason, url=getattr(pg, "url", None),
+                      shot=(log.steps[-1]["screenshot"] if log.steps else None))
         return res
 
     blocked = _blocked(page, board)
@@ -357,6 +365,7 @@ def run_board(page, board, ctx):
         _before = list(page.context.pages)
         legs = _entry_legs(board)
         clicked, err = None, None
+        run_trace.start("entry_chain", legs=len(legs))   # on disk before any leg is clicked
         for leg in legs:
             entry = page.locator(leg["selector"]).filter(visible=True).first
             try:
@@ -382,6 +391,7 @@ def run_board(page, board, ctx):
             elif not (assist and assist.recover(page, "no_entry")):     # a recovery click replaces the entry click
                 res["error"] = (f"{type(err).__name__}: {str(err)[:300]}" if err else "no entry leg on the page")
                 return stop("no_entry", page)
+        run_trace.end("entry_chain", "done")             # no_entry stop leaves the start dangling on purpose
         page.wait_for_timeout(3000)
         page = new_tab_since(page, _before)      # the entry click may open a new tab
         _interstitials(page, board)
@@ -413,6 +423,7 @@ def run_board(page, board, ctx):
             if not on_board(page.url, board):
                 return stop("left_board", page)     # e.g. "Apply on company site": another engine takes over
             if is_wall(page, page.url):
+                run_trace.start("wall_check")       # the start hits disk before the wall-clearing risk
                 # A login / sign-up wall is never a question for a human, and never
                 # reaches the perception below. One pass of the board ctx's
                 # credential provider (guest apply -> stored creds -> register,
@@ -420,16 +431,21 @@ def run_board(page, board, ctx):
                 # walled -> stop as before. After form work started there is no
                 # rewinding into an account flow.
                 if done_decisions:
+                    run_trace.end("wall_check", "done", outcome="walled_after_fill")
                     return stop("auth_wall", page)
                 _wall_tabs = list(page.context.pages)
                 clear_auth_wall(page, ctx.get("cred_provider"))
                 page = new_tab_since(page, _wall_tabs)        # guest apply may continue in a fresh tab
                 page.wait_for_timeout(1500)                   # the provider's last hop may still be settling
                 if is_wall(page, page.url):
+                    run_trace.end("wall_check", "done", outcome="still_walled")
                     return stop("auth_wall", page)
+                run_trace.end("wall_check", "done", outcome="cleared")
                 continue
             ctx["page_index"] = log.page(page)
+            run_trace.start("perceive_fields")           # the driver's read of the screen, on disk before it happens
             fields, blocked = split_sensitive(driver.fields(page, board, ctx, cap))
+            run_trace.end("perceive_fields", "done", fields=len(fields), sensitive=len(blocked))
             if any(f.required for f in blocked):          # bank / ID details: yours to fill, never asked
                 res["pending_human"] = [dataclasses.asdict(f) for f in blocked if f.required]
                 return stop("sensitive_field", page)

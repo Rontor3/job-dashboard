@@ -144,12 +144,18 @@ def main() -> None:
                     help="write a JSON summary of the run here on every exit path")
     args = ap.parse_args()
     box: dict = {}
+    # O1 run trace: crash-durable step log in this job's agent_runs dir (silence without --job-id).
+    from . import run_trace
+    run_trace.begin(str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None)
     try:
         _apply(args, box)
-    except BaseException:
+    except BaseException as _x:
         box.setdefault("out", {"url": args.url, "stopped_reason": "error"})
+        run_trace.end("run", "error", stopped_reason="error", error=f"{type(_x).__name__}: {_x}"[:200])
         raise
     finally:
+        # Every exit path (closed, dead_page, board stops, a real crash) closes the run here.
+        run_trace.end("run", "done", stopped_reason=(box.get("out") or {}).get("stopped_reason"))
         if args.result_json:
             from .integrations.park import write_result
             write_result(args.result_json, box.get("out"))
@@ -165,6 +171,7 @@ def _apply(args, box: dict) -> None:
     from .memory.candidate_profile import load_candidate_profile
     from .integrations.approver import CliApprover, CliCollector, NullCollector, AutoDenyApprover
     from .integrations.human_loop import HumanLoop
+    from . import run_trace
     from job_dashboard.apply.store import get_application_profile
 
     conn = sqlite3.connect(args.db)
@@ -381,6 +388,7 @@ def _apply(args, box: dict) -> None:
     try:
         # Reuse a tab the human already opened on this job: bot-challenged boards
         # (Indeed's Cloudflare) pass a human-opened tab but block a fresh one.
+        run_trace.start("initial_load", url=args.url)   # the start hits disk before the navigation's risk
         _open = _existing_tab(context, page, args.url)
         if _open is not None:
             print(f"[browser] reusing your open tab -> {_open.url[:90]}", flush=True)
@@ -413,6 +421,7 @@ def _apply(args, box: dict) -> None:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
             pass
+        run_trace.end("initial_load", "done", url=page.url)
         # A re-run re-enters through history state; Chrome answers a stale POST with
         # its own error shell (job 29987: ERR_CACHE_MISS on chrome-error://). ONE
         # fresh GET of the job URL, then this run has nothing readable to work with.

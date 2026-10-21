@@ -15,6 +15,8 @@ from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from langgraph.types import interrupt
 
+from .. import run_trace
+
 
 # ── State ─────────────────────────────────────────────────────────────────────
 
@@ -224,6 +226,7 @@ def reach_node(state: AgentState, config) -> dict:
     return {"kind": classify_entry(page), "url": page.url}
 
 
+@run_trace.traced("perceive")    # each perception pass is a trace step (triage O1); also covers cred_provide's inner pass
 def perceive_node(state: AgentState, config) -> dict:
     """Gate check + overlay cleanup. Blocks if gate unresolvable."""
     if state.get("stopped_reason"):
