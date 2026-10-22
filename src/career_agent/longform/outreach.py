@@ -9,7 +9,8 @@ import re
 from .kb import Chunk
 
 OUTREACH = re.compile(r"\b(start a conversation|reach out to|message (to|for) the|note to the|introduce yourself|"
-                      r"say hello|cover (letter|note))\b", re.I)
+                      r"say hello|cover (letter|note)|interests? you about (working|joining)|why do you want to (work|join))\b", re.I)
+_MESSAGE = re.compile(r"conversation|message|note|reach out|say hello|introduce", re.I)   # a message gets a greeting
 _STOCK_OPEN = re.compile(r"^\s*(i enjoy|i am excited|i'm excited|i am writing|i'm writing|i came across|i hope)\b", re.I)
 _GREETING = re.compile(r"^\s*(hi|hello|hey)\b[^,\n]{0,40},\s*", re.I)
 _WORD = re.compile(r"[a-z0-9']+")
@@ -51,7 +52,9 @@ def _prompt(question, company, facts, work, limit, avoid=None, goals=(), post=""
     fix = f"\nYour last draft copied this phrase; say it in your own words instead: \"{avoid}\"\n" if avoid else ""
     return (f"Write the applicant's opening message to the team at {company}, in the first person, answering:\n\"{question}\"\n\n"
             "This starts a CONVERSATION with the founders, not a cover letter: talk to them (\"you\", \"your team\"), warm, "
-            f"plain, natural words with contractions; {size}; short paragraphs. Open with \"Hi {company} team,\" and no sign-off.\n"
+            f"plain, natural words with contractions; {size}; short paragraphs. "
+            + (f"Open with \"Hi {company} team,\" and no sign-off.\n" if _MESSAGE.search(question) else
+               "It answers a form question: no greeting, no sign-off.\n") +
             "Cover these four beats, in this order:\n"
             f"1. What you like about their idea: ONE specific thing from COMPANY FACTS (what they build, the problem they "
             "solve, a launch), in your own words, and why it clicks for you.\n"

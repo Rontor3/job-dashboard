@@ -86,3 +86,11 @@ def test_note_without_research_reads_the_job_post_and_never_guesses_the_sector()
     from career_agent.longform.outreach import _prompt
     p = _prompt("Start a conversation with the team at Kodo.", "Kodo", [], [], None, post="Build LLM features for spend management")
     assert "JOB POST:\nBuild LLM features" in p and "Never guess what the company does" in p
+
+
+def test_what_interests_you_about_working_here_uses_the_note_writer_without_a_greeting():
+    from career_agent.longform.outreach import OUTREACH, _prompt
+    q = "What interests you about working for this company?"
+    assert OUTREACH.search(q)
+    p = _prompt(q, "Biz-Tech", [], [], None, post="MLOps on edge devices")
+    assert "Hi Biz-Tech team" not in p and "no greeting" in p
