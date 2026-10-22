@@ -70,7 +70,8 @@ def _run_cli(prompt: str, timeout: int = 120) -> tuple[str | None, str | None]:
     """
     global _LAST_STDERR
     try:
-        r = subprocess.run(["claude", "-p", prompt, "--allowedTools", "Read", "--max-turns", "4"],
+        r = subprocess.run(["claude", "-p", prompt, "--model", os.getenv("CAREER_ASSIST_MODEL") or "sonnet",
+                            "--allowedTools", "Read", "--max-turns", "4"],
                            capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
     except BrokenPipeError:
         return None, "epipe"
@@ -207,11 +208,24 @@ def _backend_call(prompt: str, image_path: str | None = None, timeout: int = 120
     The prompt bytes are identical on every branch; the screenshot rides as a file://
     attachment (opencode — the server reads the file itself), a data-url part (glm), or
     stays prompt-embedded text (claude-cli reads the file with its own Read tool)."""
-    if _oce_enabled():
+    backend = _chosen_backend()
+    if backend == "opencode":
         return counted(_oce_call, "opencode")(prompt, image_path, timeout)
-    if _glm_enabled():
+    if backend == "glm":
         return counted(_glm_call, "glm")(prompt, image_path, timeout)
     return counted(_claude_cli, "claude-cli")(prompt, image_path, timeout)
+
+
+def _chosen_backend() -> str:
+    """Claude (Sonnet) unless CAREER_ASSIST_BACKEND explicitly names opencode / glm AND it is configured. A model
+    env var left in the shell no longer switches backends on its own (2026-10-22: the opencode session reused one
+    growing session and returned unreadable / off-topic replies on live runs)."""
+    want = (os.getenv("CAREER_ASSIST_BACKEND") or "claude").strip().lower()
+    if want == "opencode" and _oce_enabled():
+        return "opencode"
+    if want == "glm" and _glm_enabled():
+        return "glm"
+    return "claude"
 
 
 OCE_MODEL = "glm-5.3-flash-free"      # the desktop app's opencode provider
@@ -228,11 +242,12 @@ def _oce_enabled() -> bool:
 
 def _active_model() -> str:
     """The model name for the [walk-debug] line, in the router's precedence order."""
-    if _oce_enabled():
+    backend = _chosen_backend()
+    if backend == "opencode":
         return os.getenv("CAREER_OCE_MODEL") or OCE_MODEL
-    if _glm_enabled():
+    if backend == "glm":
         return os.getenv("CAREER_GLM_MODEL") or GLM_MODEL
-    return "claude"
+    return "claude-" + (os.getenv("CAREER_ASSIST_MODEL") or "sonnet")
 
 
 def run_cli(args: list[str], input: str | None = None, timeout: int = 120) -> tuple[int, str, str]:

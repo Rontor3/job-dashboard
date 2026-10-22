@@ -29,6 +29,7 @@ class _Resp:
 def test_router_picks_glm_when_key_set(monkeypatch):
     monkeypatch.delenv("CAREER_OCE_MODEL", raising=False)      # opencode outranks glm
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k-test")
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     cap = {}
 
     def fake_urlopen(req, timeout=None):
@@ -59,7 +60,7 @@ def test_router_picks_cli_when_key_unset_and_argv_is_preserved(monkeypatch):
     monkeypatch.setattr(ca.subprocess, "run", fake_run)
     out = _backend_call(PROMPT)
     assert out == '{"action":"go_back"}'
-    assert seen["args"] == ["claude", "-p", PROMPT, "--allowedTools", "Read", "--max-turns", "4"]
+    assert seen["args"] == ["claude", "-p", PROMPT, "--model", "sonnet", "--allowedTools", "Read", "--max-turns", "4"]
     assert seen["args"][2] == PROMPT                 # the prompt bytes passed to the CLI are exactly ours
     assert seen["kw"].get("timeout") == 120 and "cwd" in seen["kw"]
     assert ca._LAST_STDERR == "limit line"           # stderr tail set for the echo check, as before
@@ -67,6 +68,7 @@ def test_router_picks_cli_when_key_unset_and_argv_is_preserved(monkeypatch):
 
 def test_image_file_becomes_a_data_url_part(monkeypatch, tmp_path):
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     png = tmp_path / "assist1.png"
     png.write_bytes(b"\x89PNG-fake-bytes")
     cap = {}
@@ -82,6 +84,7 @@ def test_image_file_becomes_a_data_url_part(monkeypatch, tmp_path):
 
 def test_missing_or_none_image_is_text_only(monkeypatch, tmp_path):
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     prose = {}
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: (prose.update(req=req), _Resp())[1])
 
@@ -94,6 +97,7 @@ def test_missing_or_none_image_is_text_only(monkeypatch, tmp_path):
 
 def test_http_error_sets_last_stderr_and_raises_a_short_reason(monkeypatch):
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     body = b'{"error":{"msg":"You\'ve hit your weekly limit"}}\n\nResets Oct 22 at 5:30am'
     err = urllib.error.HTTPError("https://api.z.ai/chat/completions", 429, "Too Many", {}, io.BytesIO(body))
 
@@ -109,6 +113,7 @@ def test_http_error_sets_last_stderr_and_raises_a_short_reason(monkeypatch):
 
 def test_unreadable_reply_shape_counts_as_a_failure(monkeypatch):
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _Resp(payload=b"{}"))
     with pytest.raises(RuntimeError):
         _backend_call(PROMPT)
@@ -117,6 +122,7 @@ def test_unreadable_reply_shape_counts_as_a_failure(monkeypatch):
 
 def test_base_url_and_model_env_are_honored(monkeypatch):
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     monkeypatch.setenv("CAREER_GLM_BASE_URL", "https://glm.test/paas/")
     monkeypatch.setenv("CAREER_GLM_MODEL", "glm-x")
     cap = {}
@@ -136,6 +142,8 @@ def test_the_llm_cost_line_names_the_backend(monkeypatch):
     assert ca._CALLS["claude-cli"] == before + 1
 
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")
+
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     gbefore = ca._CALLS.get("glm", 0)
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _Resp())
     _backend_call("p")
@@ -152,6 +160,8 @@ def test_fallback_and_assist_default_route_through_the_one_router(monkeypatch):
     assert with_claude_fallback(dead)("some prompt") == "cli draft"      # argv path, unchanged behavior
 
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")
+
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda req, timeout=None: (req.full_url.endswith("/chat/completions"), _Resp())[1])
     assert with_claude_fallback(dead)("some prompt") == '{"action":"go_back"}'   # text-only GLM draft
@@ -195,6 +205,7 @@ def oce_fake(timeline):
 
 def oce_env(monkeypatch):
     monkeypatch.setenv("CAREER_OCE_MODEL", "glm-5.3-flash-free")
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "opencode")
     monkeypatch.delenv("CAREER_GLM_API_KEY", raising=False)
     monkeypatch.setattr(ca, "_OCE_SESSION", None)
     monkeypatch.setattr(ca, "_SLEEP", lambda *_: None)
@@ -215,6 +226,7 @@ def test_precedence_opencode_then_glm_then_claude(monkeypatch):
     class R: stdout, stderr = '{"action":"go_back"}', ""
     monkeypatch.delenv("CAREER_OCE_MODEL", raising=False)         # a present z.ai key never outranks opencode,
     monkeypatch.setenv("CAREER_GLM_API_KEY", "k")                # but once OCE is unset the glm branch wins
+    monkeypatch.setenv("CAREER_ASSIST_BACKEND", "glm")
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: _Resp())
     assert _backend_call(PROMPT) == '{"action":"go_back"}'
     assert ca._BACKEND == "glm"
