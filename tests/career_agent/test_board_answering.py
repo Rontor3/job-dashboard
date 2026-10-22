@@ -235,3 +235,12 @@ def test_a_placeholder_dash_dropdown_pairs_with_the_relocate_choice_and_respects
     assert pick(["Delhi"]) == {"group:loc": "I can relocate to…", "#loc": "Delhi"}          # the job's own list
     assert pick(["Delhi", "Mumbai"]) == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
     assert pick(["Dubai"]) == {}            # nowhere you live or would move to: the question is yours
+
+
+def test_the_place_box_showing_its_current_pick_still_pairs():
+    from career_agent.boards.run import _paired
+    choice = Field("group:loc", "radio_group", "This job does not support the locations on your profile.", False,
+                   ["I am currently in…", "I can relocate to…"], None, None)
+    for shown in ("", "-", "Delhi", "New Delhi"):
+        assert _paired([Field("#loc", "combobox", shown, False, [], None, None), choice])[1].ref == "#loc"
+    assert _paired([Field("#q", "text", "Why do you want this job?", False, [], None, None), choice]) == (None, None)

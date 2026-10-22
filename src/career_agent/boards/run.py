@@ -214,8 +214,9 @@ def _paired(needs):
     next to an unlabelled value field — one question for the human, not two."""
     choice = next((f for f in needs if f.options
                    and all(o.rstrip().endswith(("…", "...")) for o in f.options)), None)
-    value = next((f for f in needs if f.kind in ("text", "combobox")
-                  and not re.search(r"[A-Za-z]{2}", f.label or "")), None)   # unlabelled, or only a placeholder like "-" (wellfound)
+    # the place box: unlabelled, or showing only its placeholder ('-') or its current pick ('Delhi') — never a question
+    value = next((f for f in needs if f is not choice and f.kind in ("text", "combobox")
+                  and "?" not in (f.label or "") and len((f.label or "").split()) <= 3), None)
     return (choice, value) if choice and value else (None, None)
 
 
