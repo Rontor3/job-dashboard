@@ -56,15 +56,15 @@ def close_tab(tid: str) -> None:
         pass
 
 
-def pick_jobs(conn, channels, per, spare=3) -> list[tuple[str, list[tuple[int, str]]]]:
+def pick_jobs(conn, channels, per, spare=3, since="") -> list[tuple[str, list[tuple[int, str]]]]:
     """Per channel, `per` jobs plus spares: a posting found closed / already applied is replaced by the next one."""
     rows = conn.execute(
         "SELECT j.id, coalesce(nullif(j.apply_url,''), j.job_url) FROM jobs j JOIN match_scores m ON m.job_id=j.id "
         "WHERE coalesce(j.status,'new') IN ('new','') AND coalesce(j.expired,0)=0 "
         "AND j.id NOT IN (SELECT job_id FROM apply_queue WHERE job_id IS NOT NULL) "
         "AND j.id NOT IN (SELECT DISTINCT job_id FROM application_qa WHERE job_id IS NOT NULL) "
-        "AND m.verdict IN ('Strong Fit','Good Fit','Moderate Fit') "
-        "ORDER BY (m.verdict='Strong Fit') DESC, (m.verdict='Good Fit') DESC, j.fetched_at DESC").fetchall()
+        "AND m.verdict IN ('Strong Fit','Good Fit','Moderate Fit') AND coalesce(j.fetched_at,'') >= ? "
+        "ORDER BY (m.verdict='Strong Fit') DESC, (m.verdict='Good Fit') DESC, j.fetched_at DESC", (since,)).fetchall()
     out, used = [], set()
     for ch in channels:
         cands = []
@@ -86,6 +86,8 @@ def outcome_class(reason: str) -> str:
     r = reason or ""
     if r.startswith("reached_submit") or r in ("parked", "pending_human"):
         return "ok"
+    if r == "needs_answers":
+        return "needs_you"
     if r.startswith("closed") or "already_applied" in r:
         return "gone"
     return "captcha" if "captcha" in r else "gap"
@@ -148,7 +150,7 @@ def report(results: list[dict], out: Path) -> None:
     def esc(x):
         return html.escape(str(x or ""))
     blocks, tot = [], {"answered": 0, "rel2": 0, "rel0": 0, "gap": 0, "needs_you": 0, "captcha": 0}
-    stops = {"ok": 0, "gone": 0, "captcha": 0, "gap": 0}
+    stops = {"ok": 0, "needs_you": 0, "gone": 0, "captcha": 0, "gap": 0}
     for r in results:
         oc = outcome_class(r["result"].get("stopped_reason"))
         stops[oc] += 1
@@ -168,7 +170,7 @@ def report(results: list[dict], out: Path) -> None:
                         f"<td>{verdict}</td><td>{esc(g.get('note'))}</td></tr>")
         blocks.append(f"<h2>{esc(r['channel'])} · {esc(r['job'].get('company'))} — {esc(r['job'].get('title'))}</h2>"
                       f"<p>outcome: <b>{esc(r['result'].get('stopped_reason'))}</b> "
-                      f"{ {'ok': '✅', 'gone': '⏹ posting gone', 'captcha': '🤖 captcha', 'gap': '⚠️ agent stopped'}[oc]} · filled {esc(r['result'].get('filled'))}"
+                      f"{ {'ok': '✅', 'needs_you': '🙋 waiting on your answer', 'gone': '⏹ posting gone', 'captcha': '🤖 captcha', 'gap': '⚠️ agent stopped'}[oc]} · filled {esc(r['result'].get('filled'))}"
                       f" · <a href='{esc(r['result'].get('url') or r['url'])}'>final page</a></p>"
                       f"<table><tr><th>Question</th><th>Answer</th><th>Source</th><th>Verdict</th><th>Why</th></tr>"
                       + "".join(rows) + "</table>")
@@ -189,6 +191,7 @@ def main() -> None:
     ap.add_argument("--channels", default=",".join(DEFAULT))
     ap.add_argument("--per", type=int, default=1)
     ap.add_argument("--jobs", default="", help="comma-separated job ids (skips picking)")
+    ap.add_argument("--since", default="", help="only jobs fetched at/after this time (e.g. today's refresh)")
     ap.add_argument("--db", default="data/jobs.db")
     ap.add_argument("--code", default=os.getenv("PYTHONPATH", "src"), help="PYTHONPATH of the agent code under test")
     a = ap.parse_args()
@@ -200,7 +203,7 @@ def main() -> None:
             picks.append(("given", [(int(j), u[0] if u else "")]))
         a.per = len(picks)
     else:
-        picks = pick_jobs(conn, [c for c in a.channels.split(",") if c in CHANNELS], a.per)
+        picks = pick_jobs(conn, [c for c in a.channels.split(",") if c in CHANNELS], a.per, since=a.since)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     log_dir = Path("data/agent_runs/live_check") / stamp
     log_dir.mkdir(parents=True, exist_ok=True)

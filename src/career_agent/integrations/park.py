@@ -54,7 +54,7 @@ def result_summary(out: dict | None) -> dict:
     pending = out.get("pending_human") or []
     return {"url": out.get("url"), "board": out.get("board"),
             "submitted": bool(out.get("submitted")),
-            "stopped_reason": out.get("stopped_reason") or "error",
+            "stopped_reason": out.get("stopped_reason") or ("needs_answers" if pending else "error"),   # parked, not crashed
             "filled": len(out.get("decisions") or []),
             "pending_human": [(p.get("label") or p.get("ref")) if isinstance(p, dict) else str(p)
                               for p in pending],

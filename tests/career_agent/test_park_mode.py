@@ -99,3 +99,8 @@ def test_escalation_context_reads_job_and_company_page_from_the_db(tmp_path):
     assert "https://acme.ai/about" in company and "Agent tooling." in company
     jd2, company2 = _escalation_context(conn, None, "scraped page text")
     assert "scraped page text" in jd2 and company2 == ""
+
+
+def test_a_run_that_parked_questions_without_a_reason_is_not_an_error():
+    assert result_summary({"pending_human": [{"label": "Q"}]})["stopped_reason"] == "needs_answers"
+    assert result_summary({})["stopped_reason"] == "error"
