@@ -23,6 +23,7 @@ def test_answers_are_capped_and_marked_fillable(kb):
                       llm=fake_llm(long), limit=120)
     assert out["answer"] and len(out["answer"]) <= 120 and "trimmed_to_limit" in out["notes"]
     assert out["confidence"] == 85 and out["flags"] == []          # a repair or trim is a note, never a flag
+    assert "Describe a product you built" in out["prompt"]         # the run view shows it as "Prompt used"
 
 
 def test_a_made_up_link_is_never_filled(kb):
@@ -68,6 +69,7 @@ def test_a_note_to_the_team_uses_company_research_not_a_stock_opening():
                       research=lambda: research)
     assert "Digital Surveyor" in seen[0] and "Built a document parser" in seen[0]
     assert out["answer"].startswith("Digital Surveyor") and "rewrote_copied_phrase" in out["notes"]
+    assert out["prompt"] == seen[-1]                                  # the prompt that wrote the kept answer
 
 
 def test_note_to_the_team_is_a_conversation_with_four_beats():

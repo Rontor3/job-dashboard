@@ -198,10 +198,12 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     blocks = [(a, material_for(a, question, kb, corpus, pid if a["source"] == "CANDIDATE" else None,
                                allowed if a["source"] == "CANDIDATE" else None, research)) for a in asks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
+    prompt = _ruled(build_prompt(question, asks, blocks, limit, kb), steer)    # shown on the run view ("Prompt used")
     try:
-        raw = llm(_ruled(build_prompt(question, asks, blocks, limit, kb), steer))
+        raw = llm(prompt)
     except Exception as e:
-        return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"], "confidence": None}
+        return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"], "confidence": None,
+                "prompt": prompt}
     text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
     flags, notes = [], []
     posting = [c.text for c in corpus.items if c.kind == "company"]
@@ -237,8 +239,10 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     bad = invented_links(text, chunks, known)
     if bad:                                                   # a made-up link is never filled
         flags.append("invented_link:" + ",".join(bad))
-        return {"answer": None, "chunks": chunks, "flags": flags, "confidence": None, "basis": "held: invented link"}
+        return {"answer": None, "chunks": chunks, "flags": flags, "confidence": None, "basis": "held: invented link",
+                "prompt": prompt}
     # judgment.py fills when confidence clears its gate and no flag is raised; repairs are notes, not problems
     return {"answer": text or None, "chunks": chunks, "flags": flags, "notes": notes, "confidence": 85 if text else None,
             "basis": "ask by ask from your projects: " + "; ".join(a["part"] for a in asks),
-            "used": [c.id for c in chunks], "asks": [a["part"] for a in asks], "unsupported_company_claims": []}
+            "used": [c.id for c in chunks], "asks": [a["part"] for a in asks], "unsupported_company_claims": [],
+            "prompt": prompt}

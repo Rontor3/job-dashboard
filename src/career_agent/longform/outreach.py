@@ -80,7 +80,8 @@ def answer_outreach(question, *, job, corpus, research, llm, limit=None) -> dict
     sources = [c.text for c in corpus.items if c.kind in ("passage", "story", "company")]
     text, avoid, notes = None, None, []
     for _ in range(2):                                       # one rewrite when it copies or opens with a stock line
-        raw = llm(_prompt(question, company, facts, work, limit, avoid, goals, (job.get("description") or "")[:1200]))
+        prompt = _prompt(question, company, facts, work, limit, avoid, goals, (job.get("description") or "")[:1200])
+        raw = llm(prompt)
         text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
         avoid = copied_run(text, sources) or (text.split(".")[0] if _STOCK_OPEN.match(_GREETING.sub("", text)) else None)
         if not avoid:
@@ -92,4 +93,4 @@ def answer_outreach(question, *, job, corpus, research, llm, limit=None) -> dict
     chunks = work + [Chunk(f"research:{i}", "company", f) for i, f in enumerate(facts)]
     return {"answer": text or None, "chunks": chunks, "flags": [], "notes": notes, "confidence": 85 if text else None,
             "basis": f"note to {company}: {len(facts)} researched facts + {len({c.project_id for c in work})} projects",
-            "used": [c.id for c in chunks], "asks": [question], "unsupported_company_claims": []}
+            "used": [c.id for c in chunks], "asks": [question], "unsupported_company_claims": [], "prompt": prompt}
