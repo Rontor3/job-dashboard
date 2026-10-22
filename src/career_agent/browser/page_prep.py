@@ -627,7 +627,9 @@ _REAL_FIELDS_JS = r"""() => {
   const seen = new Set();
   for (const e of ins) {
     if (['hidden','submit','button'].includes(e.type)) continue;
-    const hay = ((e.getAttribute('aria-label')||'')+' '+labelText(e)+' '+(e.name||'')+' '+(e.id||'')
+    // <label for> text too: SuccessFactors names its boxes fbclc_userName / fbclc_fName, the label says "Email Address"
+    const forText = Array.from(e.labels || []).map(l => l.innerText || '').join(' ');
+    const hay = ((e.getAttribute('aria-label')||'')+' '+labelText(e)+' '+forText+' '+(e.name||'')+' '+(e.id||'')
                  +' '+(e.placeholder||'')+' '+(e.type||'')).toLowerCase();
     let k = null;
     if (e.type==='email' || /\be-?mail\b/.test(hay)) k='email';
