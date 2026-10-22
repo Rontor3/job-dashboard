@@ -482,6 +482,7 @@ _ACCEPT_BTN = _re.compile(r"^(i )?(accept|agree|i agree|accept and continue|ok)$
 # headless run (no channel) keeps the old 1800 s poll, so unattended semantics
 # don't regress.
 _OTP_ASK_S = 120
+_OTP_GMAIL_S = 180          # Gmail wait before the human is asked (attended runs)
 _OTP_UNANSWERED = "otp_unanswered"
 _ASK = {"collector": None}            # run-scoped ask channel (provider flows are serial)
 _PARK = {"reason": None}
@@ -611,7 +612,7 @@ _NOT_PHONE_NUMBER = _re.compile(r"country|region|code|ext|dial", _re.I)
 _SELECT_FILL_JS = r"""([dial, country]) => {
   const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
   const hint = e => ((e.name||'')+' '+(e.id||'')+' '+(e.getAttribute('aria-label')||'')+' '+(e.labels && e.labels[0] ? e.labels[0].innerText : ''));
-  let n = 0;
+  const out = [];
   for (const s of document.querySelectorAll('select')) {
     if (!vis(s) || s.value) continue;                       // only fill an empty select
     const h = hint(s);
@@ -619,9 +620,14 @@ _SELECT_FILL_JS = r"""([dial, country]) => {
     if (/country\/region code|dial|calling|phone code|isd|country code/i.test(h)) want = o => o.text.includes('(' + dial + ')') && new RegExp(country, 'i').test(o.text);
     else if (/country|region of residence|nationality/i.test(h)) want = o => o.text.trim().toLowerCase() === country.toLowerCase();
     const opt = want ? Array.from(s.options).find(want) : null;
-    if (opt) { s.value = opt.value; s.dispatchEvent(new Event('input', {bubbles: true})); s.dispatchEvent(new Event('change', {bubbles: true})); n++; }
+    if (!opt) continue;
+    s.focus(); s.value = opt.value;
+    s.dispatchEvent(new Event('input', {bubbles: true})); s.dispatchEvent(new Event('change', {bubbles: true}));
+    s.blur();             // SuccessFactors validates on blur only: a box flagged once stays 'required' until it is left
+    const took = s.value === opt.value && s.getAttribute('aria-invalid') !== 'true' && !/invalid/i.test(s.className);
+    out.push({label: h.trim().slice(0, 60), took});
   }
-  return n;
+  return out;
 }"""
 
 
@@ -653,9 +659,11 @@ def _fill_phone_and_country(page, cred: dict) -> None:
             except Exception:
                 continue
     try:
-        page.evaluate(_SELECT_FILL_JS, [dial, country])
+        picked = page.evaluate(_SELECT_FILL_JS, [dial, country]) or []
     except Exception:
-        pass
+        picked = []
+    for p in picked:
+        print(f"[cred] picked {p['label']!r}: {'taken' if p['took'] else 'NOT taken — the site still flags it'}", flush=True)
 
 
 def _fill_visible_fields(page, cred: dict) -> None:
@@ -723,24 +731,25 @@ def _handle_otp_state(page, site: str, cred: dict) -> None:
     """Get OTP from Gmail, fill it, then continue handling whatever page comes next."""
     from ..integrations.gmail_otp import poll_otp, available
     collector = _ASK["collector"]
-    if collector is not None:                     # attended: the connected human is the OTP source
-        code = _otp_from_human(collector, site)
-        if code:
-            _apply_otp_code(page, code, cred, site)
-        else:
-            _otp_unanswered(site)
-        return
-    if not available():
+    code = None
+    if available():          # Gmail first, always: the code lands in the inbox the sign-up used (Wipro, live 2026-10-22)
+        try:
+            # a human to fall back on -> a short wait, never the silent half hour (class C, live 2026-10-20)
+            code = poll_otp(timeout_s=_OTP_GMAIL_S if collector is not None else 1800,
+                            sender_hint=site, after_epoch=int(_RUN_START) - 60)
+        except Exception as e:
+            print(f"[cred] Gmail OTP error: {e}", flush=True)
+    else:
         print("[cred] Gmail OTP not available", flush=True)
-        return
-    try:
-        code = poll_otp(timeout_s=1800, sender_hint=site, after_epoch=int(_RUN_START) - 60)
+    if not code and collector is not None:        # no code in Gmail: ask the connected human once
+        code = _otp_from_human(collector, site)
         if not code:
-            print(f"[cred] OTP timeout for {site}", flush=True)
+            _otp_unanswered(site)
             return
-        _apply_otp_code(page, code, cred, site)
-    except Exception as e:
-        print(f"[cred] _handle_otp_state error: {e}", flush=True)
+    if not code:
+        print(f"[cred] OTP timeout for {site}", flush=True)
+        return
+    _apply_otp_code(page, code, cred, site)
 
 
 def _handle_state(page, state: str, cred: dict, site: str) -> None:
@@ -785,13 +794,19 @@ def _handle_state(page, state: str, cred: dict, site: str) -> None:
 
 def _is_combined_form(page) -> bool:
     """A password box inside a long application form (address, work history, ...): registration and application in one.
-    Submitting from here only trips validation on everything the credential step did not fill."""
+    Submitting from here only trips validation on everything the credential step did not fill. Needs a field only an
+    application asks for: a plain sign-up has as many boxes (Wipro/SuccessFactors 'Create an Account': email x2, name x2,
+    dial code, phone, residence — live 2026-10-22, counted 'combined', so Create Account was never clicked)."""
     try:
         return bool(page.evaluate("""() => {
           const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
           const ins = Array.from(document.querySelectorAll('input,select,textarea')).filter(vis);
-          const fillable = ins.filter(e => !['hidden','submit','button','checkbox','radio','search','password'].includes(e.type)).length;
-          return ins.some(e => e.type === 'password') && fillable > 6;
+          const fill = ins.filter(e => !['hidden','submit','button','checkbox','radio','search','password'].includes(e.type));
+          const APP = /resume|r[ée]sum[ée]|\\bcv\\b|address|street|city|postal|zip|employer|company|job.?title|experience|education|degree|school|universit|college|linkedin|salary|cover.?letter|skill/i;
+          const said = e => [e.name, e.id, e.placeholder, e.getAttribute('aria-label'),
+                             ...Array.from(e.labels || []).map(l => l.innerText)].join(' ').replace(/e-?mail\\s*address/ig, ' ');
+          const appOnly = !!document.querySelector('input[type=file]') || fill.some(e => e.tagName === 'TEXTAREA' || APP.test(said(e)));
+          return ins.some(e => e.type === 'password') && fill.length > 6 && appOnly;
         }"""))
     except Exception:
         return False
@@ -1378,7 +1393,19 @@ def _try_guest_apply(page) -> bool:
 
 
 def _ensure_login_form(page) -> None:
+    if _is_login_form(page):
+        return      # already here: a 'sign in' match would be this form's own submit, clicked empty (Wipro, 2026-10-23)
     _navigate_to_form(page, _LOGIN_TEXTS, "login form")
+
+
+def _offers_signup(page) -> bool:
+    """A visible, non-social sign-up control on this page ('Create an account' under a login form)."""
+    try:
+        return any(el.is_visible() and any(t in (el.text_content() or "").strip().lower() for t in _SIGNUP_TEXTS)
+                   and not any(s in (el.text_content() or "").lower() for s in _SOCIAL_KEYWORDS)
+                   for el in page.query_selector_all("a, button"))
+    except Exception:
+        return False
 
 
 def _ensure_signup_form(page) -> None:
@@ -1582,11 +1609,12 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
                 # was saved for an account whose sign-up was never sent). Retire it and register instead, once.
                 print(f"[cred] {site}: the stored login did not open — retiring it and registering", flush=True)
                 retire_credential(site, label=gate)
-                try:                  # the login page has no way to sign up; the page before it (choose-a-method) does
-                    page.go_back(wait_until="domcontentloaded", timeout=15000)
-                    page.wait_for_timeout(1500)
-                except Exception:
-                    pass
+                if not _offers_signup(page):   # this login page has no way to sign up; the page before it does
+                    try:                       # (Koch/Deloitte choose-a-method). Wipro's has 'Create an account', and
+                        page.go_back(wait_until="domcontentloaded", timeout=15000)   # back lands on chrome-error
+                        page.wait_for_timeout(1500)
+                    except Exception:
+                        pass
                 return provide(page, gate, site, original_url, email, phone, _retried=True,
                                first_name=first_name, last_name=last_name)
     return True, ("register" if is_new else "login")

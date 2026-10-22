@@ -467,6 +467,8 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
         elif d.action == "select":
             try:
                 target.select_option(sel, label=str(d.value), timeout=_SOFT_TIMEOUT_MS)
+                # leave the box: blur-only validators (SuccessFactors onblur=checkforMandatory) keep a stale 'required'
+                target.locator(sel).first.evaluate("e => { e.focus(); e.blur(); }", timeout=_SOFT_TIMEOUT_MS)
             except Exception:
                 pass
         elif d.action == "upload":

@@ -133,7 +133,7 @@ def test_manual_option_that_opens_a_profile_form_without_password_is_handed_to_t
 def test_credentials_inside_a_long_application_form_are_not_submitted_early():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.credential_provider import _fill_wall, _is_combined_form
-    rows = "".join(f"<input name=f{i} placeholder=f{i}>" for i in range(8))
+    rows = "".join(f"<input name=f{i} placeholder=f{i}>" for i in range(7)) + "<input name=street_address>"
     long_form = ("<form onsubmit=\"document.title='submitted';return false\"><input type=email name=email><input name=first_name>"
                  "<input name=last_name>" + rows + "<input type=password name=pw><input type=password name=pw2><button>Continue</button></form>")
     short = "<form onsubmit=\"document.title='submitted';return false\"><input type=email><input type=password><button>Sign in</button></form>"
@@ -258,3 +258,61 @@ def test_registration_cue_reads_choose_how_youd_like_to_apply():
     assert _REGISTRATION_CUE.search("New to Tesco Careers? Choose how you’d like to apply")
     assert _REGISTRATION_CUE.search("Choose how you would like to apply")
     assert not _REGISTRATION_CUE.search("Choose how often we email you")
+
+
+SF_REGISTER_WIPRO = SF_REGISTER.replace('<label for="ph">', '<label for="e2">Retype Email Address: *</label>'
+                                        '<input id="e2" name="fbclc_userNameConf" type="text"><label for="ph">')
+
+
+@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="set RUN_BROWSER_TESTS=1 to run")
+def test_a_plain_signup_with_many_boxes_is_not_registration_plus_application():
+    """Wipro's SuccessFactors 'Create an Account' (live 2026-10-22): 7+ boxes but nothing only an application asks.
+    Read as 'combined', the sign-up step left Create Account unclicked and no account was ever made."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.credential_provider import _is_combined_form
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page()
+        pg.set_content(SF_REGISTER_WIPRO); assert not _is_combined_form(pg)
+        pg.set_content(SF_REGISTER_WIPRO.replace("</form>", '<label for="cv">Resume</label><input id="cv" type="file"></form>'))
+        assert _is_combined_form(pg)
+        b.close()
+
+
+BLUR_VALIDATED = """<html><body><form>
+<label for="c">Country/Region Code:*</label>
+<select id="c" name="fbclc_ituCode" onblur="this.className = this.value ? '' : 'invalidInput'; this.setAttribute('aria-invalid', this.value ? 'false' : 'true')">
+<option value="">- Select -</option><option value="US">United States (+1)</option><option value="IN">India (+91)</option></select>
+</form></body></html>"""
+
+
+@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="set RUN_BROWSER_TESTS=1 to run")
+def test_dial_code_pick_clears_a_blur_only_required_flag():
+    """SuccessFactors checks a select on blur only: once flagged 'required', setting it from script left the flag up
+    (Wipro, live 2026-10-22). The pick must leave the box and report the value as taken."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.credential_provider import _SELECT_FILL_JS
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page(); pg.set_content(BLUR_VALIDATED)
+        pg.focus("#c"); pg.evaluate("document.activeElement.blur()")          # flagged while empty
+        assert pg.get_attribute("#c", "aria-invalid") == "true"
+        picked = pg.evaluate(_SELECT_FILL_JS, ["+91", "India"])
+        assert pg.input_value("#c") == "IN" and pg.get_attribute("#c", "aria-invalid") == "false"
+        assert [p["took"] for p in picked] == [True]
+        b.close()
+
+
+@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="set RUN_BROWSER_TESTS=1 to run")
+def test_an_open_login_form_is_not_submitted_empty_and_its_signup_link_counts():
+    """Wipro sign-in (live 2026-10-23): _ensure_login_form matched the form's own 'Sign In' and submitted it empty;
+    a rejected login then went back a page into chrome-error although 'Create an account' was right there."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.credential_provider import _ensure_login_form, _offers_signup
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page()
+        pg.set_content(LOGIN.replace('<button type="submit">', '<button type="submit" onclick="document.title=\'submitted\';return false">'))
+        _ensure_login_form(pg)
+        assert pg.title() != "submitted"
+        assert _offers_signup(pg)
+        pg.set_content("<form><input type=email><input type=password><button>Sign in</button><a href=#>Sign in with Google</a></form>")
+        assert not _offers_signup(pg)
+        b.close()

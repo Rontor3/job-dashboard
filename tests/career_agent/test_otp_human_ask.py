@@ -25,6 +25,27 @@ class _FakeCollector:
 def _ask(monkeypatch, collector, code_recorder):
     monkeypatch.setattr(cp, "_apply_otp_code", lambda page, code, cred, site: code_recorder.append(code))
     monkeypatch.setattr(cp, "_ASK", {"collector": collector})
+    monkeypatch.setattr(gmail, "available", lambda: False)     # the human-ask tests: Gmail has nothing to give
+
+
+def test_attended_run_takes_the_code_from_gmail_and_never_asks(monkeypatch):
+    """Gmail first, always (Wipro, live 2026-10-22: the human was asked, nobody was there, the code sat in Gmail)."""
+    seen, polls, col = [], {}, _FakeCollector({"otp_code": "000000"})
+    _ask(monkeypatch, col, seen)
+    monkeypatch.setattr(gmail, "available", lambda: True)
+    monkeypatch.setattr(gmail, "poll_otp", lambda **k: polls.update(k) or "827687")
+    cp._handle_otp_state(None, "career55.sapsf.eu", {})
+    assert seen == ["827687"] and col.calls == []         # the human is never asked
+    assert polls["timeout_s"] == cp._OTP_GMAIL_S           # short: a human is there to fall back on
+
+
+def test_attended_run_asks_the_human_when_gmail_has_no_code(monkeypatch):
+    seen, col = [], _FakeCollector({"otp_code": "123456"})
+    _ask(monkeypatch, col, seen)
+    monkeypatch.setattr(gmail, "available", lambda: True)
+    monkeypatch.setattr(gmail, "poll_otp", lambda **k: None)
+    cp._handle_otp_state(None, "acme.com", {})
+    assert seen == ["123456"] and len(col.calls) == 1
 
 
 
