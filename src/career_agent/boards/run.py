@@ -239,18 +239,22 @@ def _ask_pair(human, choice, value):
 
 
 def _pair_from_profile(choice, value, ctx):
-    """Answer a trailing choice + place from the profile instead of the human:
-    willing to relocate -> 'relocate to…' + the job's location; else 'currently
-    in…' + the profile city. {} when the profile cannot decide."""
+    """Answer a trailing choice + place from the profile instead of the human. The place list is the job's own
+    (open the dropdown: Wellfound lists only that job's cities): one you live in -> 'currently in…' + it; else one
+    you would relocate to (willing_to_relocate + your saved places) -> 'relocate to…' + it. {} when none fits."""
     contact = getattr(ctx.get("profile"), "contact", None) or {}
     reloc = next((o for o in choice.options if "relocat" in o.lower()), None)
     here = next((o for o in choice.options if re.search(r"\b(currently|live|based)\b", o, re.I)), None)
-    if contact.get("willing_to_relocate") and reloc and ctx.get("job_location") \
-            and relocation_allowed(ctx["job_location"], ctx.get("db", "data/jobs.db")) is not False:
-        return {choice.ref: reloc, value.ref: ctx["job_location"]}
-    city = (contact.get("location") or "").split(",")[0].strip()
-    if here and city:
-        return {choice.ref: here, value.ref: city}
+    read = ctx.get("read_options")
+    places = (read(value.ref) if read else []) or ([ctx["job_location"]] if ctx.get("job_location") else [])
+    city = (contact.get("location") or "").split(",")[0].strip().lower()
+    home = next((p for p in places if city and city in p.lower()), None)
+    if here and home:
+        return {choice.ref: here, value.ref: home}
+    if reloc and contact.get("willing_to_relocate"):
+        ok = next((p for p in places if relocation_allowed(p, ctx.get("db", "data/jobs.db")) is not False), None)
+        if ok:
+            return {choice.ref: reloc, value.ref: ok}
     return {}
 
 
@@ -522,6 +526,8 @@ def run_board(page, board, ctx):
             errs = _visible_errors(page) if clicked_sig is not None and sig == clicked_sig else []
             bounced = bool(errs)       # same fields back and the board shows an error: it rejected an answer (a slow page is the stuck path)
             ctx["fill_first"] = None if ctx.get("probe") else (lambda ds: driver.put(page, board, ctx, fields, ds))
+            from ..browser.filler import read_combobox_options
+            ctx["read_options"] = None if ctx.get("probe") else (lambda ref, pg=page: read_combobox_options(pg, ref))
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
             if bounced:
                 # Next/Continue was clicked but the form did not move on: the board

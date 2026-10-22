@@ -118,9 +118,9 @@ def test_paired_location_is_answered_from_the_profile_without_asking():
     prof = NS(contact={"willing_to_relocate": True, "location": "Mumbai, India"})
     d, left = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
     assert {x.ref: x.value for x in d} == {"group:loc": "I can relocate to…", "#loc": "New Delhi"} and left == []
-    prof.contact["willing_to_relocate"] = False
-    d, _ = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
-    assert {x.ref: x.value for x in d} == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
+    prof.contact["willing_to_relocate"] = False      # Mumbai is not on the job's list: never 'currently in Mumbai'
+    from career_agent.boards.run import _pair_from_profile
+    assert _pair_from_profile(choice, value, {"profile": prof, "job_location": "New Delhi"}) == {}
 def test_every_field_is_recorded_to_qa(monkeypatch):
     import career_agent.orchestrator.screen_review as sr
     monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
@@ -226,10 +226,12 @@ def test_a_placeholder_dash_dropdown_pairs_with_the_relocate_choice_and_respects
 
     class NoHuman:
         def collect(self, fields):
-            raise AssertionError("must not ask")
+            return {}
 
     prof = NS(contact={"willing_to_relocate": True, "location": "Mumbai, India"})
-    d, left = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "Delhi", "db": db})
-    assert {x.ref: x.value for x in d} == {"group:loc": "I can relocate to…", "#loc": "Delhi"} and left == []
-    d, _ = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "Dubai", "db": db})
-    assert {x.ref: x.value for x in d} == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
+    ask = lambda places: _ask([choice, value], {"human": NoHuman(), "profile": prof, "db": db,  # noqa: E731
+                                                "read_options": lambda ref: places})
+    pick = lambda places: {x.ref: x.value for x in ask(places)[0]}  # noqa: E731
+    assert pick(["Delhi"]) == {"group:loc": "I can relocate to…", "#loc": "Delhi"}          # the job's own list
+    assert pick(["Delhi", "Mumbai"]) == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
+    assert pick(["Dubai"]) == {}            # nowhere you live or would move to: the question is yours

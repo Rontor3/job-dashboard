@@ -117,6 +117,22 @@ _SEARCHING = re.compile(r"^\s*(searching|loading|please enter|type to search)\b"
 _OTHER_OPTION = re.compile(r"^\s*other\b|not listed|none of the above", re.I)
 
 
+def read_combobox_options(page, sel) -> list[str]:
+    """Open a dropdown, read the options it lists, close it with Tab (Escape would close a whole modal, Wellfound)."""
+    try:
+        try:
+            page.click(sel, timeout=_SOFT_TIMEOUT_MS)
+        except Exception:               # react-select: a placeholder div covers the input; click the wrapping control
+            page.locator(sel).first.locator("xpath=ancestor::div[contains(@class,'control')][1]").click(timeout=_SOFT_TIMEOUT_MS)
+        page.wait_for_timeout(800)
+        scope = _popup(page, page.get_attribute(sel, "aria-controls"))
+        opts = [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
+        page.keyboard.press("Tab")
+        return opts
+    except Exception:
+        return []
+
+
 def _pick_combobox(page, target, sel, d, matcher) -> None:
     """One attempt: open the dropdown, read its live options, click the one matching d.value."""
     pace(page)
