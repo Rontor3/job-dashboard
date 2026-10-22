@@ -482,6 +482,14 @@ def _apply(args, box: dict) -> None:
         # must never go through the career-site drill below (see boards/run.py).
         from .boards.profiles import board_for
         _board = board_for(page.url) or board_for(args.url)
+        # the sign-in helper exists before EITHER engine uses it (the board path hands it over too)
+        from .browser.credential_provider import provide as _provide
+        from .browser.page_prep import clear_auth_wall
+        _job_url = args.url
+        _profile_email = contact.get("email", "")
+        _provide_url = lambda pg, gate, site: _provide(
+            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""),
+            collector=collector)
         _run_dir = str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         _assist = _make_assist(args, _run_dir)         # one assist for whichever engine runs this job
         if not _board:
@@ -586,13 +594,6 @@ def _apply(args, box: dict) -> None:
         except ImportError:
             pass  # google client libs not installed yet
 
-        from .browser.credential_provider import provide as _provide
-        from .browser.page_prep import clear_auth_wall
-        _job_url = args.url
-        _profile_email = contact.get("email", "")
-        _provide_url = lambda pg, gate, site: _provide(
-            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""),
-            collector=collector)
 
         if kind == "password":
             print("[password] delegating to credential provider", flush=True)
