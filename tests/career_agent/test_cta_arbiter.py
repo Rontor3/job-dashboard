@@ -92,11 +92,11 @@ def test_rank_ties_keep_the_caller_s_order_then_the_learned_phrase_order():
 
 
 def test_one_ad_host_table_is_read_by_every_deny_path():
-    from career_agent.browser import page_prep, perception
+    from career_agent.browser import perception
     for frag in AD_HOST_FRAGMENTS:
-        assert page_prep._is_ad_frame(f"https://cdn.{frag}/frame.html"), frag
+        assert is_ad_like({"url": f"https://cdn.{frag}/frame.html"}), frag
         assert perception.is_denied_frame(f"https://cdn.{frag}/frame.html"), frag
-    assert not page_prep._is_ad_frame("https://boards.greenhouse.io/embed/job_app?for=acme")
+    assert not is_ad_like({"url": "https://boards.greenhouse.io/embed/job_app?for=acme"})
     assert not perception.is_denied_frame("about:srcdoc")
 
 

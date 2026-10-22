@@ -1,5 +1,5 @@
 from career_agent.browser.form_model import Field
-from career_agent.browser.page_prep import suppress_noise, _best_apply, _is_ad_frame, login_from_signals, site_key
+from career_agent.browser.page_prep import suppress_noise, _best_apply,  login_from_signals, site_key
 
 
 def _f(ref, label, kind="text", purpose=None):
@@ -40,10 +40,12 @@ def test_ready_to_apply_beats_an_ads_apply_now():
 
 
 def test_is_ad_frame():
-    assert _is_ad_frame("https://googleads.g.doubleclick.net/pagead/ads?x=1")
-    assert _is_ad_frame("about:blank", title="Advertisement")
-    assert _is_ad_frame("https://x.example/", name="aswift_2")
-    assert not _is_ad_frame("https://boards.greenhouse.io/embed/job_app?for=acme")
+    from career_agent.browser.cta_arbiter import is_ad_like
+    ad = lambda url, title="", name="": is_ad_like({"url": url, "frame_title": title, "frame_name": name})
+    assert ad("https://googleads.g.doubleclick.net/pagead/ads?x=1")
+    assert ad("about:blank", title="Advertisement")
+    assert ad("https://x.example/", name="aswift_2")
+    assert not ad("https://boards.greenhouse.io/embed/job_app?for=acme")
 
 
 def test_prefer_known_click_beats_phrase_rank_but_not_deny():

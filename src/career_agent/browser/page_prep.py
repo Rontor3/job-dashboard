@@ -742,15 +742,6 @@ _APPLY_DENY = (
 )
 
 
-def _is_ad_frame(url: str, title: str = "", name: str = "") -> bool:
-    """True for an advertising iframe: ad-network host (the superset list lives in
-    browser/cta_arbiter — one table, shared with the perception frame deny),
-    <iframe title="Advertisement">, or an AdSense slot name (aswift_*, google_ads_*).
-    Its "Apply Now" is an ad's, not the job's."""
-    from .cta_arbiter import is_ad_like
-    return is_ad_like({"url": url or "", "frame_title": title or "", "frame_name": name or ""})
-
-
 # "Autofill with Resume", "Apply with my CV", "Upload your resume to autofill": the site reads the résumé and fills the
 # form, so it is always the entry to take over "Apply manually" (and over any learned manual route).
 _RESUME_AUTOFILL = re.compile(
@@ -1051,7 +1042,8 @@ def _frame_is_ad(fr) -> bool:
         title, name = el.get_attribute("title") or "", el.get_attribute("name") or ""
     except Exception:
         pass
-    return _is_ad_frame(fr.url, title, name)
+    from .cta_arbiter import is_ad_like     # ad-network host, title="Advertisement", or an AdSense slot name
+    return is_ad_like({"url": fr.url or "", "frame_title": title, "frame_name": name})
 
 
 def _hop(page, aff):

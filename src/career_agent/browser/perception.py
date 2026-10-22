@@ -969,9 +969,6 @@ FIELD_SIG_JS = """() => {
   const els = Array.from(document.querySelectorAll('input,select,textarea,[role=combobox],[role=radiogroup]')).filter(vis);
   return els.length + '|' + els.map(e => (e.id || e.name || e.getAttribute('aria-label') || '').slice(0, 24)).join(',');
 }"""
-_NOT_FORM_FRAMES = ("hcaptcha.com", "recaptcha", "googletagmanager", "google-analytics", "doubleclick",
-                    "challenges.cloudflare")
-
 
 def page_fingerprint(page) -> str | None:
     """Address + the fields on screen, per frame (a Workday/iCIMS step changes inside its frame, not the outer page).
@@ -979,7 +976,7 @@ def page_fingerprint(page) -> str | None:
     try:
         parts = [page.url]
         for fr in page.frames:
-            if any(s in (fr.url or "") for s in _NOT_FORM_FRAMES):
+            if is_denied_frame(fr.url):
                 continue
             try:
                 parts.append(f"{fr.url}#{fr.evaluate(FIELD_SIG_JS)}")

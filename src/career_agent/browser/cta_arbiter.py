@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import re
 
-# The ONE ad-network host-fragment list. page_prep._is_ad_frame and
+# The ONE ad-network host-fragment list. page_prep._frame_is_ad and
 # perception.is_denied_frame both read it; no module keeps its own copy.
 AD_HOST_FRAGMENTS = (
     "doubleclick.net", "googlesyndication.com", "googleadservices.com",
