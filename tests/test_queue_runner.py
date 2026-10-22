@@ -150,3 +150,18 @@ def test_drain_requeues_orphaned_running_rows(tmp_path):
     r._paused = True                      # drain() only does its start-up recovery, then stops
     r.drain()
     assert conn.execute("SELECT state FROM apply_queue WHERE job_id=1").fetchone()[0] == "queued"
+
+
+def test_watcher_relaunches_run_one_at_a_time_and_respect_a_saved_pause(tmp_path):
+    # live 2026-10-22: a restarted dashboard relaunched two Indeed jobs side by side, and a restart forgot the pause
+    import threading
+    path, _ = _db(tmp_path)
+    gate = threading.Event()
+    r = QueueRunner(path, lambda *a, **k: None, result_dir=str(tmp_path))
+    r._run_detached = lambda job_id, url: gate.wait(5)          # a relaunch still running
+    assert r.run_one_detached(1) is True
+    assert r.run_one_detached(2) is False                       # waits its turn (the watcher re-queues it)
+    gate.set(); r._detached.join(5)
+    r.pause()
+    assert QueueRunner(path, lambda *a, **k: None)._paused       # the pause survives a restart
+    assert QueueRunner(path, lambda *a, **k: None).run_one_detached(3) is False

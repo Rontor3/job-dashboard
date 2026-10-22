@@ -15,6 +15,7 @@ import types
 from job_dashboard.db import now_iso
 
 DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
+                    "apply_queue_paused": "0",         # 1 = the apply queue (and the watcher's relaunches) stay paused across restarts
                     "profile_autofill_at": "",         # when the résumé was last read into the profile
                     "inbox_snoozed": "{}",             # Inbox items skipped: {key: ISO until}
                     "insight_local_only": "0",         # 1 = rewriting an answer never falls back to Claude

@@ -151,12 +151,36 @@ class QueueRunner:
         self.result_dir = result_dir or tempfile.gettempdir()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
-        self._paused = False
+        self._detached: threading.Thread | None = None   # the watcher's one relaunch at a time
+        self._paused = self._saved_pause()             # a restart keeps your pause
         self._job_id: int | None = None
+
+    _PAUSE_KEY = "apply_queue_paused"
+
+    def _saved_pause(self) -> bool:
+        try:
+            conn = init_db(self.db_path)
+            try:
+                return qa_store.get_setting(conn, self._PAUSE_KEY) == "1"
+            finally:
+                conn.close()
+        except Exception:
+            return False
+
+    def _save_pause(self, paused: bool) -> None:
+        try:
+            conn = init_db(self.db_path)
+            try:
+                qa_store.set_setting(conn, self._PAUSE_KEY, "1" if paused else "0")
+            finally:
+                conn.close()
+        except Exception:
+            pass
 
     # -- control --------------------------------------------------------
     def start(self) -> bool:
         with self._lock:
+            self._save_pause(False)
             if self._thread is not None and self._thread.is_alive():
                 self._paused = False
                 return False
@@ -167,6 +191,7 @@ class QueueRunner:
 
     def pause(self) -> None:
         self._paused = True
+        self._save_pause(True)
 
     def status(self) -> dict:
         running = self._thread is not None and self._thread.is_alive()
@@ -210,9 +235,14 @@ class QueueRunner:
     def run_one_detached(self, job_id: int, url: str | None = None) -> bool:
         """Run one job on its own thread — the SubmitWatcher's relauncher for a job whose block the human
         cleared on its tab. False when the queue is already draining: then its row is picked up there."""
-        if self._thread is not None and self._thread.is_alive():
+        # One job at a time, like the queue: not while the queue drains, another relaunch runs, or you paused it
+        # (False -> the watcher puts it back in the queue instead). Live 2026-10-22: two relaunches ran side by side.
+        if self._paused or (self._thread is not None and self._thread.is_alive()) \
+                or (self._detached is not None and self._detached.is_alive()):
             return False
-        threading.Thread(target=self._run_detached, args=(job_id, url), name=f"apply-watch-{job_id}", daemon=True).start()
+        self._detached = threading.Thread(target=self._run_detached, args=(job_id, url), name=f"apply-watch-{job_id}",
+                                          daemon=True)
+        self._detached.start()
         return True
 
     def _run_detached(self, job_id: int, url: str | None) -> None:
