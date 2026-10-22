@@ -5,7 +5,7 @@ reorder is a single UPDATE. init_db calls ensure().
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from job_dashboard.db import now_iso
 
 STATES = ("queued", "running", "parked", "done", "failed")
 _FINISHED = ("parked", "done", "failed")
@@ -25,10 +25,6 @@ def ensure(conn) -> None:
         conn.execute("ALTER TABLE apply_queue ADD COLUMN watch_cycles INTEGER NOT NULL DEFAULT 0")
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _edge(conn, front: bool) -> float:
     agg = "MIN" if front else "MAX"
     row = conn.execute(f"SELECT {agg}(position) FROM apply_queue").fetchone()
@@ -43,7 +39,7 @@ def enqueue(conn, job_id: int, front: bool = False) -> None:
     row = conn.execute("SELECT state FROM apply_queue WHERE job_id = ?", (job_id,)).fetchone()
     if row is None:
         conn.execute("INSERT INTO apply_queue (job_id, position, state, added_at) VALUES (?,?,?,?)",
-                     (job_id, _edge(conn, front), "queued", _now()))
+                     (job_id, _edge(conn, front), "queued", now_iso()))
     elif row[0] in _FINISHED or front:
         state = "running" if row[0] == "running" else "queued"
         conn.execute("""UPDATE apply_queue SET position = ?, state = ?, reason = NULL,
@@ -77,10 +73,10 @@ def mark(conn, job_id: int, state: str, reason: str | None = None) -> None:
         raise ValueError(f"unknown queue state {state!r}")
     if state == "running":
         conn.execute("UPDATE apply_queue SET state = ?, reason = NULL, started_at = ?, finished_at = NULL"
-                     " WHERE job_id = ?", (state, _now(), job_id))
+                     " WHERE job_id = ?", (state, now_iso(), job_id))
     elif state in _FINISHED:
         conn.execute("UPDATE apply_queue SET state = ?, reason = ?, finished_at = ? WHERE job_id = ?",
-                     (state, reason, _now(), job_id))
+                     (state, reason, now_iso(), job_id))
     else:
         conn.execute("UPDATE apply_queue SET state = ?, reason = ? WHERE job_id = ?", (state, reason, job_id))
     conn.commit()

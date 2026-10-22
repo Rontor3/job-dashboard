@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from job_dashboard.db import now_iso
 from pathlib import Path
 
 import numpy as np
@@ -37,10 +37,6 @@ def ensure(conn) -> None:
     if "approvals" not in [r[1] for r in conn.execute("PRAGMA table_info(qbank_entry)")]:
         conn.execute("ALTER TABLE qbank_entry ADD COLUMN approvals INTEGER NOT NULL DEFAULT 0")   # graduated autonomy
     conn.commit()
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _row(cur, r) -> dict:
@@ -70,7 +66,7 @@ def upsert_entry(conn, e: dict) -> None:
         f"INSERT INTO qbank_entry (id, {', '.join(_DEF_COLS)}, updated_at) "
         f"VALUES (?, {', '.join('?' * len(_DEF_COLS))}, ?) ON CONFLICT(id) DO UPDATE SET "
         f"{', '.join(f'{k}=excluded.{k}' for k in _DEF_COLS)}, updated_at=excluded.updated_at",
-        [e["id"], *vals, _now()])
+        [e["id"], *vals, now_iso()])
     conn.commit()
 
 
@@ -84,7 +80,7 @@ def set_answer(conn, entry_id, answer) -> bool:
     if answer is not None and _NOT_AN_ANSWER.match(str(answer)):
         return False
     cur = conn.execute("UPDATE qbank_entry SET answer=?, updated_at=? WHERE id=?",
-                       (None if answer is None else str(answer).strip(), _now(), entry_id))
+                       (None if answer is None else str(answer).strip(), now_iso(), entry_id))
     conn.commit()
     return cur.rowcount > 0
 
@@ -93,7 +89,7 @@ def set_status(conn, entry_id, status: str) -> bool:
     if status not in ("active", "superseded"):
         raise ValueError(status)
     cur = conn.execute("UPDATE qbank_entry SET status=?, updated_at=? WHERE id=?",
-                       (status, _now(), entry_id))
+                       (status, now_iso(), entry_id))
     conn.commit()
     return cur.rowcount > 0
 

@@ -68,7 +68,7 @@ def _insert(conn, *, label, answer, question=None, qkey=None, kind="text"):
     qkey = qkey or qa_store.norm_key(question)
     cur = conn.execute(
         "INSERT INTO qbank_candidate (job_id, qkey, label, question_text, answer, kind, source, created_at) "
-        "VALUES (1, ?, ?, ?, ?, ?, 'human', ?)", (qkey, label, question, answer, kind, qa_store._now()))
+        "VALUES (1, ?, ?, ?, ?, ?, 'human', ?)", (qkey, label, question, answer, kind, qa_store.now_iso()))
     conn.commit()
     return cur.lastrowid
 

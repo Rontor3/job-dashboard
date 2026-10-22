@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from job_dashboard.db import now_iso
 from urllib.parse import urlparse
 
 from job_dashboard import qa_store
@@ -49,10 +50,6 @@ def ensure(conn) -> None:
 def key(label) -> str:
     """The form-side name of a question, comparable between what was filled and what was read back ('Source*' == 'source')."""
     return qa_store.norm_key(str(label or "").replace("*", "").replace("✱", ""))
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def ats_key(url: str) -> str:
@@ -107,7 +104,7 @@ def record_submission(conn, job_id: int, run_key: str, final_values: dict, how: 
                 _set(conn, entry, 0)
             edited += 1
     conn.execute("INSERT INTO submit_history (job_id, ats_key, how, confirmed_at) VALUES (?,?,?,?)",
-                 (job_id, ats_key(url), how, _now()))
+                 (job_id, ats_key(url), how, now_iso()))
     conn.commit()
     return {"approved": approved, "edited": edited}
 

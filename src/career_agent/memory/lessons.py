@@ -12,7 +12,7 @@ RULE: "when a question is about <concept>, <rule>". A rule fires only on questio
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from job_dashboard.db import now_iso
 
 import numpy as np
 
@@ -33,10 +33,6 @@ def ensure(conn) -> None:
     conn.commit()
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _vec(embed, text):
     return np.asarray(embed([text])[0], dtype="float32") if text else None
 
@@ -52,8 +48,8 @@ def add(conn, d: dict, embed) -> int:
         for rid, blob in conn.execute("SELECT id, vec FROM answer_lesson WHERE status='active' AND lever=? "
                                       "AND vec IS NOT NULL", (lever,)).fetchall():
             if float(np.frombuffer(blob, dtype="float32") @ v) >= SAME:
-                conn.execute("UPDATE answer_lesson SET status='superseded', updated_at=? WHERE id=?", (_now(), rid))
-    now = _now()
+                conn.execute("UPDATE answer_lesson SET status='superseded', updated_at=? WHERE id=?", (now_iso(), rid))
+    now = now_iso()
     cur = conn.execute(
         "INSERT INTO answer_lesson (lever, applies_to, concept, qkey, rule, why, notes, source_row, filed_in, "
         "before_json, vec, status, created_at, updated_at, max_words) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -93,7 +89,7 @@ def update(conn, lesson_id: int, **fields) -> bool:
     if allowed.get("applies_to") not in (None, "question", "similar", "long", "short"):
         raise ValueError("applies_to must be question, similar, long or short")
     sets = ", ".join(f"{k}=?" for k in allowed)
-    cur = conn.execute(f"UPDATE answer_lesson SET {sets}, updated_at=? WHERE id=?", (*allowed.values(), _now(), lesson_id))
+    cur = conn.execute(f"UPDATE answer_lesson SET {sets}, updated_at=? WHERE id=?", (*allowed.values(), now_iso(), lesson_id))
     conn.commit()
     return cur.rowcount == 1
 

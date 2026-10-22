@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 import types
-from datetime import datetime, timezone
+from job_dashboard.db import now_iso
 
 DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail scan (mail_scan.py)
                     "profile_autofill_at": "",         # when the résumé was last read into the profile
@@ -87,10 +87,6 @@ def ensure(conn) -> None:
     conn.commit()
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _enc(v):
     return json.dumps(v) if isinstance(v, (list, dict)) else v
 
@@ -104,7 +100,7 @@ def record(conn, *, job_id, run_key: str, ref: str, label: str, **fields) -> Non
     unknown = set(fields) - set(_COLS)
     if unknown:
         raise ValueError(f"unknown application_qa fields: {sorted(unknown)}")
-    now = _now()
+    now = now_iso()
     vals = {k: _enc(v) for k, v in fields.items()}
     cols = list(vals)
     conn.execute(
@@ -176,7 +172,7 @@ def mark_answered(conn, job_id: int, qkey: str, answer: str, *, keep_source: boo
     cur = conn.execute(
         f"UPDATE application_qa SET status='answered', answer=?, {set_source}"
         "updated_at=? WHERE job_id=? AND qkey=? AND status='needs_answer'",
-        (answer, _now(), job_id, qkey))
+        (answer, now_iso(), job_id, qkey))
     label = None
     if cur.rowcount:      # the replied row carries the label/kind the candidate proposal needs
         label = conn.execute("SELECT label, kind FROM application_qa WHERE job_id=? AND qkey=? "
@@ -211,7 +207,7 @@ def resolve_settled_questions(conn) -> int:
         WHERE status = 'needs_answer' AND job_id IS NOT NULL
           AND job_id IN (SELECT id FROM jobs
                          WHERE status IN ({', '.join('?' * len(SETTLED_JOB_STATUSES))}))""",
-        (_now(), *SETTLED_JOB_STATUSES))
+        (now_iso(), *SETTLED_JOB_STATUSES))
     conn.commit()
     return cur.rowcount
 
@@ -291,7 +287,7 @@ def propose_candidate(conn, job_id, label: str, answer, *, kind: str = "", sourc
     ensure(conn)
     cur = conn.execute(
         "INSERT OR IGNORE INTO qbank_candidate (job_id, qkey, label, question_text, answer, kind, source, created_at) "
-        "VALUES (?,?,?,?,?,?,?,?)", (job_id, qkey, (label or "").strip(), question, text, kind or None, source, _now()))
+        "VALUES (?,?,?,?,?,?,?,?)", (job_id, qkey, (label or "").strip(), question, text, kind or None, source, now_iso()))
     conn.commit()
     return cur.lastrowid if cur.rowcount else None       # rowcount 0 = dupe of an existing proposal
 
@@ -331,7 +327,7 @@ def set_candidate_status(conn, cid: int, status: str, notes: str = "") -> bool:
     ensure(conn)
     cur = conn.execute("UPDATE qbank_candidate SET status=?, decided_at=?, "
                        "notes=CASE WHEN ? != '' THEN ? ELSE notes END WHERE id=? AND status='pending'",
-                       (status, _now(), notes, notes, cid))
+                       (status, now_iso(), notes, notes, cid))
     conn.commit()
     return cur.rowcount > 0
 
@@ -450,7 +446,7 @@ def set_outcome(conn, row_id: int, outcome: str) -> bool:
         raise ValueError(outcome)
     ensure(conn)
     cur = conn.execute("UPDATE application_qa SET outcome=?, updated_at=? WHERE id=?",
-                       (outcome, _now(), row_id))
+                       (outcome, now_iso(), row_id))
     conn.commit()
     return cur.rowcount > 0
 

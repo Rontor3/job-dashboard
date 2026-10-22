@@ -91,6 +91,10 @@ VALID_VERDICTS = {"Strong Fit", "Good Fit", "Moderate Fit", "Weak Fit", "Poor Fi
 VALID_STATUSES = {"saved", "applied", "failed", "interviewing", "offer", "rejected", "dismissed", "closed"}
 
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def init_db(path):
     conn = sqlite3.connect(path)
     conn.executescript(SCHEMA)

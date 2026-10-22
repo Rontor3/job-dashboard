@@ -197,7 +197,7 @@ def autofill(conn, docs: dict[str, str], llm) -> dict:
     out = llm(AUTOFILL_PROMPT.format(docs=text, questions=json.dumps(targets, ensure_ascii=False)))
     answers = {k: v for k, v in (out.get("answers") or {}).items() if k in {t["id"] for t in targets}}
     filled = write(conn, answers)
-    qa_store.set_setting(conn, "profile_autofill_at", qa_store._now())
+    qa_store.set_setting(conn, "profile_autofill_at", qa_store.now_iso())
     return {"filled": filled, "sources": [k for k, v in docs.items() if v]}
 
 

@@ -10,7 +10,7 @@ replaces it.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from job_dashboard.db import now_iso
 
 KINDS = ("submitted", "parked", "failed", "matches", "tracker", "agent")
 LEVELS = ("info", "success", "action", "warning")
@@ -26,10 +26,6 @@ def ensure(conn) -> None:
     conn.commit()
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _row(r) -> dict:
     d = dict(zip(_COLS, r))
     d["data"] = json.loads(d["data"]) if d["data"] else {}
@@ -43,10 +39,10 @@ def notify(conn, kind: str, title: str, body: str | None = None, *, level: str =
     kind = kind if kind in KINDS else "agent"
     level = level if level in LEVELS else "info"
     if dedupe:
-        conn.execute("UPDATE notification SET dismissed_at=? WHERE dedupe=? AND dismissed_at IS NULL", (_now(), dedupe))
+        conn.execute("UPDATE notification SET dismissed_at=? WHERE dedupe=? AND dismissed_at IS NULL", (now_iso(), dedupe))
     cur = conn.execute(
         "INSERT INTO notification (at, kind, level, title, body, job_id, data, source, dedupe) VALUES (?,?,?,?,?,?,?,?,?)",
-        (_now(), kind, level, title[:200], (body or None) and body[:2000], job_id,
+        (now_iso(), kind, level, title[:200], (body or None) and body[:2000], job_id,
          json.dumps(data) if data else None, source, dedupe))
     conn.commit()
     return cur.lastrowid
@@ -77,10 +73,10 @@ def mark_read(conn, ids: list[int] | None = None) -> int:
     """Mark these (or, with None, all) as read; returns how many changed."""
     ensure(conn)
     if ids is None:
-        cur = conn.execute("UPDATE notification SET read_at=? WHERE read_at IS NULL", (_now(),))
+        cur = conn.execute("UPDATE notification SET read_at=? WHERE read_at IS NULL", (now_iso(),))
     else:
         marks = ",".join("?" * len(ids)) or "NULL"
-        cur = conn.execute(f"UPDATE notification SET read_at=? WHERE read_at IS NULL AND id IN ({marks})", (_now(), *ids))
+        cur = conn.execute(f"UPDATE notification SET read_at=? WHERE read_at IS NULL AND id IN ({marks})", (now_iso(), *ids))
     conn.commit()
     return cur.rowcount
 
@@ -88,6 +84,6 @@ def mark_read(conn, ids: list[int] | None = None) -> int:
 def dismiss(conn, notif_id: int) -> bool:
     ensure(conn)
     cur = conn.execute("UPDATE notification SET dismissed_at=?, read_at=COALESCE(read_at, ?) WHERE id=? "
-                       "AND dismissed_at IS NULL", (_now(), _now(), notif_id))
+                       "AND dismissed_at IS NULL", (now_iso(), now_iso(), notif_id))
     conn.commit()
     return cur.rowcount == 1
