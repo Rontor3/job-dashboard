@@ -42,3 +42,20 @@ def test_no_badge_is_no_state():
 def test_the_older_evidence_paths_keep_their_names():
     assert _posting_state(_Page(button_applied=True), "") == "already_applied"
     assert _posting_state(_Page(), "You've already applied to this job") == "already_applied"
+
+
+import os
+import pytest
+
+
+@pytest.mark.skipif(not os.environ.get("RUN_BROWSER_TESTS"), reason="browser")
+def test_a_menu_link_to_your_applied_list_is_no_badge():
+    from playwright.sync_api import sync_playwright
+    from career_agent.boards.run import _APPLIED_BADGE_JS
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page()
+        pg.set_content("<nav><a href='/jobs/applications'><span>Applied</span></a></nav><h1>Data Scientist</h1><button>Apply</button>")
+        assert not pg.evaluate(_APPLIED_BADGE_JS)                    # wellfound live 2026-10-22
+        pg.set_content("<h1>Data Scientist</h1><span class=badge>Applied</span>")
+        assert pg.evaluate(_APPLIED_BADGE_JS)
+        b.close()

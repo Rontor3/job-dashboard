@@ -51,6 +51,7 @@ _APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e =>
 # item named Applied is a page we can still act on); checked only when no form is open.
 _APPLIED_BADGE_JS = """() => [...document.querySelectorAll('span,div,p,label,i,[role=status]')].some(e => {
     if (!e.checkVisibility() || e.children.length > 1) return false;
+    if (e.closest('a[href],nav,header')) return false;   // a menu link to your 'Applied' list (wellfound) is no badge
     const t = (e.innerText || '').trim();
     return t.length < 40 && /^\\W*(you(?:'?ve| have)? already applied|application (submitted|sent)|applied)\\b/i.test(t)
         && !/\\b(filters?|jobs?|search|sort|via|salary)\\b/i.test(t);
