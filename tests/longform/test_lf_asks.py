@@ -96,3 +96,23 @@ def test_what_interests_you_about_working_here_uses_the_note_writer_without_a_gr
     assert OUTREACH.search(q)
     p = _prompt(q, "Biz-Tech", [], [], None, post="MLOps on edge devices")
     assert "Hi Biz-Tech team" not in p and "no greeting" in p
+
+
+def test_your_saved_rule_reaches_the_note_writer():
+    # live 2026-10-22: rule #3 ('conversational, company research') matched these questions but the note writer
+    # never put it in its prompt
+    from types import SimpleNamespace as NS
+    from career_agent.longform.kb import Chunk
+    seen = []
+
+    class FakeCorpus:
+        items = [Chunk("p1", "passage", "Built a document parser for claims", project_id="u1")]
+        kb = NS(card=lambda pid: None)
+
+        def search(self, *a, **k):
+            return self.items
+
+    answer_asks("What interests you about working for this company?", job={"company": "Acme"}, kb=None,
+                corpus=FakeCorpus(), llm=lambda p: seen.append(p) or "Acme builds X. I built a parser.",
+                research=lambda: None, steer={"rule": "Sound like a person, not a model; show company research"})
+    assert "Sound like a person, not a model" in seen[0]

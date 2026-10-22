@@ -185,7 +185,9 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     from .segments import invented_links, sub_asks
     get_research = research if callable(research) else (lambda: research)
     if OUTREACH.search(question):
-        return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm, limit=limit)
+        cap = int(steer["max_words"] * 6.5) if (steer or {}).get("max_words") else None
+        return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm,
+                               limit=min(x for x in (limit, cap) if x) if (limit or cap) else None, steer=steer)
     asks = _steered(sub_asks(question, llm), steer)
     if (steer or {}).get("max_words"):                      # a length you set is a hard cap, like a field's maxlength
         cap = int(steer["max_words"] * 6.5)                 # ~6.5 characters per English word, spaces included

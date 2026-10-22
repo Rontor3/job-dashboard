@@ -69,10 +69,12 @@ def _prompt(question, company, facts, work, limit, avoid=None, goals=(), post=""
             "from the material; rephrase them.\n" + fix +
             "\nCOMPANY FACTS:\n" + ("\n".join(f"- {f}" for f in facts) or f"- (no research found; only the job post below)") +
             ("\n\nJOB POST:\n" + post if post and not facts else "") + "\n\nYOUR WORK:\n" + "\n".join(f"- {c.text}" for c in work) +
-            ("\n\nYOUR GOALS (your own words):\n" + "\n".join(f"- {c.text}" for c in goals) if goals else "") + "\n\nMessage:")
+            ("\n\nYOUR GOALS (your own words):\n" + "\n".join(f"- {c.text}" for c in goals) if goals else "") + "\n\nAnswer:")
 
 
-def answer_outreach(question, *, job, corpus, research, llm, limit=None) -> dict:
+def answer_outreach(question, *, job, corpus, research, llm, limit=None, steer=None) -> dict:
+    """`steer`: your saved rules for this kind of question (memory/lessons.py), followed like the essay writer does."""
+    from .asks import _ruled
     from .asks import _PREAMBLE, _THINK, _dedupe_sentences
     company = job.get("company") or "the company"
     facts = [f.text for f in (getattr(research, "facts", None) or [])][:5]
@@ -80,7 +82,8 @@ def answer_outreach(question, *, job, corpus, research, llm, limit=None) -> dict
     sources = [c.text for c in corpus.items if c.kind in ("passage", "story", "company")]
     text, avoid, notes = None, None, []
     for _ in range(2):                                       # one rewrite when it copies or opens with a stock line
-        prompt = _prompt(question, company, facts, work, limit, avoid, goals, (job.get("description") or "")[:1200])
+        prompt = _ruled(_prompt(question, company, facts, work, limit, avoid, goals, (job.get("description") or "")[:1200]),
+                        steer)
         raw = llm(prompt)
         text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
         avoid = copied_run(text, sources) or (text.split(".")[0] if _STOCK_OPEN.match(_GREETING.sub("", text)) else None)
