@@ -524,3 +524,26 @@ def test_result_dict_carries_filled_and_escalated_counts(monkeypatch):
     out2 = _run(page2, _board_flow(), monkeypatch, human=FakeHuman({}))
     assert out2["stopped_reason"] == "needs_human", out2
     assert out2["filled"] == 0 and out2["escalated"] == 1 == len(out2["pending_human"])
+
+
+class _SilentHuman:
+    """--park: questions are asked and nothing comes back."""
+
+    def approve(self, card):
+        return False
+
+    def collect(self, fields):
+        return {}
+
+
+def test_a_send_gated_on_an_unanswered_question_parks_it_instead_of_stuck(monkeypatch):
+    """wellfound live 2026-10-22: 'This job does not support the locations on your profile' gates Send; asked, no
+    answer came back -> the run parks that question (needs_human), not 'stuck' with nothing listed."""
+    _answers_ladder(monkeypatch)
+    loc = Field("#loc", "radio", "This job does not support the locations on your profile", False,
+                ["I am currently in...", "I can relocate to..."], None, None)
+    page = FakePage(screens=[[], [loc]])
+    b = {**_board_flow(), "entry": {"selector": "#apply", "submits": "no"}}
+    out = _run(page, b, monkeypatch, human=_SilentHuman())
+    assert out["stopped_reason"] == "needs_human", out
+    assert [f["ref"] for f in out["pending_human"]] == ["#loc"]

@@ -547,6 +547,12 @@ def run_board(page, board, ctx):
                     log.filled(page)
                     page.wait_for_timeout(1500)
                     continue
+            if nxt is None and asked_optional and optional:
+                # The gate is a question only you can answer (asked, none came back): park it, never 'stuck'.
+                left = [f for f in optional if f.ref not in {d.ref for d in done_decisions}]
+                if left:
+                    res["pending_human"] = [dataclasses.asdict(f) for f in left]
+                    return stop("needs_human", page)
             if nxt is None:
                 if ctx.get("fill_probe") and done_decisions:   # chat flow: the bot applies
                     return stop("reached_submit_dry_run", page)   # itself after the withheld answer

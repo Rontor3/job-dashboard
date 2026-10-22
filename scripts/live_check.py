@@ -96,7 +96,7 @@ def outcome_class(reason: str) -> str:
     r = reason or ""
     if r.startswith("reached_submit") or r in ("parked", "pending_human", "apply_is_one_click", "ready_for_review"):
         return "ok"
-    if r == "needs_answers":
+    if r in ("needs_answers", "needs_human"):
         return "needs_you"
     if r.startswith("closed") or "already_applied" in r or r == "site_refused":   # nothing we could fill
         return "gone"
