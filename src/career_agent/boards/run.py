@@ -373,6 +373,8 @@ def run_board(page, board, ctx):
     assist = ctx.get("assist")                      # opt-in Claude help at dead ends (orchestrator/claude_assist.py)
 
     def stop(reason, pg):
+        nonlocal done_decisions
+        done_decisions = list({d.ref: d for d in done_decisions}.values())   # a re-read refills the same field once
         res.update(stopped_reason=reason, url=pg.url, submitted=reason == "submitted",
                    decisions=[dataclasses.asdict(d) for d in done_decisions],
                    filled=len(done_decisions),             # the battle summary reads these two
@@ -479,6 +481,7 @@ def run_board(page, board, ctx):
             ctx["job_location"] = None
 
         asked_optional = False
+        reread = 0
         unanswered = 0
         clicked_sig = None
         retried_bounce = False
@@ -559,6 +562,11 @@ def run_board(page, board, ctx):
             driver.put(page, board, ctx, fields, decisions)
             done_decisions += decisions
             log.filled(page)                              # screenshot of the filled page, before Next
+            if reread < 2:
+                page.wait_for_timeout(800)
+                if {(f.label, f.kind) for f in driver.fields(page, board, ctx, cap)} - {(f.label, f.kind) for f in fields}:
+                    reread += 1                           # filling unlocked more of the form (wellfound: the interests
+                    continue                              # box is disabled until the location is answered) -> read again
             nxt = driver.next_control(page, board, ctx)
             if nxt is None and optional and not asked_optional:
                 # The form will not advance (Next/Submit absent or disabled) while

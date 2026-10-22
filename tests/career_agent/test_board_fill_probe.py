@@ -547,3 +547,28 @@ def test_a_send_gated_on_an_unanswered_question_parks_it_instead_of_stuck(monkey
     out = _run(page, b, monkeypatch, human=_SilentHuman())
     assert out["stopped_reason"] == "needs_human", out
     assert [f["ref"] for f in out["pending_human"]] == ["#loc"]
+
+
+class _UnlockingDeps(FakeDeps):
+    """Filling the first screen unlocks more of the form (a box disabled until a question is answered)."""
+
+    def fill(self, page, decisions):
+        super().fill(page, decisions)
+        self.i = min(self.i + 1, len(self.screens) - 1)
+
+
+def test_a_field_unlocked_by_filling_is_read_and_answered_before_send(monkeypatch):
+    # wellfound live 2026-10-22: 'What interests you' stays disabled until the location is answered; the run went
+    # straight to Send with it blank
+    from career_agent.boards import run as run_mod
+    monkeypatch.setattr(run_mod, "answer_fields", lambda fields, c: (
+        [FillDecision(f.ref, f.kind, f.label, "x", "fill", "profile") for f in fields if f.kind != "button"], []))
+    loc = Field("#loc", "text", "Location", False, [], None, None)
+    why = Field("#why", "textarea", "What interests you about working for this company?", False, [], None, None)
+    send = Field("#send", "button", "Send application", False, [], None, None)
+    page = FakePage(screens=[[], [loc, send], [loc, why, send]])
+    page.deps = _UnlockingDeps(page.deps.screens)
+    b = {**_board_flow(), "entry": {"selector": "#apply", "submits": "no"}}
+    out = _run(page, b, monkeypatch)
+    assert out["stopped_reason"] == "reached_submit_dry_run", out
+    assert sorted(d["ref"] for d in out["decisions"]) == ["#loc", "#why"]
