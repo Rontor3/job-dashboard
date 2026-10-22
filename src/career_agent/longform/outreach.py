@@ -46,7 +46,7 @@ def _goals(corpus) -> list[Chunk]:
         return []
 
 
-def _prompt(question, company, facts, work, limit, avoid=None, goals=()) -> str:
+def _prompt(question, company, facts, work, limit, avoid=None, goals=(), post="") -> str:
     size = f"under {limit} characters" if limit else "100-150 words"
     fix = f"\nYour last draft copied this phrase; say it in your own words instead: \"{avoid}\"\n" if avoid else ""
     return (f"Write the applicant's opening message to the team at {company}, in the first person, answering:\n\"{question}\"\n\n"
@@ -59,11 +59,13 @@ def _prompt(question, company, facts, work, limit, avoid=None, goals=()) -> str:
             "3. Briefly what you have done: one or two projects from YOUR WORK that connect to what they build, one short "
             "sentence each (name it, what you built). No deep explanations, no résumé tone.\n"
             "4. What you want to do going ahead: one sentence, from YOUR GOALS if given, tied to what you could build with them.\n"
-            "- Use only facts in the material; no invented numbers, names or links.\n"
+            "- Use only facts in the material; no invented numbers, names or links. Never guess what the company does or "
+            "its industry: with no COMPANY FACTS, talk about the work in the JOB POST instead.\n"
+            "- Put each beat in its own short paragraph, separated by a blank line.\n"
             "- Do not open the body with 'I enjoy', 'I am excited', 'I am writing' or 'I came across'. Do not copy sentences "
             "from the material; rephrase them.\n" + fix +
-            "\nCOMPANY FACTS:\n" + ("\n".join(f"- {f}" for f in facts) or f"- (only the job post: {company} is hiring)") +
-            "\n\nYOUR WORK:\n" + "\n".join(f"- {c.text}" for c in work) +
+            "\nCOMPANY FACTS:\n" + ("\n".join(f"- {f}" for f in facts) or f"- (no research found; only the job post below)") +
+            ("\n\nJOB POST:\n" + post if post and not facts else "") + "\n\nYOUR WORK:\n" + "\n".join(f"- {c.text}" for c in work) +
             ("\n\nYOUR GOALS (your own words):\n" + "\n".join(f"- {c.text}" for c in goals) if goals else "") + "\n\nMessage:")
 
 
@@ -75,7 +77,7 @@ def answer_outreach(question, *, job, corpus, research, llm, limit=None) -> dict
     sources = [c.text for c in corpus.items if c.kind in ("passage", "story", "company")]
     text, avoid, notes = None, None, []
     for _ in range(2):                                       # one rewrite when it copies or opens with a stock line
-        raw = llm(_prompt(question, company, facts, work, limit, avoid, goals))
+        raw = llm(_prompt(question, company, facts, work, limit, avoid, goals, (job.get("description") or "")[:1200]))
         text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
         avoid = copied_run(text, sources) or (text.split(".")[0] if _STOCK_OPEN.match(_GREETING.sub("", text)) else None)
         if not avoid:

@@ -94,7 +94,7 @@ def pick_jobs(conn, channels, per, spare=3, since="") -> list[tuple[str, list[tu
 def outcome_class(reason: str) -> str:
     """ok = form reached and filled to the end; gone = nothing to apply to; else captcha / gap (the agent stopped)."""
     r = reason or ""
-    if r.startswith("reached_submit") or r in ("parked", "pending_human"):
+    if r.startswith("reached_submit") or r in ("parked", "pending_human", "apply_is_one_click", "ready_for_review"):
         return "ok"
     if r == "needs_answers":
         return "needs_you"

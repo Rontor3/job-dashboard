@@ -80,3 +80,9 @@ def test_note_to_the_team_is_a_conversation_with_four_beats():
     for beat in ("What you like about their idea", "Why you want to be part of this team", "Briefly what you have done",
                  "What you want to do going ahead", "I want to ship LLM products"):
         assert beat in p
+
+
+def test_note_without_research_reads_the_job_post_and_never_guesses_the_sector():
+    from career_agent.longform.outreach import _prompt
+    p = _prompt("Start a conversation with the team at Kodo.", "Kodo", [], [], None, post="Build LLM features for spend management")
+    assert "JOB POST:\nBuild LLM features" in p and "Never guess what the company does" in p
