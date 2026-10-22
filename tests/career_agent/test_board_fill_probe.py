@@ -39,7 +39,7 @@ CTC = "Expected CTC"
 
 def _board_flow():
     """An entry whose click is judged submitting, with a real flow (final control) behind it."""
-    return {"id": "board:test", "archetype": "form", "entry": {"selector": "#apply", "submits": "yes"},
+    return {"id": "board:test", "archetype": "form", "entry": {"selector": "#apply", "submits": "maybe"},
             "final": ["Send application"], "advance": [],
             "confirm": [{"capture": "/api/confirm", "status": 200}],
             "logged_out": [], "interstitial": [], "uncheck": []}

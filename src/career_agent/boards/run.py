@@ -128,6 +128,8 @@ def _beyond_entry(board):
     sends answers until the bot applies itself) or declared final/advance controls. A one-click
     entry whose profile lists neither has nothing reversible to fill — the click IS the whole
     application (instahyre, iimjobs live 2026-09-27) — so fill-probe stays a dry_run for it."""
+    if (board.get("entry") or {}).get("submits") == "yes":
+        return False        # the click IS the application; final/advance are always set by profile defaults (live 2026-10-22: a dry run submitted on instahyre)
     return board.get("archetype") == "chat" or bool(board.get("final") or board.get("advance"))
 
 

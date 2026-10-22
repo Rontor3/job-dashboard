@@ -98,9 +98,9 @@ def outcome_class(reason: str) -> str:
         return "ok"
     if r == "needs_answers":
         return "needs_you"
-    if r.startswith("closed") or "already_applied" in r:
+    if r.startswith("closed") or "already_applied" in r or r == "site_refused":   # nothing we could fill
         return "gone"
-    return "captcha" if "captcha" in r else "gap"
+    return "captcha" if ("captcha" in r or "challenge" in r) else "gap"
 
 
 def run_job(jid: int, url: str, code_path: str, log_dir: Path) -> dict:
@@ -237,6 +237,9 @@ def main() -> None:
         g = grade(job, qa)
         results.append({"channel": ch, "job": job, "url": url, "result": res, "qa": qa, "grades": g})
         print(f"--- {jid} {res.get('stopped_reason')} filled={res.get('filled')} questions={len(qa)}", flush=True)
+        if res.get("submitted"):                      # a dry run must never submit: stop the batch, a human looks first
+            print(f"!!! {jid} SUBMITTED during a dry run — batch stopped", flush=True)
+            break
     out = Path("data/reports") / f"live_check_{stamp}.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     report(results, out)
