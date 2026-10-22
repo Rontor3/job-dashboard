@@ -453,9 +453,8 @@ def compile_question(question, kind, options, job, facts, llm, guidance="") -> d
         f"Stored facts:\n{schema(facts)}\n\n{OPS_HELP}\n\n"
         f"{COMPILE_RULES}" + PLAN_SHAPES)
     try:
-        reply = _THINK.sub("", llm(prompt) or "")
-        obj, _ = json.JSONDecoder().raw_decode(reply[reply.find("{"):])
-        return obj if isinstance(obj, dict) else {}
+        from ..orchestrator.claude_assist import first_json
+        return first_json(llm(prompt))
     except Exception:
         return {}        # a broken/quota-capped model is a missing plan, never a run killer (O3 fusion)
 

@@ -7,7 +7,7 @@ findings are stored in company_resources, so each company is researched once and
 them too. Never raises: no research is an empty bundle."""
 from __future__ import annotations
 
-import json
+from ..orchestrator.claude_assist import first_json
 import re
 import subprocess
 import tempfile
@@ -31,8 +31,7 @@ def haiku_lookup(company: str, title: str, timeout: int = 180) -> list[dict]:
                            input=_PROMPT.format(company=company, title=title or "a role"),
                            capture_output=True, text=True, timeout=timeout, cwd=tempfile.gettempdir())
         raw = r.stdout or ""
-        i = raw.find("{")
-        data = json.JSONDecoder().raw_decode(raw[i:])[0] if i >= 0 else {}
+        data = first_json(raw)
     except (BrokenPipeError, subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         m = {BrokenPipeError: "epipe", subprocess.TimeoutExpired: "timeout", FileNotFoundError: "cli_missing"}
         print(f"[assist] company research unavailable ({next((v for k, v in m.items() if isinstance(e, k)), 'os_error')})",

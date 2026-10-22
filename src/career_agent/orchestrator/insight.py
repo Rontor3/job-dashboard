@@ -18,7 +18,7 @@ The model never sees the current answer's value — only the field, where the an
 """
 from __future__ import annotations
 
-import json
+from .claude_assist import first_json
 import re
 
 LEVERS = ("trust", "fact", "lookup", "policy", "derive", "shape", "identify", "scope", "guide")
@@ -66,15 +66,7 @@ _BROAD = ("long", "short")            # never chosen for you: a lesson starts at
 
 
 def _parse(text: str) -> dict:
-    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.S)
-    i = text.find("{")
-    if i < 0:
-        return {}
-    try:
-        obj, _ = json.JSONDecoder().raw_decode(text[i:])
-    except ValueError:
-        return {}
-    return obj if isinstance(obj, dict) else {}
+    return first_json(text)
 
 
 def _generic(text, company: str):

@@ -13,11 +13,11 @@ Values never leave the machine: Haiku sees field labels, options and fact NAMES 
 """
 from __future__ import annotations
 
-import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 
 from . import facts as F
+from ..orchestrator.claude_assist import first_json
 from .factcards import _show, check_local, gate, question_of
 
 MAX_PER_PACKET = 12           # ponytail: fixed split of a long section; tune if replies start dropping fields
@@ -77,15 +77,7 @@ def _field_line(i, f, guidance="") -> str:
 
 
 def _parse(reply) -> dict:
-    reply = F._THINK.sub("", reply or "")
-    i = reply.find("{")
-    if i < 0:
-        return {}
-    try:
-        obj, _ = json.JSONDecoder().raw_decode(reply[i:])
-    except ValueError:
-        return {}
-    return obj if isinstance(obj, dict) else {}
+    return first_json(reply)
 
 
 def _norm_value(val) -> str:

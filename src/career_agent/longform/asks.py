@@ -143,14 +143,8 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
 
 
 def _json(raw: str) -> dict:
-    import json
-    raw = _THINK.sub("", raw or "")
-    i = raw.find("{")
-    try:
-        obj = json.JSONDecoder().raw_decode(raw[i:])[0] if i >= 0 else {}
-    except ValueError:
-        return {}
-    return obj if isinstance(obj, dict) else {}
+    from ..orchestrator.claude_assist import first_json
+    return first_json(raw)
 
 
 def uncovered(text: str, asks: list[dict], llm) -> list[int]:

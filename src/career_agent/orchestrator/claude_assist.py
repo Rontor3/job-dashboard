@@ -203,16 +203,25 @@ def with_claude_fallback(llm):
     return call
 
 
-def parse_action(text: str) -> dict | None:
-    """First JSON object in Claude's reply, or None."""
-    i = (text or "").find("{")
+_THINK = re.compile(r"<think>.*?</think>", re.S | re.I)
+
+
+def first_json(text) -> dict:
+    """First JSON object in a model reply (think-blocks stripped), or {} when there is none."""
+    text = _THINK.sub("", text or "")
+    i = text.find("{")
     if i < 0:
-        return None
+        return {}
     try:
         obj, _ = json.JSONDecoder().raw_decode(text[i:])
     except ValueError:
-        return None
-    return obj if isinstance(obj, dict) else None
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def parse_action(text: str) -> dict | None:
+    """First JSON object in Claude's reply, or None."""
+    return first_json(text) or None
 
 
 def validate(ans: dict | None, controls: list) -> dict | None:
