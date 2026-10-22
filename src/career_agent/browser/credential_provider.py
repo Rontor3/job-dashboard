@@ -1436,6 +1436,28 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
     return ok, action
 
 
+def _site_steps_cleared(page, site, cred, is_new, original_url) -> bool:
+    """IBM / Darwinbox / Infosys have their own register + login steps. True only when one of them ran AND the wall is
+    gone afterwards. A site's steps that miss their own fields (IBM 'IBMid field not found', live 2026-10-22: reported
+    handled:login, page still the login form) return False, so the caller falls through to the generic path."""
+    if any(h in site for h in _IBM_HOSTS) or _is_ibm_page(page):
+        name, register, login, reg_url = "ibm", _ibm_register, _ibm_login, original_url
+    elif "darwinbox" in site:
+        name, register, login, reg_url = "darwinbox", _darwinbox_register, _darwinbox_login, original_url
+    elif "infosys" in site:
+        name, register, login, reg_url = "infosys", _infosys_register, _infosys_login, None
+    else:
+        return False
+    if is_new:
+        register(page, cred, original_url=reg_url)
+    login(page, cred, original_url=original_url)
+    from .page_prep import is_wall
+    if not is_wall(page, page.url):
+        return True
+    print(f"[cred] {site}: the {name} steps left the wall up — trying the generic path", flush=True)
+    return False
+
+
 def _provide_attempt(page, gate: str, site: str, original_url: str | None = None,
                      email: str = "", phone: str = "", _retried: bool = False,
                      first_name: str = "", last_name: str = "") -> tuple[bool, str | None]:
@@ -1476,18 +1498,8 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
         save_credential(site, cred["username"], cred["password"], label=gate,
                         first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
 
-    if any(h in site for h in _IBM_HOSTS) or _is_ibm_page(page):
-        if is_new:
-            _ibm_register(page, cred, original_url=original_url)
-        _ibm_login(page, cred, original_url=original_url)
-    elif "darwinbox" in site:
-        if is_new:
-            _darwinbox_register(page, cred, original_url=original_url)
-        _darwinbox_login(page, cred, original_url=original_url)
-    elif "infosys" in site:
-        if is_new:
-            _infosys_register(page, cred, original_url=None)
-        _infosys_login(page, cred, original_url=original_url)
+    if _site_steps_cleared(page, site, cred, is_new, original_url):
+        pass
     else:
         # Generic path — observation-driven: look at the page, then act.
         if is_new and _inline_email_verify_state(page):

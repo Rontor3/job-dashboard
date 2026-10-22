@@ -178,6 +178,31 @@ def _interstitials(page, board):
             pass
 
 
+def _link_href(page, entry) -> str | None:
+    """The absolute http(s) address an entry link points at, else None ('#', javascript:, a button)."""
+    from urllib.parse import urljoin
+    try:
+        href = urljoin(page.url, entry.get_attribute("href", timeout=3000) or "")
+    except Exception:
+        return None
+    return href if href.startswith(("http://", "https://")) and href.split("#")[0] != page.url.split("#")[0] else None
+
+
+def follow_unseen_handoff(page, href, board):
+    """An external leg ("Apply on company site") opens a target=_blank tab that an attached Chrome may never report to
+    Playwright (Indeed -> careers.wipro.com, live 2026-10-22: the tab opened, context.pages never listed it, the run
+    read 0 fields on Indeed and stopped 'stuck'). Still on the board after the click -> open the link here instead."""
+    if not href or not on_board(page.url, board):
+        return page
+    print(f"[board] no new tab seen after the external leg — opening {href[:90]} in this tab", flush=True)
+    try:
+        page.goto(href, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2000)            # board redirectors (indeed.com/applystart) hop to the employer
+    except Exception as e:
+        print(f"[board] external hand-off failed: {type(e).__name__}: {str(e)[:160]}", flush=True)
+    return page
+
+
 def _entry_legs(board):
     """The board's ordered entry legs: the graph node's declared `chain` when it
     has one (an external handoff leg is expected to leave the board), else the
@@ -440,7 +465,7 @@ def run_board(page, board, ctx):
         pace(page)
         _before = list(page.context.pages)
         legs = _entry_legs(board)
-        clicked, err = None, None
+        clicked, err, handoff_href = None, None, None
         run_trace.start("entry_chain", legs=len(legs))   # on disk before any leg is clicked
         for leg in legs:
             entry = page.locator(leg["selector"]).filter(visible=True).first
@@ -448,6 +473,8 @@ def run_board(page, board, ctx):
                 try:
                     if len(legs) > 1 and not entry.is_visible():
                         continue            # a chain leg not on this page: the next leg decides
+                    if leg.get("handoff") == "external":
+                        handoff_href = _link_href(page, entry)
                     entry.click(timeout=8000, no_wait_after=True)
                 except Exception:
                     # Covered control (Instahyre lays an "Apply now" link over its
@@ -470,6 +497,8 @@ def run_board(page, board, ctx):
         run_trace.end("entry_chain", "done")             # no_entry stop leaves the start dangling on purpose
         page.wait_for_timeout(3000)
         page = new_tab_since(page, _before)      # the entry click may open a new tab
+        if clicked is not None and clicked.get("handoff") == "external":
+            page = follow_unseen_handoff(page, handoff_href, board)
         _interstitials(page, board)
         try:
             title = page.title().split("|")[0].strip()
