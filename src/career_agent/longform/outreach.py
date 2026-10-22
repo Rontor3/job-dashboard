@@ -1,6 +1,6 @@
 """A note to a team ('Start a conversation with the team at X', 'Reach out to the founders'): written like a person who
-looked the company up — one specific thing about what they build, one or two of your projects that connect to it in a
-sentence each, what you are looking for when asked. Never the stock opening of an ingredient note, never the job
+looked the company up and talks to the founders: what you like about their idea, why this team, a line on what you have done,
+what you want to do next (user feedback 2026-10-22). Never the stock opening of an ingredient note, never the job
 post's own sentences."""
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from .kb import Chunk
 OUTREACH = re.compile(r"\b(start a conversation|reach out to|message (to|for) the|note to the|introduce yourself|"
                       r"say hello|cover (letter|note))\b", re.I)
 _STOCK_OPEN = re.compile(r"^\s*(i enjoy|i am excited|i'm excited|i am writing|i'm writing|i came across|i hope)\b", re.I)
+_GREETING = re.compile(r"^\s*(hi|hello|hey)\b[^,\n]{0,40},\s*", re.I)
 _WORD = re.compile(r"[a-z0-9']+")
 
 
@@ -37,35 +38,46 @@ def _projects(corpus, job: dict, k: int = 2) -> list[Chunk]:
     return out
 
 
-def _prompt(question, company, facts, work, limit, avoid=None) -> str:
-    size = f"under {limit} characters" if limit else "90-140 words"
+def _goals(corpus) -> list[Chunk]:
+    """The applicant's own words on what they want to do next (a story slot), for the note's closing line."""
+    try:
+        return corpus.search("what I am looking for next, the work I want to do, career goals", 1, kinds={"story"}, floor=0.0)
+    except Exception:
+        return []
+
+
+def _prompt(question, company, facts, work, limit, avoid=None, goals=()) -> str:
+    size = f"under {limit} characters" if limit else "100-150 words"
     fix = f"\nYour last draft copied this phrase; say it in your own words instead: \"{avoid}\"\n" if avoid else ""
-    return (f"Write the applicant's note to the team at {company}, in the first person, answering:\n\"{question}\"\n\n"
-            f"Sound like a real person who has looked into {company}: warm, specific, plain words; {size}; two short "
-            "paragraphs; no greeting or sign-off unless the question asks for one.\n"
-            f"- Open with what draws you to {company}, built on ONE specific item from COMPANY FACTS (what they build, a "
-            "launch, a customer, the problem they solve), in your own words.\n"
-            "- Then one or two of your projects from YOUR WORK that connect to what they build: name it and say in one "
-            "sentence what you built and why it is relevant. Do not explain projects in depth.\n"
-            "- If the question asks what you are looking for, say it in one sentence.\n"
+    return (f"Write the applicant's opening message to the team at {company}, in the first person, answering:\n\"{question}\"\n\n"
+            "This starts a CONVERSATION with the founders, not a cover letter: talk to them (\"you\", \"your team\"), warm, "
+            f"plain, natural words with contractions; {size}; short paragraphs. Open with \"Hi {company} team,\" and no sign-off.\n"
+            "Cover these four beats, in this order:\n"
+            f"1. What you like about their idea: ONE specific thing from COMPANY FACTS (what they build, the problem they "
+            "solve, a launch), in your own words, and why it clicks for you.\n"
+            "2. Why you want to be part of this team: what about joining them, at this stage, appeals to you.\n"
+            "3. Briefly what you have done: one or two projects from YOUR WORK that connect to what they build, one short "
+            "sentence each (name it, what you built). No deep explanations, no résumé tone.\n"
+            "4. What you want to do going ahead: one sentence, from YOUR GOALS if given, tied to what you could build with them.\n"
             "- Use only facts in the material; no invented numbers, names or links.\n"
-            "- Do not open with 'I enjoy', 'I am excited', 'I am writing' or 'I came across'. Do not copy sentences from "
-            "the material; rephrase them.\n" + fix +
-            f"\nCOMPANY FACTS:\n" + ("\n".join(f"- {f}" for f in facts) or f"- (only the job post: {company} is hiring)") +
-            "\n\nYOUR WORK:\n" + "\n".join(f"- {c.text}" for c in work) + "\n\nNote:")
+            "- Do not open the body with 'I enjoy', 'I am excited', 'I am writing' or 'I came across'. Do not copy sentences "
+            "from the material; rephrase them.\n" + fix +
+            "\nCOMPANY FACTS:\n" + ("\n".join(f"- {f}" for f in facts) or f"- (only the job post: {company} is hiring)") +
+            "\n\nYOUR WORK:\n" + "\n".join(f"- {c.text}" for c in work) +
+            ("\n\nYOUR GOALS (your own words):\n" + "\n".join(f"- {c.text}" for c in goals) if goals else "") + "\n\nMessage:")
 
 
 def answer_outreach(question, *, job, corpus, research, llm, limit=None) -> dict:
     from .asks import _PREAMBLE, _THINK, _dedupe_sentences
     company = job.get("company") or "the company"
     facts = [f.text for f in (getattr(research, "facts", None) or [])][:5]
-    work = _projects(corpus, job)
+    work, goals = _projects(corpus, job), _goals(corpus)
     sources = [c.text for c in corpus.items if c.kind in ("passage", "story", "company")]
     text, avoid, notes = None, None, []
     for _ in range(2):                                       # one rewrite when it copies or opens with a stock line
-        raw = llm(_prompt(question, company, facts, work, limit, avoid))
+        raw = llm(_prompt(question, company, facts, work, limit, avoid, goals))
         text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
-        avoid = copied_run(text, sources) or (text.split(".")[0] if _STOCK_OPEN.match(text) else None)
+        avoid = copied_run(text, sources) or (text.split(".")[0] if _STOCK_OPEN.match(_GREETING.sub("", text)) else None)
         if not avoid:
             break
         notes.append("rewrote_copied_phrase")

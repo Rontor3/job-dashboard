@@ -68,3 +68,15 @@ def test_a_note_to_the_team_uses_company_research_not_a_stock_opening():
                       research=lambda: research)
     assert "Digital Surveyor" in seen[0] and "Built a document parser" in seen[0]
     assert out["answer"].startswith("Digital Surveyor") and "rewrote_copied_phrase" in out["notes"]
+
+
+def test_note_to_the_team_is_a_conversation_with_four_beats():
+    from career_agent.longform.outreach import _prompt
+    from career_agent.longform.kb import Chunk
+    p = _prompt("Start a conversation with the team at Knowtex.", "Knowtex", ["Knowtex turns clinic visits into notes."],
+                [Chunk("p1", "passage", "Built a claims document parser", project_id="u1")], None,
+                goals=[Chunk("story:story_looking_for", "story", "I want to ship LLM products in regulated domains")])
+    assert "Hi Knowtex team," in p and "CONVERSATION" in p
+    for beat in ("What you like about their idea", "Why you want to be part of this team", "Briefly what you have done",
+                 "What you want to do going ahead", "I want to ship LLM products"):
+        assert beat in p
