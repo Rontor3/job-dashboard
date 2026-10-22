@@ -184,6 +184,8 @@ def cred_provide_node(state: AgentState, config) -> dict:
     _prof = c.get("profile")
     _email = _prof.contact.get("email", "") if _prof and hasattr(_prof, "contact") else ""
     _phone = _prof.contact.get("phone", "") if _prof and hasattr(_prof, "contact") else ""
+    from .profile_resolver import _name_parts
+    _nm = _name_parts(_prof.contact if _prof and hasattr(_prof, "contact") else {})
 
     # reach_node may have opened a new tab (e.g. Taleo login); resolve the
     # actual current page from state["url"] so provide() runs on the right tab.
@@ -208,7 +210,7 @@ def cred_provide_node(state: AgentState, config) -> dict:
 
     def _prov(pg, gate, site):
         handled, action = _provide(pg, gate, site, original_url=original_url, email=_email, phone=_phone,
-                                   collector=c.get("collector"))
+                                   collector=c.get("collector"), first_name=_nm[0], last_name=_nm[1])
         _cred_result["action"] = action
         return handled
 
@@ -719,7 +721,10 @@ def advance_node(state: AgentState, config) -> dict:
         _adv_email = _adv_prof.contact.get("email", "") if _adv_prof and hasattr(_adv_prof, "contact") else ""
         from ..browser.credential_provider import provide as _provide
         _adv_phone = _adv_prof.contact.get("phone", "") if _adv_prof and hasattr(_adv_prof, "contact") else ""
-        _prov = lambda pg, gate, site: _provide(pg, gate, site, original_url=_job_url, email=_adv_email, phone=_adv_phone)
+        from .profile_resolver import _name_parts
+        _nm = _name_parts(_adv_prof.contact if _adv_prof and hasattr(_adv_prof, "contact") else {})
+        _prov = lambda pg, gate, site: _provide(pg, gate, site, original_url=_job_url, email=_adv_email, phone=_adv_phone,
+                                                first_name=_nm[0], last_name=_nm[1])
         print(f"[cred] {_kind} wall mid-walk — credential provider...", flush=True)
         clear_auth_wall(page, credential_provider=_prov)
         from ..browser.page_prep import is_application_form

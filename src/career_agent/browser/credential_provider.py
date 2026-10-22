@@ -1417,7 +1417,8 @@ def _reveal_email_form(page) -> bool:
 
 
 def provide(page, gate: str, site: str, original_url: str | None = None,
-            email: str = "", phone: str = "", collector=None, _retried: bool = False) -> tuple[bool, str | None]:
+            email: str = "", phone: str = "", collector=None, _retried: bool = False,
+            first_name: str = "", last_name: str = "") -> tuple[bool, str | None]:
     """Boundary print around _provide_attempt: the cred machinery must name itself in the run log
     above and below every attempt, so a stall (a silent 660 s wall, battle #1) shows its edges.
 
@@ -1428,7 +1429,8 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
     _ASK["collector"] = collector
     _PARK["reason"] = None
     try:
-        ok, action = _provide_attempt(page, gate, site, original_url, email, phone, _retried)
+        ok, action = _provide_attempt(page, gate, site, original_url, email, phone, _retried,
+                                      first_name, last_name)
     finally:
         parked, _ASK["collector"] = _PARK["reason"], None
     if parked and not ok:
@@ -1439,7 +1441,8 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
 
 
 def _provide_attempt(page, gate: str, site: str, original_url: str | None = None,
-                     email: str = "", phone: str = "", _retried: bool = False) -> tuple[bool, str | None]:
+                     email: str = "", phone: str = "", _retried: bool = False,
+                     first_name: str = "", last_name: str = "") -> tuple[bool, str | None]:
     """Fill an account/login wall using stored or freshly-generated credentials.
 
     Flow:
@@ -1465,10 +1468,7 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
     if cred is None:
         username = _email_on_page(page) or email or _default_email()
         password = generate_password()
-        extra = {
-            "first_name": os.getenv("CAREER_AGENT_FIRST_NAME", "Rakshit"),
-            "last_name": os.getenv("CAREER_AGENT_LAST_NAME", "Singh"),
-        }
+        extra = {"first_name": first_name, "last_name": last_name}      # the candidate's own, from the profile contact
         # For SPECIALS, save now (they manage their own flow); generic path saves after confirm
         cred = {"username": username, "password": password, "label": gate, **extra}
     cred = {**cred, "phone": phone}          # profile phone for the account form's required fields; never saved
@@ -1579,5 +1579,6 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
                     page.wait_for_timeout(1500)
                 except Exception:
                     pass
-                return provide(page, gate, site, original_url, email, phone, _retried=True)
+                return provide(page, gate, site, original_url, email, phone, _retried=True,
+                               first_name=first_name, last_name=last_name)
     return True, ("register" if is_new else "login")

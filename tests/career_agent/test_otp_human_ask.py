@@ -89,7 +89,7 @@ def test_the_otp_ask_reports_the_field_to_the_human_channel(monkeypatch):
 
 
 def test_park_reason_rides_out_as_the_provider_action(monkeypatch):
-    def _attempt(page, gate, site, original_url, email, phone, retried):
+    def _attempt(page, gate, site, original_url, email, phone, retried, first_name="", last_name=""):
         cp._otp_unanswered("acme.com")                    # what a silent OTP handler does
         return False, "login"                             # the wall was not cleared
     monkeypatch.setattr(cp, "_provide_attempt", _attempt)

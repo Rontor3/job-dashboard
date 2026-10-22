@@ -487,9 +487,11 @@ def _apply(args, box: dict) -> None:
         from .browser.page_prep import clear_auth_wall
         _job_url = args.url
         _profile_email = contact.get("email", "")
+        from .orchestrator.profile_resolver import _name_parts
+        _nm = _name_parts(contact)
         _provide_url = lambda pg, gate, site: _provide(
             pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""),
-            collector=collector)
+            collector=collector, first_name=_nm[0], last_name=_nm[1])
         _run_dir = str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         _assist = _make_assist(args, _run_dir)         # one assist for whichever engine runs this job
         if not _board:
