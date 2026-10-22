@@ -206,3 +206,30 @@ def test_skill_years_fields_use_the_skill_table_by_shape_not_wording():
                             fld("c", "How many years of work experience do you have with Docker?")])
     assert {d.ref: d.value for d in got} == {"a": "3", "b": "2"}
     assert [f.ref for f in rest] == ["c"]          # unlisted skill is never invented
+
+
+def test_a_placeholder_dash_dropdown_pairs_with_the_relocate_choice_and_respects_places(tmp_path):
+    # wellfound live 2026-10-22: the city dropdown reads '-' (its placeholder), so the pair was missed and asked
+    import json, sqlite3
+    from types import SimpleNamespace as NS
+    from career_agent.boards.run import _ask, relocation_allowed
+    db = str(tmp_path / "j.db")
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE qbank_entry(id TEXT, answer TEXT, synonyms TEXT)")
+    c.execute("INSERT INTO qbank_entry VALUES('relocation_places','India; not: UAE, US', ?)",
+              (json.dumps({"India": ["india", "delhi"], "UAE": ["dubai"], "US": ["new york"]}),)); c.commit()
+    assert relocation_allowed("Delhi", db) is True and relocation_allowed("Dubai", db) is False
+    assert relocation_allowed("Lagos", db) is None
+    choice = Field("group:loc", "radio_group", "This job does not support the locations on your profile.", False,
+                   ["I am currently in…", "I can relocate to…"], None, None)
+    value = Field("#loc", "text", "-", False, [], None, None)
+
+    class NoHuman:
+        def collect(self, fields):
+            raise AssertionError("must not ask")
+
+    prof = NS(contact={"willing_to_relocate": True, "location": "Mumbai, India"})
+    d, left = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "Delhi", "db": db})
+    assert {x.ref: x.value for x in d} == {"group:loc": "I can relocate to…", "#loc": "Delhi"} and left == []
+    d, _ = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "Dubai", "db": db})
+    assert {x.ref: x.value for x in d} == {"group:loc": "I am currently in…", "#loc": "Mumbai"}

@@ -10,6 +10,7 @@ fills everything reversible and refuses the final click/answer, so the run ends
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 
 from job_dashboard.sources.cdp.session import Capture
@@ -214,7 +215,7 @@ def _paired(needs):
     choice = next((f for f in needs if f.options
                    and all(o.rstrip().endswith(("…", "...")) for o in f.options)), None)
     value = next((f for f in needs if f.kind in ("text", "combobox")
-                  and not (f.label or "").strip()), None)
+                  and not re.search(r"[A-Za-z]{2}", f.label or "")), None)   # unlabelled, or only a placeholder like "-" (wellfound)
     return (choice, value) if choice and value else (None, None)
 
 
@@ -244,12 +245,30 @@ def _pair_from_profile(choice, value, ctx):
     contact = getattr(ctx.get("profile"), "contact", None) or {}
     reloc = next((o for o in choice.options if "relocat" in o.lower()), None)
     here = next((o for o in choice.options if re.search(r"\b(currently|live|based)\b", o, re.I)), None)
-    if contact.get("willing_to_relocate") and reloc and ctx.get("job_location"):
+    if contact.get("willing_to_relocate") and reloc and ctx.get("job_location") \
+            and relocation_allowed(ctx["job_location"], ctx.get("db", "data/jobs.db")) is not False:
         return {choice.ref: reloc, value.ref: ctx["job_location"]}
     city = (contact.get("location") or "").split(",")[0].strip()
     if here and city:
         return {choice.ref: here, value.ref: city}
     return {}
+
+
+def relocation_allowed(place, db="data/jobs.db"):
+    """Your saved 'Which places are you willing to relocate to?' (qbank relocation_places, 'India; not: UAE, US, ...'
+    + synonyms per place) applied to `place`: True / False, or None when the bank has no answer or the place is unknown."""
+    import sqlite3
+    try:
+        row = sqlite3.connect(db).execute(
+            "SELECT answer, synonyms FROM qbank_entry WHERE id='relocation_places'").fetchone()
+        answer, syn = row[0] or "", json.loads(row[1] or "{}")
+    except Exception:
+        return None
+    yes, _, no = answer.partition("not:")
+    hit = lambda labels: any(s in (place or "").lower() for lab in labels for s in syn.get(lab, [lab.lower()]))  # noqa: E731
+    if hit([x.strip() for x in no.split(",") if x.strip()]):
+        return False
+    return True if hit([x.strip() for x in yes.split(";") if x.strip()]) else None
 
 
 def _job_location(text):
