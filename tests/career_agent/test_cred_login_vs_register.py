@@ -251,3 +251,10 @@ def test_a_pending_credential_is_not_a_login_until_a_submit_confirms_it(tmp_path
     assert cp.confirm_pending_credentials("https://jobs.example.com/apply/thanks") == 1     # only that site's
     assert cp.load_credential("jobs.example.com", label="password")["password"] == "pw"
     assert cp.load_credential("other.example.org", label="password") is None
+
+
+def test_registration_cue_reads_choose_how_youd_like_to_apply():
+    from career_agent.browser.credential_provider import _REGISTRATION_CUE
+    assert _REGISTRATION_CUE.search("New to Tesco Careers? Choose how you’d like to apply")
+    assert _REGISTRATION_CUE.search("Choose how you would like to apply")
+    assert not _REGISTRATION_CUE.search("Choose how often we email you")

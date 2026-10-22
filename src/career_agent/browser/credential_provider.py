@@ -1229,9 +1229,9 @@ _REGISTRATION_OPTIONS = ["self-complete", "self complete", "fill in manually", "
                          "manual registration", "upload cv later", "upload resume later", "continue without",
                          "without resume", "without a resume", "without cv", "without a cv"]
 # Avature (Koch, live 2026-10-18): "Choose any option to apply — From Device / Copy & Paste / Without Resume / Indeed /
-# Google / XING" behind its "Create an account" link.
+# Google / XING" behind its "Create an account" link; Tesco (live 2026-10-22): "New to ...? Choose how you'd like to apply".
 _REGISTRATION_CUE = _re.compile(r"create (an )?account (using|with|by)|register (using|with|by)|sign up (using|with|by)"
-                                r"|choose (any|an|one|a) (option|way|method) to apply|choose a method"
+                                r"|choose (any|an|one|a) (option|way|method) to apply|choose a method|choose how\b.{0,20}\bapply"
                                 r"|how (would|do) you (like|want) to apply|ways to apply|first time here", _re.I)
 # Keywords that, if present in ANY visible link/button text, aria-label, or title
 # on a login/signup wall, indicate an account-free path. Checked as substrings.

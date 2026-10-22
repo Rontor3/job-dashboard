@@ -423,6 +423,23 @@ def is_closed_posting(page) -> bool:
         return False
 
 
+_LISTING_TAIL = {"", "jobs", "careers", "career", "job-search", "jobsearch", "search", "searchjobs", "opportunities",
+                 "openings", "positions", "vacancies"}
+
+
+def redirected_to_listing(requested: str, landed: str) -> bool:
+    """A link to ONE posting (a deeper path) landed on the same site's job list or home: the posting is gone (Himalayas,
+    live 2026-10-22: /companies/x/jobs/<slug> -> /jobs). A login or apply step lands elsewhere, so it never matches."""
+    from urllib.parse import urlsplit
+    a, b = urlsplit(requested or ""), urlsplit(landed or "")
+    host = lambda u: u.netloc.lower().removeprefix("www.")  # noqa: E731
+    if not a.netloc or host(a) != host(b):
+        return False
+    pa, pb = [x for x in a.path.split("/") if x], [x for x in b.path.split("/") if x]
+    return len(pa) >= 2 and len(pb) < len(pa) and len(pb) <= 1 and (pb[-1].lower() if pb else "") in _LISTING_TAIL \
+        and not b.query
+
+
 # An email-first account wall: the password box sits behind a "Sign in with email" control, beside social sign-in
 # buttons (Workday; live Hitachi 2026-10-18). Matched on the control's whole text, so the same words inside a long
 # form can't make it a wall. Shared by classify_entry (detection) and credential_provider (the click that reveals it).

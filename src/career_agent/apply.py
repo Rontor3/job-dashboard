@@ -400,7 +400,8 @@ def _apply(args, box: dict) -> None:
         collector, on_link = human.collector, None
         notifier = None
     from .browser.page_prep import (prepare, classify_entry, enter_application, email_auth, is_application_form,
-                                    is_closed_posting, new_tab_since, reach_application_form)
+                                    is_closed_posting, new_tab_since, reach_application_form,
+                                    redirected_to_listing)
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
     _tabs = TabLedger(context, page)             # the tabs this run opens: closed when they have served
@@ -470,7 +471,8 @@ def _apply(args, box: dict) -> None:
                 pass
         prepare(page)                          # clear cookie/idle overlays
         kind = classify_entry(page, status=resp.status if resp else None)
-        if kind == "closed" or (is_closed_posting(page) and not is_application_form(page)):
+        if kind == "closed" or redirected_to_listing(args.url, page.url) \
+                or (is_closed_posting(page) and not is_application_form(page)):
             # expired / removed / "not accepting applications": the tracker marks it closed and its tab is shut
             print("[skip] this posting is closed or no longer available.")
             box["out"] = {"url": args.url, "stopped_reason": "closed"}

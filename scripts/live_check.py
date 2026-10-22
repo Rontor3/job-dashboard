@@ -56,7 +56,8 @@ def close_tab(tid: str) -> None:
         pass
 
 
-def pick_jobs(conn, channels, per) -> list[tuple[str, int, str]]:
+def pick_jobs(conn, channels, per, spare=3) -> list[tuple[str, list[tuple[int, str]]]]:
+    """Per channel, `per` jobs plus spares: a posting found closed / already applied is replaced by the next one."""
     rows = conn.execute(
         "SELECT j.id, coalesce(nullif(j.apply_url,''), j.job_url) FROM jobs j JOIN match_scores m ON m.job_id=j.id "
         "WHERE coalesce(j.status,'new') IN ('new','') AND coalesce(j.expired,0)=0 "
@@ -66,17 +67,28 @@ def pick_jobs(conn, channels, per) -> list[tuple[str, int, str]]:
         "ORDER BY (m.verdict='Strong Fit') DESC, (m.verdict='Good Fit') DESC, j.fetched_at DESC").fetchall()
     out, used = [], set()
     for ch in channels:
-        n = 0
+        cands = []
         for jid, url in rows:
             u = (url or "").lower()
             if jid in used or any(b in u for b in NEVER) or not any(p in u for p in CHANNELS[ch]):
                 continue
             if ch == "career_site" and any(p in u for c, ps in CHANNELS.items() if c != "career_site" for p in ps):
                 continue                              # a board's own /jobs/ page is that board, not a company site
-            out.append((ch, jid, url)); used.add(jid); n += 1
-            if n >= per:
+            cands.append((jid, url)); used.add(jid)
+            if len(cands) >= per + spare:
                 break
+        out.append((ch, cands))
     return out
+
+
+def outcome_class(reason: str) -> str:
+    """ok = form reached and filled to the end; gone = nothing to apply to; else captcha / gap (the agent stopped)."""
+    r = reason or ""
+    if r.startswith("reached_submit") or r in ("parked", "pending_human"):
+        return "ok"
+    if r.startswith("closed") or "already_applied" in r:
+        return "gone"
+    return "captcha" if "captcha" in r else "gap"
 
 
 def run_job(jid: int, url: str, code_path: str, log_dir: Path) -> dict:
@@ -136,7 +148,10 @@ def report(results: list[dict], out: Path) -> None:
     def esc(x):
         return html.escape(str(x or ""))
     blocks, tot = [], {"answered": 0, "rel2": 0, "rel0": 0, "gap": 0, "needs_you": 0, "captcha": 0}
+    stops = {"ok": 0, "gone": 0, "captcha": 0, "gap": 0}
     for r in results:
+        oc = outcome_class(r["result"].get("stopped_reason"))
+        stops[oc] += 1
         rows = []
         for q, g in zip(r["qa"], r["grades"] + [{}] * (len(r["qa"]) - len(r["grades"]))):
             ans = str(q["answer"] or "")
@@ -152,14 +167,16 @@ def report(results: list[dict], out: Path) -> None:
             rows.append(f"<tr><td>{esc(q['label'][:90])}</td><td>{esc(ans[:140])}</td><td>{esc(q['source'])}</td>"
                         f"<td>{verdict}</td><td>{esc(g.get('note'))}</td></tr>")
         blocks.append(f"<h2>{esc(r['channel'])} · {esc(r['job'].get('company'))} — {esc(r['job'].get('title'))}</h2>"
-                      f"<p>outcome: <b>{esc(r['result'].get('stopped_reason'))}</b> · filled {esc(r['result'].get('filled'))}"
+                      f"<p>outcome: <b>{esc(r['result'].get('stopped_reason'))}</b> "
+                      f"{ {'ok': '✅', 'gone': '⏹ posting gone', 'captcha': '🤖 captcha', 'gap': '⚠️ agent stopped'}[oc]} · filled {esc(r['result'].get('filled'))}"
                       f" · <a href='{esc(r['result'].get('url') or r['url'])}'>final page</a></p>"
                       f"<table><tr><th>Question</th><th>Answer</th><th>Source</th><th>Verdict</th><th>Why</th></tr>"
                       + "".join(rows) + "</table>")
     pct = f"{100 * tot['rel2'] // tot['answered']}%" if tot["answered"] else "–"
     head = (f"<h1>Live check — {datetime.now().strftime('%Y-%m-%d %H:%M')}</h1><p>{len(results)} jobs · {tot['answered']} "
             f"answers, {pct} fully relevant, {tot['rel0']} wrong · blanks: {tot['gap']} agent gaps, {tot['needs_you']} "
-            f"need you, {tot['captcha']} captcha</p>")
+            f"need you, {tot['captcha']} captcha</p><p>runs: {stops['ok']} reached the end, {stops['gap']} agent stopped, "
+            f"{stops['captcha']} captcha, {stops['gone']} posting gone</p>")
     css = ("body{font:14px -apple-system,sans-serif;margin:24px;max-width:1200px}table{border-collapse:collapse;width:100%}"
            "td,th{border:1px solid #ddd;padding:4px 6px;vertical-align:top;text-align:left}th{background:#f4f4f4}"
            "h2{margin-top:28px}")
@@ -180,7 +197,8 @@ def main() -> None:
         picks = []
         for j in a.jobs.split(","):
             u = conn.execute("SELECT coalesce(nullif(apply_url,''),job_url) FROM jobs WHERE id=?", (int(j),)).fetchone()
-            picks.append(("given", int(j), u[0] if u else ""))
+            picks.append(("given", [(int(j), u[0] if u else "")]))
+        a.per = len(picks)
     else:
         picks = pick_jobs(conn, [c for c in a.channels.split(",") if c in CHANNELS], a.per)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
@@ -188,21 +206,20 @@ def main() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     human_tabs = set(tabs())                          # never touched
     results = []
-    for ch, jid, url in picks:
+    for ch, jid, url in ((ch, jid, url) for ch, cands in picks for jid, url in cands):
+        if sum(r["channel"] == ch and outcome_class(r["result"].get("stopped_reason")) != "gone" for r in results) >= a.per:
+            continue                                  # this channel already has its live run(s)
         job = dict(zip(["title", "company"], conn.execute("SELECT title, company FROM jobs WHERE id=?", (jid,)).fetchone()))
         print(f"=== {ch} {jid} {job['company']} — {job['title']}", flush=True)
         since = datetime.now(timezone.utc).isoformat()
         before = set(tabs())
         res = run_job(jid, url, a.code, log_dir)
         final = (res.get("url") or "").split("#")[0]
-        kept = False
-        for tid, turl in tabs().items():             # only this job's final page survives
-            if tid in before or tid in human_tabs:
-                continue
-            if not kept and final and turl.split("#")[0] == final:
-                kept = True
-                continue
-            close_tab(tid)
+        new = {t: u for t, u in tabs().items() if t not in before and t not in human_tabs}
+        keep = next((t for t, u in new.items() if final and u.split("#")[0] == final), None) or next(iter(new), None)
+        for tid in new:                               # only this job's final page survives (else its newest tab)
+            if tid != keep:
+                close_tab(tid)
         qa = answers(sqlite3.connect(a.db), jid, since)
         g = grade(job, qa)
         results.append({"channel": ch, "job": job, "url": url, "result": res, "qa": qa, "grades": g})

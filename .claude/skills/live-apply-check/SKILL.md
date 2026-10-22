@@ -30,12 +30,14 @@ What the script guarantees:
 - **Dry run only**: `--review` (never the final submit click) + `--park` (never waits on the human).
 - **One job at a time.** Picks one untried Strong/Good/Moderate-fit job per channel; skips one-click boards
   (Naukri native, iimjobs, LinkedIn Easy Apply) because their Apply IS the submit.
+  A posting found closed / already applied is replaced by the channel's next job (up to 3 spares).
 - **Tabs**: tabs open before the check are never touched; of each job's tabs only its final page is kept.
 - **Grading**: Claude haiku grades each (question, answer): 2 relevant / 1 partial / 0 wrong; each blank:
   captcha / needs_you / gap.
 
 ## After the run
-1. Read the report's header line: answered, % fully relevant, wrong, gaps.
+1. Read the report's header lines: answered, % fully relevant, wrong, gaps; runs reached the end / agent stopped
+   (`⚠️ agent stopped` = a gap even with no questions) / captcha / posting gone.
 2. For each `⚠️ agent gap` and `❌ wrong`: open that job's log, find the root cause (perception, entry/reach,
    credentials, answer, fill), fix it **generically** (by page structure, never a site name), add a test, commit.
 3. Re-run only the affected jobs with `--jobs <ids>` to confirm.
