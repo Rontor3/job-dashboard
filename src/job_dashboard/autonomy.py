@@ -70,10 +70,6 @@ def approvals(conn, entry_id: str) -> int:
     return int(r[0] or 0) if r else 0
 
 
-def is_autonomous_entry(conn, entry_id: str) -> bool:
-    return approvals(conn, entry_id) >= AUTONOMY_THRESHOLD
-
-
 def _set(conn, entry_id: str, n: int) -> None:
     conn.execute("UPDATE qbank_entry SET approvals=? WHERE id=?", (n, entry_id))
 

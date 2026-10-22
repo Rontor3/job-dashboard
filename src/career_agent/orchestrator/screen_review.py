@@ -85,13 +85,6 @@ def _unit_days(text):
     return _UNIT_DAYS[m[1]] if m else None
 
 
-def _in_days(text):
-    """(unit_days, lo, hi) of a quantity-with-unit option/value, in days; None if unitless."""
-    u = _unit_days(text)
-    band = _option_range(text) if u else None
-    return (u, band) if u and band else None
-
-
 def _coerce_option(value, options):
     """Map a profile value onto one of a field's real options. Tries, in order:
     exact, yes/no word, numeric-range containment (e.g. 3 -> '3-5 years'), then

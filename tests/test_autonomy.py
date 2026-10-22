@@ -22,7 +22,7 @@ def test_unchanged_answers_earn_approvals_and_an_edit_resets_them():
         _row(c, f"r{n}", "#a", "Notice period", "30 days", "qbank", "notice_period")
         out = autonomy.record_submission(c, 1, f"r{n}", {"notice period": "30 days"}, "manual", "https://x.example/apply")
         assert out == {"approved": 1, "edited": 0}
-    assert autonomy.approvals(c, "notice_period") == 3 and autonomy.is_autonomous_entry(c, "notice_period")
+    assert autonomy.approvals(c, "notice_period") == autonomy.AUTONOMY_THRESHOLD == 3
     _row(c, "r9", "#a", "Notice period", "30 days", "qbank", "notice_period")
     assert autonomy.record_submission(c, 1, "r9", {"notice period": "60 days"}, "manual") == {"approved": 0, "edited": 1}
     assert autonomy.approvals(c, "notice_period") == 0                                   # an edit resets to 0

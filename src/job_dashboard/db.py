@@ -157,15 +157,6 @@ def upsert_company_classification(conn, company_key, industry, company_type, met
     conn.commit()
 
 
-def get_company_classification(conn, company_key):
-    row = conn.execute(
-        "SELECT company_key, industry, company_type, method, updated_at "
-        "FROM company_classifications WHERE company_key = ?", (company_key,)).fetchone()
-    if row is None:
-        return None
-    return dict(zip(("company_key", "industry", "company_type", "method", "updated_at"), row))
-
-
 def unclassified_companies(conn):
     rows = conn.execute(
         """SELECT DISTINCT LOWER(TRIM(j.company)) k
