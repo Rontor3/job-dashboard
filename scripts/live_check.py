@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from urllib.parse import urlsplit
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,6 +57,13 @@ def close_tab(tid: str) -> None:
         pass
 
 
+def _is_listing(url: str) -> bool:
+    """A careers home / job list ('acme.com/career/'), not one posting."""
+    from career_agent.browser.page_prep import _LISTING_TAIL
+    parts = [x for x in urlsplit(url).path.split("/") if x]
+    return len(parts) <= 1 and (parts[-1] if parts else "") in _LISTING_TAIL
+
+
 def pick_jobs(conn, channels, per, spare=3, since="") -> list[tuple[str, list[tuple[int, str]]]]:
     """Per channel, `per` jobs plus spares: a posting found closed / already applied is replaced by the next one."""
     rows = conn.execute(
@@ -63,14 +71,16 @@ def pick_jobs(conn, channels, per, spare=3, since="") -> list[tuple[str, list[tu
         "WHERE coalesce(j.status,'new') IN ('new','') AND coalesce(j.expired,0)=0 "
         "AND j.id NOT IN (SELECT job_id FROM apply_queue WHERE job_id IS NOT NULL) "
         "AND j.id NOT IN (SELECT DISTINCT job_id FROM application_qa WHERE job_id IS NOT NULL) "
-        "AND m.verdict IN ('Strong Fit','Good Fit','Moderate Fit') AND coalesce(j.fetched_at,'') >= ? "
-        "ORDER BY (m.verdict='Strong Fit') DESC, (m.verdict='Good Fit') DESC, j.fetched_at DESC", (since,)).fetchall()
+        "AND j.id NOT IN (SELECT DISTINCT job_id FROM run_log WHERE job_id IS NOT NULL) "
+        "AND (m.verdict IN ('Strong Fit','Good Fit','Moderate Fit') OR (m.verdict IS NULL AND m.embed_score >= 0.55)) AND coalesce(j.fetched_at,'') >= ? "
+        "ORDER BY (m.verdict='Strong Fit') DESC, (m.verdict='Good Fit') DESC, j.fetched_at DESC, m.embed_score DESC", (since,)).fetchall()
     out, used = [], set()
     for ch in channels:
         cands = []
         for jid, url in rows:
             u = (url or "").lower()
-            if jid in used or any(b in u for b in NEVER) or not any(p in u for p in CHANNELS[ch]):
+            if jid in used or any(b in u for b in NEVER) or not any(p in u for p in CHANNELS[ch]) or _is_listing(u) \
+                    or (Path("data/agent_runs") / str(jid)).exists():   # already tried by any run
                 continue
             if ch == "career_site" and any(p in u for c, ps in CHANNELS.items() if c != "career_site" for p in ps):
                 continue                              # a board's own /jobs/ page is that board, not a company site
