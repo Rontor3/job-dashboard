@@ -106,7 +106,8 @@ def outcome_class(reason: str) -> str:
 def run_job(jid: int, url: str, code_path: str, log_dir: Path) -> dict:
     res = Path(f"/tmp/live_check_{jid}.json")
     res.unlink(missing_ok=True)
-    env = {**os.environ, "PYTHONPATH": code_path, "PYTHONUNBUFFERED": "1", "TOKENIZERS_PARALLELISM": "false"}
+    env = {**os.environ, "PYTHONPATH": code_path, "PYTHONUNBUFFERED": "1", "TOKENIZERS_PARALLELISM": "false",
+           "CAREER_AGENT_NO_WATCH": "1"}               # the dashboard's submit watcher must never re-run a check
     with open(log_dir / f"{jid}.log", "w") as log:
         subprocess.run([sys.executable, "-m", "career_agent.apply", "--cdp-url", CDP, "--job-id", str(jid),
                         "--url", url, "--review", "--park", "--claude-assist", "--longform",

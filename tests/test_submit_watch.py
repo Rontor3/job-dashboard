@@ -175,16 +175,19 @@ def test_a_relaunch_from_the_watcher_skips_the_queue_row(tmp_path):
 
 
 def test_a_blocked_run_from_any_runner_is_discovered_from_run_log(tmp_path):
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    old, ts, later = ((now - timedelta(hours=h)).isoformat() for h in (3, 2, 1))   # inside the 48 h window
     conn = _setup(tmp_path); _job(conn); _queued(conn)
     for _ in range(3):                                                          # an older challenge before it
         conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason) VALUES (?,?,?,?)",
-                     ("2026-10-19T10:00:00", "u", 7, "challenge"))
-    rs = ("2026-10-20T10:30:00", "https://in.indeed.com/viewjob?jk=x", 7, "challenge",
+                     (old, "u", 7, "challenge"))
+    rs = (ts, "https://in.indeed.com/viewjob?jk=x", 7, "challenge",
           '{"run_key": "kk", "final_tab_id": "T9"}')                            # the latest one counts
     conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason, result_json) VALUES (?,?,?,?,?)", rs)
     conn.execute("INSERT INTO jobs (id, title, source, company, description, job_url, fetched_at) "
                  "VALUES (8, 'other', 'x', 'c', 'd', 'u8', 'now')"); conn.commit()  # a job whose latest run is fine
-    conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason) VALUES ('2026-10-20T11:00:00','u',8,'submitted')")
+    conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason) VALUES (?,'u',8,'submitted')", (later,))
     w = SubmitWatcher(str(tmp_path / "t.db")); w.register_fresh_blocks(conn)
     row = conn.execute("SELECT url, run_key, tab_id, how FROM submission_watch WHERE job_id=7").fetchone()
     assert row == ("https://in.indeed.com/viewjob?jk=x", "kk", "T9", "challenge")
@@ -224,3 +227,13 @@ def test_a_failed_attach_stops_playwright_so_the_next_pass_can_start(monkeypatch
         with submit_watch.CdpTabs("http://localhost:9222"):
             pass
     assert state == {"stopped": 1, "woke": 0}       # a background watcher never flips through the user's tabs
+
+
+def test_a_check_run_marked_no_watch_is_never_adopted(tmp_path):
+    # live 2026-10-22: a restarted dashboard adopted the live check's dry runs and re-ran them beside the check
+    from datetime import datetime
+    conn = _setup(tmp_path); _job(conn)
+    conn.execute("INSERT INTO run_log (ts, url, job_id, stopped_reason, result_json) VALUES (?,?,?,?,?)",
+                 (datetime.utcnow().isoformat(), "u", 7, "challenge", '{"no_watch": true}')); conn.commit()
+    SubmitWatcher(str(tmp_path / "t.db")).register_fresh_blocks(conn)
+    assert conn.execute("SELECT COUNT(*) FROM submission_watch").fetchone()[0] == 0

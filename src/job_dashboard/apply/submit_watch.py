@@ -220,6 +220,8 @@ class SubmitWatcher:
             run_key = tab_id = None
             try:
                 rj = json.loads(rj or "{}") or {}
+                if rj.get("no_watch"):
+                    continue                        # a live check / manual dry run, not a parked queue job
                 run_key, tab_id = rj.get("run_key"), rj.get("final_tab_id")
             except (TypeError, ValueError):
                 pass

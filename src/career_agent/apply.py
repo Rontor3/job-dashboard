@@ -903,7 +903,9 @@ def _write_run_log(conn, url: str, job_id, result: dict) -> None:
              len(decisions),
              len(pending),
              int(bool(result.get("submitted"))),
-             _json.dumps({"escalated_labels": [d.get("label") for d in pending]})),
+             _json.dumps({"escalated_labels": [d.get("label") for d in pending],
+                          # a check / manual dry run: the dashboard's submit watcher must not adopt and re-run it
+                          "no_watch": bool(os.getenv("CAREER_AGENT_NO_WATCH"))})),
         )
         conn.commit()
         print(f"[run_log] recorded — filled={len(decisions)} escalated={len(pending)}", flush=True)
