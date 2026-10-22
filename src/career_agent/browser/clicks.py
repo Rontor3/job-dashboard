@@ -71,6 +71,14 @@ def pace(page, min_gap_ms: int = MIN_GAP_MS) -> None:
         pass
 
 
+def body_text(page) -> str:
+    """The page's visible body text, "" when it cannot be read."""
+    try:
+        return page.inner_text("body") or ""
+    except Exception:
+        return ""
+
+
 def page_signature(page):
     try:
         return (page.url, hash(page.inner_text("body")[:6000]))

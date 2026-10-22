@@ -86,7 +86,7 @@ _LOGIN_ERROR = _re.compile(r"invalid|incorrect|wrong (e-?mail|password|user)|not
 def _login_rejected(page) -> bool:
     """The site said no to the login (a slow redirect is not a rejection: only an error message counts)."""
     try:
-        return bool(_LOGIN_ERROR.search(page.inner_text("body") or ""))
+        return bool(_LOGIN_ERROR.search(_body_text(page)))
     except Exception:
         return False
 
@@ -186,11 +186,7 @@ def _inline_email_verify_state(page) -> bool:
         return False
 
 
-def _body_text(page) -> str:
-    try:
-        return page.inner_text("body") or ""
-    except Exception:
-        return ""
+from .clicks import body_text as _body_text
 
 
 def _handle_inline_verify(page, cred: dict, site: str) -> None:
@@ -1106,7 +1102,7 @@ def _infosys_login(page, cred: dict, original_url: str | None = None) -> None:
             page.wait_for_timeout(3000)
         # Accept Privacy and Data Protection consent shown on first login
         try:
-            if "Privacy and Data Protection" in (page.inner_text("body") or ""):
+            if "Privacy and Data Protection" in _body_text(page):
                 page.evaluate("()=>{document.querySelectorAll('div').forEach(d=>{if(d.scrollHeight>d.clientHeight+50)d.scrollTop=d.scrollHeight;});window.scrollTo(0,document.body.scrollHeight);}")
                 page.evaluate("()=>{document.querySelectorAll('input[type=\"checkbox\"]').forEach(cb=>{if(!cb.checked){cb.checked=true;cb.dispatchEvent(new Event('change',{bubbles:true}));}});}")
                 btn = page.query_selector("button:has-text('Accept')")
@@ -1300,7 +1296,7 @@ def _registration_options_offered(page, wait_ms: int = 5000) -> bool:
     login panel, and a check made at first paint missed it (MetLife live 2026-10-19: escalated as 'no signup form')."""
     for _ in range(max(1, wait_ms // 500)):
         try:
-            if _REGISTRATION_CUE.search(page.inner_text("body") or ""):
+            if _REGISTRATION_CUE.search(_body_text(page)):
                 return True
         except Exception:
             pass

@@ -153,10 +153,8 @@ def classify_node(state: AgentState, config) -> dict:
     kind = classify_entry(page)
     jd_text = state.get("jd_text")
     if not jd_text and kind != "closed":
-        try:
-            jd_text = (page.inner_text("body") or "")[:5000].strip() or None
-        except Exception:
-            jd_text = None
+        from ..browser.clicks import body_text
+        jd_text = body_text(page)[:5000].strip() or None
     # Wire jd_text into TelegramCollector and judgment context if present
     collector = c.get("collector")
     if jd_text and collector and hasattr(collector, "jd_text"):

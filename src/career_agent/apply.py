@@ -452,10 +452,8 @@ def _apply(args, box: dict) -> None:
         _record_run_tab(context, page, args)
         # Scrape JD text from the landing page before clicking Apply Now.
         # Used only this run to ground company-specific Telegram questions.
-        try:
-            jd_text = (page.inner_text("body") or "")[:5000].strip() or None
-        except Exception:
-            jd_text = None
+        from .browser.clicks import body_text
+        jd_text = body_text(page)[:5000].strip() or None
         jd_seen["text"] = jd_text
         if jd_text and hasattr(collector, "jd_text"):
             collector.jd_text = jd_text
