@@ -281,6 +281,10 @@ def perceive_node(state: AgentState, config) -> dict:
     from ..browser.page_health import recover
     if recover(page, c.get("intended_url") or state.get("url") or page.url) == "dead":
         return {"stopped_reason": "dead_page"}      # Chrome's error shell; the one fresh GET already failed
+    from ..browser.page_prep import says_already_applied
+    if says_already_applied(page):
+        print("[skip] the site says you already applied to this job", flush=True)
+        return {"stopped_reason": "already_applied"}  # done, not a failed run (outcome.py: -> applied)
 
     from ..browser.page_prep import dismiss_consent
     from ..browser.gate_probe import HANDLERS
@@ -700,6 +704,10 @@ def advance_node(state: AgentState, config) -> dict:
                 print(f"[advance] nothing applied yet: visible {aff['name']!r} opens the form", flush=True)
                 entry = aff["name"]
         if not has_advance and not has_submit and not entry:
+            from ..browser.page_prep import says_already_applied
+            if says_already_applied(page):        # SuccessFactors draws 'You already applied' after the page loads
+                print("[skip] the site says you already applied to this job", flush=True)
+                return {"stopped_reason": "already_applied"}
             return _recovered("no_advance_control") or {"stopped_reason": "no_advance_control"}
         if has_submit and not has_advance:
             if not state.get("decisions") and not submit_seen(form):

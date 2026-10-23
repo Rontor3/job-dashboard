@@ -35,8 +35,7 @@ def _needles(board):
     return tuple(r["capture"] for r in rules if r.get("capture"))
 
 
-_APPLIED = re.compile(r"\byou(?:'ve| have)? already applied\b|\bapplied \d+ (?:second|minute|hour|day|week|month)s? ago\b",
-                      re.I)
+from ..browser.page_prep import ALREADY_APPLIED as _APPLIED     # one copy, shared with the career-site engine
 # A visible BUTTON saying it's done: "✓ Applied", Instahyre's "Application sent!" (live 2026-10-18: GeoIQ, applied
 # Oct 3, was searched for an Apply button instead). Nav links named "Applied" (Wellfound's sidebar) are anchors, so only
 # buttons count, and only a short label (not a paragraph that mentions it).

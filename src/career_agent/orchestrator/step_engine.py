@@ -202,6 +202,9 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                 reason = "submit_declined"
             break
         if not has_advance:
+            from ..browser.page_prep import says_already_applied
+            if says_already_applied(page):
+                reason = "already_applied"; break
             if assist and assist.recover(page, "no_advance_control"):
                 continue
             reason = "no_advance_control"; break

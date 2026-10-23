@@ -416,6 +416,20 @@ def _looks_closed(text: str) -> bool:
     return _CLOSED_RE.search(t) is not None
 
 
+# "You already applied for this position" (Wipro SuccessFactors, live 2026-10-23: read as no_advance_control and
+# marked failed); "you've already applied", "applied 3 days ago". Shared with the job boards (boards/run.py).
+ALREADY_APPLIED = re.compile(r"\byou(?:'ve| have)? already applied\b|\bapplied \d+ (?:second|minute|hour|day|week|month)s? ago\b",
+                             re.I)
+
+
+def says_already_applied(page) -> bool:
+    """The page says, near its top, that you applied to this job already."""
+    try:
+        return bool(ALREADY_APPLIED.search((page.evaluate("() => document.body ? document.body.innerText : ''") or "")[:3000]))
+    except Exception:
+        return False
+
+
 def is_closed_posting(page) -> bool:
     try:
         return _looks_closed(page.evaluate("() => document.body.innerText"))

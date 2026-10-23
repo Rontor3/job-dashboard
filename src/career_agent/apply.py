@@ -575,6 +575,11 @@ def _apply(args, box: dict) -> None:
             print("[skip] this posting is closed or no longer available.")
             box["out"] = {"url": args.url, "stopped_reason": "closed"}
             return
+        from .browser.page_prep import says_already_applied
+        if says_already_applied(page):
+            print("[skip] the site says you already applied to this job", flush=True)
+            box["out"] = {"url": args.url, "stopped_reason": "already_applied"}
+            return
         # OTP reader shared by email_auth (ZF/Phenom) and otp_email gate (SAP SF).
         # Prefers Gmail API (fully automated); falls back to file drop.
         import time as _time, pathlib as _pl
