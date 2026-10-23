@@ -84,7 +84,7 @@ _RULES: list[tuple[str, str]] = [
     (r"\bfield of study\b|\bmajor\b|\bspecial", "field_of_study"),
     # Must precede the bare "degree" rule below — "year of graduation ... degree"
     # contains the word "degree" but asks for a YEAR, not the degree name.
-    (r"\byear of graduation\b|\bgraduation year\b|\byear you.{0,15}graduat", "graduation_year"),
+    (r"\byear of graduation\b|\bgraduation year\b|\byear you.{0,15}graduat|\byear of passing\b|\bpassing year\b|\bpassed out\b", "graduation_year"),
     # Bare "qualification" is gated (see _WEAK_BARE_WORD_RULES) — "minimum
     # qualification for this job" (a certify-you-meet-requirements question)
     # is not asking for a degree name.

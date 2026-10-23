@@ -8,7 +8,7 @@ from ..orchestrator.mapper import FillDecision
 from ..orchestrator.screen_review import _coerce_option
 from .clicks import pace
 from .perception import frame_target, split_ref
-from .value_shape import read_shape, shape_value
+from .value_shape import date_mask_refuses, read_shape, shape_value
 
 
 # Any fill action can legitimately fail on a real form (an unmatched option, a
@@ -224,6 +224,60 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
             page.keyboard.press("Escape")
     except Exception:
         pass
+
+
+_RESUME_CONTROL = r"(upload|attach|add)\b.{0,30}\b(resume|cv|r[ée]sum[ée])\b"
+_UPLOAD_CONTROL_JS = r"""(pattern) => {
+  const R = new RegExp(pattern, 'i');
+  const text = id => { const n = document.getElementById(id); return n ? (n.innerText || n.textContent || '') : ''; };
+  const name = e => [e.getAttribute('aria-label'), (e.getAttribute('aria-labelledby') || '').split(/\s+/).map(text).join(' '),
+                     e.getAttribute('title'), e.innerText].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const acts = e => e.matches('button,a[href],[role=button],[onclick]') || (e.tabIndex >= 0 && e.hasAttribute('tabindex'));
+  const hits = Array.from(document.querySelectorAll('button,a,[role=button],[onclick],[tabindex]'))
+    .filter(e => vis(e) && acts(e) && R.test(name(e)));
+  // something that acts on a click beats a label that merely sits in the slot
+  hits.sort((a, b) => (b.matches('[onclick],[role=button],button') ? 1 : 0) - (a.matches('[onclick],[role=button],button') ? 1 : 0));
+  const e = hits[0];
+  if (!e) return null;
+  e.setAttribute('data-upload-control', '1');
+  return name(e).slice(0, 80);
+}"""
+
+
+def upload_resume_via_control(page, pdf) -> str | None:
+    """A résumé slot with no file input until its control is clicked (SuccessFactors: a '+' icon that opens 'Select a
+    source — Upload from Device', live Wipro 2026-10-23). Click the control, then hand the résumé to the file chooser it
+    opens, else to the file input that appears, else through the dialog's 'from device' option. The control's name, or
+    None when the page has no such control or nothing took the file."""
+    try:
+        label = page.evaluate(_UPLOAD_CONTROL_JS, _RESUME_CONTROL)
+    except Exception:
+        return None
+    if not label:
+        return None
+    ctl = page.locator('[data-upload-control="1"]').first
+    try:
+        with page.expect_file_chooser(timeout=3000) as fc:
+            pace(page)
+            ctl.click(timeout=_SOFT_TIMEOUT_MS)
+        fc.value.set_files(pdf)
+        return label
+    except Exception:
+        pass
+    page.wait_for_timeout(800)
+    try:
+        box = page.locator("input[type=file]")
+        if box.count():
+            box.last.set_input_files(pdf, timeout=_SOFT_TIMEOUT_MS)
+            return label
+        opt = page.get_by_text(re.compile(r"upload from (device|computer)|from (my )?(device|computer)|browse", re.I)).first
+        with page.expect_file_chooser(timeout=4000) as fc:
+            opt.click(timeout=_SOFT_TIMEOUT_MS)
+        fc.value.set_files(pdf)
+        return label
+    except Exception:
+        return None
 
 
 _RADIO_TEXT_JS = """e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label')
@@ -455,7 +509,13 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                 page.wait_for_timeout(500)
             continue
         if d.action == "fill":
-            value = shape_value(d.value, read_shape(target, sel))     # numerals-only / month / date boxes get their form
+            shape = read_shape(target, sel)
+            value = shape_value(d.value, shape)     # numerals-only / month / date boxes get their form
+            if date_mask_refuses(d.value, shape):
+                # 'Present' or a bare year into an MM/DD/YYYY box only leaves 'Invalid date' that reads as filled
+                # (Wipro, live 2026-10-23): leave it blank, so the field goes to the human
+                print(f"[fill] {d.label[:40]!r}: {str(d.value)[:20]!r} is not a {shape.get('placeholder')} date — left blank", flush=True)
+                continue
             try:
                 ml = target.get_attribute(sel, "maxlength")
                 if ml and str(ml).isdigit():

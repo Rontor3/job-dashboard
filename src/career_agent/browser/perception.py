@@ -260,6 +260,18 @@ _INPUT_JS = r"""
     walk(document);
     return res;
   };
+  // An element's address. Inside a shadow root ids repeat: every UI5 date picker holds an <input id="inner">, so
+  // '#inner' always hit the FIRST date box and the rest stayed empty (Wipro, live 2026-10-23). There, #id is used only
+  // when no other element on the page shares it; otherwise the read's own data-cref stamp.
+  const _idCount = {};
+  const refOf = (el, cref) => {
+    if (!el.id) return `[data-cref="${cref}"]`;
+    if (el.getRootNode() !== document) {
+      if (!(el.id in _idCount)) _idCount[el.id] = deepQuery(`[id="${CSS.escape(el.id)}"]`).length;
+      if (_idCount[el.id] !== 1) return `[data-cref="${cref}"]`;
+    }
+    return `#${CSS.escape(el.id)}`;
+  };
   const byId = (root, id) => (root.getElementById ? root.getElementById(id)
                               : root.querySelector('#' + CSS.escape(id)));
   // Resolve id-references to their concatenated text (aria-labelledby/describedby).
@@ -563,7 +575,7 @@ _INPUT_JS = r"""
       return groupLabel(el);
     };
     out.push({
-      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+      ref: refOf(el, cref),
       kind, label: (type === 'radio' && el.value && labelFor(el).startsWith(el.value)) ? el.value : labelFor(el), description: describedBy(el),
       required: !!el.required || el.getAttribute('aria-required') === 'true'
                 || ((kind === 'radio' || kind === 'checkbox') && !!el.closest('[role=radiogroup][aria-required=true],fieldset[aria-required=true]')),
@@ -597,7 +609,7 @@ _INPUT_JS = r"""
     el.setAttribute('data-cref', cref);
     const lab = labelFor(el);
     const row = {
-      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+      ref: refOf(el, cref),
       kind: 'combobox', label: lab, description: describedBy(el),
       required: el.getAttribute('aria-required') === 'true' || /[*]\s*$|\(\*\)/.test(lab),
       options: [], group: null, group_label: '',
@@ -633,7 +645,7 @@ _INPUT_JS = r"""
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);
     out.push({
-      ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+      ref: refOf(el, cref),
       kind: 'radio', label: visibleText(el),
       required: container.getAttribute('aria-required') === 'true' || hasAsterisk,
       options: [], group: container.getAttribute('data-cref-group'),
@@ -706,7 +718,7 @@ _INPUT_JS = r"""
       const cref = 'f' + (_ci++);
       el.setAttribute('data-cref', cref);
       out.push({
-        ref: el.id ? `#${CSS.escape(el.id)}` : `[data-cref="${cref}"]`,
+        ref: refOf(el, cref),
         kind: 'combobox', label, required,
         options: [], group: null, disabled: !!el.disabled,
         role: (el.getAttribute('role') || '').toLowerCase(), haspopup: popupHaspopup,
@@ -869,8 +881,11 @@ _SECTION_JS = r"""
     for (const c of root.querySelectorAll(CTL)) keys.add((c.type === 'radio' || c.type === 'checkbox') && c.name ? 'n:' + c.name : c);
     return keys.size;
   }
+  // shown = the heading or a direct child has a box: SuccessFactors wraps a block button in an inline <h2>, which
+  // measures 0x0, so every field fell back to the page title as its section (Wipro, live 2026-10-23)
+  const shown = h => vis(h) || Array.from(h.children).some(vis);
   const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],legend'))
-    .filter(h => vis(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80
+    .filter(h => shown(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80
                  && !(h.tagName === 'LEGEND' && h.closest('fieldset') && fields(h.closest('fieldset')) < 2));   // a question, not a section
   const sectionOf = el => {
     let best = '';
@@ -896,10 +911,24 @@ _SECTION_JS = r"""
     }
     return -1;
   };
+  // a field inside a shadow root (UI5 date picker): find it there, and place it by its outermost host in the page
+  const deepFind = (sel) => {
+    const walk = (root) => {
+      const hit = root.querySelector(sel);
+      if (hit) return hit;
+      for (const e of root.querySelectorAll('*')) if (e.shadowRoot && e.tagName.includes('-')) {
+        const h = walk(e.shadowRoot); if (h) return h;
+      }
+      return null;
+    };
+    return walk(document);
+  };
+  const host = (el) => { let n = el; while (n.getRootNode() !== document && n.getRootNode().host) n = n.getRootNode().host; return n; };
   return refs.map(ref => {
     let el = null;
-    try { el = document.querySelector(ref); } catch (e) {}
+    try { el = document.querySelector(ref) || deepFind(ref); } catch (e) {}
     if (!el) return {section: '', row: -1};
+    el = host(el);
     return {section: sectionOf(el).replace(/\s+/g, ' ').slice(0, 80), row: rowOf(el)};
   });
 }
@@ -970,7 +999,10 @@ def collect_raw(page) -> list[dict]:
 FIELD_SIG_JS = """() => {
   const vis = e => { const r = e.getBoundingClientRect(); return r.width > 2 && r.height > 2; };
   const els = Array.from(document.querySelectorAll('input,select,textarea,[role=combobox],[role=radiogroup]')).filter(vis);
-  return els.length + '|' + els.map(e => (e.id || e.name || e.getAttribute('aria-label') || '').slice(0, 24)).join(',');
+  // a field that turns usable counts as a change: a cascading State/Major opens only once its Country/Degree is
+  // picked, and the unchanged id list never re-read the form, so they stayed 'No Selection' (Wipro, 2026-10-23)
+  const off = e => e.disabled || e.getAttribute('aria-disabled') === 'true' ? '~' : '';
+  return els.length + '|' + els.map(e => (e.id || e.name || e.getAttribute('aria-label') || '').slice(0, 24) + off(e)).join(',');
 }"""
 
 def page_fingerprint(page) -> str | None:

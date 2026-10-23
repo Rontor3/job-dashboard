@@ -59,3 +59,15 @@ def demo():
 
 if __name__ == "__main__":
     demo()
+
+
+def test_a_placeholder_date_pattern_shapes_the_date():
+    """UI5 / SuccessFactors date boxes are text boxes whose placeholder is the pattern (Wipro, live 2026-10-23)."""
+    from career_agent.browser.value_shape import date_mask_refuses, shape_value
+    mdy = {"placeholder": "MM/DD/YYYY"}
+    assert shape_value("July 2023", mdy) == "07/01/2023"
+    assert shape_value("17/03/2001", mdy) == "03/17/2001"                 # a day-first profile date
+    assert shape_value("17/03/2001", {"placeholder": "YYYY-MM-DD"}) == "2001-03-17"
+    assert shape_value("Jul 2022", {"placeholder": "MM/YYYY"}) == "07/2022"
+    assert date_mask_refuses("Present", mdy) and date_mask_refuses("2023", mdy)   # left blank, asked
+    assert not date_mask_refuses("July 2023", mdy) and not date_mask_refuses("2023", {"placeholder": "Year"})

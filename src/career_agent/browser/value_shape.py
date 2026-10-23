@@ -91,12 +91,38 @@ def _iso(s: str, kind: str) -> str | None:
     return f"{ym[0]:04d}-{ym[1]:02d}-01" if ym else None
 
 
+# A text box whose placeholder is the date's pattern: 'MM/DD/YYYY', 'DD-MM-YYYY', 'YYYY-MM-DD', 'MM/YYYY'.
+_DATE_MASK = re.compile(r"^\s*(dd|mm|yyyy|yy)([/.\-])(dd|mm|yyyy|yy)(?:\2(dd|mm|yyyy|yy))?\s*$", re.I)
+
+
+def _masked(s: str, mask: str) -> str | None:
+    """A date written the way the box's placeholder shows it (a month-only value gets day 01). None when the value
+    is not a date, or is a bare year and the box wants a month: the box rejects it and the field goes to the human."""
+    m = _DATE_MASK.match(mask)
+    parts = [x.lower() for x in (m.group(1), m.group(3), m.group(4)) if x]
+    d = parse_date_value(s)
+    ym = (d.year, d.month) if d else _month_year(s)
+    if not ym:
+        return None
+    vals = {"dd": f"{d.day if d else 1:02d}", "mm": f"{ym[1]:02d}", "yyyy": f"{ym[0]:04d}", "yy": f"{ym[0] % 100:02d}"}
+    return m.group(2).join(vals[x] for x in parts)
+
+
+def date_mask_refuses(value, shape: dict) -> bool:
+    """The box's placeholder is a date pattern and this value cannot be written in it."""
+    mask = shape.get("placeholder") or ""
+    return bool(_DATE_MASK.match(mask)) and (shape.get("type") or "").lower() not in ("month", "date") \
+        and _masked(str(value), mask) is None
+
+
 def shape_value(value, shape: dict) -> str:
     """The text to type into a box of this shape. Unchanged unless the box's shape calls for a different form."""
     s = str(value)
     kind = (shape.get("type") or "").lower()
     if kind in ("month", "date"):
         return _iso(s, kind) or s
+    if _DATE_MASK.match(shape.get("placeholder") or ""):      # UI5 / SuccessFactors date box: MM/DD/YYYY
+        return _masked(s, shape["placeholder"]) or s
     if _numerals_only(shape):
         return _plain_number(s.strip()) or s
     return s

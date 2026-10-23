@@ -90,3 +90,13 @@ def test_skill_specific_years_never_take_the_total_experience():
                   "Years of experience in this role"):
         assert guess_purpose(label, "text") == "years_experience", label
     assert resolve("skill_years", NS(contact={"years_experience": "3"})) is None
+
+
+def test_dates_follow_the_form_section():
+    """Wipro (live 2026-10-23): an Education 'Start Date' got Tata AIG's date, and 'Present' went into a date box."""
+    assert resolve("start_date", P, section="Professional Experience") == "July 2023"
+    assert resolve("end_date", P, section="Professional Experience") is None          # current job: no end date
+    assert resolve("start_date", P, section="Education") == "2018"
+    assert resolve("end_date", P, section="Education") == "2022"
+    assert resolve("state", P, section="Education") is None                           # the school's, never home's
+    assert resolve("end_date", P) is None and resolve("start_date", P) == "July 2023"  # no section: work, as before

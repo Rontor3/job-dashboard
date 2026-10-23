@@ -304,7 +304,7 @@ def map_screen(form, profile, resume_pdf=None):
             else:
                 _place(f, level, "profile", decisions, needs_human)
             continue
-        value = resolve(f.purpose, profile) if f.purpose else None
+        value = resolve(f.purpose, profile, section=getattr(f, "section", "") or "") if f.purpose else None
         if value is not None:
             _place(f, value, "resume", decisions, needs_human)
         elif f.required or (f.kind == "textarea" or (f.kind == "text" and f.purpose in PROSE_PURPOSES)):

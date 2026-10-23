@@ -36,7 +36,22 @@ _DIAL_BY_COUNTRY = {"india": "+91", "united states": "+1", "usa": "+1", "us": "+
                     "germany": "+49", "australia": "+61"}
 
 
-def resolve(purpose, profile, index=0):
+_EDU_SECTION = re.compile(r"educat|academ|qualif|school|universit|college|degree", re.I)
+_ONGOING = re.compile(r"^\s*(present|current(ly)?|now|ongoing|till date|to date|-)\s*$", re.I)
+
+
+def resolve(purpose, profile, index=0, section=""):
+    """`section` is the form section the field sits in: a Start/End Date under Education is the education's dates,
+    and a City/State/Country there is the school's, never your home (Wipro, live 2026-10-23: Tata AIG's 'Present'
+    went into a date box and the home state into the school's)."""
+    in_edu = bool(_EDU_SECTION.search(section or ""))
+    if in_edu and purpose in ("start_date", "end_date"):
+        if 0 <= index < len(profile.education):
+            v = getattr(profile.education[index], "start" if purpose == "start_date" else "end") or ""
+            return None if not v.strip() or _ONGOING.match(v) else v
+        return None
+    if in_edu and purpose in ("city", "state", "country"):
+        return None
     if purpose in ("first_name", "last_name"):
         first, last = _name_parts(profile.contact)
         return (first if purpose == "first_name" else last) or None
@@ -72,7 +87,10 @@ def resolve(purpose, profile, index=0):
         return loc.split(",")[-1].strip() if "," in loc else None
     if purpose in _EXP:
         if 0 <= index < len(profile.experiences):
-            return getattr(profile.experiences[index], _EXP[purpose]) or None
+            v = getattr(profile.experiences[index], _EXP[purpose]) or None
+            if purpose == "end_date" and v and _ONGOING.match(v):
+                return None                # a current job has no end date: 'Present' is never typed into a date box
+            return v
         return None
     if purpose in _EDU:
         if 0 <= index < len(profile.education):

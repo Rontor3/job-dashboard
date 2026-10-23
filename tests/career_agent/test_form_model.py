@@ -76,3 +76,8 @@ def test_phone_number_including_country_code_is_the_whole_number():
     assert guess_purpose("Mobile number with country code", "text") == "phone"
     assert guess_purpose("Country code", "text") == "phone_country_code"
     assert guess_purpose("Phone country code", "select") == "phone_country_code"
+
+
+def test_year_of_passing_is_graduation_year():
+    assert guess_purpose("Year Of Passing", "text") == "graduation_year"
+    assert guess_purpose("Passing Year", "text") == "graduation_year"
