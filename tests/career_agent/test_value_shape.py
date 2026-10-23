@@ -71,3 +71,10 @@ def test_a_placeholder_date_pattern_shapes_the_date():
     assert shape_value("Jul 2022", {"placeholder": "MM/YYYY"}) == "07/2022"
     assert date_mask_refuses("Present", mdy) and date_mask_refuses("2023", mdy)   # left blank, asked
     assert not date_mask_refuses("July 2023", mdy) and not date_mask_refuses("2023", {"placeholder": "Year"})
+
+
+def test_a_facts_value_that_cannot_fill_a_date_box_is_no_answer():
+    from types import SimpleNamespace as NS
+    from career_agent.memory.qbank_memory import _fits_box
+    assert not _fits_box(NS(placeholder="MM/DD/YYYY"), "2023")
+    assert _fits_box(NS(placeholder="MM/DD/YYYY"), "May 2023") and _fits_box(NS(placeholder=""), "2023")

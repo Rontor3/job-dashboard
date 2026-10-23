@@ -97,6 +97,11 @@ def _coerce_option(value, options):
     for o in options:                                   # 1. exact
         if o.strip().lower() == v:
             return o
+    vk = re.sub(r"[\W_]+", "", v)                        # 1b. same letters and digits: 'B. Tech' is 'BTech', never
+    if vk:                                              # the word match's 'B.Sc (Tech)' (Wipro degree, 2026-10-23)
+        for o in options:
+            if re.sub(r"[\W_]+", "", o.lower()) == vk:
+                return o
     toks = _YES if v in _YES else (_NO if v in _NO else None)   # 2. yes / no
     if toks:
         for o in options:

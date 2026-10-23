@@ -100,3 +100,15 @@ def test_no_match_inside_a_modal_does_not_press_escape():
     page = FakeComboPage(["Man", "Woman"], in_dialog=True)
     apply_decisions(page, [_combo("#g", "Gender", "Male")])
     assert ("press", "Escape") not in page.events
+
+
+def test_an_unlisted_value_takes_the_lists_others_option():
+    """Wipro's BTech majors have no 'Ceramic Engineering' but list 'OTHERS' (live 2026-10-23); 'Other' did not match it,
+    and a judge then picked 'Computer Science'."""
+    from career_agent.browser.filler import _OTHER_OPTION
+    assert _OTHER_OPTION.search("OTHERS") and _OTHER_OPTION.search("Other") and not _OTHER_OPTION.search("Otherwise")
+
+
+def test_an_option_differing_only_by_dots_and_spaces_is_the_value():
+    from career_agent.orchestrator.screen_review import _coerce_option
+    assert _coerce_option("B. Tech", ["B. Pharm", "B.Sc (Tech)", "BTech"]) == "BTech"

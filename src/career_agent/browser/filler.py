@@ -120,7 +120,7 @@ def _drill_to_leaf(page, scope, pre: list[str], fit) -> None:
 
 
 _SEARCHING = re.compile(r"^\s*(searching|loading|please enter|type to search)\b", re.I)
-_OTHER_OPTION = re.compile(r"^\s*other\b|not listed|none of the above", re.I)
+_OTHER_OPTION = re.compile(r"^\s*others?\b|not listed|none of the above", re.I)   # 'OTHERS' (Wipro majors)
 
 
 def read_combobox_options(page, sel) -> list[str]:

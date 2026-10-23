@@ -73,7 +73,7 @@ class QBankMemory:
             elif value:                                   # a formula named once: every later wording reuses it
                 save_fact(self.conn, proposal["key"], proposal.get("type"), proposal.get("desc") or question,
                           wording=question, embed=self.embed, plan=proposal["plan"])
-        return (Match(LIKELY, kind="plan", note=f"from your facts: {note}"), value) if value else None
+        return (Match(LIKELY, kind="plan", note=f"from your facts: {note}"), value) if _fits_box(f, value) else None
 
     def missing_for(self, f):
         """The fact Haiku said this field needs ({key, type, ask, company}), or None."""
@@ -138,7 +138,7 @@ class QBankMemory:
                 q = question_of(f.label, f.ref)
                 save_fact(self.conn, proposal["key"], proposal.get("type"), proposal.get("desc") or q,
                           wording=q, embed=self.embed, plan=proposal["plan"])
-        if value:
+        if _fits_box(f, value):
             return Match(LIKELY, kind="plan", note=f"from your facts (section): {note}"), value
         return Match(band=NONE, note=f"section: {note}"), None
 
@@ -216,3 +216,10 @@ class QBankMemory:
 
     def record_corrections(self, form, decisions, final_values):
         return None
+
+
+def _fits_box(f, value) -> bool:
+    """A value the box can take: '2023' for an MM/DD/YYYY 'Year Of Passing' is not one, so the profile's full date
+    answers instead (Wipro 2026-10-23: the facts plan's year was refused at fill and the box stayed empty)."""
+    from ..browser.value_shape import date_mask_refuses
+    return bool(value) and not date_mask_refuses(value, {"placeholder": getattr(f, "placeholder", "") or ""})
