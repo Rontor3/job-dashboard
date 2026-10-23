@@ -114,13 +114,18 @@ def llm_pick(question, entry_ids, conn, llm):
     ents = [qbank.get_entry(conn, e) for e in entry_ids[:3]]
     prompt = ("A job application form asks:\n"
               f'"{question}"\n\n'
-              "Which ONE of these questions asks exactly the same thing (same meaning, "
-              "same yes/no direction)? Reply with the letter only, or NONE if none match.\n\n"
+              "Which ONE of these questions asks exactly the same thing (same meaning, same yes/no direction)? "
+              # Wipro (live 2026-10-23): "previously worked with Wipro or any of its subsidiaries ... (including as a
+              # contractor ...)" got NONE for "previously worked for this company?", and a judge then invented Yes.
+              "Extra examples or scope the form adds (\"including as a contractor\", \"or any of its subsidiaries\") do not "
+              "change the meaning. A question whose Yes would mean the other one's No (\"authorized without sponsorship\" vs "
+              "\"require sponsorship\") is NONE. Reply with the letter only, or NONE if none match.\n\n"
               + "\n".join(f"({'abc'[i]}) {e['question']}{_slot_note(e)}" for i, e in enumerate(ents))
               + "\n\nAnswer:")
     try:
         reply = _THINK.sub("", llm(prompt) or "").strip().lower()
-    except Exception:
+    except Exception as e:      # say so: a silent None here sent bank questions to the free-form judge (Ollama down)
+        print(f"[qbank] entry pick unavailable ({type(e).__name__}) — the bank cannot confirm a match", flush=True)
         return None
     m = _LETTER.match(reply)
     if not m:

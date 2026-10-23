@@ -197,14 +197,15 @@ def get_sample_job_for_company(conn, company_key):
 
 
 def get_job(conn, job_id):
-    """The (title, company, description) for a job id, or None. Used by the
-    career agent to ground judgment-tier answers in the job's JD."""
+    """The (title, company, description, location) for a job id, or None. Used by the career agent to ground
+    judgment-tier answers in the job's JD, and by the bank's per-job rules (sponsorship, relocation) — without the
+    location every such rule answered 'unknown' (Wipro sponsorship, live 2026-10-23)."""
     row = conn.execute(
-        "SELECT title, company, description FROM jobs WHERE id = ?", (job_id,)
+        "SELECT title, company, description, location FROM jobs WHERE id = ?", (job_id,)
     ).fetchone()
     if row is None:
         return None
-    return {"title": row[0], "company": row[1], "description": row[2]}
+    return {"title": row[0], "company": row[1], "description": row[2], "location": row[3]}
 
 
 def job_exists(conn, job_url):
@@ -423,6 +424,12 @@ _INDIA_TOKENS = ("india", "bengaluru", "bangalore", "mumbai", "delhi", "gurgaon"
                  "pune", "chennai", "kolkata", "ahmedabad", "kochi", "jaipur", "chandigarh", "indore", "coimbatore",
                  "thiruvananthapuram", "karnataka", "maharashtra", "telangana", "tamil nadu", "haryana",
                  "uttar pradesh", "gujarat", "kerala")
+
+
+def is_india_location(location: str | None) -> bool:
+    """The same India test as _india_clause, for one location string."""
+    loc = (location or "").strip().lower()
+    return any(t in loc for t in _INDIA_TOKENS) or loc.endswith(", in") or loc == "in"
 
 
 def _india_clause():

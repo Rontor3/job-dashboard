@@ -161,3 +161,19 @@ def test_a_format_sentence_left_over_from_helper_text_is_dropped_too():
     from career_agent.memory.qbank_match import without_format_hint as w
     assert w("Available from Format: yyyy.mm.dd") == "Available from"
     assert w("Joining date, use the format dd/mm/yyyy") == "Joining date"
+
+
+def test_llm_pick_says_when_the_model_is_unreachable(qbank_conn, capsys):
+    """Ollama down (live 2026-10-23): every pick came back NONE in silence and bank questions went to the judge."""
+    def down(prompt):
+        raise ConnectionError("localhost:11434 refused")
+    assert llm_pick("q", ["race"], qbank_conn, down) is None
+    assert "entry pick unavailable" in capsys.readouterr().out
+
+
+def test_llm_pick_prompt_keeps_scope_and_rejects_the_reverse(qbank_conn):
+    """The pick may see past added scope ('including as a contractor') but never across the yes/no direction."""
+    seen = []
+    llm_pick("Have you worked with Wipro or any of its subsidiaries?", ["race"], qbank_conn,
+             lambda p: seen.append(p) or "none")
+    assert "including as a contractor" in seen[0] and "require sponsorship" in seen[0]

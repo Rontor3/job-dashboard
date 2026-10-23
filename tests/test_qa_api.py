@@ -45,8 +45,10 @@ def test_questionnaire_lists_seed_with_unanswered_count(env):
     assert len(body["answers"]) >= 80 and body["unanswered"] > 0
     n = _entry(c, "notice_period")
     assert n["needs_input"] is False and "Notice period" in n["wordings"]
-    s = _entry(c, "sponsorship_required")
+    s = _entry(c, "security_clearance")
     assert s["needs_input"] is True and s["value"] is None
+    sp = _entry(c, "sponsorship_required")       # worked out from the job's location: nothing to type
+    assert sp["needs_input"] is False and "outside India" in sp["rule_help"]
     w = _entry(c, "work_location")
     assert w["needs_input"] is False and "relocating" in w["rule_help"]
     assert any(a["id"] == "sponsorship_required" for a in c.get("/api/answers?q=sponsor").json()["answers"])
@@ -55,8 +57,8 @@ def test_questionnaire_lists_seed_with_unanswered_count(env):
 def test_answer_entry_and_add_new(env):
     c, _ = env
     before = c.get("/api/answers").json()["unanswered"]
-    assert c.put("/api/answers", json={"entry_id": "sponsorship_required", "answer": "Yes"}).status_code == 200
-    assert _entry(c, "sponsorship_required")["value"] == "Yes"
+    assert c.put("/api/answers", json={"entry_id": "security_clearance", "answer": "No"}).status_code == 200
+    assert _entry(c, "security_clearance")["value"] == "No"
     assert c.get("/api/answers").json()["unanswered"] == before - 1
     assert c.put("/api/answers", json={"question": "Have you used Claude?", "answer": "Yes"}).json()["id"] == "have_you_used_claude"
     assert c.put("/api/answers", json={"entry_id": "nope", "answer": "x"}).status_code == 404

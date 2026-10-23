@@ -118,3 +118,20 @@ def test_preference_text_and_unanswered():
     assert r(pctx("What is your preferred work mode?")) == "Remote"        # no options, none named -> top choice
     assert r(pctx("Open to onsite?", answer=None)) is None
     assert r(pctx("Open to onsite?", answer="")) is None
+
+
+def test_job_abroad_answers_sponsorship_by_where_the_job_is():
+    """A flat stored Yes answered Wipro Bengaluru 'will you require sponsorship?' falsely (live 2026-10-23)."""
+    r = RULES["job_abroad"]
+    assert r(ctx(answer="Yes", job={"location": "KA, IN"})) == "No"                      # Wipro on Indeed
+    assert r(ctx(answer="Yes", job={"location": "Bengaluru, Karnataka, India"})) == "No"
+    assert r(ctx(answer="Yes", job={"location": "San Francisco, CA"})) == "Yes"
+    assert r(ctx(answer="Yes", job={"location": "London, United Kingdom"})) == "Yes"
+    assert r(ctx(answer="Yes", job={"location": "Remote"})) is None                       # unclear -> ask, never guess
+    assert r(ctx(answer="Yes", job={})) is None
+    assert "job_abroad" in NO_INPUT_RULES and "job_abroad" in RULE_HELP
+
+
+def test_sponsorship_entry_uses_the_job_location_rule():
+    seed = {e["id"]: e for e in json.loads(SEED_PATH.read_text())["entries"]}
+    assert seed["sponsorship_required"]["rule"] == "job_abroad"
