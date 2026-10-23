@@ -63,6 +63,9 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
                 _auto, fields, _ = _jfn(fields)
                 for d in _auto:
                     answers[d.ref] = d.value
+                # the model's answers ride with the human's but are not the human's: recorded as judgment, never
+                # reused as 'human_prior' nor saved to the bank (Wipro 2026-10-23: 'Not provided in text' as yours)
+                answers[MACHINE_KEY] = [d.ref for d in _auto]
                 if _auto:
                     print(f"[judge-retry] auto-answered {len(_auto)} straggler(s)", flush=True)
             except Exception:
@@ -76,6 +79,9 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
         result = app.invoke(Command(resume=answers), cfg)
 
     return result or {}
+
+
+MACHINE_KEY = "__machine_refs__"
 
 
 def main() -> None:

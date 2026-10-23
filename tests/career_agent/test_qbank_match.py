@@ -190,3 +190,13 @@ def test_a_no_into_a_box_with_its_own_none_word_becomes_that_word(qbank_conn, fa
     qbank.set_answer(qbank_conn, "hispanic_latino", "Yes")
     m, v = answer_field(qbank_conn, f, embed=fake_embed, llm=pick)
     assert v is None and m.band == NONE
+
+
+def test_a_bank_value_that_is_not_a_date_steps_aside_for_a_date_box(qbank_conn, fake_embed, make_field):
+    """'2023' for an MM/DD/YYYY 'Year Of Passing' (Wipro 2026-10-23): the bank yields, the profile's full date answers."""
+    qbank.set_answer(qbank_conn, "notice_period", "30")
+    f = make_field("What is your notice period in days?", placeholder="MM/DD/YYYY")
+    m, v = answer_field(qbank_conn, f, embed=fake_embed)
+    assert v is None and m.band == NONE and "MM/DD/YYYY" in m.note
+    m, v = answer_field(qbank_conn, make_field("What is your notice period in days?"), embed=fake_embed)
+    assert v == "30"

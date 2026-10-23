@@ -3,6 +3,8 @@ human. Attestations are never auto-valued; standard questions answered
 deterministically; option fields coerced to a real option or escalated."""
 from __future__ import annotations
 
+from ..browser.value_shape import date_mask_refuses
+
 import re
 from datetime import date
 
@@ -304,7 +306,10 @@ def map_screen(form, profile, resume_pdf=None):
             else:
                 _place(f, level, "profile", decisions, needs_human)
             continue
-        value = resolve(f.purpose, profile, section=getattr(f, "section", "") or "") if f.purpose else None
+        purpose, section = f.purpose, getattr(f, "section", "") or ""
+        if purpose == "graduation_year" and date_mask_refuses("2000", {"placeholder": getattr(f, "placeholder", "")}):
+            purpose, section = "end_date", "Education"    # 'Year Of Passing' as an MM/DD/YYYY box: the completion date
+        value = resolve(purpose, profile, section=section) if purpose else None
         if value is not None:
             _place(f, value, "resume", decisions, needs_human)
         elif f.required or (f.kind == "textarea" or (f.kind == "text" and f.purpose in PROSE_PURPOSES)):

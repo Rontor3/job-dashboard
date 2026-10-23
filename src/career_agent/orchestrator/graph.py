@@ -507,10 +507,18 @@ def human_gate_node(state: AgentState, config) -> dict:
     deps = c["deps"]
 
     from ..orchestrator.screen_review import apply_answers
-    new_decisions = apply_answers(fields, answers)
+    answers = dict(answers or {})
+    machine = set(answers.pop("__machine_refs__", None) or [])     # the straggler retry's own answers (apply.py)
+    new_decisions = [dataclasses.replace(d, source="judgment") if d.ref in machine else d
+                     for d in apply_answers(fields, answers)]
     deps.fill(page, new_decisions)
     from .answering import record_answers
-    record_answers(fields, answers, c)
+    record_answers([f for f in fields if f.ref not in machine], answers, c)
+    qa = c.get("qa")
+    if qa:
+        for d in new_decisions:
+            if d.ref in machine:
+                qa.decision(d)              # a judgment fill, as in fill_node — not an answer of yours
 
     return {
         "pending_human": [],

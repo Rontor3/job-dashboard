@@ -469,6 +469,11 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
         if value is None:
             m.band, m.note = NONE, "no answer for entry"
             return m, None
+    from ..browser.value_shape import date_mask_refuses
+    if date_mask_refuses(value, {"placeholder": getattr(f, "placeholder", "") or ""}):
+        # the bank's '2023' for 'Year Of Passing' cannot go into an MM/DD/YYYY box: let the profile's full date answer
+        m.band, m.note = NONE, f"{value!r} is not a {f.placeholder} date"
+        return m, None
     if escape and entry.get("atype") == "bool" and not f.options and f.kind in ("text", "textarea"):
         # "If yes, provide your Employee ID. If no, enter NA" matched a yes/no entry (Wipro, live 2026-10-23): a No
         # is the form's own word; a Yes means the box wants the detail itself, which only the human has

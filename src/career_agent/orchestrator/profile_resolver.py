@@ -46,11 +46,15 @@ def resolve(purpose, profile, index=0, section=""):
     went into a date box and the home state into the school's)."""
     in_edu = bool(_EDU_SECTION.search(section or ""))
     if in_edu and purpose in ("start_date", "end_date"):
+        v = ""
         if 0 <= index < len(profile.education):
             v = getattr(profile.education[index], "start" if purpose == "start_date" else "end") or ""
-            return None if not v.strip() or _ONGOING.match(v) else v
-        return None
-    if in_edu and purpose in ("city", "state", "country"):
+        if not v.strip() and index == 0:          # the résumé line has no dates: the profile's own education dates
+            v = profile.contact.get("education_start" if purpose == "start_date" else "education_end") or ""
+        return None if not v.strip() or _ONGOING.match(v) else v
+    if in_edu and purpose == "state":
+        return (profile.contact.get("education_state") or None) if index == 0 else None
+    if in_edu and purpose in ("city", "country"):
         return None
     if purpose in ("first_name", "last_name"):
         first, last = _name_parts(profile.contact)
@@ -97,10 +101,9 @@ def resolve(purpose, profile, index=0, section=""):
             return getattr(profile.education[index], _EDU[purpose]) or None
         return None
     if purpose == "graduation_year":
-        if 0 <= index < len(profile.education):
-            m = _YEAR_RE.search(profile.education[index].end or "")
-            return m.group(0) if m else None
-        return None
+        end = profile.education[index].end if 0 <= index < len(profile.education) else ""
+        m = _YEAR_RE.search(end or (profile.contact.get("education_end") if index == 0 else "") or "")
+        return m.group(0) if m else None
     if purpose == "skills":
         return ", ".join(profile.skills) if profile.skills else None
     return profile.contact.get(purpose) or None

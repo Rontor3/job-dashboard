@@ -100,3 +100,16 @@ def test_dates_follow_the_form_section():
     assert resolve("end_date", P, section="Education") == "2022"
     assert resolve("state", P, section="Education") is None                           # the school's, never home's
     assert resolve("end_date", P) is None and resolve("start_date", P) == "July 2023"  # no section: work, as before
+
+
+def test_saved_education_dates_and_state_fill_the_education_section():
+    """The résumé's education line has no dates; the profile's education_start/end/state answer (Wipro 2026-10-23)."""
+    p = CandidateProfile(contact={"location": "Mumbai, India", "education_start": "July 2019",
+                                  "education_end": "May 2023", "education_state": "Uttar Pradesh"},
+                         experiences=[Experience("Tata AIG", "Data Scientist", "July 2023", "Present", [])],
+                         education=[Education("IIT (BHU) Varanasi", "B.Tech")])
+    assert resolve("start_date", p, section="Education") == "July 2019"
+    assert resolve("end_date", p, section="Education") == "May 2023"
+    assert resolve("state", p, section="Education") == "Uttar Pradesh"
+    assert resolve("state", p, section="Profile Information") == "Maharashtra"     # home, outside Education
+    assert resolve("graduation_year", p) == "2023"
