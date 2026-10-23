@@ -177,3 +177,16 @@ def test_llm_pick_prompt_keeps_scope_and_rejects_the_reverse(qbank_conn):
     llm_pick("Have you worked with Wipro or any of its subsidiaries?", ["race"], qbank_conn,
              lambda p: seen.append(p) or "none")
     assert "including as a contractor" in seen[0] and "require sponsorship" in seen[0]
+
+
+def test_a_no_into_a_box_with_its_own_none_word_becomes_that_word(qbank_conn, fake_embed, make_field):
+    """'If yes, provide your Employee ID. If no, enter NA' matched a yes/no entry (Wipro, live 2026-10-23): No -> NA;
+    Yes -> the box wants the detail itself, so the human is asked."""
+    f = make_field('Are you Hispanic or Latino? If yes, provide your ID. If no, enter NA')
+    qbank.set_answer(qbank_conn, "hispanic_latino", "No")
+    pick = lambda prompt: "a"                                              # the entry pick confirms the match
+    m, v = answer_field(qbank_conn, f, embed=fake_embed, llm=pick)
+    assert m.entry_id == "hispanic_latino" and v == "NA"
+    qbank.set_answer(qbank_conn, "hispanic_latino", "Yes")
+    m, v = answer_field(qbank_conn, f, embed=fake_embed, llm=pick)
+    assert v is None and m.band == NONE

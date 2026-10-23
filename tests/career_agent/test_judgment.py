@@ -330,3 +330,26 @@ def test_judge_still_adopts_a_plausible_draft():
     answered, still_need, _ = judge([msg], ctx, llm)
     assert [x.ref for x in answered] == ["#m"] and answered[0].source == "judgment"
     assert still_need == []
+
+
+def test_a_box_with_its_own_none_word_gets_a_value_never_an_essay():
+    """Wipro (live 2026-10-23): 'If yes, please provide your Employee ID. If no, enter NA' got a Tata AIG project
+    write-up from the screening writer. Now: the value, or the form's own word; a long reply goes to the human."""
+    ctx = JudgmentContext(job={"title": "DS", "company": "Wipro"}, profile_text="Rakshit, Data Scientist, Tata AIG")
+    q = _f("#id", "* If yes, please provide your Employee ID. If no, enter NA", required=True)
+    seen = []
+    answered, still, _ = judge([q], ctx, lambda p: seen.append(p) or "na")
+    assert [d.value for d in answered] == ["NA"] and still == []          # the form's spelling
+    assert "exactly: NA" in seen[0] and "Employee ID" in seen[0]
+    essay = "I built Graph ML, a fraud-ring detection system for health claims that found sixteen more frauds."
+    answered, still, _ = judge([q], ctx, lambda p: essay)
+    assert answered == [] and still == [q]                                 # too long to be a value: asked
+    answered, _, _ = judge([q], ctx, lambda p: "WIP12345")
+    assert [d.value for d in answered] == ["WIP12345"]
+
+
+def test_a_question_without_a_none_word_still_reaches_the_writer():
+    from career_agent.memory.qbank_match import split_escape
+    assert split_escape("Why do you want to work at Wipro?")[1] is None
+    assert split_escape("Enter none of the above if unsure")[1] is None   # 'none' starts a phrase, not the word
+    assert split_escape("Certifications? Otherwise type N/A.")[1] == "N/A"

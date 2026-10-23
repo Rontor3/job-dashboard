@@ -185,6 +185,26 @@ def judge_combobox_value(label, profile_text, llm) -> str | None:
     return short_answer(reply)
 
 
+def judge_short_value(question, escape, profile_text, llm) -> str | None:
+    """A one-line box that names its own 'none' word: the requested value from the candidate's profile, or exactly
+    that word when the profile has no such thing. A reply too long for a value is no answer (the human is asked)."""
+    prompt = (
+        "A job application form asks for one short value:\n"
+        f"QUESTION: {question}\n"
+        f"If the candidate has nothing for this, the form says to enter exactly: {escape}\n\n"
+        f"CANDIDATE:\n{(profile_text or '')[:1500]}\n\n"
+        f"Reply with ONLY the value from the candidate's own details, or exactly {escape} if they have none. "
+        "No sentences, no explanation. Never invent an ID, number or name.\n\nValue:")
+    try:
+        reply = (llm(prompt) or "").strip()
+    except Exception:
+        return None
+    val = short_answer(reply)
+    if val and val.strip(" .").lower() == escape.strip(" .").lower():
+        return escape                                   # the form's own spelling
+    return val
+
+
 def short_answer(reply: str) -> str | None:
     """The answer part of a model's reply for a dropdown. Models append notes despite the prompt
     ("Yes\n\n(This assumes the job is posted in India…)"); only the first line, without a trailing parenthetical
@@ -244,6 +264,19 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
             else:
                 answered.append(FillDecision(f.ref, f.kind, f.label, val, "combobox", "judgment"))
             continue
+        if f.kind == "text":
+            from ..memory.qbank_match import split_escape
+            asked, escape = split_escape(f.label, f.description)
+            if escape:
+                # "If yes, provide your Employee ID. If no, enter NA": a value or the form's own word, never an essay
+                # (Wipro, live 2026-10-23: the screening writer put a Tata AIG project write-up in that box)
+                calls += 1
+                val = judge_short_value(asked or f.label, escape, profile_text, llm)
+                if val is None or _reject_error_draft(f, val):
+                    still_need.append(f)
+                else:
+                    answered.append(FillDecision(f.ref, f.kind, f.label, val, "fill", "judgment"))
+                continue
         if f.kind in ("textarea", "text") and (f.purpose is None or f.purpose in PROSE_PURPOSES):
             question = cover_note_question(f.label) or role_description_question(f, ctx.companies) or f.label
             if (_NOT_A_QUESTION.search(f.label or "")

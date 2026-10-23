@@ -27,6 +27,8 @@ CONFIDENT, LIKELY, NONE = "confident", "likely", "none"
 
 _ESCAPE = re.compile(
     r'''\b(type|enter|write|put|respond with)\b[^"“']{0,20}["“']([^"”']{2,30})["”']''', re.I)
+# the same instruction without quotes: "If no, enter NA", "otherwise type N/A" (Wipro Employee ID, live 2026-10-23)
+_ESCAPE_BARE = re.compile(r"\b(type|enter|write|put|respond with|mention)\s+(N/?A|N\.A\.?|none|nil|not applicable)(?=\s*(?:[.,;)]|$|\b(?:if|when|otherwise|in case)\b))", re.I)
 _POLARITY = {"not", "no", "without", "never", "ever", "require", "required", "need"}
 # Contrasting qualifiers that make two otherwise identical questions different ("current" vs "expected" salary).
 # A small embedding model scores them near-identical, so a clash is never auto-confident.
@@ -54,13 +56,13 @@ def split_escape(label: str, description: str = ""):
     separately. Helper text is scanned for X only, never matched on."""
     escape, kept = None, []
     for s in re.split(r"(?<=[.?!])\s+", (label or "").strip()):
-        m = _ESCAPE.search(s)
+        m = _ESCAPE.search(s) or _ESCAPE_BARE.search(s)
         if m:
             escape = escape or m.group(2).strip()
         elif s:
             kept.append(s)
     if escape is None:
-        m = _ESCAPE.search(description or "")
+        m = _ESCAPE.search(description or "") or _ESCAPE_BARE.search(description or "")
         escape = m.group(2).strip() if m else None
     return " ".join(kept).strip(), escape
 
@@ -466,6 +468,14 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
         value, composed = _compose_from_facts(conn, f, question, entry, embed, llm, job, contact)
         if value is None:
             m.band, m.note = NONE, "no answer for entry"
+            return m, None
+    if escape and entry.get("atype") == "bool" and not f.options and f.kind in ("text", "textarea"):
+        # "If yes, provide your Employee ID. If no, enter NA" matched a yes/no entry (Wipro, live 2026-10-23): a No
+        # is the form's own word; a Yes means the box wants the detail itself, which only the human has
+        if str(value).strip().lower() in ("no", "false"):
+            value = escape
+        else:
+            m.band, m.note = NONE, "yes, but the box wants the detail itself"
             return m, None
     shape = infer_shape(entry["shape"], getattr(f, "input_type", ""),
                         getattr(f, "autocomplete", ""), f.label)
