@@ -589,6 +589,9 @@ _INPUT_JS = r"""
     if (['input', 'select', 'textarea', 'button'].includes(tag) || _comboSeen.has(el)) continue;
     _comboSeen.add(el);
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
+    // A link dressed as a combobox is a menu, never an answer: SuccessFactors' site-language switcher
+    // (<a role=combobox aria-haspopup> beside Sign Out) was read as 'Language' and set Wipro to Deutsch (2026-10-23).
+    if (tag === 'a') continue;
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
     const cref = 'f' + (_ci++);
     el.setAttribute('data-cref', cref);
