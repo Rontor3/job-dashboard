@@ -86,6 +86,12 @@ def _type_ahead_queries(value: str) -> list[str]:
 # VISIBLE one counts — a closed listbox keeps its old options in the DOM.
 _POPUP_SEL = "[role=listbox], [data-automation-id='activeListContainer']"
 # Options must be visible: a closed popup (or another prompt's) keeps its rows in the DOM and would be read as choices.
+def _exact(text: str):
+    """Whole-text match for an option/label click: has_text=str is a substring test, so 'Male' clicked 'Female'
+    (Wipro gender, live 2026-10-23)."""
+    return re.compile(r"^\W*" + re.escape(str(text).strip()) + r"\W*$", re.I)     # 'Male *' yes, 'Female' no
+
+
 _OPT_SEL = "[role=option]:visible, [id*='-option-']:visible, [data-automation-id='promptOption']:visible"
 
 
@@ -93,7 +99,7 @@ def _popup(target, lb_id):
     """The listbox this combobox controls: its aria-controls target, else the first visible popup on the page, else
     the field's own scope (type-ahead options that are not in any popup)."""
     if lb_id:
-        return target.locator(f"#{lb_id}")
+        return target.locator(f'[id="{lb_id}"]')         # SuccessFactors ids hold a colon ("322:_listSelect"): no #id
     for lb in target.locator(_POPUP_SEL).all():
         if lb.is_visible():
             return lb
@@ -110,7 +116,7 @@ def _drill_to_leaf(page, scope, pre: list[str], fit) -> None:
     leaf = fit(leaves) or next((t for t in leaves if t.lower() == "other"), None)
     if leaf:
         pace(page)
-        scope.locator(_OPT_SEL).filter(has_text=leaf).first.click(timeout=_SOFT_TIMEOUT_MS)
+        scope.locator(_OPT_SEL).filter(has_text=_exact(leaf)).first.click(timeout=_SOFT_TIMEOUT_MS)
 
 
 _SEARCHING = re.compile(r"^\s*(searching|loading|please enter|type to search)\b", re.I)
@@ -125,7 +131,7 @@ def read_combobox_options(page, sel) -> list[str]:
         except Exception:               # react-select: a placeholder div covers the input; click the wrapping control
             page.locator(sel).first.locator("xpath=ancestor::div[contains(@class,'control')][1]").click(timeout=_SOFT_TIMEOUT_MS)
         page.wait_for_timeout(800)
-        scope = _popup(page, page.get_attribute(sel, "aria-controls"))
+        scope = _popup(page, page.get_attribute(sel, "aria-controls") or page.get_attribute(sel, "aria-owns"))
         opts = [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
         page.keyboard.press("Tab")
         return opts
@@ -152,7 +158,7 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
         # Scope to the listbox THIS combobox controls — reading every
         # option on the page grabs unrelated widgets (e.g. the
         # phone-country list has 247 options, one of them "Male").
-        lb_id = target.get_attribute(sel, "aria-controls")
+        lb_id = target.get_attribute(sel, "aria-controls") or target.get_attribute(sel, "aria-owns")   # SuccessFactors: aria-owns
         scope = _popup(target, lb_id)
 
         def _options():
@@ -165,6 +171,11 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
             return opt
 
         options = _options()
+        for _ in range(8):              # a slow list (SuccessFactors draws 100 rows in ~0.8 s): wait, up to ~2.4 s more
+            if options:
+                break
+            page.wait_for_timeout(300)
+            options = _options()
         opt = _fit(options)
         if opt is None:
             # a type-ahead: try each way the value may be listed, until an option actually fits (options that show up
@@ -199,8 +210,13 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
         if opt:
             pace(page)
             before = _options()
-            scope.locator(_OPT_SEL).filter(has_text=opt).first.click(timeout=_SOFT_TIMEOUT_MS)
+            scope.locator(_OPT_SEL).filter(has_text=_exact(opt)).first.click(timeout=_SOFT_TIMEOUT_MS)
             _drill_to_leaf(page, scope, before, _fit)
+            try:            # leave the box: blur-only validators keep a stale 'required' flag (SuccessFactors juic _onBlur)
+                page.wait_for_timeout(300)                  # the site writes the pick into the box a beat after the click
+                target.locator(sel).first.evaluate("e => { e.focus(); e.blur(); }", timeout=_SOFT_TIMEOUT_MS)
+            except Exception:
+                pass
         elif not target.locator(sel).first.evaluate(
                 "e => !!e.closest('[role=dialog],[aria-modal=true],[class*=modal i]')"):
             # Escape closes the listbox — but inside a modal it closes
@@ -270,7 +286,7 @@ def _tick_box(page, target, want: str) -> None:
         lambda: target.get_by_role("checkbox", name=re.compile(
             r"^\s*\W*" + re.escape(want) + r"\W*$", re.I)).first.check(
             force=True, timeout=_SOFT_TIMEOUT_MS),
-        lambda: target.locator("label").filter(has_text=want).first.click(timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator("label").filter(has_text=_exact(want)).first.click(timeout=_SOFT_TIMEOUT_MS),
         # a styled button masquerading as a checkbox
         lambda: target.get_by_role("checkbox", name=re.compile(re.escape(want), re.I)).first.click(
             timeout=_SOFT_TIMEOUT_MS),
@@ -308,7 +324,7 @@ def _pick_radio(page, target, want: str, group: str | None = None) -> None:
         lambda: target.locator(f'input[type=radio][value="{q}" i]').first.check(force=True, timeout=_SOFT_TIMEOUT_MS),
         lambda: target.locator(f'input[type=radio][value="{q}" i]').first.locator("xpath=..").click(timeout=_SOFT_TIMEOUT_MS),
         lambda: target.get_by_role("radio", name=re.compile(r"^" + re.escape(want) + r"\b", re.I)).first.check(force=True, timeout=_SOFT_TIMEOUT_MS),
-        lambda: target.locator("label").filter(has_text=want).first.click(timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator("label").filter(has_text=_exact(want)).first.click(timeout=_SOFT_TIMEOUT_MS),
     )
     for go in attempts:
         try:

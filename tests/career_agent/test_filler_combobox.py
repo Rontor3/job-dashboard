@@ -19,7 +19,10 @@ class FakeScope:                       # both a listbox locator and the page fal
     first = property(lambda self: self)
     def locator(self, sel): return self          # scope.locator("[role=option]")
     def all_text_contents(self): return list(self._options)
-    def filter(self, has_text=None): return FakeOption(self.sink, has_text)
+    def filter(self, has_text=None):             # a whole-text pattern resolves to the one option it matches
+        if hasattr(has_text, "search"):
+            has_text = next((o for o in self._options if has_text.search(o)), None)
+        return FakeOption(self.sink, has_text)
     def evaluate(self, js): return self._in_dialog
     def is_visible(self): return True
     def fill(self, value, timeout=None):         # type-ahead: options load after typing
