@@ -1478,8 +1478,10 @@ def _site_steps_cleared(page, site, cred, is_new, original_url) -> bool:
     if is_new:
         register(page, cred, original_url=reg_url)
     login(page, cred, original_url=original_url)
-    from .page_prep import is_wall
-    if not is_wall(page, page.url):
+    from .page_prep import is_auth_wall, is_wall
+    # the engine's own wall test (classify_entry) as well: IBM's IBMid step is an email box alone, which is_wall's
+    # password-box signals read as 'no wall' while the run then stopped auth_wall (live 2026-10-24)
+    if not is_wall(page, page.url) and not is_auth_wall(page):
         return True
     print(f"[cred] {site}: the {name} steps left the wall up — trying the generic path", flush=True)
     return False

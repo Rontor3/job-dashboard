@@ -36,6 +36,7 @@ def test_wall_still_up_falls_through_to_generic(stubs, monkeypatch):
 
 def test_wall_cleared_skips_generic(stubs, monkeypatch):
     monkeypatch.setattr(page_prep, "is_wall", lambda page, url: False)
+    monkeypatch.setattr(page_prep, "is_auth_wall", lambda page: False)
     cp._provide_attempt(FakePage(), "password", "login.ibm.com")
     assert stubs == ["_ibm_login"]
 
@@ -47,3 +48,11 @@ def test_other_sites_never_run_site_steps(stubs, monkeypatch):
     monkeypatch.setattr(cp, "_is_ibm_page", lambda p: False)
     assert cp._site_steps_cleared(page, "jobs.example.com", {}, False, None) is False
     assert stubs == []
+
+
+def test_an_email_only_login_step_still_counts_as_the_wall(stubs, monkeypatch):
+    """IBM's IBMid screen has no password box: is_wall says no, the engine's classify_entry says auth wall."""
+    monkeypatch.setattr(page_prep, "is_wall", lambda page, url: False)
+    monkeypatch.setattr(page_prep, "is_auth_wall", lambda page: True)
+    cp._provide_attempt(FakePage(), "password", "login.ibm.com")
+    assert stubs == ["_ibm_login", "generic_fill"]
