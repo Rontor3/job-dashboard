@@ -208,7 +208,13 @@ class QBankMemory:
                     continue
                 decisions.append(FillDecision(f.ref, f.kind, f.label, yes, "check" if yes else "uncheck", source))
                 continue
-            decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action_for_kind(f.kind), source))
+            alts = ()
+            if m.entry_id:
+                from . import qbank
+                entry = qbank.get_entry(self.conn, m.entry_id) or {}
+                alts = tuple((entry.get("synonyms") or {}).get(str(value), ()))   # 'Job Board' -> 'Company Portal'
+            decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action_for_kind(f.kind), source,
+                                          alternatives=alts))
         return decisions, still
 
     def record(self, field, answer):

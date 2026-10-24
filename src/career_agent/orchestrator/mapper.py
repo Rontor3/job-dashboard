@@ -16,6 +16,7 @@ class FillDecision:
     action: str
     source: str
     basis: str = ""        # why this value (audit trail into application_qa.basis); empty = a tier decided silently
+    alternatives: tuple = ()   # other options meaning the same answer, tried in order when the value is not listed
 
 
 def _action_for_kind(kind: str) -> str:

@@ -395,6 +395,17 @@ def fill_node(state: AgentState, config) -> dict:
     pdf = c.get("resume_pdf")
     if pdf and not any(d.action in ("upload", "upload_chooser") for d in decisions) \
             and not any(f.kind == "file" for f in fillable):
+        # a file input already on the page, hidden or not, takes the file directly: an attached Chrome's native
+        # chooser never reaches the page (Workday 'Autofill with Resume', Opella / Hitachi 2026-10-24)
+        from ..browser.filler import upload_resume_to_input
+        _direct = upload_resume_to_input(page, pdf)
+        if _direct:
+            from .mapper import FillDecision
+            page.wait_for_timeout(3000)          # upload + résumé parsing finish before the fills
+            decisions = decisions + [FillDecision("input[type=file]", "file", _direct, pdf, "upload_chooser", "resume")]
+            print(f"[fill] uploaded résumé into the page's file input ({_direct!r})", flush=True)
+    if pdf and not any(d.action in ("upload", "upload_chooser") for d in decisions) \
+            and not any(f.kind == "file" for f in fillable):
         btn = next((f for f in fillable if f.kind == "button" and re.match(r"(select|choose|upload|attach|browse)\b.*\b(file|resume|cv)\b", f.label or "", re.I)), None)
         if btn is None:
             btn = next((f for f in form if f.kind == "button" and re.match(r"(select|choose|upload|attach|browse)\b.*\b(file|resume|cv)\b", f.label or "", re.I)), None)

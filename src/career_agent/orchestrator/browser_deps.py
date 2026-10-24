@@ -80,7 +80,10 @@ class BrowserDeps:
                           f"{' | ' + '; '.join(obs.intercepts) if obs.intercepts else ''}", flush=True)
                     return
             if attempt == 0:
-                # Button may be temporarily absent during an AJAX refresh — wait and retry once
+                # Button may be temporarily absent during an AJAX refresh — wait and retry once. An open dropdown hides
+                # the rest of the page from the accessibility tree (Workday: a multiselect left open after a pick that
+                # did not take — Opella 2026-10-24, 'no Save and Continue button'): close it first.
+                _close_open_list(page)
                 page.wait_for_timeout(2500)
                 frames = [fr for fr in page.frames
                           if not any(s in (fr.url or "") for s in _SKIP)]
@@ -93,3 +96,22 @@ class BrowserDeps:
 
     def url(self, page):
         return page.url
+
+
+_OPEN_LIST_JS = """() => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const list = [...document.querySelectorAll('[role=listbox], [data-automation-id=activeListContainer]')].some(vis);
+  const dialog = [...document.querySelectorAll('[role=dialog], [aria-modal=true]')].some(vis);
+  return list && !dialog;
+}"""
+
+
+def _close_open_list(page) -> None:
+    """Escape closes an open dropdown list, but never inside a dialog (there it closes the whole form: Wellfound)."""
+    try:
+        if page.evaluate(_OPEN_LIST_JS):
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+    except Exception:
+        pass
+

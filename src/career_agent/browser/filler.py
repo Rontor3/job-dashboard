@@ -101,7 +101,9 @@ def _popup(target, lb_id):
     if lb_id:
         return target.locator(f'[id="{lb_id}"]')         # SuccessFactors ids hold a colon ("322:_listSelect"): no #id
     for lb in target.locator(_POPUP_SEL).all():
-        if lb.is_visible():
+        # Workday's selectedItemList is a listbox of choices ALREADY made in another field (the phone code's
+        # 'India (+91)'): never this field's options (Opella 2026-10-25: 'Company Portal' was never seen)
+        if lb.is_visible() and (lb.get_attribute("data-automation-id") or "") != "selectedItemList":
             return lb
     return target
 
@@ -114,6 +116,8 @@ def _drill_to_leaf(page, scope, pre: list[str], fit) -> None:
     if not leaves or leaves == pre:          # the list did not change: the pick committed (popup closed or pill shown)
         return
     leaf = fit(leaves) or next((t for t in leaves if t.lower() == "other"), None)
+    if leaf is None and len(set(leaves)) == 1:
+        leaf = leaves[0]          # the chosen category's only option (Workday 'Company Portal' > 'Company Career Site')
     if leaf:
         pace(page)
         scope.locator(_OPT_SEL).filter(has_text=_exact(leaf)).first.click(timeout=_SOFT_TIMEOUT_MS)
@@ -166,6 +170,10 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
 
         def _fit(options):
             opt = _coerce_option(str(d.value), options) if options else None
+            for alt in (getattr(d, "alternatives", ()) or ()) if opt is None and options else ():
+                opt = _coerce_option(str(alt), options)        # the answer's own stand-ins first ('Company Portal')
+                if opt:
+                    break
             if opt is None and options and matcher is not None:
                 opt = matcher(d.label, str(d.value), options)
             return opt
@@ -176,6 +184,17 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                 break
             page.wait_for_timeout(300)
             options = _options()
+        if not options:
+            # text left in a search box filters its list to nothing (Workday prompt holding an earlier 'Job Board'):
+            # clear it and read the full list
+            try:
+                if (target.locator(sel).first.input_value(timeout=1000) or "").strip():
+                    target.locator(sel).first.fill("", timeout=_SOFT_TIMEOUT_MS)
+                    page.wait_for_timeout(1200)
+                    scope = _popup(target, lb_id)
+                    options = _options()
+            except Exception:
+                pass
         opt = _fit(options)
         if opt is None:
             # a type-ahead: try each way the value may be listed, until an option actually fits (options that show up
@@ -196,7 +215,9 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                         break
                 return found
 
-            for q in _type_ahead_queries(str(d.value)):
+            # the answer's own wordings first, then its stand-ins: a search box filters the list to what it holds, so
+            # 'Job Board' typed into Workday's prompt showed nothing and 'Company Portal' was never looked for (Opella)
+            for q in [*_type_ahead_queries(str(d.value)), *(getattr(d, "alternatives", ()) or ())]:
                 opt = _fit(_search(q))
                 if opt:
                     break
@@ -243,6 +264,38 @@ _UPLOAD_CONTROL_JS = r"""(pattern) => {
   e.setAttribute('data-upload-control', '1');
   return name(e).slice(0, 80);
 }"""
+
+
+_RESUME_INPUT_JS = r"""(pattern) => {
+  const R = new RegExp(pattern, 'i');
+  const words = e => [e.name, e.id, e.getAttribute('data-automation-id'), e.getAttribute('aria-label'), e.accept,
+                      ...Array.from(e.labels || []).map(l => l.innerText),
+                      (e.closest('[data-automation-id],section,fieldset,div') || {}).innerText || ''].join(' ');
+  const ins = Array.from(document.querySelectorAll('input[type=file]')).filter(e => !e.disabled);
+  if (!ins.length) return null;
+  const NOT = /cover|letter|photo|picture|avatar|image|transcript|certificate|portfolio/i;   // other documents' slots
+  const pick = ins.find(e => R.test(words(e)) && !NOT.test(e.name + ' ' + e.id + ' ' + (e.getAttribute('data-automation-id') || '')))
+            || (ins.length === 1 && !NOT.test(words(ins[0])) ? ins[0] : null);
+  if (!pick) return null;
+  pick.setAttribute('data-resume-input', '1');
+  return (pick.getAttribute('data-automation-id') || pick.name || pick.id || 'file input').slice(0, 60);
+}"""
+
+
+def upload_resume_to_input(page, pdf) -> str | None:
+    """The résumé straight into a file input already on the page (hidden ones too): the one named or labelled for a
+    résumé / CV, else the page's only file input. Its name, or None when there is none or it did not take."""
+    try:
+        name = page.evaluate(_RESUME_INPUT_JS, r"resume|r[ée]sum[ée]|\bcv\b|curriculum")
+        if not name:
+            n = page.locator("input[type=file]").count()
+            print(f"[fill] no résumé file input to use ({n} file input(s) on the page)", flush=True)
+            return None
+        page.locator('[data-resume-input="1"]').first.set_input_files(pdf, timeout=20000)    # an upload can be slow
+        return name
+    except Exception as e:
+        print(f"[fill] the résumé file input did not take the file ({type(e).__name__}: {str(e)[:120]})", flush=True)
+        return None
 
 
 def upload_resume_via_control(page, pdf) -> str | None:
