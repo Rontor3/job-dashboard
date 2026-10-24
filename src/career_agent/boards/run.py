@@ -125,13 +125,16 @@ def _form_already_open(page) -> bool:
 
 
 def _beyond_entry(board):
-    """A fillable flow lives past the entry click: the chat questionnaire (the chat driver
-    sends answers until the bot applies itself) or declared final/advance controls. A one-click
+    """A fillable flow lives past the entry click: declared final/advance controls. A one-click
     entry whose profile lists neither has nothing reversible to fill — the click IS the whole
     application (instahyre, iimjobs live 2026-09-27) — so fill-probe stays a dry_run for it."""
     if (board.get("entry") or {}).get("submits") == "yes":
         return False        # the click IS the application; final/advance are always set by profile defaults (live 2026-10-22: a dry run submitted on instahyre)
-    return board.get("archetype") == "chat" or bool(board.get("final") or board.get("advance"))
+    if board.get("archetype") == "chat":
+        # the chat bot applies on the questionnaire's last answer: answering IS submitting (naukri live 2026-10-24:
+        # Assertive Business Solutions went in during a fill-only batch with auto-submit off)
+        return False
+    return bool(board.get("final") or board.get("advance"))
 
 
 def _authorized(ctx, board, page, decisions):

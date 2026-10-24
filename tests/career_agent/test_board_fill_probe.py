@@ -394,22 +394,18 @@ def test_plain_form_dry_run_still_stops_at_its_final_button(monkeypatch):
     assert out["decisions"] == [] and out["submitted"] is False
 
 
-def test_chat_fill_probe_answers_until_the_last_and_refuses_the_commit(monkeypatch):
-    """The naukri shape: the chat questionnaire lives behind the entry; the bot applies
-    itself after the last answer. Fill-probe composes and sends everything but THAT last
-    answer, then stops reached_submit_dry_run with the composed answers counted and no
-    apply POST anywhere."""
+def test_chat_fill_only_run_never_clicks_apply(monkeypatch):
+    """The naukri shape: its Apply button applies at once when the job has no questions, and the bot applies on the
+    questionnaire's last answer otherwise (live 2026-10-24: Assertive Business Solutions went in during a fill-only
+    batch). Without authorization the run stops dry_run before the entry click: nothing sent, no apply POST."""
     _answers_ladder(monkeypatch)
     cap = FakeCapture([_Resp("https://naukri.test/job-listings-x#apply-workflow/v1/apply",
                              data={"jobs": [{"questionnaire": _QN}]})])
     page = _chat_page(cap)
     out = _run(page, CHAT_BOARD, monkeypatch, cap=cap)
-    assert out["stopped_reason"] == "reached_submit_dry_run", out
-    assert out["submitted"] is False and out["pending_human"] == []
-    assert [d["ref"] for d in out["decisions"]] == ["q:1", "q:2"]     # both composed answers counted
-    assert page.chat.sent == 1                                       # Q1 answered, Q2 withheld
-    assert page.chat.picks == ["Yes"]                                # the radio option was really chosen
-    assert ("type", "2 Months") not in page.log                      # the final answer was never typed
+    assert out["stopped_reason"] == "dry_run", out
+    assert out["submitted"] is False
+    assert page.chat.sent == 0                                       # the chat was never opened
     assert not any("applyData" in (r.request.post_data or "") for r in cap.responses)  # no apply POST
 
 
