@@ -30,9 +30,13 @@ def launch(settings, cdp_url: str | None = None):
         print(f"[browser] CDP connected → {cdp_url}", flush=True)
         return pw, context, page, browser
     Path(settings.user_data_dir).mkdir(parents=True, exist_ok=True)
-    context = pw.chromium.launch_persistent_context(
-        settings.user_data_dir, headless=not settings.headed,
-    )
+    # Hide the automation tells (navigator.webdriver, "controlled by automation" bar) that make sites raise captchas.
+    opts = dict(headless=not settings.headed, ignore_default_args=["--enable-automation"],
+                args=["--disable-blink-features=AutomationControlled"])
+    try:
+        context = pw.chromium.launch_persistent_context(settings.user_data_dir, channel="chrome", **opts)
+    except Exception:  # installed Chrome missing → bundled Chromium, same flags
+        context = pw.chromium.launch_persistent_context(settings.user_data_dir, **opts)
     page = context.pages[0] if context.pages else context.new_page()
     return pw, context, page, None
 
