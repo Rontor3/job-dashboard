@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from pathlib import Path as _RunPath
 
 
@@ -71,8 +72,21 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
             except Exception:
                 pass
         if fields:
+            from .browser.runner import revive, tab_id_for
+            _pg = cfg["configurable"].get("page")
+            try:
+                _tab = tab_id_for(_pg.context, _pg.url) if _pg is not None else None
+            except Exception:
+                _tab = None
             print(f"[telegram] sending {len(fields)} field question(s) — waiting for reply...", flush=True)
             answers.update(human.collect(fields))
+            if _pg is not None:
+                # the wait can outlast the browser connection (Mac asleep): carry on in the same tab, or stop honestly
+                _pg = revive(_pg, cfg["configurable"].get("cdp_url"), _tab)
+                if _pg is None:
+                    print("[stop] the run's tab is gone (closed, or Chrome unreachable) after the wait", flush=True)
+                    return {"stopped_reason": "tab_closed", "submitted": False}
+                cfg["configurable"]["page"] = _pg
             print(f"[telegram] received {len(answers)} answer(s)", flush=True)
             if not answers and getattr(getattr(human, "collector", None), "parks", False):
                 break                  # --park: the gaps stay open for the tracker
@@ -82,6 +96,20 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
 
 
 MACHINE_KEY = "__machine_refs__"
+
+
+def _stay_awake() -> None:
+    """macOS: no idle sleep while this run lives (caffeinate -w exits with it). A wait for your answer outlasted the
+    browser connection when the Mac slept (Opella, 2026-10-24). Closing the lid on battery still sleeps the Mac;
+    the run then reconnects to the same tab after the wait (runner.revive)."""
+    import shutil
+    import subprocess
+    if sys.platform == "darwin" and shutil.which("caffeinate"):
+        try:
+            subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 
 def main() -> None:
@@ -149,6 +177,7 @@ def main() -> None:
     ap.add_argument("--result-json", default=None, metavar="PATH",
                     help="write a JSON summary of the run here on every exit path")
     args = ap.parse_args()
+    _stay_awake()
     box: dict = {}
     # O1 run trace: crash-durable step log in this job's agent_runs dir (silence without --job-id).
     from . import run_trace
@@ -669,6 +698,7 @@ def _apply(args, box: dict) -> None:
             "run_dir": run_dir, "qa": qa_rec, "assist": _assist,
             "autosubmit_policy": _policy_fn, "on_submit": _on_submit,
             "intended_url": args.url,        # the job page the run set out for (page-health replay)
+            "cdp_url": _cdp_url,             # to find the same tab again if the connection drops during a wait
             # a JD-tailored résumé is GENERATED, not the one the candidate supplied: only on explicit request
             "tailor_cv": bool(args.tailor_cv or os.getenv("CAREER_AGENT_TAILOR_CV") == "1"),
         }}
@@ -688,8 +718,13 @@ def _apply(args, box: dict) -> None:
                                  args.submit, args.autonomous, args.max_steps, human,
                                  jd_text=_db_jd, checkpoint_db=checkpoint_db)
             except Exception as _ge:
-                print(f"[graph] failed ({_ge}), falling back to walk()", flush=True)
-                out = _walk()
+                if "has been closed" in str(_ge):
+                    # the page is gone: a walk on it reads 0 fields and reports no_advance_control (Opella 2026-10-24)
+                    print(f"[graph] failed ({_ge}); the tab is gone — stopping as tab_closed", flush=True)
+                    out = {"stopped_reason": "tab_closed", "submitted": False}
+                else:
+                    print(f"[graph] failed ({_ge}), falling back to walk()", flush=True)
+                    out = _walk()
         else:
             print("[engine] walk() (--no-langgraph)", flush=True)
             out = _walk()

@@ -134,6 +134,33 @@ class TabLedger:
         return n
 
 
+def revive(page, cdp_url, tab_id):
+    """The run's tab after a long wait. The page itself if it still answers; else the same tab (by Chrome's own id)
+    through a fresh CDP connection — the Mac slept with the lid shut and the old connection died while Chrome and the
+    tab lived on (Opella, live 2026-10-24); None when that tab is really gone."""
+    try:
+        page.evaluate("1")
+        return page
+    except Exception:
+        pass
+    if not (cdp_url and tab_id):
+        return None
+    try:
+        browser = page.context.browser.browser_type.connect_over_cdp(cdp_url, timeout=60000)
+    except Exception as e:
+        print(f"[browser] could not reconnect to Chrome: {type(e).__name__}", flush=True)
+        return None
+    for ctx in browser.contexts:
+        for pg in ctx.pages:
+            try:
+                if ctx.new_cdp_session(pg).send("Target.getTargetInfo")["targetInfo"]["targetId"] == tab_id:
+                    print(f"[browser] reconnected to Chrome; same tab {pg.url[:80]}", flush=True)
+                    return pg
+            except Exception:
+                continue
+    return None
+
+
 def tab_id_for(context, url: str):
     """Chrome's own id for the tab showing `url` (the id /json/list reports), so a later process can find that tab again
     even after it navigates (a submit lands on a confirmation URL). None if it cannot be read."""

@@ -12,11 +12,24 @@ def _default_transport(token: str) -> Transport:
     # IPv4 only: on networks where IPv6 to api.telegram.org is unroutable, httpx
     # tries the AAAA address first and every call hangs (no happy-eyeballs).
     # Short connect timeout; the 65s read timeout covers getUpdates long-polls.
-    client = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"),
-                          timeout=httpx.Timeout(65, connect=10))
+    def _new():
+        return httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"),
+                            timeout=httpx.Timeout(65, connect=10))
+    box = [_new()]
 
     def _t(method: str, payload: dict) -> dict:
-        return client.post(f"https://api.telegram.org/bot{token}/{method}", json=payload).json()
+        url = f"https://api.telegram.org/bot{token}/{method}"
+        try:
+            return box[0].post(url, json=payload).json()
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError, httpx.ConnectError):
+            # the kept-alive connection went stale while the run filled a form (Opella, 2026-10-24: the first send
+            # after ~20 idle minutes got 'Server disconnected'): a fresh connection, once
+            try:
+                box[0].close()
+            except Exception:
+                pass
+            box[0] = _new()
+            return box[0].post(url, json=payload).json()
     return _t
 
 
