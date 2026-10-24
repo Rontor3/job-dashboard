@@ -98,6 +98,20 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
 MACHINE_KEY = "__machine_refs__"
 
 
+def remember_employer_link(conn, job_id, url) -> None:
+    """A board run that left for the employer's own site: that page is this job's apply link from now on, so a re-run
+    (queue job_target, the dashboard's Apply) starts there, not on the board again (Opella 2026-10-24: every re-run hit
+    Indeed's bot check while its Workday form sat open). An external link the job already has is kept."""
+    if not (job_id and url):
+        return
+    try:
+        conn.execute("UPDATE jobs SET apply_url = ?, apply_kind = 'external' WHERE id = ? AND "
+                     "NOT (COALESCE(apply_kind, '') = 'external' AND COALESCE(apply_url, '') <> '')", (url, job_id))
+        conn.commit()
+    except Exception as e:
+        print(f"[board] could not save the employer link ({type(e).__name__})", flush=True)
+
+
 def _stay_awake() -> None:
     """macOS: no idle sleep while this run lives (caffeinate -w exits with it). A wait for your answer outlasted the
     browser connection when the Mac slept (Opella, 2026-10-24). Closing the lid on battery still sleeps the Mac;
@@ -556,6 +570,7 @@ def _apply(args, box: dict) -> None:
             if out.get("stopped_reason") == "left_board":
                 # The flow moved off the board (e.g. "Apply on company site"): the career-site engine takes over
                 # on that page, with its account/login handling. The board's own run log is not written.
+                remember_employer_link(conn, args.job_id, out.get("url"))
                 page = _page_at(page.context, out["url"], page)
                 _tabs.trim(keep=page)
                 prepare(page)
