@@ -163,7 +163,11 @@ class ChatDriver(FormDriver):
                 return                        # bot asked something we hold no answer for
             f = max(asked, key=lambda f: text.rfind(_norm(f.label)))   # the latest bubble
             pending.remove(f)
-            self._answer(page, chat, str(values[f.ref]))
+            try:
+                self._answer(page, chat, str(values[f.ref]))
+            except Exception as e:            # the chat's box never took a click (Quess 2026-10-25): stop, don't crash
+                print(f"[board] chat answer could not be entered ({type(e).__name__}) — leaving it for you", flush=True)
+                return
             page.wait_for_timeout(2500)
         if refused is not None:
             print(f"[board] fill-probe: composed {len(decisions)} chat answer(s); '{refused.label[:60]}' withheld — the bot applies itself after the last answer", flush=True)
