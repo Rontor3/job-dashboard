@@ -272,6 +272,15 @@ def _apply(args, box: dict) -> None:
     def _policy(url, decisions):
         """May this form be submitted without a human? Records the verdict (and why not) for the tracker."""
         v = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, decisions)
+        _skip = ()
+        if not v["allow"] and page is not None:
+            from .browser.filler import optional_empty
+            _blank = [r for (r,) in conn.execute("SELECT ref FROM application_qa WHERE run_key=? AND status='needs_answer' "
+                                                 "AND coalesce(answer,'')=''", (qa_rec.run_key,))]
+            _skip = tuple(optional_empty(page, _blank))
+            if _skip:
+                v = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, decisions, _skip)
+                print(f"[policy] {len(_skip)} optional box(es) left empty — not counted as doubts", flush=True)
         if not v["allow"] and page is not None:
             # an optional box the AI drafted (a 'Message') is the only doubt: send the form with it empty (user 2026-10-25);
             # otherwise the draft stays in the open tab for you
@@ -279,7 +288,7 @@ def _apply(args, box: dict) -> None:
             spare = optional_ai_boxes(page, decisions)
             if spare:
                 rest = [d for d in decisions if d not in spare]
-                v2 = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, rest)
+                v2 = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, rest, _skip)
                 if v2["allow"] and clear_boxes(page, spare):
                     v = {**v2, "cleared_optional": [(d.get("label") if isinstance(d, dict) else d.label) for d in spare]}
                     print(f"[policy] left optional AI-drafted box(es) empty: {v['cleared_optional']}", flush=True)

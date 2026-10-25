@@ -120,13 +120,14 @@ def auto_submits_last_day(conn) -> int:
     return conn.execute("SELECT COUNT(*) FROM submit_history WHERE how='auto' AND confirmed_at > ?", (since,)).fetchone()[0]
 
 
-def autonomy_report(conn, run_key: str, decisions) -> dict:
+def autonomy_report(conn, run_key: str, decisions, skip_refs=()) -> dict:
     """{ok, blockers: [(label, why)], confident, total}: may this filled form go out without a human?"""
     ensure(conn)
     entry_of = {ref: q for ref, q in conn.execute("SELECT ref, retrieved_qkey FROM application_qa WHERE run_key=?", (run_key,))}
     # a field left blank or in doubt this run (status needs_answer) always keeps the form for you
+    skip = set(skip_refs)          # optional boxes left empty on purpose: not a doubt (user 2026-10-25)
     blockers = [(label or ref, "left blank / in doubt") for ref, label in conn.execute(
-        "SELECT ref, label FROM application_qa WHERE run_key=? AND status='needs_answer'", (run_key,))]
+        "SELECT ref, label FROM application_qa WHERE run_key=? AND status='needs_answer'", (run_key,)) if ref not in skip]
     # 'autosubmit_trust_confident' = 1: a confident bank match counts as known without 3 approvals (user, 2026-10-25)
     try:
         trust = qa_store.get_setting(conn, "autosubmit_trust_confident") == "1"
@@ -156,7 +157,7 @@ def autonomy_report(conn, run_key: str, decisions) -> dict:
 DEFAULT_DAILY_CAP = 5
 
 
-def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
+def autosubmit_policy(conn, url: str, run_key: str, decisions, skip_refs=()) -> dict:
     """May this filled form be submitted without a human? {allow, reasons, report, site, switch}. `reasons` says why not.
     All must hold: the switch for the site the agent is ON NOW (not the page it started from) is on; every answer is
     autonomous; that kind of site has had a confirmed submit before (the first one is always yours); the daily cap of
@@ -168,7 +169,7 @@ def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
         switch_on = qa_store.get_setting(conn, switch_key) == "1"
     except KeyError:
         switch_on = False
-    report = autonomy_report(conn, run_key, decisions)
+    report = autonomy_report(conn, run_key, decisions, skip_refs)
     site = ats_key(url)
     try:
         cap = int(qa_store.get_setting(conn, "autosubmit_daily_cap"))

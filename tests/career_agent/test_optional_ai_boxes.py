@@ -37,3 +37,9 @@ def test_clear_reports_success_only_when_empty(monkeypatch):
     boxes = {"#msg": {"optional": True, "value": "Hi"}}
     _setup(monkeypatch, boxes)
     assert filler.clear_boxes(None, [{"ref": "#msg"}]) and boxes["#msg"]["value"] == ""
+
+
+def test_only_empty_optional_boxes_are_skipped(monkeypatch):
+    _setup(monkeypatch, {"#web": {"optional": True, "value": ""}, "#req": {"optional": False, "value": ""},
+                         "#full": {"optional": True, "value": "x"}})
+    assert filler.optional_empty(None, ["#web", "#req", "#full"]) == ["#web"]

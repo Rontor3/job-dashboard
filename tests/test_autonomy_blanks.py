@@ -25,3 +25,12 @@ def test_confident_bank_answers_pass_only_when_trusted():
     qa_store.set_setting(c, "autosubmit_trust_confident", "1")
     assert autonomy.autonomy_report(c, "r", d)["ok"]
     assert not autonomy.autonomy_report(c, "r", [dict(d[0], source="qbank_likely")])["ok"]
+
+
+def test_an_optional_box_left_empty_on_purpose_is_not_a_doubt():
+    c = _conn()
+    qa_store.set_setting(c, "autosubmit_trust_confident", "1")
+    c.execute("INSERT INTO application_qa (run_key, ref, label, status) VALUES ('r','#web','Website','needs_answer')")
+    d = [{"ref": "#n", "label": "Name", "value": "R", "source": "qbank"}]
+    assert not autonomy.autonomy_report(c, "r", d)["ok"]
+    assert autonomy.autonomy_report(c, "r", d, skip_refs=("#web",))["ok"]

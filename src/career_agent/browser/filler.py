@@ -731,3 +731,18 @@ def clear_boxes(page, decisions) -> bool:
         except Exception:
             return False
     return True
+
+
+def optional_empty(page, refs) -> list:
+    """Of these refs, the OPTIONAL boxes that hold nothing: left empty on purpose, not a doubt (SmartRecruiters' optional
+    'Website', Redica 2026-10-25). A required box, or one that cannot be read, is never in the list."""
+    out = []
+    for ref in refs:
+        try:
+            target, sel = frame_target(page, ref)
+            loc = target.locator(sel).first
+            if loc.evaluate(_OPTIONAL_BOX_JS, timeout=_SOFT_TIMEOUT_MS) and not (field_value(target, sel) or "").strip():
+                out.append(ref)
+        except Exception:
+            continue
+    return out
