@@ -422,6 +422,18 @@ def _rating_from_level(conn, f, m, job, contact):
     return None
 
 
+_LEGAL = re.compile(r"[\s,.]+(inc|llc|ltd|limited|pvt|private|corp|corporation|co|plc|gmbh|llp|technologies|technology|tech|solutions|services|software|systems|consulting|india|group)\b.*$", re.I)
+
+
+def generic_company(question: str, job) -> str:
+    """The employer's own name read as 'this company': 'How did you hear about Twilio?' is the bank's 'How did you hear
+    about us?' (Twilio 2026-10-25 — the name kept every wording below the floor)."""
+    name = _LEGAL.sub("", str((job or {}).get("company") or "")).strip()
+    if len(name) < 3:
+        return question
+    return re.sub(r"\b" + re.escape(name) + r"(?:'s)?\b", "this company", question, flags=re.I)
+
+
 def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAULT_HIGH):
     if f.kind in ("file", "button") or f.purpose == "attestation":
         return Match(NONE, note="not a bank field"), None
@@ -433,7 +445,7 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
         # so any skill named in the user's table answers — no per-wording seed needed.
         m = Match(CONFIDENT, "skill_years", 1.0, "structure")
     else:
-        m = match_question(conn, without_format_hint(question), embed=embed, llm=llm, high=high)
+        m = match_question(conn, without_format_hint(generic_company(question, job)), embed=embed, llm=llm, high=high)
     m.escape = escape
     if m.entry_id is None and _TOTAL_EXP.search(question) and any(re.search(r"\d", o) for o in f.options or []):
         # "Total full-time experience in Data Scientist / AI / ML (internships not included)?" with year-range options:
