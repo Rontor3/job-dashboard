@@ -741,7 +741,13 @@ def optional_empty(page, refs) -> list:
         try:
             target, sel = frame_target(page, ref)
             loc = target.locator(sel).first
-            if loc.evaluate(_OPTIONAL_BOX_JS, timeout=_SOFT_TIMEOUT_MS) and not (field_value(target, sel) or "").strip():
+            if not loc.evaluate(_OPTIONAL_BOX_JS, timeout=_SOFT_TIMEOUT_MS):
+                continue
+            # an optional tick box left unticked (a data-processing notice: tick only when compulsory, user 2026-10-25)
+            if loc.evaluate("e => ['checkbox','radio'].includes(e.type)", timeout=_SOFT_TIMEOUT_MS):
+                if not loc.is_checked(timeout=_SOFT_TIMEOUT_MS):
+                    out.append(ref)
+            elif not (field_value(target, sel) or "").strip():
                 out.append(ref)
         except Exception:
             continue
