@@ -227,7 +227,7 @@ class QBankMemory:
         return None
 
 
-_DIRECT_FACT = __import__("re").compile(r'^agree \[\w+\] \| \{"fact": "\w+"\}$')
+_DIRECT_FACT = __import__("re").compile(r'^agree \[\w+\] \| \{"fact": "\w+"(, "field": "\w+")?\}$')   # a part of it: phone.number
 
 
 def _fits_box(f, value) -> bool:
