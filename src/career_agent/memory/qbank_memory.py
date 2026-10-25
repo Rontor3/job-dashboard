@@ -73,7 +73,10 @@ class QBankMemory:
             elif value:                                   # a formula named once: every later wording reuses it
                 save_fact(self.conn, proposal["key"], proposal.get("type"), proposal.get("desc") or question,
                           wording=question, embed=self.embed, plan=proposal["plan"])
-        return (Match(LIKELY, kind="plan", note=f"from your facts: {note}"), value) if _fits_box(f, value) else None
+        # both readers agree on a plan that only reads one stored fact (name, email, phone): that IS your fact, not a
+        # guess — confident (Scalio 2026-10-25: 'Full name' as 'likely' held a whole form back from auto-submit)
+        band = CONFIDENT if _DIRECT_FACT.match(note or "") else LIKELY
+        return (Match(band, kind="plan", note=f"from your facts: {note}"), value) if _fits_box(f, value) else None
 
     def missing_for(self, f):
         """The fact Haiku said this field needs ({key, type, ask, company}), or None."""
@@ -222,6 +225,9 @@ class QBankMemory:
 
     def record_corrections(self, form, decisions, final_values):
         return None
+
+
+_DIRECT_FACT = __import__("re").compile(r'^agree \[\w+\] \| \{"fact": "\w+"\}$')
 
 
 def _fits_box(f, value) -> bool:
