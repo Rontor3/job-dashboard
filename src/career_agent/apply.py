@@ -272,6 +272,17 @@ def _apply(args, box: dict) -> None:
     def _policy(url, decisions):
         """May this form be submitted without a human? Records the verdict (and why not) for the tracker."""
         v = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, decisions)
+        if not v["allow"] and page is not None:
+            # an optional box the AI drafted (a 'Message') is the only doubt: send the form with it empty (user 2026-10-25);
+            # otherwise the draft stays in the open tab for you
+            from .browser.filler import optional_ai_boxes, clear_boxes
+            spare = optional_ai_boxes(page, decisions)
+            if spare:
+                rest = [d for d in decisions if d not in spare]
+                v2 = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, rest)
+                if v2["allow"] and clear_boxes(page, spare):
+                    v = {**v2, "cleared_optional": [(d.get("label") if isinstance(d, dict) else d.label) for d in spare]}
+                    print(f"[policy] left optional AI-drafted box(es) empty: {v['cleared_optional']}", flush=True)
         box["eligibility"] = v
         try:
             _ed = _RunPath(args.db).parent / "agent_runs" / str(args.job_id)

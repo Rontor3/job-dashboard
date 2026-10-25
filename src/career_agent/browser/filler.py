@@ -694,3 +694,40 @@ def read_back(page, decisions: list[FillDecision]) -> dict:
             if v is not None:
                 out[d.ref] = v
     return out
+
+
+_OPTIONAL_BOX_JS = r"""e => {
+  if (!['INPUT', 'TEXTAREA'].includes(e.tagName) || e.required || e.getAttribute('aria-required') === 'true') return false;
+  const lab = ((e.labels && e.labels[0] && e.labels[0].innerText) || e.getAttribute('aria-label') || '').trim();
+  return !/[*]\s*$|\(\*\)|\brequired\b/i.test(lab);
+}"""
+
+
+def optional_ai_boxes(page, decisions) -> list:
+    """The AI-drafted (judgment) answers sitting in OPTIONAL text boxes — a 'Message' / cover note nobody must write."""
+    out = []
+    for d in decisions:
+        get = d.get if isinstance(d, dict) else (lambda k, _d=d: getattr(_d, k, None))
+        if get("source") != "judgment" or get("kind") not in ("text", "textarea") or re.search(r"[*]\s*$", get("label") or ""):
+            continue
+        try:
+            target, sel = frame_target(page, get("ref"))
+            if target.locator(sel).first.evaluate(_OPTIONAL_BOX_JS, timeout=_SOFT_TIMEOUT_MS):
+                out.append(d)
+        except Exception:
+            continue
+    return out
+
+
+def clear_boxes(page, decisions) -> bool:
+    """Empty these boxes; True only when every one reads back empty."""
+    for d in decisions:
+        ref = d.get("ref") if isinstance(d, dict) else d.ref
+        try:
+            target, sel = frame_target(page, ref)
+            target.locator(sel).first.fill("", timeout=_SOFT_TIMEOUT_MS)
+            if (field_value(target, sel) or "").strip():
+                return False
+        except Exception:
+            return False
+    return True
