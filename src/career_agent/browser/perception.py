@@ -693,6 +693,8 @@ _INPUT_JS = r"""
     // Strip the value and trailing "Required" back out to recover it, and
     // fill it like any other fake dropdown: open + pick, not blind text.
     const popupHaspopup = (el.getAttribute('aria-haspopup') || '').toLowerCase();
+    // ...but one in page chrome is a site menu (Workday's header language switcher was filled as 'English', Opella 2026-10-25)
+    if (popupHaspopup === 'listbox' && el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     if (popupHaspopup === 'listbox') {
       const ariaLabel = (el.getAttribute('aria-label') || '').trim();
       const required = /\bRequired\b\s*$/i.test(ariaLabel);

@@ -124,7 +124,15 @@ def autonomy_report(conn, run_key: str, decisions) -> dict:
     """{ok, blockers: [(label, why)], confident, total}: may this filled form go out without a human?"""
     ensure(conn)
     entry_of = {ref: q for ref, q in conn.execute("SELECT ref, retrieved_qkey FROM application_qa WHERE run_key=?", (run_key,))}
-    blockers, total = [], 0
+    # a field left blank or in doubt this run (status needs_answer) always keeps the form for you
+    blockers = [(label or ref, "left blank / in doubt") for ref, label in conn.execute(
+        "SELECT ref, label FROM application_qa WHERE run_key=? AND status='needs_answer'", (run_key,))]
+    # 'autosubmit_trust_confident' = 1: a confident bank match counts as known without 3 approvals (user, 2026-10-25)
+    try:
+        trust = qa_store.get_setting(conn, "autosubmit_trust_confident") == "1"
+    except KeyError:
+        trust = False
+    total = 0
     for d in decisions:
         value = d.get("value") if isinstance(d, dict) else getattr(d, "value", None)
         if value is None:
@@ -137,7 +145,7 @@ def autonomy_report(conn, run_key: str, decisions) -> dict:
         if source == "qbank":
             entry = entry_of.get(ref)
             n = approvals(conn, entry) if entry else 0
-            if entry and n >= AUTONOMY_THRESHOLD:
+            if (entry and n >= AUTONOMY_THRESHOLD) or trust:
                 continue
             blockers.append((label, f"{entry or 'answer'}: {n}/{AUTONOMY_THRESHOLD} approvals"))
         else:

@@ -92,7 +92,9 @@ def _exact(text: str):
     return re.compile(r"^\W*" + re.escape(str(text).strip()) + r"\W*$", re.I)     # 'Male *' yes, 'Female' no
 
 
-_OPT_SEL = "[role=option]:visible, [id*='-option-']:visible, [data-automation-id='promptOption']:visible"
+# a pill in Workday's selectedItemList is a choice already made in ANOTHER field ('India (+91)'), never an option here
+_NOT_PILL = ":not([data-automation-id=selectedItemList] *)"
+_OPT_SEL = ", ".join(s + ":visible" + _NOT_PILL for s in ("[role=option]", "[id*='-option-']", "[data-automation-id='promptOption']"))
 
 
 def _popup(target, lb_id):
@@ -196,6 +198,9 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
             except Exception:
                 pass
         opt = _fit(options)
+        if __import__("os").getenv("CAREER_AGENT_DEBUG_PICK"):
+            print(f"[pick-debug] {d.label[:40]!r} value={d.value!r} alts={getattr(d, 'alternatives', ())!r} "
+                  f"options={sorted(set(options))[:8]} -> {opt!r}", flush=True)
         if opt is None:
             # a type-ahead: try each way the value may be listed, until an option actually fits (options that show up
             # but don't fit are not an answer — the next query may find it)

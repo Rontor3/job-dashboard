@@ -51,7 +51,23 @@ def background_page(context, browser=None):
 
 
 def _attach(pw, cdp_url: str, timeout_ms: int):
+    _ensure_a_window(cdp_url)
     return pw.chromium.connect_over_cdp(cdp_url, timeout=timeout_ms)
+
+
+def _ensure_a_window(cdp_url: str) -> None:
+    """A Chrome with every window closed still listens on its port but refuses attaching ("Browser context
+    management is not supported", 2026-10-25 after the Opella window was closed): open one blank tab first."""
+    import json
+    import urllib.request
+    base = cdp_url.rstrip("/")
+    try:
+        with urllib.request.urlopen(f"{base}/json/list", timeout=5) as r:
+            if any(t.get("type") == "page" for t in json.load(r)):
+                return
+        urllib.request.urlopen(urllib.request.Request(f"{base}/json/new?about:blank", method="PUT"), timeout=5).close()
+    except Exception:
+        pass                                  # not reachable here: the attach itself reports it
 
 
 def launch(settings, cdp_url: str | None = None):

@@ -774,12 +774,14 @@ def _apply(args, box: dict) -> None:
             # the tab the result points at stays; the working variable only when the result names no URL
             # --review: the tab the run was working in always stays — the form may have moved off the URL the result
             # names (Twilio/Greenhouse, Worksbot live 2026-10-19: the filled form was closed)
-            _tabs.close_all_but(keep=[page] if args.review else [], keep_urls=[_final] if args.review else [])
+            # a form that went out has nothing left to review: its tab goes too (2026-10-25, "remove the page")
+            _keep = args.review and not (isinstance(_out, dict) and _out.get("submitted"))
+            _tabs.close_all_but(keep=[page] if _keep else [], keep_urls=[_final] if _keep else [])
         except Exception:
-            pass
+            _keep = args.review
         # shutdown close: only a tab THIS run opened. A reused operator tab (marked user-owned above)
         # is where the human's logged-in session lives — the 2026-10-20 rule makes it untouchable.
-        _mine_tab = None if (_tabs.is_user_owned(page) or args.review) else page
+        _mine_tab = None if (_tabs.is_user_owned(page) or _keep) else page
         close(pw, context, page=_mine_tab, cdp_browser=_cdp_browser)
 
 

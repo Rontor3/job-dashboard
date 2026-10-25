@@ -26,6 +26,7 @@ DEFAULT_SETTINGS = {"mail_last_scan": "0",            # epoch of the last Gmail 
                     "browser_indeed_enabled": "0", "browser_ycstartups_enabled": "0",
                     "gmail_confirmation_check": "0",    # look for the "application sent" EMAIL as proof (subjects only; off by default)
                     "autosubmit_daily_cap": "5",       # most automatic submits in any 24h (autonomy.autosubmit_policy)
+                    "autosubmit_trust_confident": "0",  # 1 = a confident bank answer needs no 3 approvals to go out without you
                     # Apply queue: standing per-board authorization to auto-submit (0/1).
                     **{f"autosubmit_{b}": "0" for b in ("naukri", "linkedin", "indeed", "iimjobs", "instahyre",
                                                         "wellfound", "workatastartup", "career_site")},
