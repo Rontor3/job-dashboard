@@ -691,11 +691,6 @@
           "match": "successfully applied"
         },
         {
-          "capture": "apply-workflow/v1/apply",
-          "request_match": "applyData",
-          "status": 200
-        },
-        {
           "page_url_match": "multiApplyResp=%7B%22\\d+%22%3A200%7D"
         }
       ],

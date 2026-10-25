@@ -120,7 +120,7 @@ def _stay_awake() -> None:
     import subprocess
     if sys.platform == "darwin" and shutil.which("caffeinate"):
         try:
-            subprocess.Popen(["caffeinate", "-i", "-w", str(os.getpid())],
+            subprocess.Popen(["caffeinate", "-ims", "-w", str(os.getpid())],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
