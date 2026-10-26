@@ -149,6 +149,10 @@ def answer_fields(fields, ctx):
     # escalation boundary, with the hold recorded to application_qa.
     from .decline_class import gate as decline_gate
     declined, remaining, held = decline_gate(remaining)
+    # dates and role description inside a work/education entry: from that entry, before the bank guesses at "Year"
+    from .entry_fields import entry_decisions
+    entries, remaining = entry_decisions(remaining, ctx["profile"])
+    declined = declined + entries
     learn = ctx.get("learn")
     if learn:
         more, remaining = learn.recall(remaining)
