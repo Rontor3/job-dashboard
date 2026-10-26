@@ -201,7 +201,14 @@ export default function AgentRunHistory({ jobId }) {
   const steps = run.steps;
   const unpaged = run.unpaged || [];
   // every page screenshot of the run, in page order: one viewer steps through them all
-  const shots = steps.filter((s) => s.screenshot).map((s) => ({ src: s.screenshot, alt: `Screenshot of page ${s.step + 1}` }));
+  // each carries its page's questions, shown beside the image when it is opened (like comments beside a photo)
+  const shots = steps.filter((s) => s.screenshot).map((s) => ({
+    src: s.screenshot, alt: `Screenshot of page ${s.step + 1}`,
+    asideTitle: `Page ${s.step + 1} — ${(s.questions || []).length} question${(s.questions || []).length === 1 ? "" : "s"}`,
+    aside: (s.questions || []).length
+      ? <Questions qs={s.questions} jobId={jobId} onReviewed={load} />
+      : <div style={{ fontSize: 12, color: "var(--ink-faint)" }}>No questions were asked on this page.</div>,
+  }));
 
   return (
     <div style={{ marginTop: 12, borderTop: "0.5px solid var(--hairline)", paddingTop: 12 }}>

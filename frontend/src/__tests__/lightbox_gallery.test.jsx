@@ -24,3 +24,17 @@ test("a single image shows no previous/next", () => {
   expect(screen.queryByLabelText("Next screenshot")).toBeNull();
   expect(screen.queryByTestId("lightbox-count")).toBeNull();
 });
+
+test("each screenshot shows its own page's questions beside it", () => {
+  const g = [
+    { src: "/a.png", alt: "Screenshot of page 1", asideTitle: "Page 1 — 1 question", aside: <p>How soon can you join?</p> },
+    { src: "/b.png", alt: "Screenshot of page 2", asideTitle: "Page 2 — 1 question", aside: <p>Field of Study</p> },
+  ];
+  render(<ImageLightbox src="/a.png" alt="Screenshot of page 1" gallery={g} index={0} />);
+  fireEvent.click(screen.getByLabelText("Open Screenshot of page 1"));
+  expect(screen.getByLabelText("Page 1 — 1 question").textContent).toContain("How soon can you join?");
+  fireEvent.click(screen.getByLabelText("Next screenshot"));
+  expect(screen.getByLabelText("Page 2 — 1 question").textContent).toContain("Field of Study");
+  fireEvent.click(screen.getByText("Field of Study"));             // clicking in the panel keeps the viewer open
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
