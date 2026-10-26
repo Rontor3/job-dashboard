@@ -217,6 +217,10 @@ def _degree_level(f, profile, school_by_row):
     return row_degree_level(profile, f.row, school_by_row.get((f.section, f.row)))
 
 
+# a data-processing / privacy notice: ticked only when the form requires it (user, 2026-10-25)
+_DATA_NOTICE = re.compile(r"personal data|data process|\bpii\b|data controller|data processor|data protection|gdpr", re.I)
+
+
 def map_screen(form, profile, resume_pdf=None):
     decisions, needs_human = [], []
     # The School text box of each education row, as the page holds it (the résumé import fills it).
@@ -261,7 +265,8 @@ def map_screen(form, profile, resume_pdf=None):
                 else:
                     decisions.append(FillDecision(f.ref, f.kind, f.label, opt, _action(f.kind), "attestation"))
                 continue
-            if f.required or not _MARKETING.search(f"{f.label} {getattr(f, 'description', '')}"):
+            optional_notice = not f.required and _DATA_NOTICE.search(f"{f.label} {getattr(f, 'description', '')}")
+            if (f.required or not _MARKETING.search(f"{f.label} {getattr(f, 'description', '')}")) and not optional_notice:
                 decisions.append(FillDecision(f.ref, f.kind, f.label, True, "check", "attestation"))
             else:
                 decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))

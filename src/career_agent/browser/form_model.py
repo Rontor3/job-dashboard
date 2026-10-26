@@ -182,7 +182,10 @@ _ATTEST = re.compile(
 
 # A statement the applicant ticks to proceed ("By applying you acknowledge…"). Only for a checkbox: as a question
 # ("Do you agree to relocate?") the same words ask for an answer.
-_ATTEST_BOX = re.compile(r"\byou (acknowledge|consent|agree|confirm|declare|certify)\b|\bby (applying|submitting|continuing)\b", re.I)
+_ATTEST_BOX = re.compile(r"\byou (acknowledge|consent|agree|confirm|declare|certify)\b|\bby (applying|submitting|continuing)\b"
+                         # the box's own label is the assent word, its question sits on the group ("PES India - PII
+                         # Consent Acknowledgement": boxes 'Acknowledged' / 'NO', Pretium Workday 2026-10-26)
+                         r"|^\s*(i\s+)?(acknowledged?|agreed?|accept(ed)?|consent(ed)?)\.?\s*$", re.I)
 
 
 # Purposes that resolve to a TEXT value to type — nonsensical on a checkbox
