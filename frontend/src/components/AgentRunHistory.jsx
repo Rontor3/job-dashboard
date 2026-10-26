@@ -200,6 +200,8 @@ export default function AgentRunHistory({ jobId }) {
   if (!run || !run.steps || run.steps.length === 0) return null;
   const steps = run.steps;
   const unpaged = run.unpaged || [];
+  // every page screenshot of the run, in page order: one viewer steps through them all
+  const shots = steps.filter((s) => s.screenshot).map((s) => ({ src: s.screenshot, alt: `Screenshot of page ${s.step + 1}` }));
 
   return (
     <div style={{ marginTop: 12, borderTop: "0.5px solid var(--hairline)", paddingTop: 12 }}>
@@ -247,6 +249,7 @@ export default function AgentRunHistory({ jobId }) {
               {s.screenshot && (
                 <div style={{ marginTop: 6 }}>
                   <ImageLightbox src={s.screenshot} alt={`Screenshot of page ${s.step + 1}`}
+                                 gallery={shots} index={shots.findIndex((g) => g.src === s.screenshot)}
                                  thumbStyle={{ maxWidth: "100%", maxHeight: 160, borderRadius: 6, display: "block" }} />
                 </div>
               )}
