@@ -201,11 +201,13 @@ def get_job(conn, job_id):
     judgment-tier answers in the job's JD, and by the bank's per-job rules (sponsorship, relocation) — without the
     location every such rule answered 'unknown' (Wipro sponsorship, live 2026-10-23)."""
     row = conn.execute(
-        "SELECT title, company, description, location FROM jobs WHERE id = ?", (job_id,)
+        "SELECT title, company, description, location, job_url, apply_url FROM jobs WHERE id = ?", (job_id,)
     ).fetchone()
     if row is None:
         return None
-    return {"title": row[0], "company": row[1], "description": row[2], "location": row[3]}
+    # the links tell company research which site is the company's own (longform/research.py)
+    return {"id": job_id, "title": row[0], "company": row[1], "description": row[2], "location": row[3],
+            "job_url": row[4], "apply_url": row[5]}
 
 
 def job_exists(conn, job_url):
