@@ -14,6 +14,9 @@ from __future__ import annotations
 import re
 
 _ERR_RE = re.compile(r"ERR_[A-Z_]{4,}")
+# The site's own "try again" page: Workday shows "Something went wrong. Please refresh the page and then try again."
+# when a step fails to load (Opella, Amgen 2026-10-26); a reload of the same step brings the form back.
+_SITE_RETRY_RE = re.compile(r"something went wrong.{0,120}?(refresh|try again|reload)|please refresh the page", re.I | re.S)
 
 # One fresh replay per (intended_url, error signature) for the run: the second
 # sighting of the same pair is a dead page, not another goto.
@@ -38,11 +41,34 @@ def chrome_error(page) -> str | None:
     return m.group(0) if m else None
 
 
+def site_says_refresh(page) -> bool:
+    try:
+        return bool(_SITE_RETRY_RE.search(page.evaluate(_BODY_JS) or ""))
+    except Exception:
+        return False
+
+
 def recover(page, intended_url) -> str | None:
     """None when the page is healthy; "recovered" after one fresh GET of the
     intended URL landed on something readable; "dead" when the page fails the
     same way again (or the goto throws). The caller stops on "dead"."""
     sig = chrome_error(page)
+    if not sig and site_says_refresh(page):
+        # the step itself failed on the site: reload it (keeps the application's place), at most twice per page
+        url = page.url
+        for n in (1, 2):
+            if (url, f"site-refresh-{n}") in _TRIED:
+                continue
+            _TRIED.add((url, f"site-refresh-{n}"))
+            print(f"[health] the site asked for a refresh ({n}/2) — reloading", flush=True)
+            try:
+                page.reload(wait_until="domcontentloaded")
+            except Exception:
+                return "dead"
+            from .clicks import wait_until_stable
+            wait_until_stable(page)
+            return "recovered" if not site_says_refresh(page) else ("dead" if n == 2 else "recovered")
+        return "dead"
     if not sig or not intended_url:
         return None
     key = (intended_url, sig)
