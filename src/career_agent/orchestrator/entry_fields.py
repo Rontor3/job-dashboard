@@ -22,6 +22,17 @@ _ENTRY = re.compile(r"([A-Za-z]+)-(\d+)--")          # the entry's own key: "wor
 _ONGOING = re.compile(r"present|current|now|ongoing|till date", re.I)
 
 
+_SWAP = {">": " over ", "<": " under ", "[": "(", "]": ")", "{": "(", "}": ")", '"': "'", "\\": "/"}
+
+
+def _plain(text: str) -> str:
+    """Characters Workday's text boxes refuse ("Contains illegal characters < > [ ] \" { } \\", Opella 2026-10-26):
+    'ROC >85' reads 'ROC over 85'."""
+    for a, b in _SWAP.items():
+        text = text.replace(a, b)
+    return __import__("re").sub(r"[ \t]{2,}", " ", text).replace(" \n", "\n")
+
+
 def _hay(f) -> str:
     return f"{getattr(f, 'part_hint', '') or ''} {f.ref}"
 
@@ -80,7 +91,7 @@ def entry_decisions(fields, profile):
         rest = hay[m.end():]                           # the part after the entry key: "startDate-dateSectionMonth-input"
         value = None
         if kind == "work" and f.kind == "textarea" and _ROLE.search(rest + " " + (f.label or "")):
-            value = "\n".join(f"• {b}" for b in bullets) or None
+            value = _plain("\n".join(f"• {b}" for b in bullets)) or None
         elif _MONTH.search(rest) or _YEAR.search(rest):
             which = start if _START.search(rest) else end if _END.search(rest) else None
             if which is not None and _END.search(rest) and _ONGOING.search(which or ""):

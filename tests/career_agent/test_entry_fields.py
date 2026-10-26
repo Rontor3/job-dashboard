@@ -44,3 +44,9 @@ def test_education_years_come_from_the_profile_dates():
 def test_fields_outside_an_entry_are_untouched():
     got, rest = _vals([F("#email", label="Email"), F("#source--source", label="How Did You Hear")])
     assert got == {} and rest == ["#email", "#source--source"]
+
+
+def test_role_description_drops_characters_workday_refuses():
+    prof = N(experiences=[N(start="July 2023", end="Present", bullets=['ROC >85 on [claims] "fast"'])], education=[], contact={})
+    ds, _ = entry_decisions([F("#workExperience-1--roleDescription", "textarea", "Role Description")], prof)
+    assert not set('<>[]"{}\\') & set(ds[0].value) and "over 85" in ds[0].value
