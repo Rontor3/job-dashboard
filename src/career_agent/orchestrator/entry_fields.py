@@ -28,6 +28,7 @@ _SWAP = {">": " over ", "<": " under ", "[": "(", "]": ")", "{": "(", "}": ")", 
 def _plain(text: str) -> str:
     """Characters Workday's text boxes refuse ("Contains illegal characters < > [ ] \" { } \\", Opella 2026-10-26):
     'ROC >85' reads 'ROC over 85'."""
+    text = text.replace("**", "").replace("__", "")      # the résumé's markdown bold ('**IRDAI**', Pretium 2026-10-26)
     for a, b in _SWAP.items():
         text = text.replace(a, b)
     return __import__("re").sub(r"[ \t]{2,}", " ", text).replace(" \n", "\n")

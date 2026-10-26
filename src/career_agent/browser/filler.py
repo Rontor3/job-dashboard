@@ -287,6 +287,19 @@ _RESUME_INPUT_JS = r"""(pattern) => {
 }"""
 
 
+def resume_already_attached(page, pdf) -> bool:
+    """The page already lists this résumé file as uploaded: a re-run must not attach it again (Pretium Workday held five
+    copies of Rakshit_Singh_Resume.pdf after five runs, 2026-10-26)."""
+    import os
+    name = os.path.basename(str(pdf or ""))
+    if not name:
+        return False
+    try:
+        return bool(page.evaluate("n => (document.body ? document.body.innerText : '').includes(n)", name))
+    except Exception:
+        return False
+
+
 def upload_resume_to_input(page, pdf) -> str | None:
     """The résumé straight into a file input already on the page (hidden ones too): the one named or labelled for a
     résumé / CV, else the page's only file input. Its name, or None when there is none or it did not take."""
@@ -606,6 +619,9 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
             except Exception:
                 pass
         elif d.action == "upload":
+            if resume_already_attached(page, d.value):
+                print(f"[fill] résumé already attached ({d.label[:40]!r}) — not uploading it again", flush=True)
+                continue
             try:
                 target.set_input_files(sel, str(d.value), timeout=_SOFT_TIMEOUT_MS)
             except Exception:

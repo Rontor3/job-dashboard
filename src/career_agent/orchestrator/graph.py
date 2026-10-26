@@ -393,6 +393,10 @@ def fill_node(state: AgentState, config) -> dict:
 
     # a résumé "Select file" button with no file input in the DOM: upload through the native chooser
     pdf = c.get("resume_pdf")
+    from ..browser.filler import resume_already_attached
+    if pdf and resume_already_attached(page, pdf):
+        print("[fill] résumé already attached on this page — not uploading it again", flush=True)
+        pdf = None
     if pdf and not any(d.action in ("upload", "upload_chooser") for d in decisions) \
             and not any(f.kind == "file" for f in fillable):
         # a file input already on the page, hidden or not, takes the file directly: an attached Chrome's native
