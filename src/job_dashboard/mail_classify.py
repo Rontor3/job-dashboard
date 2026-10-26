@@ -16,10 +16,16 @@ _BODY_CHARS = 3000
 _RULES = (
     ("rejected", ("regret to inform", "not moving forward", "not be moving forward", "will not be proceeding",
                   "decided to move forward with other", "unfortunately", "not selected", "not been shortlisted",
-                  "unable to offer you", "other candidates")),
+                  "unable to offer you", "selected other candidates", "proceed with other candidates",
+                  "proceeding with other candidates")),     # not bare "other candidates": Coface's receipt says "if you
+                                                            # don't hear from us, we've moved forward with other candidates"
     ("offer", ("pleased to offer", "offer letter", "excited to offer", "offer of employment", "extend an offer")),
     ("assessment", ("assessment", "coding test", "hackerrank", "codility", "take-home", "take home", "assignment")),
-    ("interview", ("interview", "schedule a call", "schedule a conversation", "next round", "technical round",
+    # an invitation, not any mention: a job-alert newsletter's "interview tips" moved Weekday to Interviewing (2026-10-22)
+    ("interview", ("invite you to interview", "invite you for an interview", "invitation to interview", "interview invitation",
+                   "interview invite", "interview scheduled", "schedule your interview", "schedule an interview",
+                   "for an interview", "interview with us", "interview slot", "your interview", "interview on ", "round of interview", "interview round", "final round", "final interview",
+                   "schedule a call", "schedule a conversation", "next round", "technical round",
                    "hr round", "round 1", "round 2", "round 3", "discussion with", "meet the team")),
     ("acknowledgement", ("received your application", "thank you for applying", "thanks for applying",
                          "application has been received", "application submitted", "successfully applied")),
