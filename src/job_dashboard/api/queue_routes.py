@@ -107,8 +107,9 @@ def build_queue_router(db_path, runner: QueueRunner) -> APIRouter:
                 raise HTTPException(status_code=404, detail="job not found")
             q.enqueue(conn, body.job_id, front=body.front)
             preferences.record(conn, body.job_id, "more", ["applied"])   # queueing = "more like this"
-            if row[0] is None:
-                set_job_status(conn, body.job_id, "saved")        # queued jobs show on the tracker
+            if row[0] in (None, "failed"):
+                # queued jobs show on the tracker; a re-queued failed job is queued again, not still 'Failed'
+                set_job_status(conn, body.job_id, "saved")
             if body.start:
                 runner.start()
             return snapshot(conn)

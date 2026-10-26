@@ -146,3 +146,19 @@ def test_reconcile_endpoint_needs_the_gmail_switch_and_validates_days(tmp_path, 
     monkeypatch.setattr("career_agent.integrations.gmail_confirm.list_confirmations", lambda after, n=100: mails)
     out = c.post("/api/applied/reconcile", json={"days": 14}).json()
     assert out["emails"] == 1 and out["matched"] == [] and len(out["ambiguous"]) == 1       # Acme has 3 tracked jobs: not guessed
+
+
+def test_requeue_of_a_failed_job_shows_it_queued_at_the_front(tmp_path):
+    """Clicking Re-queue on a Failed row added it to the back of a paused queue and left the row 'Failed', so it
+    looked like nothing happened (2026-10-26)."""
+    c, ids, db = _client(tmp_path)
+    for i in ids:
+        c.post("/api/queue", json={"job_id": i})
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE jobs SET status='failed' WHERE id=?", (ids[-1],))
+    conn.execute("UPDATE apply_queue SET state='parked', reason='challenge' WHERE job_id=?", (ids[-1],))
+    conn.commit()
+    c.post("/api/queue", json={"job_id": ids[-1], "front": True})
+    assert _ids(c)[0] == ids[-1]
+    assert conn.execute("SELECT status FROM jobs WHERE id=?", (ids[-1],)).fetchone()[0] == "saved"

@@ -134,6 +134,7 @@ export default function App() {
       .catch((e) => setError(String(e)));
   const onQueue = (id) => onQueueChange(addToQueue(id));
   const onApply = (id) => onQueueChange(addToQueue(id, { front: true, start: true }));
+  const onRequeue = (id) => onQueueChange(addToQueue(id, { front: true }));   // a corrected job runs next, not last
 
   return (
     <div className="app">
@@ -188,7 +189,7 @@ export default function App() {
             <h1 className="view-title">Applications</h1>
             <p className="view-sub">Mark what happened. Outcomes show which applications work.</p>
             <StatusPie stats={stats} />
-            <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} onStatsChange={reload} onStatsPoll={reloadStats} onRequeue={onQueue} />
+            <TrackerBoard onSelect={setSelectedId} refreshTick={trackerTick} onStatsChange={reload} onStatsPoll={reloadStats} onRequeue={onRequeue} />
           </section>
         )}
         {tab === "hiring" && (

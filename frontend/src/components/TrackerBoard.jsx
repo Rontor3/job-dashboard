@@ -117,7 +117,7 @@ function Row({ job, agentStatus, onSelect, onMove, onRequeue, expanded, onToggle
         </span>
       )}
       {running ? <AgentLiveTag jobId={job.id} agentStatus={agentStatus} /> : <StagePill job={job} />}
-      {job.status === "failed" && onRequeue && (
+      {job.status === "failed" && onRequeue && !["queued", "running"].includes(job.queue_state) && (
         <button type="button" data-testid={`requeue-${job.id}`} title="Put this job back on the apply queue (after you've corrected what stopped it)"
                 onClick={(e) => { e.stopPropagation(); onRequeue(job.id); }}
                 style={{ border: "none", cursor: "pointer", fontSize: 11, padding: "4px 12px", whiteSpace: "nowrap",
