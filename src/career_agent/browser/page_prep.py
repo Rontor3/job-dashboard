@@ -352,6 +352,12 @@ _APPLY_REFUSAL_JS = """(applyPat) => {
   const he = dlg.querySelector('h1, h2, h3');
   const head = ((he && text(he)) || (dlg.getAttribute('aria-label') || '')).replace(/\\s+/g, ' ').trim();
   if (!new RegExp(applyPat, 'i').test(head)) return null;
+  // many branded modals ("Apply to Irth" / "Apply to MicroSourcing" / "Apply to Draslovka" /
+  // "Apply to Vulcury", live 2026-10-27) embed the application form in an <iframe>; this
+  // frame's querySelectorAll cannot see inside one, so a field-less look would wrongly
+  // declare a refusal. A visible iframe in the dialog is a form container, not a refusal —
+  // return null so the modal_kept flow (which does handle iframes) takes it.
+  if (Array.from(dlg.querySelectorAll('iframe')).some(vis)) return null;
   // (a) no real fields: a hidden-type box is effectively invisible, anything shown kills it
   if (Array.from(dlg.querySelectorAll('input,select,textarea')).filter(e => vis(e) && e.type !== 'hidden').length) return null;
   // (c) a clickable named like a way on = hands off elsewhere, never a refusal
@@ -764,6 +770,7 @@ _APPLY_ALLOW = (
     "i'm ready to apply", "im ready to apply", "ready to apply",   # pre-apply modals (e.g. Himalayas)
     "apply for this job", "apply for this role", "apply to this job",
     "apply now", "apply online", "submit application", "start application",
+    "introduce yourself",   # Workday's apply CTA on job-description pages (cat.wd5, live 2026-10-27)
     "apply", "get started", "i'm interested", "im interested",
 )
 _APPLY_DENY = (
