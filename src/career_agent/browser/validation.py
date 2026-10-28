@@ -215,17 +215,18 @@ def reshape_mask(value: str, mask: str) -> str:
     if not re.fullmatch(r"[#9dND0OoMLDY/\-.()\s:]+", m):
         return ""
     digits = "".join(_DIG_RE.findall(v))
-    slots = sum(1 for c in m if c.isalnum())
+    slot = lambda c: c == "#" or c.isalnum()          # noqa: E731  '#' is a digit slot but not alnum
+    slots = sum(1 for c in m if slot(c))
     if slots == 0 or len(digits) < slots:
         return ""
     if len(digits) > slots:
         digits = digits[-slots:]          # a surplus prefix is a country code: keep the tail
     out, i = [], 0
     for c in m:
-        if c.isalnum() and i < len(digits):
+        if slot(c) and i < len(digits):
             out.append(digits[i])
             i += 1
-        elif c.isalnum():
+        elif slot(c):
             return ""
         else:
             out.append(c)
