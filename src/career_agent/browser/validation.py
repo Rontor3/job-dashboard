@@ -93,6 +93,21 @@ _PAIR_ERRORS_JS = r"""
       if (ref && !touched.has(ref)) list.push({ref, message: ''});
     }
   }
+  // 4) native HTML5 validity: a required/pattern field the browser itself flags draws its red
+  //    box with no aria marker and no error-class node — the box the human sees is pure CSS,
+  //    and the words live in validationMessage. Mandatory entries and tick-box groups styled
+  //    only with :invalid (no .error/.invalid class, no role=alert) were invisible to cases 1-3.
+  for (const el of fields) {
+    if (!vis(el)) continue;
+    let bad = false;
+    try { bad = el.matches(':invalid'); }
+    catch (err) { bad = el.getAttribute && el.getAttribute('aria-invalid') === 'true'; }
+    if (!bad) continue;
+    const ref = refOf(el);
+    if (!ref || touched.has(ref)) continue;
+    touched.add(ref);
+    list.push({ref: ref, message: norm(el.validationMessage || '')});
+  }
   return list.slice(0, 12);
 }
 """

@@ -793,6 +793,12 @@ def advance_node(state: AgentState, config) -> dict:
                 upd["url"] = page.url
                 upd["refilled"] = done + [ref_key(after)]
                 return upd
+        if fail:
+            # The one refill round for this screen already ran and the site still flags these
+            # fields (red boxes) — park as needs_answers naming them, so the dashboard shows
+            # the open questions instead of a silent 'stuck' with no trace (2026-10-27 ask).
+            print(f"[advance] still failing, no second round: {[f.label for f in fail]}", flush=True)
+            return _recovered("stuck") or {"stopped_reason": "needs_answers"}
         print("[stop] the page did not change — stuck", flush=True)
         return _recovered("stuck") or {"stopped_reason": "stuck"}
     return {"form": [_f2d(f) for f in new_form], "form_sig": after, "url": page.url}
