@@ -91,6 +91,94 @@ def _login_rejected(page) -> bool:
         return False
 
 
+def _truly_visible(el) -> bool:
+    """``is_visible()`` sees through overlays: a modal's backdrop covering the password box
+    still reads visible, so the classifier says 'password' and the filler types into a field
+    the human cannot reach (IBM SSO, live 2026-10-27). Hit-test the box centre; a field out
+    of the viewport keeps the geometric answer (it scrolls into reach, overlays do not)."""
+    try:
+        if not el.is_visible():
+            return False
+        return bool(el.evaluate(
+            """el => {
+              const r = el.getBoundingClientRect();
+              if (r.width < 2 || r.height < 2) return false;
+              const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+              if (cx < 0 || cy < 0 || cx > innerWidth || cy > innerHeight) return true;
+              const hit = document.elementFromPoint(cx, cy);
+              return !hit || hit === el || el.contains(hit) || hit.contains(el);
+            }"""))
+    except Exception:
+        return True
+
+
+_CAPTCHA_SEL = ('iframe[src*="recaptcha" i], iframe[title*="recaptcha" i], iframe[title*="captcha" i],'
+                'iframe[src*="hcaptcha" i], iframe[src*="challenges.cloudflare" i],'
+                '.g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]')
+
+
+def _captcha_on_page(page) -> bool:
+    """A captcha the human must tick before the wall will take the form (Mahindra's
+    SuccessFactors register: every field filled, only reCAPTCHA v2 left, live 2026-10-27).
+    Score-style v3 badges sit invisibly on most pages and pass without a click, so only a
+    widget of real checkbox size — or the words themselves — counts."""
+    try:
+        for el in page.query_selector_all(_CAPTCHA_SEL):
+            try:
+                if not el.is_visible():
+                    continue
+                box = el.bounding_box()
+                if box and box["width"] >= 200 and box["height"] >= 50:
+                    return True
+            except Exception:
+                continue
+        return bool(_re.search(r"captcha|verify you are (a )?human|prove you.{0,3}re (not a )?robot|are you a robot",
+                               _body_text(page) or ""))
+    except Exception:
+        return False
+
+
+def _otp_box_present(page) -> bool:
+    try:
+        el = page.query_selector(
+            'input[name*="otp" i], input[id*="otp" i],'
+            'input[name*="code" i][maxlength], input[inputmode="numeric"][maxlength="1"]'
+        )
+        return bool(el and _truly_visible(el))
+    except Exception:
+        return False
+
+
+def wall_reason(page) -> str:
+    """Name WHY the wall is still standing after the credentials went in — a bare
+    'auth_wall' hid seven different failures (live 2026-10-27: IBM SSO took the
+    email+password and asked for a code the run never saw = mfa_required; Mahindra's
+    register sat at 100% filled behind reCAPTCHA v2 = captcha_required; Darwinbox's
+    primeserv served error-page/not-allowed = not_allowed; MathWorks showed a
+    'Select a Web Site' geo-modal nobody clicked = geo_interstitial; AMETEK/TE's login
+    submit got zero response for 20–30 s). Returns one of:
+    geo_interstitial | not_allowed | captcha_required | mfa_required | wrong_password | auth_wall."""
+    try:
+        txt = (_body_text(page) or "").lower()
+        url = (page.url or "").lower()
+    except Exception:
+        txt, url = "", ""
+    if _re.search(r"select (a |your )?(web )?site|choose (a |your )?(web )?site|select your (country|region)", txt):
+        return "geo_interstitial"
+    if _re.search(r"\bnot allowed\b|access denied|you don.?t have (permission|access)|forbidden", txt) \
+            or "not-allowed" in url or "error-page" in url:
+        return "not_allowed"
+    if _captcha_on_page(page):
+        return "captcha_required"
+    if _otp_box_present(page) or _re.search(
+            r"(verification|security|one.?time|authenticat\w*).{0,24}\bcode\b|two.?factor|multi.?factor"
+            r"|\b2fa\b|\bmfa\b|enter the code|code (was|has been) sent|check your (phone|authenticator)", txt):
+        return "mfa_required"
+    if _LOGIN_ERROR.search(txt or ""):
+        return "wrong_password"
+    return "auth_wall"
+
+
 def retire_credential(site: str, label: str = "") -> None:
     """A stored login the site rejects: keep it under '<key>:stale' (history, never re-used) so the next visit registers."""
     key = f"{site}:{label}" if label else site
@@ -261,7 +349,7 @@ def _classify_page_state(page) -> str:
         'input[name*="otp" i], input[id*="otp" i],'
         'input[name*="code" i][maxlength], input[inputmode="numeric"][maxlength="1"]'
     )
-    if otp_el and otp_el.is_visible():
+    if otp_el and _truly_visible(otp_el):
         return "otp"
     if _re.search(r"enter.*code|verification code|check your email|one.?time password|otp", txt):
         return "otp"
@@ -271,11 +359,11 @@ def _classify_page_state(page) -> str:
     # so that account-creation forms (name + password) are classified as registration
     fname_el = page.query_selector('input[name*="first" i], input[id*="first" i],'
                                    'input[name*="fName" i], input[placeholder*="first" i]')
-    if fname_el and fname_el.is_visible():
+    if fname_el and _truly_visible(fname_el):
         return "registration"
     # Password field now visible (email-first: Continue was clicked, step 2 appeared)
     pw_els = page.query_selector_all('input[type="password"]')
-    if any(el.is_visible() for el in pw_els):
+    if any(_truly_visible(el) for el in pw_els):
         return "password"
     return "unknown"
 
@@ -321,7 +409,7 @@ def _has_visible_email_field(page) -> bool:
     """True if an email field is visible — by attribute, or (Workday: auto-generated
     ids like 'input-4' carry no email-identifying attribute) by its <label> text."""
     try:
-        if any(el.is_visible() for el in page.query_selector_all(_EMAIL_ATTR_SEL)):
+        if any(_truly_visible(el) for el in page.query_selector_all(_EMAIL_ATTR_SEL)):
             return True
         loc = page.get_by_label("email", exact=False).first
         return loc.count() > 0 and loc.is_visible()
@@ -822,6 +910,18 @@ def _fill_wall(page, gate: str, cred: dict, site: str = "") -> None:
         page.wait_for_timeout(800)
         if _is_combined_form(page):
             print(f"[cred] {site}: credentials filled inside the application form — the filler completes it, no submit here", flush=True)
+            return
+        if _captcha_on_page(page):
+            # The wall will refuse the submit until the human ticks the widget (Mahindra's
+            # SuccessFactors register, live 2026-10-27: 100% filled, only reCAPTCHA left).
+            # Leave the filled form on screen — the parked tab is the hand-off — and let the
+            # re-run log in with the saved credential once it is ticked.
+            try:
+                page.screenshot(path=f"/tmp/career_agent_cred_captcha_{_re.sub(r'[^a-z0-9]+', '_', (site or 'wall').lower())[:40]}.png",
+                                full_page=False)
+            except Exception:
+                pass
+            print(f"[cred] {site}: captcha on the wall — everything is filled; tick it in the parked tab, then re-run", flush=True)
             return
         clicked = _click_non_social_submit(page)
         if clicked:
@@ -1568,7 +1668,7 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
                 why = "this is a login page" if _form_already_visible(page) else "no stored cred"
                 print(f"[cred] {why} for {site} — navigating to signup", flush=True)
                 found = _navigate_to_form(page, _SIGNUP_TEXTS, "sign-up form")
-                no_password = lambda: not any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))  # noqa: E731
+                no_password = lambda: not any(_truly_visible(el) for el in page.query_selector_all('input[type="password"]'))  # noqa: E731
                 # the sign-up link may lead to a "choose how to apply" page (Avature) rather than a form
                 if (not found or no_password()) and _registration_options_offered(page):
                     found = _navigate_to_form(page, _REGISTRATION_OPTIONS, "manual registration option")
@@ -1585,7 +1685,7 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
             # Save only when a password box was there to take it: a sign-up click that opened nothing yet (Deloitte
             # 'Create profile', live 2026-10-18) saved a credential for an account that never existed, and every later
             # visit tried to LOG IN with it.
-            had_password = any(el.is_visible() for el in page.query_selector_all('input[type="password"]'))
+            had_password = any(_truly_visible(el) for el in page.query_selector_all('input[type="password"]'))
             combined = _is_combined_form(page)
             _fill_wall(page, gate, cred, site=site)
             combined = combined or _is_combined_form(page)        # read again once settled: the first look can be early

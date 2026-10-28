@@ -233,7 +233,14 @@ def cred_provide_node(state: AgentState, config) -> dict:
     if not cleared:
         # otp_unanswered: the provider asked the connected human once and was
         # silent within the short window — an honest park, the queue re-drains it.
-        reason = cred_action if cred_action == "otp_unanswered" else "auth_wall"
+        # Otherwise name WHY the wall is still standing (mfa/captcha/not_allowed/…):
+        # a bare 'auth_wall' hid seven different failures — the dashboard could not
+        # tell a wrong password from a missing reCAPTCHA tick (live 2026-10-27).
+        if cred_action == "otp_unanswered":
+            reason = cred_action
+        else:
+            from ..browser.credential_provider import wall_reason
+            reason = wall_reason(page)
         return {"stopped_reason": reason, "cred_provided": True, "cred_action": cred_action}
     kind = classify_entry(page)
     # After registration Darwinbox lands back on the JD page — re-enter apply
