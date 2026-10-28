@@ -37,7 +37,7 @@ def _site(nodes: dict, host: str) -> dict:
 
 
 def _clicks(trail: list) -> list[str]:
-    return [e["click"] for e in trail if e.get("step") == "hop"]
+    return [e.get("click", "?") for e in trail if e.get("step") == "hop"]
 
 
 def _path(trail: list) -> list[str]:
@@ -45,13 +45,15 @@ def _path(trail: list) -> list[str]:
     for e in trail:
         st = e.get("step")
         if st == "hop":
-            out.append(f"click {e['role']} '{e['click']}' (frame {e['frame']}) -> {e['url_after']}")
+            # older trail writers did not stamp every key on a hop (live 2026-10-28: KeyError 'role'
+            # silently killed ats-graph learning on every queue drain); describe what is there
+            out.append(f"click {e.get('role', '?')} '{e.get('click', '?')}' (frame {e.get('frame', '?')}) -> {e.get('url_after', '?')}")
         elif st == "modal_kept":
-            out.append(f"modal kept open ({e['why']})")
+            out.append(f"modal kept open ({e.get('why', '?')})")
         elif st == "modal_dismissed":
-            out.append(f"modal dismissed via '{e['via']}'")
+            out.append(f"modal dismissed via '{e.get('via', '?')}'")
         elif st == "url_variant":
-            out.append(f"url variant -> {e['url_after']}")
+            out.append(f"url variant -> {e.get('url_after', '?')}")
     return out
 
 
