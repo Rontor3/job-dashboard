@@ -30,6 +30,32 @@ def parse_date_value(value) -> date | None:
         return None
 
 
+_MONTH_YEAR_RE = re.compile(
+    r"^(0?[1-9]|1[0-2])[/\-.](\d{4}|\d{2})$"                       # 07/2023, 7-2023
+    r"|^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s*(\d{4})$", re.I)  # Jul 2023
+_NUMERIC_DATE_RE = re.compile(r"^\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}$")   # 03/15/1998: month-first reads as a date too —
+                                                        # the guard rejects placeholders, not calendar orders
+_PLACEHOLDER_MASK_RE = re.compile(r"_{2,}|(^|[^a-z])(mm|dd|yyyy|yy|mmm|mon)([^a-z]|$)", re.I)
+
+
+def plausible_date_text(value) -> bool:
+    """True when the text in a date box is a date a site could really mean — a full date,
+    a month-year ('07/2023', 'Jul 2023') — NOT a placeholder mask ('MM/DD/YYYY' typed into
+    the box), underscores or a stray word. ICF's From*/To* (live 2026-10-27): the site had
+    its own tokens in the boxes, 'has_value' called them answers, and the résumé-derived
+    dates were never written."""
+    s = str(value or "").strip()
+    if not s:
+        return False
+    if _PLACEHOLDER_MASK_RE.search(s):
+        return False
+    try:
+        return (parse_date_value(s) is not None or bool(_MONTH_YEAR_RE.match(s))
+                or bool(_NUMERIC_DATE_RE.match(s)))
+    except Exception:
+        return False
+
+
 def _parse_loose(s: str) -> date | None:
     m = re.fullmatch(r"(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})", s)
     if m:

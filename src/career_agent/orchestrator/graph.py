@@ -500,9 +500,31 @@ def fill_node(state: AgentState, config) -> dict:
                                    skip_prefilled=bool(uploads))
     decisions = uploads + applied
     # A field nothing could answer but the page now holds a value in (the site parsed the résumé into it — checked
-    # AFTER the uploads and fills, which is when that happens) is not a question for the human.
-    from ..browser.filler import has_value
-    kept = [f for f in needs if has_value(page, f)]
+    # AFTER the uploads and fills, which is when that happens) is not a question for the human. A date-ish field
+    # counts only when that value is a plausible date: a placeholder mask ('MM/DD/YYYY' typed in the box) is the
+    # site's own token, not an answer — ICF's From*/To* (live 2026-10-27) sailed through as 'filled' and the
+    # résumé-derived dates were never written.
+    from ..browser.filler import has_value, field_value
+    from ..browser.perception import frame_target
+    from ..browser.date_widgets import plausible_date_text
+    import re as _re2
+
+    def _site_filled(f) -> bool:
+        if not has_value(page, f):
+            return False
+        lbl = " ".join((f.label or "").split()).replace("*", "").lower()
+        dateish = f.kind in ("date", "datepicker", "date_parts") or _re2.search(
+            r"\b(from|to|start|end|date|month|year)\b", lbl)
+        if not dateish:
+            return True
+        try:
+            target, sel = frame_target(page, f.ref)
+            raw = field_value(target, sel)
+        except Exception:
+            return True
+        return plausible_date_text(raw)
+
+    kept = [f for f in needs if _site_filled(f)]
     if kept:
         print(f"[fill] already filled on the page, not asked: {[' '.join(f.label.split())[:30] for f in kept]}", flush=True)
         needs = [f for f in needs if f not in kept]
