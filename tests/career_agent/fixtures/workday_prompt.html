@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Workday prompt fixture</title></head>
+<body>
+<!-- Two Workday-style "prompt" widgets. Markup mirrors the public data-automation-id structure:
+     searchBox inside multiselectInputContainer, a popup listbox (activeListContainer) of promptOption rows,
+     and a committed choice shown as a selectedItem pill. Nothing is written into the page until a leaf is clicked. -->
+
+<div data-automation-id="formField-sourceType">
+  <label id="lblHear">How Did You Hear About Us?*</label>
+  <div data-automation-id="multiselectInputContainer">
+    <div class="pills"></div>
+    <input id="hear" data-automation-id="searchBox" type="text" aria-labelledby="lblHear" autocomplete="off">
+  </div>
+</div>
+
+<div data-automation-id="formField-countryPhoneCode">
+  <label id="lblPhone">Country Phone Code*</label>
+  <div data-automation-id="multiselectInputContainer">
+    <div class="pills"></div>
+    <input id="phone" data-automation-id="searchBox" type="text" aria-labelledby="lblPhone" autocomplete="off">
+  </div>
+</div>
+
+<ul data-automation-id="activeListContainer" role="listbox" hidden></ul>
+
+<script>
+const HEAR = {"Job Board": ["LinkedIn", "Indeed", "Other"], "Social Media": ["Facebook", "Twitter"], "Other": null};
+const COUNTRIES = ["India (+91)", "United States of America (+1)", "United Kingdom (+44)"];
+
+function bind(input, pills, popup, items, pick) {
+  let category = null;
+  const show = (q) => {
+    popup.innerHTML = "";
+    const list = items(q, category);
+    popup.hidden = list.length === 0;
+    for (const it of list) {
+      const li = document.createElement("li");
+      li.setAttribute("role", "option");
+      li.setAttribute("data-automation-id", "promptOption");
+      li.setAttribute("data-automation-label", it.label);
+      li.textContent = it.label;
+      li.onclick = () => {
+        if (it.leaf === false) { category = it.label; input.value = ""; show(""); return; }
+        const pill = document.createElement("div");
+        pill.setAttribute("data-automation-id", "selectedItem");
+        pill.textContent = it.label;
+        pills.appendChild(pill);
+        input.value = ""; category = null; popup.hidden = true; popup.innerHTML = "";
+      };
+      popup.appendChild(li);
+    }
+  };
+  input.addEventListener("click", () => show(input.value));
+  input.addEventListener("input", () => show(input.value));
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape") { popup.hidden = true; } });
+  return show;
+}
+
+const popup = document.querySelector('[data-automation-id="activeListContainer"]');
+
+// Hierarchical: the first level shows categories; a category opens its leaves (no pill until a leaf is clicked).
+bind(document.getElementById("hear"), document.querySelector("#lblHear").parentElement.querySelector(".pills"), popup,
+  (q, category) => {
+    const names = category ? HEAR[category] : Object.keys(HEAR);
+    return names.filter(n => n.toLowerCase().includes(q.toLowerCase()))
+      .map(n => ({label: n, leaf: category ? true : HEAR[n] === null}))
+      .map(it => category || HEAR[it.label] !== null ? it : {...it, leaf: false});
+  });
+
+// Search prompt: nothing until typed; then the matching countries.
+bind(document.getElementById("phone"), document.querySelector("#lblPhone").parentElement.querySelector(".pills"), popup,
+  (q) => q ? COUNTRIES.filter(c => c.toLowerCase().includes(q.toLowerCase())).map(c => ({label: c, leaf: true})) : []);
+</script>
+</body>
+</html>

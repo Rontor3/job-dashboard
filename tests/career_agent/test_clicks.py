@@ -64,6 +64,33 @@ def test_tab_ledger_closes_what_the_run_opened_and_never_the_users_tabs():
     assert a.closed and not b.closed
 
 
+def test_shutdown_close_skips_a_reused_operator_tab_closes_only_run_owned_tabs():
+    """The 2026-10-20 rule: a reuse-marked operator tab must survive the run's shutdown close.
+    apply.py decides `page=None if (_tabs.is_user_owned(page) or args.review) else page` and
+    runner.close only closes a non-None page, so the CONTRACT is: user-owned -> nothing closes."""
+    from career_agent.browser.runner import TabLedger
+
+    class Pg:
+        def __init__(self, url): self.url, self.closed = url, False
+        def is_closed(self): return self.closed
+        def close(self): self.closed = True
+
+    reused, work = Pg("https://himalayas.operator"), Pg("https://run-opened")
+    led = TabLedger(None, work)          # work: the page the framework created for the run
+    led.mark_user_owned(reused)          # the human's tab got reused for the job
+    led.opened.append(reused)
+
+    def shutdown(page, review=False):
+        decided = None if (led.is_user_owned(page) or review) else page
+        if decided is not None:
+            decided.close()
+
+    shutdown(reused)
+    assert not reused.closed, "the operator's logged-in tab was closed at shutdown"
+    shutdown(work)
+    assert work.closed, "a run-owned working tab should still be closed at shutdown"
+
+
 def test_a_single_page_app_that_changes_url_first_is_waited_on_until_its_content_is_drawn():
     from career_agent.browser.clicks import settle_after_click
 

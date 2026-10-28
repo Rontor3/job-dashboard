@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from pathlib import Path as _RunPath
 
 
@@ -63,19 +64,66 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
                 _auto, fields, _ = _jfn(fields)
                 for d in _auto:
                     answers[d.ref] = d.value
+                # the model's answers ride with the human's but are not the human's: recorded as judgment, never
+                # reused as 'human_prior' nor saved to the bank (Wipro 2026-10-23: 'Not provided in text' as yours)
+                answers[MACHINE_KEY] = [d.ref for d in _auto]
                 if _auto:
                     print(f"[judge-retry] auto-answered {len(_auto)} straggler(s)", flush=True)
             except Exception:
                 pass
         if fields:
+            from .browser.runner import revive, tab_id_for
+            _pg = cfg["configurable"].get("page")
+            try:
+                _tab = tab_id_for(_pg.context, _pg.url) if _pg is not None else None
+            except Exception:
+                _tab = None
             print(f"[telegram] sending {len(fields)} field question(s) — waiting for reply...", flush=True)
             answers.update(human.collect(fields))
+            if _pg is not None:
+                # the wait can outlast the browser connection (Mac asleep): carry on in the same tab, or stop honestly
+                _pg = revive(_pg, cfg["configurable"].get("cdp_url"), _tab)
+                if _pg is None:
+                    print("[stop] the run's tab is gone (closed, or Chrome unreachable) after the wait", flush=True)
+                    return {"stopped_reason": "tab_closed", "submitted": False}
+                cfg["configurable"]["page"] = _pg
             print(f"[telegram] received {len(answers)} answer(s)", flush=True)
             if not answers and getattr(getattr(human, "collector", None), "parks", False):
                 break                  # --park: the gaps stay open for the tracker
         result = app.invoke(Command(resume=answers), cfg)
 
     return result or {}
+
+
+MACHINE_KEY = "__machine_refs__"
+
+
+def remember_employer_link(conn, job_id, url) -> None:
+    """A board run that left for the employer's own site: that page is this job's apply link from now on, so a re-run
+    (queue job_target, the dashboard's Apply) starts there, not on the board again (Opella 2026-10-24: every re-run hit
+    Indeed's bot check while its Workday form sat open). An external link the job already has is kept."""
+    if not (job_id and url):
+        return
+    try:
+        conn.execute("UPDATE jobs SET apply_url = ?, apply_kind = 'external' WHERE id = ? AND "
+                     "NOT (COALESCE(apply_kind, '') = 'external' AND COALESCE(apply_url, '') <> '')", (url, job_id))
+        conn.commit()
+    except Exception as e:
+        print(f"[board] could not save the employer link ({type(e).__name__})", flush=True)
+
+
+def _stay_awake() -> None:
+    """macOS: no idle sleep while this run lives (caffeinate -w exits with it). A wait for your answer outlasted the
+    browser connection when the Mac slept (Opella, 2026-10-24). Closing the lid on battery still sleeps the Mac;
+    the run then reconnects to the same tab after the wait (runner.revive)."""
+    import shutil
+    import subprocess
+    if sys.platform == "darwin" and shutil.which("caffeinate"):
+        try:
+            subprocess.Popen(["caffeinate", "-ims", "-w", str(os.getpid())],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 
 def main() -> None:
@@ -143,13 +191,20 @@ def main() -> None:
     ap.add_argument("--result-json", default=None, metavar="PATH",
                     help="write a JSON summary of the run here on every exit path")
     args = ap.parse_args()
+    _stay_awake()
     box: dict = {}
+    # O1 run trace: crash-durable step log in this job's agent_runs dir (silence without --job-id).
+    from . import run_trace
+    run_trace.begin(str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None)
     try:
         _apply(args, box)
-    except BaseException:
+    except BaseException as _x:
         box.setdefault("out", {"url": args.url, "stopped_reason": "error"})
+        run_trace.end("run", "error", stopped_reason="error", error=f"{type(_x).__name__}: {_x}"[:200])
         raise
     finally:
+        # Every exit path (closed, dead_page, board stops, a real crash) closes the run here.
+        run_trace.end("run", "done", stopped_reason=(box.get("out") or {}).get("stopped_reason"))
         if args.result_json:
             from .integrations.park import write_result
             write_result(args.result_json, box.get("out"))
@@ -165,9 +220,13 @@ def _apply(args, box: dict) -> None:
     from .memory.candidate_profile import load_candidate_profile
     from .integrations.approver import CliApprover, CliCollector, NullCollector, AutoDenyApprover
     from .integrations.human_loop import HumanLoop
+    from . import run_trace
     from job_dashboard.apply.store import get_application_profile
 
     conn = sqlite3.connect(args.db)
+    from job_dashboard.db import get_job
+    from .browser.page_prep import set_job_hint
+    set_job_hint(((get_job(conn, args.job_id) if args.job_id else None) or {}).get("title", ""))  # reach opens THIS job's card on a listing
     contact = get_application_profile(conn) or {}
     profile = load_candidate_profile(conn, args.resume_version, contact=contact)
 
@@ -213,6 +272,26 @@ def _apply(args, box: dict) -> None:
     def _policy(url, decisions):
         """May this form be submitted without a human? Records the verdict (and why not) for the tracker."""
         v = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, decisions)
+        _skip = ()
+        if not v["allow"] and page is not None:
+            from .browser.filler import optional_empty
+            _blank = [r for (r,) in conn.execute("SELECT ref FROM application_qa WHERE run_key=? AND status='needs_answer' "
+                                                 "AND coalesce(answer,'')=''", (qa_rec.run_key,))]
+            _skip = tuple(optional_empty(page, _blank))
+            if _skip:
+                v = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, decisions, _skip)
+                print(f"[policy] {len(_skip)} optional box(es) left empty — not counted as doubts", flush=True)
+        if not v["allow"] and page is not None:
+            # an optional box the AI drafted (a 'Message') is the only doubt: send the form with it empty (user 2026-10-25);
+            # otherwise the draft stays in the open tab for you
+            from .browser.filler import optional_ai_boxes, clear_boxes
+            spare = optional_ai_boxes(page, decisions)
+            if spare:
+                rest = [d for d in decisions if d not in spare]
+                v2 = _autonomy.autosubmit_policy(conn, url, qa_rec.run_key, rest, _skip)
+                if v2["allow"] and clear_boxes(page, spare):
+                    v = {**v2, "cleared_optional": [(d.get("label") if isinstance(d, dict) else d.label) for d in spare]}
+                    print(f"[policy] left optional AI-drafted box(es) empty: {v['cleared_optional']}", flush=True)
         box["eligibility"] = v
         try:
             _ed = _RunPath(args.db).parent / "agent_runs" / str(args.job_id)
@@ -226,6 +305,11 @@ def _apply(args, box: dict) -> None:
 
     def _on_submit(values, how, url):
         """A submit was CONFIRMED: its form values become approvals (unchanged +1, edited 0) and the site's history."""
+        try:
+            from .browser.credential_provider import confirm_pending_credentials
+            confirm_pending_credentials(url)        # the account made inside THIS application exists now
+        except Exception:
+            pass
         try:
             _autonomy.record_submission(conn, args.job_id, qa_rec.run_key, {_autonomy.key(k): v for k, v in values.items()}, how, url)
         except Exception as e:
@@ -245,7 +329,9 @@ def _apply(args, box: dict) -> None:
             _qbank.ensure(conn)
             job = (get_job(conn, args.job_id) if args.job_id else None) or \
                 {"title": "", "company": "", "description": ""}
-            llm = _with_claude_fallback(make_default_llm())
+            from .orchestrator.claude_assist import with_claude_fallback
+            from .orchestrator.claude_assist import counted
+            llm = counted(with_claude_fallback(make_default_llm()), "local")
             _vendor = _ats_lookup(args.url)
             _ats_notes = ""
             if _vendor:
@@ -254,6 +340,7 @@ def _apply(args, box: dict) -> None:
                 if hints:
                     _ats_notes += " | Known fixes: " + "; ".join(hints[:3])
             ctx = JudgmentContext(job=job, profile_text=profile_to_text(profile),
+                                  companies=tuple(e.company for e in profile.experiences),
                                   resume_text=job.get("description", ""),
                                   ats_notes=_ats_notes, story_text=_qbank.story_text(conn))
             if not args.no_longform and os.getenv("CAREER_AGENT_LONGFORM") != "0":
@@ -299,7 +386,8 @@ def _apply(args, box: dict) -> None:
         print("[warn] facts-and-plans off: the `claude` CLI is not installed (the bank and rules still answer)")
     else:
         from .memory.facts import claude_cli_llm
-        _facts_llm = claude_cli_llm("haiku")
+        from .orchestrator.claude_assist import counted
+        _facts_llm = counted(claude_cli_llm("haiku"), "haiku")
         try:
             _skills = json.loads((_RunPath(args.db).parent / "answer_style" / "ingredients.json").read_text())["skills_pool"]
         except Exception as e:
@@ -316,6 +404,7 @@ def _apply(args, box: dict) -> None:
     if learn is not None:
         qa_rec.tracer = learn.explain
         qa_rec.promote_embed = learn.embed         # human replies (Telegram too) join the Answers tab
+        qa_rec.promote_missing = learn.missing_for # ...as the fact Haiku named, when no fact covered the field
 
     settings = load_settings()
 
@@ -323,6 +412,7 @@ def _apply(args, box: dict) -> None:
     # when TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are set; otherwise fall back to CLI.
     on_link = None
     remote_solve_factory = None
+    notifier = None
     if not args.no_telegram and settings.telegram_bot_token and settings.telegram_chat_id:
         from .integrations.telegram.client import TelegramClient
         from .integrations.telegram.approver import TelegramApprover
@@ -346,6 +436,10 @@ def _apply(args, box: dict) -> None:
             remote_solve_factory = lambda page, gate: RemoteSolveSession(
                 page, host, settings.remote_solve_port, settings.remote_solve_ttl,
                 settings.remote_solve_allow_public, is_cleared_for(gate), captcha_kind=gate)
+            # The remote-solve card (gate name + link + countdown + Abort button) shares the
+            # mail client with the approver; it replaces the bare-link broadcast for gates.
+            from .integrations.telegram.remote_solve import RemoteSolveNotifier
+            notifier = RemoteSolveNotifier(_tg)
             print(f"[remote-solve] enabled via Telegram — host={host}")
         else:
             print("[remote-solve] DISABLED — Tailscale host not detected")
@@ -373,14 +467,17 @@ def _apply(args, box: dict) -> None:
                            wait_s=int(args.ask_wait_minutes * 60),
                            context_fn=lambda: _escalation_context(conn, args.job_id, jd_seen.get("text")))
         collector, on_link = human.collector, None
+        notifier = None
     from .browser.page_prep import (prepare, classify_entry, enter_application, email_auth, is_application_form,
-                                    is_closed_posting, new_tab_since, reach_application_form)
+                                    is_closed_posting, new_tab_since, reach_application_form,
+                                    redirected_to_listing)
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
     _tabs = TabLedger(context, page)             # the tabs this run opens: closed when they have served
     try:
         # Reuse a tab the human already opened on this job: bot-challenged boards
         # (Indeed's Cloudflare) pass a human-opened tab but block a fresh one.
+        run_trace.start("initial_load", url=args.url)   # the start hits disk before the navigation's risk
         _open = _existing_tab(context, page, args.url)
         if _open is not None:
             print(f"[browser] reusing your open tab -> {_open.url[:90]}", flush=True)
@@ -390,7 +487,6 @@ def _apply(args, box: dict) -> None:
                 pass
             page, resp = _open, None
             _tabs.mark_user_owned(_open)             # the human's own tab: never closed by the run
-            page.bring_to_front()
         else:
             # DOM-ready, not 'load': LinkedIn's ad/tracker frames can hold the
             # load event past 30s; the networkidle settle below still runs.
@@ -413,13 +509,21 @@ def _apply(args, box: dict) -> None:
             page.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
             pass
+        run_trace.end("initial_load", "done", url=page.url)
+        # A re-run re-enters through history state; Chrome answers a stale POST with
+        # its own error shell (job 29987: ERR_CACHE_MISS on chrome-error://). ONE
+        # fresh GET of the job URL, then this run has nothing readable to work with.
+        from .browser.page_health import recover as _page_recover
+        if _page_recover(page, args.url) == "dead":
+            print("[stop] the tab is stuck on Chrome's error page after a fresh reload.", flush=True)
+            box["out"] = {"url": args.url, "stopped_reason": "dead_page"}
+            _close_dead_tab(page)
+            return
         _record_run_tab(context, page, args)
         # Scrape JD text from the landing page before clicking Apply Now.
         # Used only this run to ground company-specific Telegram questions.
-        try:
-            jd_text = (page.inner_text("body") or "")[:5000].strip() or None
-        except Exception:
-            jd_text = None
+        from .browser.clicks import body_text
+        jd_text = body_text(page)[:5000].strip() or None
         jd_seen["text"] = jd_text
         if jd_text and hasattr(collector, "jd_text"):
             collector.jd_text = jd_text
@@ -436,7 +540,8 @@ def _apply(args, box: dict) -> None:
                 pass
         prepare(page)                          # clear cookie/idle overlays
         kind = classify_entry(page, status=resp.status if resp else None)
-        if kind == "closed" or (is_closed_posting(page) and not is_application_form(page)):
+        if kind == "closed" or redirected_to_listing(args.url, page.url) \
+                or (is_closed_posting(page) and not is_application_form(page)):
             # expired / removed / "not accepting applications": the tracker marks it closed and its tab is shut
             print("[skip] this posting is closed or no longer available.")
             box["out"] = {"url": args.url, "stopped_reason": "closed"}
@@ -446,16 +551,46 @@ def _apply(args, box: dict) -> None:
         # must never go through the career-site drill below (see boards/run.py).
         from .boards.profiles import board_for
         _board = board_for(page.url) or board_for(args.url)
+        # the sign-in helper exists before EITHER engine uses it (the board path hands it over too)
+        from .browser.credential_provider import provide as _provide
+        from .browser.page_prep import clear_auth_wall
+        _job_url = args.url
+        _profile_email = contact.get("email", "")
+        from .orchestrator.profile_resolver import _name_parts
+        _nm = _name_parts(contact)
+        _provide_url = lambda pg, gate, site: _provide(
+            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""),
+            collector=collector, first_name=_nm[0], last_name=_nm[1])
         _run_dir = str(_RunPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         _assist = _make_assist(args, _run_dir)         # one assist for whichever engine runs this job
+        if not _board:
+            # Apply by email (a mailto: Apply link): a Gmail draft with the résumé, never another form on the page
+            from .browser.email_apply import mailto_apply, draft_application
+            _em = mailto_apply(page)
+            if _em:
+                try:
+                    from job_dashboard.db import get_job as _gj
+                    _job = (_gj(conn, args.job_id) if args.job_id else None) or {}
+                except Exception:
+                    _job = {}
+                _d = draft_application(_em["to"], _em["subject"], (_job or {}).get("title") or "",
+                                       (_job or {}).get("company") or "", contact, resume_pdf)
+                print(f"[email-apply] Apply is an email to {_em['to']}: "
+                      + (f"draft ready in Gmail -> {_d['gmail_url']}" if _d.get("drafted") else f"no draft ({_d.get('problem')})"),
+                      flush=True)
+                box["out"] = {"url": page.url, "stopped_reason": "email_apply_drafted" if _d.get("drafted") else "email_apply",
+                              "email_to": _em["to"], "gmail_url": _d.get("gmail_url"), "submitted": False}
+                return
         if _board:
             out = _run_board(_board, page, args, autosubmit_policy=_policy_fn, on_submit=_on_submit,
                              profile=profile, human=human, resume_pdf=resume_pdf,
                              judge_fn=judge_fn, learn=learn, human_wait_s=args.human_wait,
-                             option_matcher=option_matcher, qa=qa_rec, run_dir=_run_dir, assist=_assist)
+                             option_matcher=option_matcher, qa=qa_rec, run_dir=_run_dir, assist=_assist,
+                             cred_provider=_provide_url, intended_url=args.url)
             if out.get("stopped_reason") == "left_board":
                 # The flow moved off the board (e.g. "Apply on company site"): the career-site engine takes over
                 # on that page, with its account/login handling. The board's own run log is not written.
+                remember_employer_link(conn, args.job_id, out.get("url"))
                 page = _page_at(page.context, out["url"], page)
                 _tabs.trim(keep=page)
                 prepare(page)
@@ -469,22 +604,45 @@ def _apply(args, box: dict) -> None:
                 return
         # kind=="none" = clear JD page; kind=="form" can false-positive on pages
         # that have search/filter inputs but no real applicant fields (e.g. Phenom).
-        if kind == "none" or (kind == "form" and not is_application_form(page)):
-            # Close stale ATS tabs from previous runs so pages[-1] after Apply
-            # click reliably points to the new (fresh-session) login tab.
-            _ATS_HOSTS = ("taleo.net", "greenhouse.io", "icims.com", "workday.com",
-                          "darwinbox.in", "successfactors.com", "ashbyhq.com",
-                          "lever.co", "recruitee.com", "jobvite.com")
-            for _sp in list(page.context.pages):
-                if _sp is not page and any(h in (_sp.url or "") for h in _ATS_HOSTS):
-                    try: _sp.close()
-                    except Exception: pass
-            page, _ = reach_application_form(page)      # the tab the drill ended on (a new one only if one opened)
+        from .browser import page_prep as _pp
+        _listing = bool(_pp._JOB_TITLE) and _pp._listing_pick(page, _pp._JOB_TITLE)[0] == "match"
+
+        def _stop_site_refused():
+            """reach found the dead-end apply modal (site_refused): stop before the walk and escalate,
+            quoting the site's own words — the human decides whether updating the profile unblocks it."""
+            from .browser.page_prep import announce_site_refusal
+            out = {"url": args.url, **announce_site_refusal(page),
+                   "decisions": [], "pending_human": [], "submitted": False}
+            box["out"] = out
+            print(out, flush=True)
+            _write_run_log(conn, args.url, args.job_id, out)
+            _append_pending_memory(args.db, args.url, args.job_id, out)
+            return out
+
+        # a listing that shows OUR job's card is entered by that card's Apply, whatever other form is on the page
+        # (Micraft live 2026-10-19: its contact form passed for the application)
+        if kind == "none" or _listing or (kind == "form" and not is_application_form(page)):
+            # (Other ATS tabs are NOT closed here any more: they are other jobs' parked forms — live 2026-10-19 a
+            # Worksbot run closed Twilio's filled Greenhouse form. The tab an Apply click opens is found by
+            # page_prep.new_tab_since, not by "the last tab".)
+            import time as _time
+            print(f"[reach] enter url={page.url[:90]}", flush=True)
+            _t0 = _time.monotonic()
+            page, _reach_status = reach_application_form(page)      # the tab the drill ended on (a new one only if one opened)
+            print(f"[reach] exit status={_reach_status} in {_time.monotonic() - _t0:.1f}s", flush=True)
+            if _reach_status == "site_refused":                     # himalayas 2026-10-20: the wall is the site itself saying no
+                _stop_site_refused()
+                return
             _tabs.trim(keep=page)
             prepare(page); kind = classify_entry(page)
         if kind == "closed":
             print("[skip] this posting is closed or no longer available.")
             box["out"] = {"url": args.url, "stopped_reason": "closed"}
+            return
+        from .browser.page_prep import says_already_applied
+        if says_already_applied(page):
+            print("[skip] the site says you already applied to this job", flush=True)
+            box["out"] = {"url": args.url, "stopped_reason": "already_applied"}
             return
         # OTP reader shared by email_auth (ZF/Phenom) and otp_email gate (SAP SF).
         # Prefers Gmail API (fully automated); falls back to file drop.
@@ -513,24 +671,25 @@ def _apply(args, box: dict) -> None:
         except ImportError:
             pass  # google client libs not installed yet
 
-        from .browser.credential_provider import provide as _provide
-        from .browser.page_prep import clear_auth_wall
-        _job_url = args.url
-        _profile_email = contact.get("email", "")
-        _provide_url = lambda pg, gate, site: _provide(
-            pg, gate, site, original_url=_job_url, email=_profile_email, phone=contact.get("phone", ""))
 
         if kind == "password":
-            print("[password] attempting credential provider...")
+            print("[password] delegating to credential provider", flush=True)
             _before = list(page.context.pages)
-            clear_auth_wall(page, credential_provider=_provide_url)
+            _cleared = clear_auth_wall(page, credential_provider=_provide_url)
+            print(f"[password] credential provider returned cleared={_cleared}", flush=True)
             page = new_tab_since(page, _before)       # adopt a tab only if guest-apply really opened one
             _tabs.trim(keep=page)
             kind = classify_entry(page)
             # After Darwinbox registration the provider navigates back to the JD
             # page; re-enter the application so walk() lands on the form.
             if kind in ("none", "form") and not is_application_form(page):
-                page, _ = reach_application_form(page)
+                print(f"[reach] enter url={page.url[:90]}", flush=True)
+                _t0 = _time.monotonic()
+                page, _reach_status = reach_application_form(page)
+                print(f"[reach] exit status={_reach_status} in {_time.monotonic() - _t0:.1f}s", flush=True)
+                if _reach_status == "site_refused":
+                    _stop_site_refused()
+                    return
                 prepare(page); kind = classify_entry(page)
             # Registration+application on one page (e.g. SAP SuccessFactors): the
             # credential provider fills the auth fields; walk() fills the rest.
@@ -568,10 +727,13 @@ def _apply(args, box: dict) -> None:
             "thread_id": tid, "page": page, "profile": profile, "deps": deps,
             "human": human, "collector": collector, "resume_pdf": resume_pdf,
             "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
-            "on_link": on_link, "human_wait_s": args.human_wait,
+            "on_link": on_link, "remote_solve_notifier": notifier,
+            "human_wait_s": args.human_wait,
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text
             "run_dir": run_dir, "qa": qa_rec, "assist": _assist,
             "autosubmit_policy": _policy_fn, "on_submit": _on_submit,
+            "intended_url": args.url,        # the job page the run set out for (page-health replay)
+            "cdp_url": _cdp_url,             # to find the same tab again if the connection drops during a wait
             # a JD-tailored résumé is GENERATED, not the one the candidate supplied: only on explicit request
             "tailor_cv": bool(args.tailor_cv or os.getenv("CAREER_AGENT_TAILOR_CV") == "1"),
         }}
@@ -582,7 +744,7 @@ def _apply(args, box: dict) -> None:
                         max_steps=args.max_steps, do_submit=args.submit,
                         autonomous=args.autonomous, resume_pdf=resume_pdf,
                         judge_fn=judge_fn, prep_fn=prepare, learn=learn,
-                        on_link=on_link, cred_provider=_provide_url, assist=_assist)
+                        on_link=(notifier or on_link), cred_provider=_provide_url, assist=_assist)
 
         if not args.no_langgraph:
             try:
@@ -591,8 +753,13 @@ def _apply(args, box: dict) -> None:
                                  args.submit, args.autonomous, args.max_steps, human,
                                  jd_text=_db_jd, checkpoint_db=checkpoint_db)
             except Exception as _ge:
-                print(f"[graph] failed ({_ge}), falling back to walk()", flush=True)
-                out = _walk()
+                if "has been closed" in str(_ge):
+                    # the page is gone: a walk on it reads 0 fields and reports no_advance_control (Opella 2026-10-24)
+                    print(f"[graph] failed ({_ge}); the tab is gone — stopping as tab_closed", flush=True)
+                    out = {"stopped_reason": "tab_closed", "submitted": False}
+                else:
+                    print(f"[graph] failed ({_ge}), falling back to walk()", flush=True)
+                    out = _walk()
         else:
             print("[engine] walk() (--no-langgraph)", flush=True)
             out = _walk()
@@ -625,10 +792,17 @@ def _apply(args, box: dict) -> None:
                 _out.setdefault("run_key", qa_rec.run_key)
                 _out.setdefault("final_tab_id", tab_id_for(context, _final))
             # the tab the result points at stays; the working variable only when the result names no URL
-            _tabs.close_all_but(keep=[page] if (args.review and not _final) else [], keep_urls=[_final] if args.review else [])
+            # --review: the tab the run was working in always stays — the form may have moved off the URL the result
+            # names (Twilio/Greenhouse, Worksbot live 2026-10-19: the filled form was closed)
+            # a form that went out has nothing left to review: its tab goes too (2026-10-25, "remove the page")
+            _keep = args.review and not (isinstance(_out, dict) and _out.get("submitted"))
+            _tabs.close_all_but(keep=[page] if _keep else [], keep_urls=[_final] if _keep else [])
         except Exception:
-            pass
-        close(pw, context, page=None if args.review else page, cdp_browser=_cdp_browser)
+            _keep = args.review
+        # shutdown close: only a tab THIS run opened. A reused operator tab (marked user-owned above)
+        # is where the human's logged-in session lives — the 2026-10-20 rule makes it untouchable.
+        _mine_tab = None if (_tabs.is_user_owned(page) or _keep) else page
+        close(pw, context, page=_mine_tab, cdp_browser=_cdp_browser)
 
 
 def _bare_url(u: str) -> str:
@@ -700,21 +874,6 @@ def _close_dead_tab(page):
         pass
 
 
-def _with_claude_fallback(llm):
-    """The local model first; when it is down (Ollama stopped), Claude's CLI drafts instead of a canned template."""
-    def call(prompt):
-        try:
-            out = llm(prompt)
-            if isinstance(out, str) and out.strip():
-                return out
-        except Exception:
-            pass
-        from .orchestrator.claude_assist import _claude_cli
-        print("[llm] local model unavailable -> drafting with Claude", flush=True)
-        return _claude_cli(prompt, timeout=180)
-    return call
-
-
 def _escalation_context(conn, job_id, jd_text):
     """(job description, company page) messages sent ahead of live questions."""
     from .integrations.escalation import build_context
@@ -763,13 +922,15 @@ def _page_at(context, url, fallback):
     return next((p for p in reversed(context.pages) if p.url == url), fallback)
 
 
-def _make_assist(args, run_dir):
-    """The opt-in Claude assist (max 5 calls per run) for the board engine and the career-site engines, or None."""
+def _make_assist(args, run_dir, db_path=None):
+    """The opt-in Claude assist (max 5 calls per run) for the board engine and the career-site engines, or None.
+    `db_path` feeds its quota ladder (agent_settings.assist_cap_until in jobs.db): once the CLI reports a usage
+    limit, recover() skips Claude until the TTL passes instead of spending calls on a dead channel."""
     if not (args.claude_assist or os.getenv("CAREER_AGENT_CLAUDE_ASSIST") == "1"):
         return None
     from .orchestrator.claude_assist import ClaudeAssist
     print("[assist] Claude assist ON (cap 5) — logged as '[assist n/5]' lines", flush=True)
-    return ClaudeAssist(cap=5, shot_dir=run_dir)
+    return ClaudeAssist(cap=5, shot_dir=run_dir, db_path=db_path or getattr(args, "db", None))
 
 
 def _run_board(board, page, args, *, option_matcher=None, limiter=None, **ctx) -> dict:
@@ -825,7 +986,9 @@ def _write_run_log(conn, url: str, job_id, result: dict) -> None:
              len(decisions),
              len(pending),
              int(bool(result.get("submitted"))),
-             _json.dumps({"escalated_labels": [d.get("label") for d in pending]})),
+             _json.dumps({"escalated_labels": [d.get("label") for d in pending],
+                          # a check / manual dry run: the dashboard's submit watcher must not adopt and re-run it
+                          "no_watch": bool(os.getenv("CAREER_AGENT_NO_WATCH"))})),
         )
         conn.commit()
         print(f"[run_log] recorded — filled={len(decisions)} escalated={len(pending)}", flush=True)

@@ -49,7 +49,8 @@ def test_phone_country_code_label_and_value():
     assert guess_purpose("Mobile phone number*", "tel") == "phone"
     p = NS(contact={"phone": "+91 9876543210"})
     assert resolve("phone_country_code", p) == "+91"
-    assert resolve("phone_country_code", NS(contact={"phone": "9876543210"})) is None
+    assert resolve("phone_country_code", NS(contact={"phone": "9876543210"})) is None          # nothing to go on
+    assert resolve("phone_country_code", NS(contact={"phone": "9876543210", "location": "Mumbai, India"})) == "+91"
 
 
 
@@ -89,3 +90,26 @@ def test_skill_specific_years_never_take_the_total_experience():
                   "Years of experience in this role"):
         assert guess_purpose(label, "text") == "years_experience", label
     assert resolve("skill_years", NS(contact={"years_experience": "3"})) is None
+
+
+def test_dates_follow_the_form_section():
+    """Wipro (live 2026-10-23): an Education 'Start Date' got Tata AIG's date, and 'Present' went into a date box."""
+    assert resolve("start_date", P, section="Professional Experience") == "July 2023"
+    assert resolve("end_date", P, section="Professional Experience") is None          # current job: no end date
+    assert resolve("start_date", P, section="Education") == "2018"
+    assert resolve("end_date", P, section="Education") == "2022"
+    assert resolve("state", P, section="Education") is None                           # the school's, never home's
+    assert resolve("end_date", P) is None and resolve("start_date", P) == "July 2023"  # no section: work, as before
+
+
+def test_saved_education_dates_and_state_fill_the_education_section():
+    """The résumé's education line has no dates; the profile's education_start/end/state answer (Wipro 2026-10-23)."""
+    p = CandidateProfile(contact={"location": "Mumbai, India", "education_start": "July 2019",
+                                  "education_end": "May 2023", "education_state": "Uttar Pradesh"},
+                         experiences=[Experience("Tata AIG", "Data Scientist", "July 2023", "Present", [])],
+                         education=[Education("IIT (BHU) Varanasi", "B.Tech")])
+    assert resolve("start_date", p, section="Education") == "July 2019"
+    assert resolve("end_date", p, section="Education") == "May 2023"
+    assert resolve("state", p, section="Education") == "Uttar Pradesh"
+    assert resolve("state", p, section="Profile Information") == "Maharashtra"     # home, outside Education
+    assert resolve("graduation_year", p) == "2023"

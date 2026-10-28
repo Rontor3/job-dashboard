@@ -91,6 +91,10 @@ VALID_VERDICTS = {"Strong Fit", "Good Fit", "Moderate Fit", "Weak Fit", "Poor Fi
 VALID_STATUSES = {"saved", "applied", "failed", "interviewing", "offer", "rejected", "dismissed", "closed"}
 
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def init_db(path):
     conn = sqlite3.connect(path)
     conn.executescript(SCHEMA)
@@ -157,15 +161,6 @@ def upsert_company_classification(conn, company_key, industry, company_type, met
     conn.commit()
 
 
-def get_company_classification(conn, company_key):
-    row = conn.execute(
-        "SELECT company_key, industry, company_type, method, updated_at "
-        "FROM company_classifications WHERE company_key = ?", (company_key,)).fetchone()
-    if row is None:
-        return None
-    return dict(zip(("company_key", "industry", "company_type", "method", "updated_at"), row))
-
-
 def unclassified_companies(conn):
     rows = conn.execute(
         """SELECT DISTINCT LOWER(TRIM(j.company)) k
@@ -202,14 +197,17 @@ def get_sample_job_for_company(conn, company_key):
 
 
 def get_job(conn, job_id):
-    """The (title, company, description) for a job id, or None. Used by the
-    career agent to ground judgment-tier answers in the job's JD."""
+    """The (title, company, description, location) for a job id, or None. Used by the career agent to ground
+    judgment-tier answers in the job's JD, and by the bank's per-job rules (sponsorship, relocation) — without the
+    location every such rule answered 'unknown' (Wipro sponsorship, live 2026-10-23)."""
     row = conn.execute(
-        "SELECT title, company, description FROM jobs WHERE id = ?", (job_id,)
+        "SELECT title, company, description, location, job_url, apply_url FROM jobs WHERE id = ?", (job_id,)
     ).fetchone()
     if row is None:
         return None
-    return {"title": row[0], "company": row[1], "description": row[2]}
+    # the links tell company research which site is the company's own (longform/research.py)
+    return {"id": job_id, "title": row[0], "company": row[1], "description": row[2], "location": row[3],
+            "job_url": row[4], "apply_url": row[5]}
 
 
 def job_exists(conn, job_url):
@@ -430,6 +428,12 @@ _INDIA_TOKENS = ("india", "bengaluru", "bangalore", "mumbai", "delhi", "gurgaon"
                  "uttar pradesh", "gujarat", "kerala")
 
 
+def is_india_location(location: str | None) -> bool:
+    """The same India test as _india_clause, for one location string."""
+    loc = (location or "").strip().lower()
+    return any(t in loc for t in _INDIA_TOKENS) or loc.endswith(", in") or loc == "in"
+
+
 def _india_clause():
     ors = ["LOWER(j.location) LIKE ?"] * len(_INDIA_TOKENS) + ["LOWER(TRIM(j.location)) LIKE '%, in'",
                                                               "LOWER(TRIM(j.location)) = 'in'"]
@@ -438,9 +442,12 @@ def _india_clause():
 
 def query_jobs(conn, q=None, remote=None, job_type=None, source=None, industry=None, company_type=None, status=None,
                verdict=None, min_score=None, include_dismissed=False, sort="embed",
-               limit=50, offset=0, india=False):
+               limit=50, offset=0, india=False, ids=None):
     where = ["j.duplicate_of IS NULL"]
     params = []
+    if ids:                                         # a fixed set of jobs (the Inbox's "Show them")
+        where.append(f"j.id IN ({','.join('?' * len(ids))})")
+        params += list(ids)
     if india:
         clause, vals = _india_clause()
         where.append(clause)

@@ -8,21 +8,26 @@ import re
 import time
 
 STALL_EXIT = 124                                  # exit code reported for a run stopped as stalled
+UNANSWERED_EXIT = 125                             # stopped while its last question to the human was still unanswered
 STALL_S = int(float(os.getenv("CAREER_AGENT_STALL_MINUTES", "10")) * 60)
 
 _FILLED = re.compile(r"\[fill\] (?:step|screen) \d+: (\d+) (?:filled|decisions)")
 _PAGE = re.compile(r"\[perc\] frame 0: '([^']*)'")
 _ASSIST = re.compile(r"\[assist \d+/\d+\] Claude chose: (?!give_up|invalid)")
-_ASKED = re.compile(r"\[telegram\] sending \d+ field question")      # a question went to the human: the clock restarts
+_ASKED = re.compile(r"\[telegram\] sending \d+ field question|\[board\] asking:")      # a question went to the human: the clock restarts
 _ANSWERED = re.compile(r"\[human\] got \d+ answer")                # the human replied: that is progress too
+_WORKED = re.compile(r"\[answer\] (\d+) fields worked out")       # answers being worked out on a long form
+_APPLIED = re.compile(r"\[fill\] (\d+) applied")                    # fields being typed in, one by one
 
 
 def progress_token(log: str) -> tuple:
     """Changes only when the run fills more fields, reaches a new page, acts on Claude's help, asks the human a question
     or receives their answer (waiting on a person is not a stall until they have had their time)."""
     filled = max((int(n) for n in _FILLED.findall(log)), default=0)
+    worked = max((int(n) for n in _WORKED.findall(log)), default=0)
+    applied = len(_APPLIED.findall(log))          # every line is one more field (the count restarts on each page)
     return (filled, len(set(_PAGE.findall(log))), len(_ASSIST.findall(log)),
-            len(_ASKED.findall(log)), len(_ANSWERED.findall(log)))
+            len(_ASKED.findall(log)), len(_ANSWERED.findall(log)), worked, applied)
 
 
 def _tail(path: str, max_bytes: int = 262144) -> str:
@@ -35,9 +40,16 @@ def _tail(path: str, max_bytes: int = 262144) -> str:
         return ""
 
 
+def waiting_on_human(log: str) -> bool:
+    """The last thing the run did was ask the human, and no answer came back."""
+    asked = [m.end() for m in _ASKED.finditer(log)]
+    return bool(asked) and not any(m.start() > asked[-1] for m in _ANSWERED.finditer(log))
+
+
 def watch(is_running, stop, log_path: str, stall_s: int = STALL_S, poll_s: float = 5.0,
-          clock=time.monotonic, sleep=time.sleep, say=print) -> bool:
-    """Block while the run is alive. Returns True if it was stopped for stalling, False if it exited."""
+          clock=time.monotonic, sleep=time.sleep, say=print) -> str:
+    """Block while the run is alive. Returns "" if it exited, "unanswered" if it was stopped while waiting on the
+    human's answer, "stalled" if it was stopped for making no progress."""
     token, last_change = progress_token(_tail(log_path)), clock()
     while is_running():
         sleep(poll_s)
@@ -49,5 +61,5 @@ def watch(is_running, stop, log_path: str, stall_s: int = STALL_S, poll_s: float
             say(f"[queue] no progress for {stall_s // 60} min (filled={token[0]}, pages={token[1]}) — "
                 "stopping this run and moving to the next job", flush=True)
             stop()
-            return True
-    return False
+            return "unanswered" if waiting_on_human(_tail(log_path)) else "stalled"
+    return ""

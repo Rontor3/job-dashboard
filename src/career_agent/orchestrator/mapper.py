@@ -15,6 +15,8 @@ class FillDecision:
     value: object
     action: str
     source: str
+    basis: str = ""        # why this value (audit trail into application_qa.basis); empty = a tier decided silently
+    alternatives: tuple = ()   # other options meaning the same answer, tried in order when the value is not listed
 
 
 def _action_for_kind(kind: str) -> str:
@@ -22,6 +24,8 @@ def _action_for_kind(kind: str) -> str:
         return "select"
     if kind == "radio_group":
         return "check_group"
+    if kind == "checkbox_group":
+        return "check_multi"        # tick each named option; one decision per question
     if kind == "combobox":
         return "combobox"           # open the fake dropdown + click a live option
     if kind in ("datepicker", "date_parts"):

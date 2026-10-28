@@ -15,6 +15,7 @@ function Unit({ u, onSaved }) {
   const [source, setSource] = useState(u.source || "");
   const [unlocked, setUnlocked] = useState(false);
   const [msg, setMsg] = useState("");
+  const [open, setOpen] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const field = (k, label, area) => (
     <label style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: 11, color: "var(--ink-soft)" }}>
@@ -30,8 +31,21 @@ function Unit({ u, onSaved }) {
     saveIngredient(u.id, body).then((saved) => { setMsg("Saved"); setUnlocked(false); onSaved(saved); setTimeout(() => setMsg(""), 1500); })
       .catch((e) => setMsg(String(e)));
   };
+  if (!open) {                                    // one compact card until you edit it
+    return (
+      <div data-testid={`ingredient-${u.id}`} className="ing-card">
+        <div className="ing-top">
+          <strong>{u.title}</strong>
+          <button className="linkish" aria-label={`Edit ${u.title}`} onClick={() => setOpen(true)}>Edit</button>
+        </div>
+        <div className="ing-meta">{[u.type?.replace("_", " "), u.org].filter(Boolean).join(" · ")}</div>
+        {u.problem && <p className="ing-line">{u.problem}</p>}
+        {u.tech?.length > 0 && <div className="ing-tech">{u.tech.slice(0, 4).map((t) => <span key={t}>{t}</span>)}</div>}
+      </div>
+    );
+  }
   return (
-    <div data-testid={`ingredient-${u.id}`} style={{ ...CARD, display: "flex", flexDirection: "column", gap: 6 }}>
+    <div data-testid={`ingredient-${u.id}`} className="ing-edit" style={{ ...CARD, display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ fontSize: 11, color: "var(--ink-faint)" }}>{u.type}</div>
       {field("title", "Title")}{field("org", "Organisation")}
       {field("problem", "Problem", true)}{field("approach", "Approach", true)}
@@ -48,6 +62,7 @@ function Unit({ u, onSaved }) {
                 style={{ ...BTN, background: "var(--canvas)", color: "var(--ink-soft)", border: "0.5px solid var(--hairline)" }}>
           {unlocked ? "Lock source" : "Unlock source"}
         </button>
+        <button className="linkish" onClick={() => setOpen(false)} style={{ fontSize: 12 }}>Done</button>
         {msg && <span role="status" style={{ fontSize: 12, color: "var(--ink-soft)" }}>{msg}</span>}
       </div>
     </div>
@@ -64,7 +79,7 @@ export default function IngredientsPanel() {
       <h3 style={{ fontSize: 13, color: "var(--ink-soft)", margin: "8px 0" }}>
         Ingredients ({d.units.length}) — your projects and roles, the material long answers are written from
       </h3>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div className="ing-grid">
         {d.units.map((u) => <Unit key={u.id} u={u} onSaved={replace} />)}
       </div>
     </section>

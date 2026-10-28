@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import ImageLightbox from "./ImageLightbox.jsx";
 import { fetchAgentRunHistory, fetchAgentLog, reviewAnswer, editFilledAnswer } from "../api.js";
 import EntryPicker from "./EntryPicker.jsx";
+import InsightBox from "./InsightBox.jsx";
 
 const KIND_LABEL = {
   password: "Login wall",
@@ -93,7 +94,7 @@ function matchNote(q) {
 
 // One question on a page: the question as the form worded it, the answer as it
 // was filled (line breaks kept), and what produced it.
-function Question({ q, onReviewed }) {
+function Question({ q, jobId, onReviewed }) {
   const o = ORIGIN[q.origin] || ORIGIN.profile;
   const tone = TONE[o.tone];
   const [fixing, setFixing] = useState(null);
@@ -145,7 +146,8 @@ function Question({ q, onReviewed }) {
         {[matchNote(q),
           q.origin === "model" && q.confidence != null ? `confidence ${q.confidence}/100${q.basis ? ` — ${q.basis}` : ""}` : null,
           q.origin === "model" && q.unsupported_claims.length ? `not found in context: ${q.unsupported_claims.join(", ")}` : null,
-          q.origin === "similar" ? "check it" : null].filter(Boolean).join(" · ")}
+          q.origin === "similar" ? "check it" : null,
+          q.lessons?.length ? `followed your rule${q.lessons.length > 1 ? "s" : ""} #${q.lessons.join(", #")}` : null].filter(Boolean).join(" · ")}
       </div>
       {q.prompt && (
         <details style={{ marginTop: 3 }}>
@@ -171,15 +173,16 @@ function Question({ q, onReviewed }) {
                   onClick={() => setFixing({ entry: null })}>✗ Wrong</button>
         </div>
       ))}
+      {!edit && <InsightBox q={q} jobId={jobId} onDone={onReviewed} />}
     </li>
   );
 }
 
-function Questions({ qs, onReviewed }) {
+function Questions({ qs, jobId, onReviewed }) {
   if (!qs || qs.length === 0) return null;
   return (
     <ul aria-label="Questions on this page" style={{ margin: "8px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6 }}>
-      {qs.map((q) => <Question key={q.id} q={q} onReviewed={onReviewed} />)}
+      {qs.map((q) => <Question key={q.id} q={q} jobId={jobId} onReviewed={onReviewed} />)}
     </ul>
   );
 }
@@ -197,6 +200,15 @@ export default function AgentRunHistory({ jobId }) {
   if (!run || !run.steps || run.steps.length === 0) return null;
   const steps = run.steps;
   const unpaged = run.unpaged || [];
+  // every page screenshot of the run, in page order: one viewer steps through them all
+  // each carries its page's questions, shown beside the image when it is opened (like comments beside a photo)
+  const shots = steps.filter((s) => s.screenshot).map((s) => ({
+    src: s.screenshot, alt: `Screenshot of page ${s.step + 1}`,
+    asideTitle: `Page ${s.step + 1} — ${(s.questions || []).length} question${(s.questions || []).length === 1 ? "" : "s"}`,
+    aside: (s.questions || []).length
+      ? <Questions qs={s.questions} jobId={jobId} onReviewed={load} />
+      : <div style={{ fontSize: 12, color: "var(--ink-faint)" }}>No questions were asked on this page.</div>,
+  }));
 
   return (
     <div style={{ marginTop: 12, borderTop: "0.5px solid var(--hairline)", paddingTop: 12 }}>
@@ -244,10 +256,11 @@ export default function AgentRunHistory({ jobId }) {
               {s.screenshot && (
                 <div style={{ marginTop: 6 }}>
                   <ImageLightbox src={s.screenshot} alt={`Screenshot of page ${s.step + 1}`}
+                                 gallery={shots} index={shots.findIndex((g) => g.src === s.screenshot)}
                                  thumbStyle={{ maxWidth: "100%", maxHeight: 160, borderRadius: 6, display: "block" }} />
                 </div>
               )}
-              <Questions qs={s.questions} onReviewed={load} />
+              <Questions qs={s.questions} jobId={jobId} onReviewed={load} />
             </li>
           );
         })}
@@ -255,7 +268,7 @@ export default function AgentRunHistory({ jobId }) {
       {unpaged.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: "var(--ink)" }}>Other questions in this run</div>
-          <Questions qs={unpaged} onReviewed={load} />
+          <Questions qs={unpaged} jobId={jobId} onReviewed={load} />
         </div>
       )}
       <RunLog jobId={jobId} />

@@ -19,7 +19,10 @@ class FakeScope:                       # both a listbox locator and the page fal
     first = property(lambda self: self)
     def locator(self, sel): return self          # scope.locator("[role=option]")
     def all_text_contents(self): return list(self._options)
-    def filter(self, has_text=None): return FakeOption(self.sink, has_text)
+    def filter(self, has_text=None):             # a whole-text pattern resolves to the one option it matches
+        if hasattr(has_text, "search"):
+            has_text = next((o for o in self._options if has_text.search(o)), None)
+        return FakeOption(self.sink, has_text)
     def evaluate(self, js): return self._in_dialog
     def is_visible(self): return True
     def fill(self, value, timeout=None):         # type-ahead: options load after typing
@@ -97,3 +100,44 @@ def test_no_match_inside_a_modal_does_not_press_escape():
     page = FakeComboPage(["Man", "Woman"], in_dialog=True)
     apply_decisions(page, [_combo("#g", "Gender", "Male")])
     assert ("press", "Escape") not in page.events
+
+
+def test_an_unlisted_value_takes_the_lists_others_option():
+    """Wipro's BTech majors have no 'Ceramic Engineering' but list 'OTHERS' (live 2026-10-23); 'Other' did not match it,
+    and a judge then picked 'Computer Science'."""
+    from career_agent.browser.filler import _OTHER_OPTION
+    assert _OTHER_OPTION.search("OTHERS") and _OTHER_OPTION.search("Other") and not _OTHER_OPTION.search("Otherwise")
+
+
+def test_an_option_differing_only_by_dots_and_spaces_is_the_value():
+    from career_agent.orchestrator.screen_review import _coerce_option
+    assert _coerce_option("B. Tech", ["B. Pharm", "B.Sc (Tech)", "BTech"]) == "BTech"
+
+
+def test_an_unlisted_answer_takes_its_banked_stand_in():
+    """Opella's Workday 'How Did You Hear About Us?' lists no 'Job Board'; the bank's synonym 'Company Portal' is
+    the user's chosen stand-in (2026-10-25), tried before any model match."""
+    from career_agent.browser.filler import apply_decisions
+    page = FakeComboPage(["Company Portal", "Events", "Referral", "Social Network"])
+    d = FillDecision("#src", "combobox", "How Did You Hear About Us?", "Job Board", "combobox", "qbank",
+                     alternatives=("Company Portal",))
+    apply_decisions(page, [d])
+    assert ("click_option", "Company Portal") in page.events
+
+
+def test_a_category_with_one_option_commits_that_option():
+    """Workday 'How Did You Hear About Us?': 'Company Portal' is a category whose only option is 'Company Career Site'
+    (Opella, live 2026-10-25). No option matches the answer, there is no 'Other' — the lone option is the pick."""
+    from career_agent.browser.filler import _drill_to_leaf
+    clicks = []
+
+    class Scope:
+        def locator(self, sel): return self
+        def all_text_contents(self): return ["Company Career Site", "Company Career Site"]
+        def filter(self, has_text=None):
+            return type("O", (), {"first": type("F", (), {"click": lambda s, timeout=None: clicks.append(has_text.pattern)})()})()
+
+    page = type("P", (), {"wait_for_timeout": lambda s, ms: None})()
+    _drill_to_leaf(page, Scope(), ["Company Portal", "Events"], lambda opts: None)
+    import re
+    assert clicks and re.search(clicks[0], "Company Career Site")

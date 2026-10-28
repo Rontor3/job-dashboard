@@ -118,9 +118,9 @@ def test_paired_location_is_answered_from_the_profile_without_asking():
     prof = NS(contact={"willing_to_relocate": True, "location": "Mumbai, India"})
     d, left = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
     assert {x.ref: x.value for x in d} == {"group:loc": "I can relocate to…", "#loc": "New Delhi"} and left == []
-    prof.contact["willing_to_relocate"] = False
-    d, _ = _ask([choice, value], {"human": NoHuman(), "profile": prof, "job_location": "New Delhi"})
-    assert {x.ref: x.value for x in d} == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
+    prof.contact["willing_to_relocate"] = False      # Mumbai is not on the job's list: never 'currently in Mumbai'
+    from career_agent.boards.run import _pair_from_profile
+    assert _pair_from_profile(choice, value, {"profile": prof, "job_location": "New Delhi"}) == {}
 def test_every_field_is_recorded_to_qa(monkeypatch):
     import career_agent.orchestrator.screen_review as sr
     monkeypatch.setattr(sr, "map_screen", lambda fs, p, r=None: ([], list(fs)))
@@ -206,3 +206,41 @@ def test_skill_years_fields_use_the_skill_table_by_shape_not_wording():
                             fld("c", "How many years of work experience do you have with Docker?")])
     assert {d.ref: d.value for d in got} == {"a": "3", "b": "2"}
     assert [f.ref for f in rest] == ["c"]          # unlisted skill is never invented
+
+
+def test_a_placeholder_dash_dropdown_pairs_with_the_relocate_choice_and_respects_places(tmp_path):
+    # wellfound live 2026-10-22: the city dropdown reads '-' (its placeholder), so the pair was missed and asked
+    import json, sqlite3
+    from types import SimpleNamespace as NS
+    from career_agent.boards.run import _ask, relocation_allowed
+    db = str(tmp_path / "j.db")
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE qbank_entry(id TEXT, answer TEXT, synonyms TEXT)")
+    c.execute("INSERT INTO qbank_entry VALUES('relocation_places','India; not: UAE, US', ?)",
+              (json.dumps({"India": ["india", "delhi"], "UAE": ["dubai"], "US": ["new york"]}),)); c.commit()
+    assert relocation_allowed("Delhi", db) is True and relocation_allowed("Dubai", db) is False
+    assert relocation_allowed("Lagos", db) is None
+    choice = Field("group:loc", "radio_group", "This job does not support the locations on your profile.", False,
+                   ["I am currently in…", "I can relocate to…"], None, None)
+    value = Field("#loc", "text", "-", False, [], None, None)
+
+    class NoHuman:
+        def collect(self, fields):
+            return {}
+
+    prof = NS(contact={"willing_to_relocate": True, "location": "Mumbai, India"})
+    ask = lambda places: _ask([choice, value], {"human": NoHuman(), "profile": prof, "db": db,  # noqa: E731
+                                                "read_options": lambda ref: places})
+    pick = lambda places: {x.ref: x.value for x in ask(places)[0]}  # noqa: E731
+    assert pick(["Delhi"]) == {"group:loc": "I can relocate to…", "#loc": "Delhi"}          # the job's own list
+    assert pick(["Delhi", "Mumbai"]) == {"group:loc": "I am currently in…", "#loc": "Mumbai"}
+    assert pick(["Dubai"]) == {}            # nowhere you live or would move to: the question is yours
+
+
+def test_the_place_box_showing_its_current_pick_still_pairs():
+    from career_agent.boards.run import _paired
+    choice = Field("group:loc", "radio_group", "This job does not support the locations on your profile.", False,
+                   ["I am currently in…", "I can relocate to…"], None, None)
+    for shown in ("", "-", "Delhi", "New Delhi"):
+        assert _paired([Field("#loc", "combobox", shown, False, [], None, None), choice])[1].ref == "#loc"
+    assert _paired([Field("#q", "text", "Why do you want this job?", False, [], None, None), choice]) == (None, None)

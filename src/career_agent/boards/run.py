@@ -1,23 +1,30 @@
 """Board pipeline: blocked? → entry → questions → shared answer ladder → human
 for required gaps → put → advance → gated irreversible click → confirm from the
 board's own response. Never creates accounts, never uses the career-site drill,
-stops on bot challenges. Result dict matches the career-site one (+ `board`)."""
+stops on bot challenges. Result dict matches the career-site one (+ `board`).
+
+Dry-run (submit not authorized) with an entry in front of a fillable flow runs
+fill-probe mode: ctx["fill_probe"] makes every commit-point a stop — the driver
+fills everything reversible and refuses the final click/answer, so the run ends
+`reached_submit_dry_run` with the fills counted instead of frozen `dry_run` at 0."""
 from __future__ import annotations
 
 import dataclasses
+import json
 import re
 
 from job_dashboard.sources.cdp.session import Capture
 
 from ..orchestrator.answering import answer_fields, record_answers
 from ..orchestrator.mapper import FillDecision, _action_for_kind
+from .. import run_trace
 from ..orchestrator.screen_review import apply_answers
 from ..browser.form_model import Field
 from ..orchestrator.sensitive import split_sensitive
 from .drivers import DRIVERS
 from .run_log import BoardRunLog
 from .profiles import on_board
-from ..browser.page_prep import is_closed_posting, is_login_page
+from ..browser.page_prep import is_closed_posting, is_wall, clear_auth_wall, new_tab_since
 from .signals import confirmed, is_challenge, is_logged_out
 
 MAX_STEPS = 8
@@ -28,12 +35,27 @@ def _needles(board):
     return tuple(r["capture"] for r in rules if r.get("capture"))
 
 
-_APPLIED = re.compile(r"\byou(?:'ve| have)? already applied\b|\bapplied \d+ (?:second|minute|hour|day|week|month)s? ago\b",
-                      re.I)
-# A visible BUTTON reading just "Applied" ("✓ Applied"): nav links named
-# "Applied" (Wellfound's sidebar) are anchors, so only buttons count.
-_APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e =>
-    e.checkVisibility() && /^\\W*applied\\W*$/i.test((e.innerText || '').trim()))"""
+from ..browser.page_prep import ALREADY_APPLIED as _APPLIED     # one copy, shared with the career-site engine
+# A visible BUTTON saying it's done: "✓ Applied", Instahyre's "Application sent!" (live 2026-10-18: GeoIQ, applied
+# Oct 3, was searched for an Apply button instead). Nav links named "Applied" (Wellfound's sidebar) are anchors, so only
+# buttons count, and only a short label (not a paragraph that mentions it).
+_APPLIED_BUTTON_JS = """() => [...document.querySelectorAll('button')].some(e => {
+    const t = (e.innerText || '').trim();
+    return e.checkVisibility() && t.length < 60 && /^\\W*(applied|already applied|application (sent|submitted))\\b/i.test(t);
+})"""
+# An APPLIED BADGE is usually not a button (naukri live 2026-10-20: a green styled span,
+# no form anywhere on the page, and the run kept hunting for an Apply entry until the assist
+# concluded it). A short LEAF element whose whole text is an applied notice says the same
+# thing buttons do; prose longer than 40 chars, containers holding a template, and UI words
+# after the notice (naukri's own "Applied filters") never match. Anchors stay out (a nav
+# item named Applied is a page we can still act on); checked only when no form is open.
+_APPLIED_BADGE_JS = """() => [...document.querySelectorAll('span,div,p,label,i,[role=status]')].some(e => {
+    if (!e.checkVisibility() || e.children.length > 1) return false;
+    if (e.closest('a[href],nav,header')) return false;   // a menu link to your 'Applied' list (wellfound) is no badge
+    const t = (e.innerText || '').trim();
+    return t.length < 40 && /^\\W*(you(?:'?ve| have)? already applied|application (submitted|sent)|applied)\\b/i.test(t)
+        && !/\\b(filters?|jobs?|search|sort|via|salary)\\b/i.test(t);
+})"""
 _ERRORS_JS = """() => [...new Set([...document.querySelectorAll(
     '[role=alert],[aria-live=assertive],[id*=error i],[class*=error i],[class*=invalid i]')]
     .filter(e => e.checkVisibility() && e.innerText && e.innerText.trim().length < 300)
@@ -54,6 +76,14 @@ def _posting_state(page, text):
     try:
         if _APPLIED.search(text or "") or page.evaluate(_APPLIED_BUTTON_JS):
             return "already_applied"
+    except Exception:
+        pass
+    try:
+        # No application form open + a badge saying it's done: the application exists
+        # already (naukri live 2026-10-20, green 'Applied' badge). A distinct, honest
+        # stop name so the queue shows board state, not an engine guess.
+        if not _form_already_open(page) and page.evaluate(_APPLIED_BADGE_JS):
+            return "already_applied_board_state"
     except Exception:
         pass
     return None
@@ -94,6 +124,19 @@ def _form_already_open(page) -> bool:
         return False
 
 
+def _beyond_entry(board):
+    """A fillable flow lives past the entry click: declared final/advance controls. A one-click
+    entry whose profile lists neither has nothing reversible to fill — the click IS the whole
+    application (instahyre, iimjobs live 2026-09-27) — so fill-probe stays a dry_run for it."""
+    if (board.get("entry") or {}).get("submits") == "yes":
+        return False        # the click IS the application; final/advance are always set by profile defaults (live 2026-10-22: a dry run submitted on instahyre)
+    if board.get("archetype") == "chat":
+        # the chat bot applies on the questionnaire's last answer: answering IS submitting (naukri live 2026-10-24:
+        # Assertive Business Solutions went in during a fill-only batch with auto-submit off)
+        return False
+    return bool(board.get("final") or board.get("advance"))
+
+
 def _authorized(ctx, board, page, decisions):
     """The irreversible click: allowed by the dashboard's policy (switch for this site, answers with 3 approvals, a first
     submit there already done by you, daily cap), or by --submit plus a human yes. ctx["how"] records which."""
@@ -120,21 +163,10 @@ def _authorized(ctx, board, page, decisions):
 
 
 def _untick(page, board):
-    """Before the final click, untick pre-ticked optional opt-ins (LinkedIn's "Follow <company> to stay up to date",
-    Indeed's job-alert emails): applying is not consent to follow or to be mailed. Any checked, non-required box whose
-    label reads as an opt-in (screen_review._MARKETING) goes, plus any pattern the board profile lists."""
-    from ..orchestrator.screen_review import _MARKETING
-    pats = [re.compile(p, re.I) for p in board.get("uncheck", [])] + [_MARKETING]
-    try:
-        boxes = page.locator("input[type=checkbox]:checked:not([required]):not([aria-required=true])")
-        for i in reversed(range(boxes.count())):
-            b = boxes.nth(i)
-            label = b.evaluate("e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label') || '').trim()")
-            if label and any(p.search(label) for p in pats):
-                b.uncheck(timeout=5000, force=True)
-                print(f"[board] unticked optional box {label[:60]!r}", flush=True)
-    except Exception:
-        pass
+    """Before the final click, untick pre-ticked optional opt-ins (shared with career sites: page_prep.untick_opt_ins),
+    plus any pattern the board profile lists."""
+    from ..browser.page_prep import untick_opt_ins
+    untick_opt_ins(page, board.get("uncheck", []), tag="board")
 
 
 def _interstitials(page, board):
@@ -146,6 +178,39 @@ def _interstitials(page, board):
                 page.wait_for_timeout(1500)
         except Exception:
             pass
+
+
+def _link_href(page, entry) -> str | None:
+    """The absolute http(s) address an entry link points at, else None ('#', javascript:, a button)."""
+    from urllib.parse import urljoin
+    try:
+        href = urljoin(page.url, entry.get_attribute("href", timeout=3000) or "")
+    except Exception:
+        return None
+    return href if href.startswith(("http://", "https://")) and href.split("#")[0] != page.url.split("#")[0] else None
+
+
+def follow_unseen_handoff(page, href, board):
+    """An external leg ("Apply on company site") opens a target=_blank tab that an attached Chrome may never report to
+    Playwright (Indeed -> careers.wipro.com, live 2026-10-22: the tab opened, context.pages never listed it, the run
+    read 0 fields on Indeed and stopped 'stuck'). Still on the board after the click -> open the link here instead."""
+    if not href or not on_board(page.url, board):
+        return page
+    print(f"[board] no new tab seen after the external leg — opening {href[:90]} in this tab", flush=True)
+    try:
+        page.goto(href, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(2000)            # board redirectors (indeed.com/applystart) hop to the employer
+    except Exception as e:
+        print(f"[board] external hand-off failed: {type(e).__name__}: {str(e)[:160]}", flush=True)
+    return page
+
+
+def _entry_legs(board):
+    """The board's ordered entry legs: the graph node's declared `chain` when it
+    has one (an external handoff leg is expected to leave the board), else the
+    legacy single selector as the chain's only leg — boards without a chain
+    behave exactly as they did."""
+    return board["entry"].get("chain") or [{"selector": board["entry"]["selector"]}]
 
 
 _REF_NOISE = {"react", "select", "form", "input", "field", "data", "cref", "id", "qualification",
@@ -176,8 +241,9 @@ def _paired(needs):
     next to an unlabelled value field — one question for the human, not two."""
     choice = next((f for f in needs if f.options
                    and all(o.rstrip().endswith(("…", "...")) for o in f.options)), None)
-    value = next((f for f in needs if f.kind in ("text", "combobox")
-                  and not (f.label or "").strip()), None)
+    # the place box: unlabelled, or showing only its placeholder ('-') or its current pick ('Delhi') — never a question
+    value = next((f for f in needs if f is not choice and f.kind in ("text", "combobox")
+                  and "?" not in (f.label or "") and len((f.label or "").split()) <= 3), None)
     return (choice, value) if choice and value else (None, None)
 
 
@@ -201,18 +267,40 @@ def _ask_pair(human, choice, value):
 
 
 def _pair_from_profile(choice, value, ctx):
-    """Answer a trailing choice + place from the profile instead of the human:
-    willing to relocate -> 'relocate to…' + the job's location; else 'currently
-    in…' + the profile city. {} when the profile cannot decide."""
+    """Answer a trailing choice + place from the profile instead of the human. The place list is the job's own
+    (open the dropdown: Wellfound lists only that job's cities): one you live in -> 'currently in…' + it; else one
+    you would relocate to (willing_to_relocate + your saved places) -> 'relocate to…' + it. {} when none fits."""
     contact = getattr(ctx.get("profile"), "contact", None) or {}
     reloc = next((o for o in choice.options if "relocat" in o.lower()), None)
     here = next((o for o in choice.options if re.search(r"\b(currently|live|based)\b", o, re.I)), None)
-    if contact.get("willing_to_relocate") and reloc and ctx.get("job_location"):
-        return {choice.ref: reloc, value.ref: ctx["job_location"]}
-    city = (contact.get("location") or "").split(",")[0].strip()
-    if here and city:
-        return {choice.ref: here, value.ref: city}
+    read = ctx.get("read_options")
+    places = (read(value.ref) if read else []) or ([ctx["job_location"]] if ctx.get("job_location") else [])
+    city = (contact.get("location") or "").split(",")[0].strip().lower()
+    home = next((p for p in places if city and city in p.lower()), None)
+    if here and home:
+        return {choice.ref: here, value.ref: home}
+    if reloc and contact.get("willing_to_relocate"):
+        ok = next((p for p in places if relocation_allowed(p, ctx.get("db", "data/jobs.db")) is not False), None)
+        if ok:
+            return {choice.ref: reloc, value.ref: ok}
     return {}
+
+
+def relocation_allowed(place, db="data/jobs.db"):
+    """Your saved 'Which places are you willing to relocate to?' (qbank relocation_places, 'India; not: UAE, US, ...'
+    + synonyms per place) applied to `place`: True / False, or None when the bank has no answer or the place is unknown."""
+    import sqlite3
+    try:
+        row = sqlite3.connect(db).execute(
+            "SELECT answer, synonyms FROM qbank_entry WHERE id='relocation_places'").fetchone()
+        answer, syn = row[0] or "", json.loads(row[1] or "{}")
+    except Exception:
+        return None
+    yes, _, no = answer.partition("not:")
+    hit = lambda labels: any(s in (place or "").lower() for lab in labels for s in syn.get(lab, [lab.lower()]))  # noqa: E731
+    if hit([x.strip() for x in no.split(",") if x.strip()]):
+        return False
+    return True if hit([x.strip() for x in yes.split(";") if x.strip()]) else None
 
 
 def _job_location(text):
@@ -259,6 +347,7 @@ def _ask_human(needs, ctx):
     collector = getattr(human, "collector", None)
     if collector is not None and ctx.get("ask_context") and hasattr(collector, "context"):
         collector.context = ctx["ask_context"]       # "Wellfound — AI Engineer at VisionSure"
+    run_trace.start("ask", asked=len(needs))         # the human question round is the slow step worth tracing
     try:
         answers = {}
         choice, value = _paired(needs)
@@ -272,6 +361,7 @@ def _ask_human(needs, ctx):
     except Exception as e:                 # no terminal / Telegram down: leave the gap open
         print(f"[board] could not ask the human ({type(e).__name__}); leaving {len(needs)} field(s) open", flush=True)
         answers = {}
+    run_trace.end("ask", "done", given=len(answers), asked=len(needs))
     record_answers(needs, answers, ctx)
     return apply_answers(needs, answers), [f for f in needs if not str(answers.get(f.ref) or "").strip()]
 
@@ -288,7 +378,12 @@ def _answers(fields, board, driver, cap, ctx):
     # radios/selects the rules layer passes over silently.
     decided |= set(pre)
     gaps = [f for f in fields if f.ref not in decided]
-    upfront = gaps if driver.ask_optional_upfront else [f for f in gaps if f.required]
+    # Fill-probe fills every reversible field of the live flow (linkedin's easy-apply
+    # modal ships its contact step with no DOM-required flag — asking only required
+    # gaps filled nothing and the run died dry_run at 0, live 2026-10-20 job 30029).
+    upfront = gaps if (driver.ask_optional_upfront or ctx.get("fill_probe")) else [f for f in gaps if f.required]
+    if upfront and ctx.get("fill_first") and decisions:
+        ctx["fill_first"](decisions)        # what is already answered goes in before the human is asked about the rest
     got, left = _ask(upfront, ctx)
     return (decisions + got, [f for f in left if f.required],
             [f for f in gaps if not f.required and f not in upfront] + [f for f in left if not f.required])
@@ -296,18 +391,28 @@ def _answers(fields, board, driver, cap, ctx):
 
 def run_board(page, board, ctx):
     ctx = dict(ctx)
+    ctx.setdefault("intended_url", page.url)     # the job page this run set out for (apply.py passes args.url)
     res = {"url": page.url, "job_id": ctx.get("job_id"), "board": board["id"], "submitted": False,
            "stopped_reason": None, "decisions": [], "pending_human": []}
     done_decisions = []
     log = BoardRunLog(ctx.get("run_dir"))           # screenshots + steps for the tracker
+    run_trace.start("board_run", board=board["id"], probe=bool(ctx.get("probe")),
+                    run_dir=ctx.get("run_dir"))     # trace start first; stop() below closes it on every exit
     assist = ctx.get("assist")                      # opt-in Claude help at dead ends (orchestrator/claude_assist.py)
 
     def stop(reason, pg):
+        nonlocal done_decisions
+        done_decisions = list({d.ref: d for d in done_decisions}.values())   # a re-read refills the same field once
         res.update(stopped_reason=reason, url=pg.url, submitted=reason == "submitted",
-                   decisions=[dataclasses.asdict(d) for d in done_decisions])
+                   decisions=[dataclasses.asdict(d) for d in done_decisions],
+                   filled=len(done_decisions),             # the battle summary reads these two
+                   escalated=len(res["pending_human"]))    # keys off the result, not the run_log
         if ctx.get("eligibility"):
             res["eligibility"] = ctx["eligibility"]
         log.finish(pg, reason, res["pending_human"])
+        # one final trace record for the whole board pass; every return passes through stop()
+        run_trace.end("board_run", "done", stopped_reason=reason, url=getattr(pg, "url", None),
+                      shot=(log.steps[-1]["screenshot"] if log.steps else None))
         return res
 
     blocked = _blocked(page, board)
@@ -340,29 +445,62 @@ def run_board(page, board, ctx):
                 found = False
             return stop("probe" if found else "no_entry", page)
         if irreversible and not _authorized(ctx, board, page, []):
-            return stop("dry_run", page)
+            # Dry-run with an entry that sits in front of a fillable flow: run the
+            # flow in fill-probe mode — the driver fills everything reversible and
+            # the commit-points below refuse the final click/answer and stop
+            # reached_submit_dry_run with the fills counted (naukri 2026-10-20:
+            # five boards died dry_run, filled=0, without the flow ever running).
+            if _beyond_entry(board):
+                ctx["fill_probe"] = True
+            else:
+                return stop("dry_run", page)       # one-click entry: nothing reversible before the commit
+        elif not irreversible and not ctx.get("do_submit"):
+            # Dry-run behind a plain (non-submitting) entry — linkedin easy-apply,
+            # wellfound, workatastartup (live 2026-10-20, linkedin job 30029: the
+            # flow opened, fields grew 60 -> 87, and the run still died dry_run
+            # filled=0). Same fill-probe spirit: the flow fills every reversible
+            # field, the commit-points below refuse the final click with the fills
+            # counted. An authorized-but-declined run (do_submit=True) keeps the
+            # old immediate dry_run here.
+            ctx["fill_probe"] = True
         from ..browser.clicks import pace
         pace(page)
         _before = list(page.context.pages)
-        entry = page.locator(board["entry"]["selector"]).filter(visible=True).first
-        try:
+        legs = _entry_legs(board)
+        clicked, err, handoff_href = None, None, None
+        run_trace.start("entry_chain", legs=len(legs))   # on disk before any leg is clicked
+        for leg in legs:
+            entry = page.locator(leg["selector"]).filter(visible=True).first
             try:
-                entry.click(timeout=8000, no_wait_after=True)
-            except Exception:
-                # Covered control (Instahyre lays an "Apply now" link over its
-                # button): click what is on top at its centre, as a person would.
-                entry.evaluate("""e => { const r = e.getBoundingClientRect();
-                    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-                    (top || e).click(); }""", timeout=5000)
-        except Exception as e:
+                try:
+                    if len(legs) > 1 and not entry.is_visible():
+                        continue            # a chain leg not on this page: the next leg decides
+                    if leg.get("handoff") == "external":
+                        handoff_href = _link_href(page, entry)
+                    entry.click(timeout=8000, no_wait_after=True)
+                except Exception:
+                    # Covered control (Instahyre lays an "Apply now" link over its
+                    # button): click what is on top at its centre, as a person would.
+                    entry.evaluate("""e => { const r = e.getBoundingClientRect();
+                        const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+                        (top || e).click(); }""", timeout=5000)
+                clicked, err = leg, None
+                break
+            except Exception as e:
+                err = e                     # a visible leg may be unclickable: a later leg still can
+        if clicked is not None:
+            res["entry"] = {"leg": clicked.get("leg") or "selector"}    # which leg fired, for the run log
+        else:
             if _form_already_open(page):
                 ctx["baseline"] = set()           # an earlier run left the form open: every field on it is the form's
             elif not (assist and assist.recover(page, "no_entry")):     # a recovery click replaces the entry click
-                res["error"] = f"{type(e).__name__}: {str(e)[:300]}"
+                res["error"] = (f"{type(err).__name__}: {str(err)[:300]}" if err else "no entry leg on the page")
                 return stop("no_entry", page)
+        run_trace.end("entry_chain", "done")             # no_entry stop leaves the start dangling on purpose
         page.wait_for_timeout(3000)
-        from ..browser.page_prep import new_tab_since
         page = new_tab_since(page, _before)      # the entry click may open a new tab
+        if clicked is not None and clicked.get("handoff") == "external":
+            page = follow_unseen_handoff(page, handoff_href, board)
         _interstitials(page, board)
         try:
             title = page.title().split("|")[0].strip()
@@ -375,6 +513,7 @@ def run_board(page, board, ctx):
             ctx["job_location"] = None
 
         asked_optional = False
+        reread = 0
         unanswered = 0
         clicked_sig = None
         retried_bounce = False
@@ -383,21 +522,47 @@ def run_board(page, board, ctx):
                 break
             from ..browser.clicks import wait_until_stable
             wait_until_stable(page)                   # the step may still be drawing after the URL changed
+            from ..browser.page_health import recover
+            if recover(page, ctx["intended_url"]) == "dead":
+                return stop("dead_page", page)        # Chrome's error shell and the fresh GET already failed once
             blocked = _blocked(page, board)
             if blocked:
                 return stop(blocked, page)
             if not on_board(page.url, board):
                 return stop("left_board", page)     # e.g. "Apply on company site": another engine takes over
-            if is_login_page(page):
-                return stop("auth_wall", page)      # a login/sign-up wall is never a question for a human
+            if is_wall(page, page.url):
+                run_trace.start("wall_check")       # the start hits disk before the wall-clearing risk
+                # A login / sign-up wall is never a question for a human, and never
+                # reaches the perception below. One pass of the board ctx's
+                # credential provider (guest apply -> stored creds -> register,
+                # clear_auth_wall's contract), then the wall is re-checked: still
+                # walled -> stop as before. After form work started there is no
+                # rewinding into an account flow.
+                if done_decisions:
+                    run_trace.end("wall_check", "done", outcome="walled_after_fill")
+                    return stop("auth_wall", page)
+                _wall_tabs = list(page.context.pages)
+                clear_auth_wall(page, ctx.get("cred_provider"))
+                page = new_tab_since(page, _wall_tabs)        # guest apply may continue in a fresh tab
+                page.wait_for_timeout(1500)                   # the provider's last hop may still be settling
+                if is_wall(page, page.url):
+                    run_trace.end("wall_check", "done", outcome="still_walled")
+                    return stop("auth_wall", page)
+                run_trace.end("wall_check", "done", outcome="cleared")
+                continue
             ctx["page_index"] = log.page(page)
+            run_trace.start("perceive_fields")           # the driver's read of the screen, on disk before it happens
             fields, blocked = split_sensitive(driver.fields(page, board, ctx, cap))
+            run_trace.end("perceive_fields", "done", fields=len(fields), sensitive=len(blocked))
             if any(f.required for f in blocked):          # bank / ID details: yours to fill, never asked
                 res["pending_human"] = [dataclasses.asdict(f) for f in blocked if f.required]
                 return stop("sensitive_field", page)
             sig = (page.url, tuple(sorted((f.label, f.kind) for f in fields)))
             errs = _visible_errors(page) if clicked_sig is not None and sig == clicked_sig else []
             bounced = bool(errs)       # same fields back and the board shows an error: it rejected an answer (a slow page is the stuck path)
+            ctx["fill_first"] = None if ctx.get("probe") else (lambda ds: driver.put(page, board, ctx, fields, ds))
+            from ..browser.filler import read_combobox_options
+            ctx["read_options"] = None if ctx.get("probe") else (lambda ref, pg=page: read_combobox_options(pg, ref))
             decisions, needs, optional = _answers(fields, board, driver, cap, ctx)
             if bounced:
                 # Next/Continue was clicked but the form did not move on: the board
@@ -422,11 +587,18 @@ def run_board(page, board, ctx):
                 res["fields"] = [dataclasses.asdict(f) for f in fields]
                 return stop("probe", page)
             if needs:
+                if not ctx.get("probe"):
+                    driver.put(page, board, ctx, fields, decisions)     # leave the page as full as the answers allow
                 res["pending_human"] = [dataclasses.asdict(f) for f in needs]
                 return stop("needs_human", page)
             driver.put(page, board, ctx, fields, decisions)
             done_decisions += decisions
             log.filled(page)                              # screenshot of the filled page, before Next
+            if reread < 2:
+                page.wait_for_timeout(800)
+                if {(f.label, f.kind) for f in driver.fields(page, board, ctx, cap)} - {(f.label, f.kind) for f in fields}:
+                    reread += 1                           # filling unlocked more of the form (wellfound: the interests
+                    continue                              # box is disabled until the location is answered) -> read again
             nxt = driver.next_control(page, board, ctx)
             if nxt is None and optional and not asked_optional:
                 # The form will not advance (Next/Submit absent or disabled) while
@@ -440,7 +612,15 @@ def run_board(page, board, ctx):
                     log.filled(page)
                     page.wait_for_timeout(1500)
                     continue
+            if nxt is None and asked_optional and optional:
+                # The gate is a question only you can answer (asked, none came back): park it, never 'stuck'.
+                left = [f for f in optional if f.ref not in {d.ref for d in done_decisions}]
+                if left:
+                    res["pending_human"] = [dataclasses.asdict(f) for f in left]
+                    return stop("needs_human", page)
             if nxt is None:
+                if ctx.get("fill_probe") and done_decisions:   # chat flow: the bot applies
+                    return stop("reached_submit_dry_run", page)   # itself after the withheld answer
                 _tabs_before = list(page.context.pages)
                 if assist and assist.recover(page, "no_advance_control"):
                     page = new_tab_since(page, _tabs_before)   # e.g. "Apply on company website" opened the employer's tab
@@ -449,6 +629,11 @@ def run_board(page, board, ctx):
             label, final = nxt
             if final:
                 if not _authorized(ctx, board, page, done_decisions):
+                    # Fill-probe: everything the flow could fill is filled and the final
+                    # click is the commit — it never fires here. With nothing actually
+                    # filled there is no fill-probe success to claim: keep the old name.
+                    if ctx.get("fill_probe") and done_decisions:
+                        return stop("reached_submit_dry_run", page)
                     return stop("dry_run", page)
                 _untick(page, board)
                 irreversible = True

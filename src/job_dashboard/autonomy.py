@@ -13,13 +13,17 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from job_dashboard.db import now_iso
 from urllib.parse import urlparse
 
 from job_dashboard import qa_store
 
 AUTONOMY_THRESHOLD = 3
 # Decision sources that are your own fixed facts or something you gave this very run: never a guess.
-STABLE_SOURCES = {"resume", "standard", "attestation", "human", "human_prior", "profile", "board_prefill", "upload"}
+# "decline_class" is the orchestrator decline gate's policy answer (decline_class.gate) — deterministic,
+# not a guess: an auto-declined marketing opt-in never blocks a form's autonomy.
+STABLE_SOURCES = {"resume", "standard", "attestation", "human", "human_prior", "profile", "board_prefill", "upload",
+                  "decline_class"}
 
 
 def ensure(conn) -> None:
@@ -48,10 +52,6 @@ def key(label) -> str:
     return qa_store.norm_key(str(label or "").replace("*", "").replace("✱", ""))
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def ats_key(url: str) -> str:
     """The kind of site a submit happened on: the board for job boards, else the host (jobs.siemens.com, ...)."""
     host = (urlparse(url or "").hostname or "").lower()
@@ -67,10 +67,6 @@ def approvals(conn, entry_id: str) -> int:
     return int(r[0] or 0) if r else 0
 
 
-def is_autonomous_entry(conn, entry_id: str) -> bool:
-    return approvals(conn, entry_id) >= AUTONOMY_THRESHOLD
-
-
 def _set(conn, entry_id: str, n: int) -> None:
     conn.execute("UPDATE qbank_entry SET approvals=? WHERE id=?", (n, entry_id))
 
@@ -80,6 +76,8 @@ def _same(answer, final) -> bool:
     a, f = norm(answer), norm(final)
     if a in ("true", "yes", "checked") and f in ("true", "yes", "checked", "on"):
         return True
+    if a in ("false", "no", "unchecked") and f in ("", "false", "no", "unchecked", "off", "0"):
+        return True      # a decline that read back empty ("", no read for an unticked box) is the same decline
     return a == f or (bool(a) and (a in f or f in a) and min(len(a), len(f)) >= 3)      # "30 days" vs "30"
 
 
@@ -106,7 +104,7 @@ def record_submission(conn, job_id: int, run_key: str, final_values: dict, how: 
                 _set(conn, entry, 0)
             edited += 1
     conn.execute("INSERT INTO submit_history (job_id, ats_key, how, confirmed_at) VALUES (?,?,?,?)",
-                 (job_id, ats_key(url), how, _now()))
+                 (job_id, ats_key(url), how, now_iso()))
     conn.commit()
     return {"approved": approved, "edited": edited}
 
@@ -122,11 +120,20 @@ def auto_submits_last_day(conn) -> int:
     return conn.execute("SELECT COUNT(*) FROM submit_history WHERE how='auto' AND confirmed_at > ?", (since,)).fetchone()[0]
 
 
-def autonomy_report(conn, run_key: str, decisions) -> dict:
+def autonomy_report(conn, run_key: str, decisions, skip_refs=()) -> dict:
     """{ok, blockers: [(label, why)], confident, total}: may this filled form go out without a human?"""
     ensure(conn)
     entry_of = {ref: q for ref, q in conn.execute("SELECT ref, retrieved_qkey FROM application_qa WHERE run_key=?", (run_key,))}
-    blockers, total = [], 0
+    # a field left blank or in doubt this run (status needs_answer) always keeps the form for you
+    skip = set(skip_refs)          # optional boxes left empty on purpose: not a doubt (user 2026-10-25)
+    blockers = [(label or ref, "left blank / in doubt") for ref, label in conn.execute(
+        "SELECT ref, label FROM application_qa WHERE run_key=? AND status='needs_answer'", (run_key,)) if ref not in skip]
+    # 'autosubmit_trust_confident' = 1: a confident bank match counts as known without 3 approvals (user, 2026-10-25)
+    try:
+        trust = qa_store.get_setting(conn, "autosubmit_trust_confident") == "1"
+    except KeyError:
+        trust = False
+    total = 0
     for d in decisions:
         value = d.get("value") if isinstance(d, dict) else getattr(d, "value", None)
         if value is None:
@@ -139,7 +146,7 @@ def autonomy_report(conn, run_key: str, decisions) -> dict:
         if source == "qbank":
             entry = entry_of.get(ref)
             n = approvals(conn, entry) if entry else 0
-            if entry and n >= AUTONOMY_THRESHOLD:
+            if (entry and n >= AUTONOMY_THRESHOLD) or trust:
                 continue
             blockers.append((label, f"{entry or 'answer'}: {n}/{AUTONOMY_THRESHOLD} approvals"))
         else:
@@ -150,7 +157,7 @@ def autonomy_report(conn, run_key: str, decisions) -> dict:
 DEFAULT_DAILY_CAP = 5
 
 
-def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
+def autosubmit_policy(conn, url: str, run_key: str, decisions, skip_refs=()) -> dict:
     """May this filled form be submitted without a human? {allow, reasons, report, site, switch}. `reasons` says why not.
     All must hold: the switch for the site the agent is ON NOW (not the page it started from) is on; every answer is
     autonomous; that kind of site has had a confirmed submit before (the first one is always yours); the daily cap of
@@ -162,7 +169,7 @@ def autosubmit_policy(conn, url: str, run_key: str, decisions) -> dict:
         switch_on = qa_store.get_setting(conn, switch_key) == "1"
     except KeyError:
         switch_on = False
-    report = autonomy_report(conn, run_key, decisions)
+    report = autonomy_report(conn, run_key, decisions, skip_refs)
     site = ats_key(url)
     try:
         cap = int(qa_store.get_setting(conn, "autosubmit_daily_cap"))

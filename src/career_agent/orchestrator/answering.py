@@ -108,11 +108,32 @@ def _prior_human_answers(fields, qa) -> list:
     return out
 
 
+_OTHER_FOLLOWUP = re.compile(r"\b(if|in case)\b[^?.]{0,80}\bother\b|\bother\b[^?.]{0,40}\bplease (specify|state|describe)\b", re.I)
+
+
+def _drop_other_followups(fields, decisions, needs):
+    """"In case you selected Other, specify your start date here": a box that belongs to an "Other" option. Filled only when
+    some answer chose Other; otherwise it stays blank and is not asked."""
+    follow = {f.ref for f in fields if f.kind in ("text", "textarea") and _OTHER_FOLLOWUP.search(f.label or "")}
+    if not follow or any(re.match(r"\s*other\b", str(d.value), re.I) for d in decisions if d.ref not in follow):
+        return decisions, needs
+    return [d for d in decisions if d.ref not in follow], [f for f in needs if f.ref not in follow]
+
+
 def answer_fields(fields, ctx):
-    """(decisions, needs) for `fields`: question bank (confident + likely), profile
+    """(decisions, needs) for `fields`: decline gate, question bank (confident + likely), profile
     rules, then the LLM judge. Every field is recorded to ctx['qa'] when present,
-    so likely fills and gaps surface for review on every path (graph and boards)."""
+    so likely fills and gaps surface for review on every path (graph and boards).
+    The decline gate (decline_class) answers marketing opt-ins itself and holds
+    their required variants back from every ask tier — before the screen-review
+    tier and before judge() ever sees a question."""
     qa = ctx.get("qa")
+    learn = ctx.get("learn")
+    if learn is not None and hasattr(learn, "prime"):
+        try:
+            learn.prime(fields)                    # section by section, before the per-field path (memory/sections.py)
+        except Exception as e:
+            print(f"[warn] section answering failed, falling back to one field at a time: {type(e).__name__}: {e}")
     if qa:
         if ctx.get("page_index") is not None:
             qa.page = ctx["page_index"]            # the tracker groups questions by form page
@@ -120,31 +141,52 @@ def answer_fields(fields, ctx):
     recalled, remaining = _prior_human_answers(fields, qa), list(fields)
     done = {d.ref for d in recalled}
     remaining = [f for f in remaining if f.ref not in done]
+    # The gate runs first (its declines never become questions/bank work):
+    # what it claims is neither filled by a tier nor asked. Optional marketing
+    # gets an affirmative declining decision; a REQUIRED marketing ask is held
+    # undecided — no "No" is ever stuffed into it (qbank_memory's invariant) —
+    # and is re-added to `needs` below so the human decides it at the
+    # escalation boundary, with the hold recorded to application_qa.
+    from .decline_class import gate as decline_gate
+    declined, remaining, held = decline_gate(remaining)
+    # dates and role description inside a work/education entry: from that entry, before the bank guesses at "Year"
+    from .entry_fields import entry_decisions
+    entries, remaining = entry_decisions(remaining, ctx["profile"])
+    declined = declined + entries
     learn = ctx.get("learn")
     if learn:
         more, remaining = learn.recall(remaining)
         recalled += more                          # never instead of: the human's own answers were taken out above
     from .screen_review import map_screen
     decisions, needs = map_screen(remaining, ctx["profile"], ctx.get("resume_pdf"))
-    decisions += recalled
+    decisions = declined + recalled + decisions
     judge_fn = ctx.get("judge_fn")
     if needs and judge_fn:
         answered, needs, _ = judge_fn(needs)
         decisions += answered
+    needs += [f for f, _, escalated in held if escalated]     # judge() has already run: these were never its questions
     itype = {f.ref: getattr(f, "input_type", "") or "" for f in fields}
     # a form with its own currency field wants the salary as an amount (Keka: Current Salary + INR select got "25 LPA")
     cur = has_currency_field(fields)
     unit = {f.ref: getattr(f, "unit", "") or "" for f in fields}
     decisions = [replace(d, value=shape_value(d.value, d.label, itype.get(d.ref, ""), unit.get(d.ref, ""), absolute=cur))
                  if d.action == "fill" and d.value is not None else d for d in decisions]
+    # A city box takes the city alone: a stored "Mumbai, India" (qbank current_city) gives "Mumbai".
+    purpose = {f.ref: f.purpose for f in fields}
+    decisions = [replace(d, value=d.value.split(",")[0].strip())
+                 if d.action == "fill" and purpose.get(d.ref) == "city" and isinstance(d.value, str) else d
+                 for d in decisions]
     dial, by_ref = has_dial_field(fields), {f.ref: f for f in fields}
     decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))
                  if d.action == "fill" and d.ref in by_ref and _is_phone(by_ref[d.ref]) else d for d in decisions]
+    decisions, needs = _drop_other_followups(fields, decisions, needs)
     if qa:
+        for f, basis, _ in held:          # the gate's hold-backs, auditable even when nothing else touches them
+            qa.held(f, basis)
         for d in decisions:
             qa.decision(d)
         for f in needs:
-            qa.needs(f)
+            qa.needs(f)                   # a required hold-back flips its earlier held row to needs_answer (source stays decline_class)
     return decisions, needs
 
 

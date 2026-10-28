@@ -131,3 +131,27 @@ def test_board_authorization_follows_the_policy_then_a_human_yes():
     assert _authorized(ctx, {"id": "board:linkedin"}, page, d) is False and ctx["eligibility"]["reasons"] == ["off"]
     ctx = {"autosubmit_policy": lambda url, decisions: {"allow": False, "reasons": ["off"]}, "do_submit": True, "human": _Human(ok=True)}
     assert _authorized(ctx, {"id": "board:linkedin"}, page, d) is True and ctx["how"] == "tap"
+
+
+def test_a_job_pages_apply_is_clicked_through_never_a_dry_run_stop():
+    """Nothing filled + only an Apply control (a job description page): click Apply and read the form next."""
+    class Page:
+        url = "https://careers.fedex.com/job/1"
+
+        def wait_for_timeout(self, ms):
+            pass
+
+    class Deps(_Deps):
+        def url(self, page):
+            return page.url
+
+        def snapshot(self, page, scroll=True):
+            return [Field("#e", "text", "Email", True)]            # the application form that Apply opened
+
+    deps, human = Deps(), _Human(ok=True)
+    state = {"stopped_reason": None, "form": [_f2d(Field("#a", "button", "APPLY", False))], "do_submit": False,
+             "autonomous": False, "decisions": [], "steps": 0, "form_sig": None}
+    cfg = {"configurable": {"page": Page(), "deps": deps, "human": human, "learn": None}}
+    out = advance_node(state, cfg)
+    assert deps.clicked == "APPLY" and out.get("stopped_reason") != "reached_submit_dry_run"
+    assert human.cards == []                                      # nothing was submitted, nothing to approve

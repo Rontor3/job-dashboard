@@ -23,6 +23,7 @@ def test_answers_are_capped_and_marked_fillable(kb):
                       llm=fake_llm(long), limit=120)
     assert out["answer"] and len(out["answer"]) <= 120 and "trimmed_to_limit" in out["notes"]
     assert out["confidence"] == 85 and out["flags"] == []          # a repair or trim is a note, never a flag
+    assert "Describe a product you built" in out["prompt"]         # the run view shows it as "Prompt used"
 
 
 def test_a_made_up_link_is_never_filled(kb):
@@ -68,3 +69,50 @@ def test_a_note_to_the_team_uses_company_research_not_a_stock_opening():
                       research=lambda: research)
     assert "Digital Surveyor" in seen[0] and "Built a document parser" in seen[0]
     assert out["answer"].startswith("Digital Surveyor") and "rewrote_copied_phrase" in out["notes"]
+    assert out["prompt"] == seen[-1]                                  # the prompt that wrote the kept answer
+
+
+def test_note_to_the_team_is_a_conversation_with_four_beats():
+    from career_agent.longform.outreach import _prompt
+    from career_agent.longform.kb import Chunk
+    p = _prompt("Start a conversation with the team at Knowtex.", "Knowtex", ["Knowtex turns clinic visits into notes."],
+                [Chunk("p1", "passage", "Built a claims document parser", project_id="u1")], None,
+                goals=[Chunk("story:story_looking_for", "story", "I want to ship LLM products in regulated domains")])
+    assert "Hi Knowtex team," in p and "CONVERSATION" in p
+    for beat in ("What you like about their idea", "Why you want to be part of this team", "Briefly what you have done",
+                 "What you want to do going ahead", "I want to ship LLM products"):
+        assert beat in p
+
+
+def test_note_without_research_reads_the_job_post_and_never_guesses_the_sector():
+    from career_agent.longform.outreach import _prompt
+    p = _prompt("Start a conversation with the team at Kodo.", "Kodo", [], [], None, post="Build LLM features for spend management")
+    assert "JOB POST:\nBuild LLM features" in p and "Never guess what the company does" in p
+
+
+def test_what_interests_you_about_working_here_uses_the_note_writer_without_a_greeting():
+    from career_agent.longform.outreach import OUTREACH, _prompt
+    q = "What interests you about working for this company?"
+    assert OUTREACH.search(q)
+    p = _prompt(q, "Biz-Tech", [], [], None, post="MLOps on edge devices")
+    assert "Hi Biz-Tech team" not in p and "no greeting" in p
+
+
+def test_your_saved_rule_reaches_the_note_writer():
+    # live 2026-10-22: rule #3 ('conversational, company research') matched these questions but the note writer
+    # never put it in its prompt
+    from types import SimpleNamespace as NS
+    from career_agent.longform.kb import Chunk
+    seen = []
+
+    class FakeCorpus:
+        items = [Chunk("p1", "passage", "Built a document parser for claims", project_id="u1")]
+        kb = NS(card=lambda pid: None)
+
+        def search(self, *a, **k):
+            return self.items
+
+    answer_asks("What interests you about working for this company?", job={"company": "Acme"}, kb=None,
+                corpus=FakeCorpus(), llm=lambda p: seen.append(p) or "Acme builds X. I built a parser.",
+                research=lambda: None, steer={"rule": "Sound like a person, not a model; show company research"})
+    assert "Sound like a person, not a model" in seen[0]

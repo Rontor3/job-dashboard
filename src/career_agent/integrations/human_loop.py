@@ -30,29 +30,58 @@ class HumanLoop:
     def approve(self, card: str) -> bool:
         return self.approver.request(card)
 
-    def remote_solve(self, page, gate: str, on_link) -> RemoteSolveResult:
+    def remote_solve(self, page, gate: str, on_link=None, *, notifier=None) -> RemoteSolveResult:
+        """Stand up the live view and wait for the human to clear the gate.
+
+        `on_link` is the legacy broadcaster (a callable(url) that just sends the link);
+        `notifier` is a RemoteSolveNotifier (gate-typed card + countdown + Abort button,
+        .start(url, gate, deadline) -> abort_event, .close(cleared)). Either flows deliver
+        the link; the notifier adds the card and lets the human cancel. Old callers may
+        pass either object positionally."""
+        arg = on_link
+        if arg is not None and not callable(arg):
+            notifier, on_link = arg, None
         if self.remote_solve_factory is None:
             return RemoteSolveResult(sent=False, resolved=False)  # caller degrades to Phase-1 stop-and-report
         # Any failure to stand up the live view (CDP error, port bind, a
         # public-host build_url refusal) must degrade to stop-and-report, never
         # crash the run — the gate stays escalated and nothing is submitted.
-        session = None
         sent = False
+        session = None
+        url = None
+        cleared = False
         try:
             try:
                 session = self.remote_solve_factory(page, gate)   # gate-aware factory
             except TypeError:
                 session = self.remote_solve_factory(page)          # legacy single-arg
-            on_link(session.start())
-            sent = True
-            resolved = bool(session.wait_until_cleared(self.deadline_s))
-            return RemoteSolveResult(sent=True, resolved=resolved)
+            url = session.start()
+            if notifier is not None:
+                # The notifier sends the phone a gate-typed card + Abort button and
+                # hands back the Event its Abort tap sets; passing that Event lets
+                # the human cancel the wait.
+                abort_event = notifier.start(url, gate, self.deadline_s)
+                sent = True
+            else:
+                if on_link is not None:
+                    on_link(url)
+                    sent = True
+                abort_event = None
+            cleared_args = ((self.deadline_s, abort_event) if abort_event is not None
+                            else (self.deadline_s,))
+            cleared = bool(session.wait_until_cleared(*cleared_args))
+            return RemoteSolveResult(sent=sent, resolved=cleared)
         except Exception as _e:
             import traceback
             print(f"[remote-solve] exception: {_e!r}", flush=True)
             traceback.print_exc()
             return RemoteSolveResult(sent=sent, resolved=False)
         finally:
+            if notifier is not None:
+                try:
+                    notifier.close(cleared)   # stops the watcher; reports outcome
+                except Exception:
+                    pass
             if session is not None:
                 try:
                     session.close()

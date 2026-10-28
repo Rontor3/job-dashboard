@@ -117,7 +117,7 @@ def test_registration_offered_as_alternative_options_takes_the_manual_one():
 def test_manual_option_that_opens_a_profile_form_without_password_is_handed_to_the_filler(tmp_path, monkeypatch):
     from playwright.sync_api import sync_playwright
     from career_agent.browser import credential_provider as cp
-    monkeypatch.setattr(cp, "CRED_PATH", tmp_path / "creds.json", raising=False)
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "creds.json")
     html = ("<main><h2>Log in</h2><input type=email><input type=password><button>Log in</button><a href=#>Forgot your password?</a>"
             "<p>Create an account using any of the following options:</p><a role=button href=# id=m "
             "onclick=\"document.body.innerHTML='<h1>Profile information</h1><input type=email><input name=first_name><input name=last_name><button>Continue</button>';return false\">Self-complete</a></main>")
@@ -133,7 +133,7 @@ def test_manual_option_that_opens_a_profile_form_without_password_is_handed_to_t
 def test_credentials_inside_a_long_application_form_are_not_submitted_early():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.credential_provider import _fill_wall, _is_combined_form
-    rows = "".join(f"<input name=f{i} placeholder=f{i}>" for i in range(8))
+    rows = "".join(f"<input name=f{i} placeholder=f{i}>" for i in range(7)) + "<input name=street_address>"
     long_form = ("<form onsubmit=\"document.title='submitted';return false\"><input type=email name=email><input name=first_name>"
                  "<input name=last_name>" + rows + "<input type=password name=pw><input type=password name=pw2><button>Continue</button></form>")
     short = "<form onsubmit=\"document.title='submitted';return false\"><input type=email><input type=password><button>Sign in</button></form>"
@@ -170,3 +170,149 @@ def test_a_click_that_starts_a_slow_navigation_is_clicked_once():
         assert [u for u in hits if u.endswith("/slow")] == [f"http://127.0.0.1:{port}/slow"] and not any(u.endswith("/other") for u in hits)
         b.close()
     srv.shutdown()
+
+
+@pytest.mark.skipif(not os.environ.get("RUN_BROWSER_TESTS"), reason="browser")
+def test_avature_header_signup_then_choose_how_to_apply_hands_the_form_to_the_filler(tmp_path, monkeypatch):
+    """Koch on Avature (live 2026-10-18): the only sign-up link is 'Create an account' in the header; it opens
+    'Choose any option to apply' (From Device / Copy & Paste / Without Resume / Indeed / Google / XING)."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "creds.json")
+    html = """<script>
+      function methods() { document.body.innerHTML = '<main><p>Choose any option to apply</p>'
+        + '<a href=# >From Device</a><a href=# >Copy &amp; Paste</a>'
+        + '<a href=# onclick="form();return false">Without Resume</a>'
+        + '<a href=# >Continue with Google</a><p>Or login if you are already registered.</p></main>'; }
+      function form() { document.body.innerHTML = '<h1>Your information</h1><input type=email>'
+        + '<input name=first_name><input name=last_name><button>Next</button>'; }
+    </script>
+    <header><a href=# onclick="methods();return false">Create an account</a></header>
+    <main><h2>Login</h2><input name=username><input type=password name=password><button>Sign in</button>
+      <a href=#>Forgot your password?</a><a href=#>Sign in with Google</a></main>"""
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page(); pg.set_content(html)
+        ok, action = cp.provide(pg, "password", "koch.avature.net", email="a@b.co")
+        assert ok and action == "register_inline", (ok, action)
+        assert pg.locator("input[name=first_name]").count() == 1
+        b.close()
+
+
+AVATURE_METHOD_CHOICE = """<main><div style="float:left"><h2>Already registered?</h2><input type=email><input type=password>
+<button>Log in</button><a href=#>Forgot your password?</a></div>
+<div style="float:right"><h2>First time here?</h2><p>Choose a method from the options below to submit your information.</p>
+<a href=# onclick="return false">Copy &amp; Paste</a> <a href=# onclick="return false">Apply With LinkedIn</a>
+<label>From Device<input type=file name=resumeFile style="display:none"
+onchange="document.body.innerHTML='<h1>Profile</h1><input type=email name=email><input name=first_name><input name=last_name><button>Continue</button>'"></label>
+</div></main>"""
+
+
+@pytest.mark.skipif(not os.environ.get("RUN_BROWSER_TESTS"), reason="browser")
+@pytest.mark.parametrize("has_resume", [True, False])
+def test_method_choice_page_starts_by_uploading_the_resume(tmp_path, monkeypatch, has_resume):
+    """Avature 'First time here?': no manual option, a hidden file input. Upload the résumé; no résumé -> escalate."""
+    from playwright.sync_api import sync_playwright
+    import career_agent.apply as apply_mod
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "creds.json")
+    pdf = tmp_path / "resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4 test")
+    monkeypatch.setattr(apply_mod, "supplied_resume_pdf", lambda *a, **k: str(pdf) if has_resume else None)
+    monkeypatch.setattr(cp, "_observe_until_change", lambda *a, **k: "unknown")
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page(); pg.set_content(AVATURE_METHOD_CHOICE)
+        ok, action = cp.provide(pg, "password", "www.metlifecareers.com", email="a@b.co")
+        b.close()
+    if has_resume:
+        assert (ok, action) == (True, "register_inline")
+        assert not (tmp_path / "creds.json").exists()
+    else:
+        assert (ok, action) == (False, "register")
+
+
+def test_a_rejected_login_retires_the_stored_credential_and_keeps_it_as_history(tmp_path, monkeypatch):
+    import json
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "c.json")
+    cp.save_credential("jobs.example.com", "a@b.c", "pw", label="password")
+    cp.retire_credential("jobs.example.com", label="password")
+    data = json.loads((tmp_path / "c.json").read_text())
+    assert cp.load_credential("jobs.example.com", label="password") is None
+    assert "jobs.example.com:password:stale" in data
+    assert cp._LOGIN_ERROR.search("Invalid email or password") and not cp._LOGIN_ERROR.search("Welcome back")
+
+
+def test_a_pending_credential_is_not_a_login_until_a_submit_confirms_it(tmp_path, monkeypatch):
+    from career_agent.browser import credential_provider as cp
+    monkeypatch.setattr(cp, "_STORE", tmp_path / "c.json")
+    cp.save_credential("jobs.example.com", "a@b.c", "pw", label="password", pending=True)
+    assert cp.load_credential("jobs.example.com", label="password") is None
+    cp.save_credential("other.example.org", "a@b.c", "pw2", label="password", pending=True)
+    assert cp.confirm_pending_credentials("https://jobs.example.com/apply/thanks") == 1     # only that site's
+    assert cp.load_credential("jobs.example.com", label="password")["password"] == "pw"
+    assert cp.load_credential("other.example.org", label="password") is None
+
+
+def test_registration_cue_reads_choose_how_youd_like_to_apply():
+    from career_agent.browser.credential_provider import _REGISTRATION_CUE
+    assert _REGISTRATION_CUE.search("New to Tesco Careers? Choose how you’d like to apply")
+    assert _REGISTRATION_CUE.search("Choose how you would like to apply")
+    assert not _REGISTRATION_CUE.search("Choose how often we email you")
+
+
+SF_REGISTER_WIPRO = SF_REGISTER.replace('<label for="ph">', '<label for="e2">Retype Email Address: *</label>'
+                                        '<input id="e2" name="fbclc_userNameConf" type="text"><label for="ph">')
+
+
+@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="set RUN_BROWSER_TESTS=1 to run")
+def test_a_plain_signup_with_many_boxes_is_not_registration_plus_application():
+    """Wipro's SuccessFactors 'Create an Account' (live 2026-10-22): 7+ boxes but nothing only an application asks.
+    Read as 'combined', the sign-up step left Create Account unclicked and no account was ever made."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.credential_provider import _is_combined_form
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page()
+        pg.set_content(SF_REGISTER_WIPRO); assert not _is_combined_form(pg)
+        pg.set_content(SF_REGISTER_WIPRO.replace("</form>", '<label for="cv">Resume</label><input id="cv" type="file"></form>'))
+        assert _is_combined_form(pg)
+        b.close()
+
+
+BLUR_VALIDATED = """<html><body><form>
+<label for="c">Country/Region Code:*</label>
+<select id="c" name="fbclc_ituCode" onblur="this.className = this.value ? '' : 'invalidInput'; this.setAttribute('aria-invalid', this.value ? 'false' : 'true')">
+<option value="">- Select -</option><option value="US">United States (+1)</option><option value="IN">India (+91)</option></select>
+</form></body></html>"""
+
+
+@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="set RUN_BROWSER_TESTS=1 to run")
+def test_dial_code_pick_clears_a_blur_only_required_flag():
+    """SuccessFactors checks a select on blur only: once flagged 'required', setting it from script left the flag up
+    (Wipro, live 2026-10-22). The pick must leave the box and report the value as taken."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.credential_provider import _SELECT_FILL_JS
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page(); pg.set_content(BLUR_VALIDATED)
+        pg.focus("#c"); pg.evaluate("document.activeElement.blur()")          # flagged while empty
+        assert pg.get_attribute("#c", "aria-invalid") == "true"
+        picked = pg.evaluate(_SELECT_FILL_JS, ["+91", "India"])
+        assert pg.input_value("#c") == "IN" and pg.get_attribute("#c", "aria-invalid") == "false"
+        assert [p["took"] for p in picked] == [True]
+        b.close()
+
+
+@pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="set RUN_BROWSER_TESTS=1 to run")
+def test_an_open_login_form_is_not_submitted_empty_and_its_signup_link_counts():
+    """Wipro sign-in (live 2026-10-23): _ensure_login_form matched the form's own 'Sign In' and submitted it empty;
+    a rejected login then went back a page into chrome-error although 'Create an account' was right there."""
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.credential_provider import _ensure_login_form, _offers_signup
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); pg = b.new_page()
+        pg.set_content(LOGIN.replace('<button type="submit">', '<button type="submit" onclick="document.title=\'submitted\';return false">'))
+        _ensure_login_form(pg)
+        assert pg.title() != "submitted"
+        assert _offers_signup(pg)
+        pg.set_content("<form><input type=email><input type=password><button>Sign in</button><a href=#>Sign in with Google</a></form>")
+        assert not _offers_signup(pg)
+        b.close()

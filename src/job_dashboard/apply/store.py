@@ -13,6 +13,8 @@ _PROFILE_COLS = (
     "willing_to_relocate", "notice_period", "salary_expectation",
     "current_ctc", "reason_for_change",
     "gender", "ethnicity", "veteran_status", "disability_status",
+    # the education's dates and where it is: forms ask them (Wipro), and the résumé's education line carries neither
+    "education_start", "education_end", "education_state",
 )
 
 

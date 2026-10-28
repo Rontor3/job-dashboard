@@ -58,7 +58,16 @@ def tailor_cv_node(state, config) -> dict:
         out_dir = Path(c.get("resume_out_dir") or "data/resumes/tailored").resolve()
         result = render_layout_pdf(layout, segments=segments, render_pdf=render_pdf, out_dir=out_dir)
 
-        c["resume_pdf"] = str(result["pdf_path"])
+        # employers see ONE file name on every application: the tailored PDF goes out under the same
+        # '<Full_Name>_Resume.pdf' as the supplied one (in its own folder per run so it never overwrites that one)
+        import re as _re
+        import shutil as _sh
+        prof = c.get("profile")
+        stem = "_".join(_re.findall(r"[A-Za-z0-9]+", (prof.contact.get("full_name") if prof else "") or "")) or "Resume"
+        named = Path(result["pdf_path"]).parent / "upload" / f"{stem}_Resume.pdf"
+        named.parent.mkdir(parents=True, exist_ok=True)
+        _sh.copy2(result["pdf_path"], named)
+        c["resume_pdf"] = str(named)
         c["tailor_cv_done"] = True
         print(
             f"[tailor_cv] {len(block_ids)} blocks → {result['page_count']}p PDF: {result['pdf_path']}",

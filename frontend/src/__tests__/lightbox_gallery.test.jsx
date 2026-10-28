@@ -1,0 +1,40 @@
+import React from "react";
+import { render, screen, fireEvent } from "@testing-library/react";
+import ImageLightbox from "../components/ImageLightbox.jsx";
+
+const shots = [1, 2, 3].map((n) => ({ src: `/s${n}.png`, alt: `Screenshot of page ${n}` }));
+
+test("one viewer steps through a run's screenshots without closing", () => {
+  render(<ImageLightbox src="/s2.png" alt="Screenshot of page 2" gallery={shots} index={1} />);
+  fireEvent.click(screen.getByLabelText("Open Screenshot of page 2"));
+  expect(screen.getByTestId("lightbox-count").textContent).toBe("2 / 3");
+  fireEvent.click(screen.getByLabelText("Next screenshot"));
+  expect(screen.getByRole("dialog").getAttribute("aria-label")).toBe("Screenshot of page 3");
+  fireEvent.keyDown(window, { key: "ArrowRight" });            // wraps to the first
+  expect(screen.getByTestId("lightbox-count").textContent).toBe("1 / 3");
+  fireEvent.keyDown(window, { key: "ArrowLeft" });
+  expect(screen.getByTestId("lightbox-count").textContent).toBe("3 / 3");
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("a single image shows no previous/next", () => {
+  render(<ImageLightbox src="/one.png" alt="Live view" />);
+  fireEvent.click(screen.getByLabelText("Open Live view"));
+  expect(screen.queryByLabelText("Next screenshot")).toBeNull();
+  expect(screen.queryByTestId("lightbox-count")).toBeNull();
+});
+
+test("each screenshot shows its own page's questions beside it", () => {
+  const g = [
+    { src: "/a.png", alt: "Screenshot of page 1", asideTitle: "Page 1 — 1 question", aside: <p>How soon can you join?</p> },
+    { src: "/b.png", alt: "Screenshot of page 2", asideTitle: "Page 2 — 1 question", aside: <p>Field of Study</p> },
+  ];
+  render(<ImageLightbox src="/a.png" alt="Screenshot of page 1" gallery={g} index={0} />);
+  fireEvent.click(screen.getByLabelText("Open Screenshot of page 1"));
+  expect(screen.getByLabelText("Page 1 — 1 question").textContent).toContain("How soon can you join?");
+  fireEvent.click(screen.getByLabelText("Next screenshot"));
+  expect(screen.getByLabelText("Page 2 — 1 question").textContent).toContain("Field of Study");
+  fireEvent.click(screen.getByText("Field of Study"));             // clicking in the panel keeps the viewer open
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});

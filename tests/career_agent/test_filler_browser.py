@@ -87,3 +87,28 @@ def test_check_group_ticks_the_option_in_its_own_group_when_several_share_yes_no
                             " g9:[...document.querySelectorAll('[data-cref-group=g9] [role=radio]')].map(e=>e.getAttribute('aria-checked'))})")
         b.close()
     assert state == {"q1": "n", "q2": "y", "g9": [None, "true"]}
+
+
+def test_numerals_only_box_and_month_box_take_their_own_form():
+    # live Koch Avature (job 30285) 2026-10-18: '35 LPA' into a "Enter numerals only" box and 'July 2023' into a
+    # month box were both rejected and the fields went to the human
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.filler import apply_decisions, read_back
+    from career_agent.orchestrator.mapper import FillDecision
+
+    html = ("<label>Salary Requirements <input id=sal type=text placeholder='Enter numerals only'></label>"
+            "<label>Start Date <input id=start type=month></label>")
+    decisions = [
+        FillDecision("#sal", "text", "Salary Requirements", "35 LPA", "fill", "profile"),
+        FillDecision("#start", "text", "Start Date", "July 2023", "fill", "profile"),
+    ]
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page()
+        page.set_content(html)
+        apply_decisions(page, decisions)
+        values = read_back(page, decisions)
+        browser.close()
+
+    assert values["#sal"] == "3500000"
+    assert values["#start"] == "2023-07"

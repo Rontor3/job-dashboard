@@ -8,6 +8,7 @@ from ..orchestrator.mapper import FillDecision
 from ..orchestrator.screen_review import _coerce_option
 from .clicks import pace
 from .perception import frame_target, split_ref
+from .value_shape import date_mask_refuses, read_shape, shape_value
 
 
 # Any fill action can legitimately fail on a real form (an unmatched option, a
@@ -60,11 +61,88 @@ _SHADOW_FILL_JS = """\
 }"""
 
 
+_SMALL = {"of", "and", "the", "for", "in", "at", "&"}
+
+
 def _type_ahead_queries(value: str) -> list[str]:
-    """What to type into a type-ahead: the whole value, then its comma-separated parts from the last
-    ("Santacruz (E), Mumbai" -> "Mumbai"), since a list of cities will not match a street-level value."""
+    """What to type into a type-ahead, most specific first: the whole value; its comma-separated parts from the last
+    ("Santacruz (E), Mumbai" -> "Mumbai": a list of cities won't match a street-level value) and the first; the
+    name as lists abbreviate it ("Indian Institute of Technology BHU" -> "IIT BHU"); its leading words. Live
+    2026-10-18: Greenhouse's School search found nothing for the full university name."""
     parts = [p.strip() for p in value.split(",") if p.strip()]
-    return list(dict.fromkeys([value, *reversed(parts)]))
+    head = parts[0] if parts else value
+    words = head.split()
+    caps = [w for w in words if w[:1].isupper() and w.lower() not in _SMALL]
+    acro = "".join(w[0] for w in caps if not w.isupper())
+    short = " ".join([acro] + [w for w in caps if w.isupper()]) if len(acro) >= 2 else ""
+    lead = " ".join(words[:4]) if len(words) > 4 else ""
+    names = [head, short, acro if len(acro) >= 3 else "", lead]
+    # a long first part is a name (a university, a company): its forms before the place after the comma
+    out = [value, *names, *reversed(parts)] if len(words) >= 3 else [value, *reversed(parts), *names]
+    return [q for q in dict.fromkeys(out) if q and len(q) >= 2]
+
+
+# The popup a combobox opens: role=listbox, or Workday's activeListContainer (no role on some builds). Only a
+# VISIBLE one counts — a closed listbox keeps its old options in the DOM.
+_POPUP_SEL = "[role=listbox], [data-automation-id='activeListContainer']"
+# Options must be visible: a closed popup (or another prompt's) keeps its rows in the DOM and would be read as choices.
+def _exact(text: str):
+    """Whole-text match for an option/label click: has_text=str is a substring test, so 'Male' clicked 'Female'
+    (Wipro gender, live 2026-10-23)."""
+    return re.compile(r"^\W*" + re.escape(str(text).strip()) + r"\W*$", re.I)     # 'Male *' yes, 'Female' no
+
+
+# a pill in Workday's selectedItemList is a choice already made in ANOTHER field ('India (+91)'), never an option here
+_NOT_PILL = ":not([data-automation-id=selectedItemList] *)"
+_OPT_SEL = ", ".join(s + ":visible" + _NOT_PILL for s in ("[role=option]", "[id*='-option-']", "[data-automation-id='promptOption']"))
+
+
+def _popup(target, lb_id):
+    """The listbox this combobox controls: its aria-controls target, else the first visible popup on the page, else
+    the field's own scope (type-ahead options that are not in any popup)."""
+    if lb_id:
+        return target.locator(f'[id="{lb_id}"]')         # SuccessFactors ids hold a colon ("322:_listSelect"): no #id
+    for lb in target.locator(_POPUP_SEL).all():
+        # Workday's selectedItemList is a listbox of choices ALREADY made in another field (the phone code's
+        # 'India (+91)'): never this field's options (Opella 2026-10-25: 'Company Portal' was never seen)
+        if lb.is_visible() and (lb.get_attribute("data-automation-id") or "") != "selectedItemList":
+            return lb
+    return target
+
+
+def _drill_to_leaf(page, scope, pre: list[str], fit) -> None:
+    """A hierarchical prompt (Workday "How Did You Hear"): the chosen option was a category, so it opened a sub-list
+    instead of committing. Pick the leaf: the one that fits the answer, else 'Other'. Nothing new listed = committed."""
+    page.wait_for_timeout(400)
+    leaves = [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
+    if not leaves or leaves == pre:          # the list did not change: the pick committed (popup closed or pill shown)
+        return
+    leaf = fit(leaves) or next((t for t in leaves if t.lower() == "other"), None)
+    if leaf is None and len(set(leaves)) == 1:
+        leaf = leaves[0]          # the chosen category's only option (Workday 'Company Portal' > 'Company Career Site')
+    if leaf:
+        pace(page)
+        scope.locator(_OPT_SEL).filter(has_text=_exact(leaf)).first.click(timeout=_SOFT_TIMEOUT_MS)
+
+
+_SEARCHING = re.compile(r"^\s*(searching|loading|please enter|type to search)\b", re.I)
+_OTHER_OPTION = re.compile(r"^\s*others?\b|not listed|none of the above", re.I)   # 'OTHERS' (Wipro majors)
+
+
+def read_combobox_options(page, sel) -> list[str]:
+    """Open a dropdown, read the options it lists, close it with Tab (Escape would close a whole modal, Wellfound)."""
+    try:
+        try:
+            page.click(sel, timeout=_SOFT_TIMEOUT_MS)
+        except Exception:               # react-select: a placeholder div covers the input; click the wrapping control
+            page.locator(sel).first.locator("xpath=ancestor::div[contains(@class,'control')][1]").click(timeout=_SOFT_TIMEOUT_MS)
+        page.wait_for_timeout(800)
+        scope = _popup(page, page.get_attribute(sel, "aria-controls") or page.get_attribute(sel, "aria-owns"))
+        opts = [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
+        page.keyboard.press("Tab")
+        return opts
+    except Exception:
+        return []
 
 
 def _pick_combobox(page, target, sel, d, matcher) -> None:
@@ -84,46 +162,87 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                 target.locator(sel).first.locator("xpath=ancestor::div[contains(@class,'control')][1]").click(timeout=_SOFT_TIMEOUT_MS)
         page.wait_for_timeout(300)      # let the listbox render
         # Scope to the listbox THIS combobox controls — reading every
-        # [role=option] on the page grabs unrelated widgets (e.g. the
+        # option on the page grabs unrelated widgets (e.g. the
         # phone-country list has 247 options, one of them "Male").
-        lb_id = target.get_attribute(sel, "aria-controls")
-        if lb_id:
-            scope = target.locator(f"#{lb_id}")
-        else:
-            # No linking id (e.g. Workday's type-ahead multiselect) —
-            # fall back to whichever [role=listbox] is actually visible,
-            # not the whole page (other closed listboxes would pollute it).
-            scope = target
-            for lb in target.locator("[role=listbox]").all():
-                if lb.is_visible():
-                    scope = lb
-                    break
-        # react-select renders options as divs with "-option-" ids,
-        # not role=option; a type-ahead shows none until you type.
-        opt_sel = "[role=option], [id*='-option-']"
+        lb_id = target.get_attribute(sel, "aria-controls") or target.get_attribute(sel, "aria-owns")   # SuccessFactors: aria-owns
+        scope = _popup(target, lb_id)
 
         def _options():
-            return [t.strip() for t in scope.locator(opt_sel).all_text_contents() if t.strip()]
+            return [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
+
+        def _fit(options):
+            opt = _coerce_option(str(d.value), options) if options else None
+            for alt in (getattr(d, "alternatives", ()) or ()) if opt is None and options else ():
+                opt = _coerce_option(str(alt), options)        # the answer's own stand-ins first ('Company Portal')
+                if opt:
+                    break
+            if opt is None and options and matcher is not None:
+                opt = matcher(d.label, str(d.value), options)
+            return opt
 
         options = _options()
+        for _ in range(8):              # a slow list (SuccessFactors draws 100 rows in ~0.8 s): wait, up to ~2.4 s more
+            if options:
+                break
+            page.wait_for_timeout(300)
+            options = _options()
         if not options:
-            for q in _type_ahead_queries(str(d.value)):
+            # text left in a search box filters its list to nothing (Workday prompt holding an earlier 'Job Board'):
+            # clear it and read the full list
+            try:
+                if (target.locator(sel).first.input_value(timeout=1000) or "").strip():
+                    target.locator(sel).first.fill("", timeout=_SOFT_TIMEOUT_MS)
+                    page.wait_for_timeout(1200)
+                    scope = _popup(target, lb_id)
+                    options = _options()
+            except Exception:
+                pass
+        opt = _fit(options)
+        if __import__("os").getenv("CAREER_AGENT_DEBUG_PICK"):
+            print(f"[pick-debug] {d.label[:40]!r} value={d.value!r} alts={getattr(d, 'alternatives', ())!r} "
+                  f"options={sorted(set(options))[:8]} -> {opt!r}", flush=True)
+        if opt is None:
+            # a type-ahead: try each way the value may be listed, until an option actually fits (options that show up
+            # but don't fit are not an answer — the next query may find it)
+            def _search(q):
+                nonlocal scope
                 try:
                     target.locator(sel).first.fill(q, timeout=_SOFT_TIMEOUT_MS)
-                except Exception:
+                except Exception:               # the search box lives in the popup (select2): replace, never append
+                    page.keyboard.press("ControlOrMeta+A")
                     page.keyboard.type(q)
-                page.wait_for_timeout(1500)     # remote autocomplete round-trip
-                if scope is not target and not scope.is_visible():
-                    scope = target
-                options = _options()
-                if options:
+                found = []
+                for _ in range(16):             # a remote list answers in its own time ('Searching…'): up to ~8 s
+                    page.wait_for_timeout(500)
+                    scope = _popup(target, lb_id)   # the popup may only appear once something is typed
+                    found = _options()
+                    if found and not all(_SEARCHING.match(o) for o in found):
+                        break
+                return found
+
+            # the answer's own wordings first, then its stand-ins: a search box filters the list to what it holds, so
+            # 'Job Board' typed into Workday's prompt showed nothing and 'Company Portal' was never looked for (Opella)
+            for q in [*_type_ahead_queries(str(d.value)), *(getattr(d, "alternatives", ()) or ())]:
+                opt = _fit(_search(q))
+                if opt:
                     break
-        opt = _coerce_option(str(d.value), options)
-        if opt is None and matcher is not None:
-            opt = matcher(d.label, str(d.value), options)
+            if opt is None and getattr(d, "action", "") == "combobox":
+                # not in the site's list: the list's own 'Other / Not Listed' entry is the honest pick
+                # (Koch Avature: "If your school is not in the list, choose Other / Not Listed")
+                for q in ("Not Listed", "Other"):
+                    opt = next((o for o in _search(q) if _OTHER_OPTION.search(o)), None)
+                    if opt:
+                        break
         if opt:
             pace(page)
-            scope.locator(opt_sel).filter(has_text=opt).first.click(timeout=_SOFT_TIMEOUT_MS)
+            before = _options()
+            scope.locator(_OPT_SEL).filter(has_text=_exact(opt)).first.click(timeout=_SOFT_TIMEOUT_MS)
+            _drill_to_leaf(page, scope, before, _fit)
+            try:            # leave the box: blur-only validators keep a stale 'required' flag (SuccessFactors juic _onBlur)
+                page.wait_for_timeout(300)                  # the site writes the pick into the box a beat after the click
+                target.locator(sel).first.evaluate("e => { e.focus(); e.blur(); }", timeout=_SOFT_TIMEOUT_MS)
+            except Exception:
+                pass
         elif not target.locator(sel).first.evaluate(
                 "e => !!e.closest('[role=dialog],[aria-modal=true],[class*=modal i]')"):
             # Escape closes the listbox — but inside a modal it closes
@@ -131,6 +250,105 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
             page.keyboard.press("Escape")
     except Exception:
         pass
+
+
+_RESUME_CONTROL = r"(upload|attach|add)\b.{0,30}\b(resume|cv|r[ée]sum[ée])\b"
+_UPLOAD_CONTROL_JS = r"""(pattern) => {
+  const R = new RegExp(pattern, 'i');
+  const text = id => { const n = document.getElementById(id); return n ? (n.innerText || n.textContent || '') : ''; };
+  const name = e => [e.getAttribute('aria-label'), (e.getAttribute('aria-labelledby') || '').split(/\s+/).map(text).join(' '),
+                     e.getAttribute('title'), e.innerText].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const acts = e => e.matches('button,a[href],[role=button],[onclick]') || (e.tabIndex >= 0 && e.hasAttribute('tabindex'));
+  const hits = Array.from(document.querySelectorAll('button,a,[role=button],[onclick],[tabindex]'))
+    .filter(e => vis(e) && acts(e) && R.test(name(e)));
+  // something that acts on a click beats a label that merely sits in the slot
+  hits.sort((a, b) => (b.matches('[onclick],[role=button],button') ? 1 : 0) - (a.matches('[onclick],[role=button],button') ? 1 : 0));
+  const e = hits[0];
+  if (!e) return null;
+  e.setAttribute('data-upload-control', '1');
+  return name(e).slice(0, 80);
+}"""
+
+
+_RESUME_INPUT_JS = r"""(pattern) => {
+  const R = new RegExp(pattern, 'i');
+  const words = e => [e.name, e.id, e.getAttribute('data-automation-id'), e.getAttribute('aria-label'), e.accept,
+                      ...Array.from(e.labels || []).map(l => l.innerText),
+                      (e.closest('[data-automation-id],section,fieldset,div') || {}).innerText || ''].join(' ');
+  const ins = Array.from(document.querySelectorAll('input[type=file]')).filter(e => !e.disabled);
+  if (!ins.length) return null;
+  const NOT = /cover|letter|photo|picture|avatar|image|transcript|certificate|portfolio/i;   // other documents' slots
+  const pick = ins.find(e => R.test(words(e)) && !NOT.test(e.name + ' ' + e.id + ' ' + (e.getAttribute('data-automation-id') || '')))
+            || (ins.length === 1 && !NOT.test(words(ins[0])) ? ins[0] : null);
+  if (!pick) return null;
+  pick.setAttribute('data-resume-input', '1');
+  return (pick.getAttribute('data-automation-id') || pick.name || pick.id || 'file input').slice(0, 60);
+}"""
+
+
+def resume_already_attached(page, pdf) -> bool:
+    """The page already lists this résumé file as uploaded: a re-run must not attach it again (Pretium Workday held five
+    copies of Rakshit_Singh_Resume.pdf after five runs, 2026-10-26)."""
+    import os
+    name = os.path.basename(str(pdf or ""))
+    if not name:
+        return False
+    try:
+        return bool(page.evaluate("n => (document.body ? document.body.innerText : '').includes(n)", name))
+    except Exception:
+        return False
+
+
+def upload_resume_to_input(page, pdf) -> str | None:
+    """The résumé straight into a file input already on the page (hidden ones too): the one named or labelled for a
+    résumé / CV, else the page's only file input. Its name, or None when there is none or it did not take."""
+    try:
+        name = page.evaluate(_RESUME_INPUT_JS, r"resume|r[ée]sum[ée]|\bcv\b|curriculum")
+        if not name:
+            n = page.locator("input[type=file]").count()
+            print(f"[fill] no résumé file input to use ({n} file input(s) on the page)", flush=True)
+            return None
+        page.locator('[data-resume-input="1"]').first.set_input_files(pdf, timeout=20000)    # an upload can be slow
+        return name
+    except Exception as e:
+        print(f"[fill] the résumé file input did not take the file ({type(e).__name__}: {str(e)[:120]})", flush=True)
+        return None
+
+
+def upload_resume_via_control(page, pdf) -> str | None:
+    """A résumé slot with no file input until its control is clicked (SuccessFactors: a '+' icon that opens 'Select a
+    source — Upload from Device', live Wipro 2026-10-23). Click the control, then hand the résumé to the file chooser it
+    opens, else to the file input that appears, else through the dialog's 'from device' option. The control's name, or
+    None when the page has no such control or nothing took the file."""
+    try:
+        label = page.evaluate(_UPLOAD_CONTROL_JS, _RESUME_CONTROL)
+    except Exception:
+        return None
+    if not label:
+        return None
+    ctl = page.locator('[data-upload-control="1"]').first
+    try:
+        with page.expect_file_chooser(timeout=3000) as fc:
+            pace(page)
+            ctl.click(timeout=_SOFT_TIMEOUT_MS)
+        fc.value.set_files(pdf)
+        return label
+    except Exception:
+        pass
+    page.wait_for_timeout(800)
+    try:
+        box = page.locator("input[type=file]")
+        if box.count():
+            box.last.set_input_files(pdf, timeout=_SOFT_TIMEOUT_MS)
+            return label
+        opt = page.get_by_text(re.compile(r"upload from (device|computer)|from (my )?(device|computer)|browse", re.I)).first
+        with page.expect_file_chooser(timeout=4000) as fc:
+            opt.click(timeout=_SOFT_TIMEOUT_MS)
+        fc.value.set_files(pdf)
+        return label
+    except Exception:
+        return None
 
 
 _RADIO_TEXT_JS = """e => ((e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label')
@@ -180,6 +398,42 @@ def _pick_in_aria_group(page, target, group: str, want: str) -> None:
         pass
 
 
+def _tick_box(page, target, want: str) -> None:
+    """Tick ONE checkbox by its option text (the box itself is usually hidden under a styled
+    label). Same ladder as _pick_radio, checkboxes edition; confirms it ended up checked."""
+    q = want.replace('"', '\\"')
+    attempts = (
+        lambda: target.get_by_label(want, exact=True).check(timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator(f'input[type=checkbox][value="{q}" i]').first.check(
+            force=True, timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator(f'input[type=checkbox][value="{q}" i]').first.locator(
+            "xpath=..").click(timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.get_by_role("checkbox", name=re.compile(
+            r"^\s*\W*" + re.escape(want) + r"\W*$", re.I)).first.check(
+            force=True, timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator("label").filter(has_text=_exact(want)).first.click(timeout=_SOFT_TIMEOUT_MS),
+        # a styled button masquerading as a checkbox
+        lambda: target.get_by_role("checkbox", name=re.compile(re.escape(want), re.I)).first.click(
+            timeout=_SOFT_TIMEOUT_MS),
+    )
+    for go in attempts:
+        try:
+            pace(page)
+            go()
+            cb = target.get_by_label(want, exact=True)
+            if cb.count() == 0 or cb.first.is_checked():
+                return
+        except Exception:
+            continue
+
+
+def _pick_boxes(page, target, want: str) -> None:
+    """Tick every wanted option of a multi-choice group; the others stay as they are
+    ("How did you hear about us?" is one question with many boxes, not nine questions)."""
+    for one in [w.strip() for w in re.split(r"\s*,\s*", str(want)) if w.strip()]:
+        _tick_box(page, target, one)
+
+
 def _pick_radio(page, target, want: str, group: str | None = None) -> None:
     """Select the radio option labelled `want`. Styled radios hide the real <input> (opacity 0, readonly)
     and often carry the question text in their aria-label, so try, in order: label match, the input by
@@ -195,7 +449,7 @@ def _pick_radio(page, target, want: str, group: str | None = None) -> None:
         lambda: target.locator(f'input[type=radio][value="{q}" i]').first.check(force=True, timeout=_SOFT_TIMEOUT_MS),
         lambda: target.locator(f'input[type=radio][value="{q}" i]').first.locator("xpath=..").click(timeout=_SOFT_TIMEOUT_MS),
         lambda: target.get_by_role("radio", name=re.compile(r"^" + re.escape(want) + r"\b", re.I)).first.check(force=True, timeout=_SOFT_TIMEOUT_MS),
-        lambda: target.locator("label").filter(has_text=want).first.click(timeout=_SOFT_TIMEOUT_MS),
+        lambda: target.locator("label").filter(has_text=_exact(want)).first.click(timeout=_SOFT_TIMEOUT_MS),
     )
     for go in attempts:
         try:
@@ -250,6 +504,12 @@ _VALUE_JS = r"""e => {
   if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName) && e.shadowRoot) e = inner(e.shadowRoot) || e;
   if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(e.tagName)) return null;   // a <div role=combobox>: no value to read
   if (e.tagName === 'SELECT') { const o = e.options[e.selectedIndex]; return o && o.value ? o.text.trim() : ''; }   // a placeholder option has no value
+  // a Workday prompt (searchBox in a multiselectInputContainer): the search text is never the answer; the choice is a
+  // selectedItem pill in the same form field
+  if (e.closest('[data-automation-id="multiselectInputContainer"], [data-automation-id="searchBox"]')) {
+    const f = e.closest('[data-automation-id^="formField"]') || e.parentElement;
+    return [...f.querySelectorAll('[data-automation-id="selectedItem"]')].map(x => (x.textContent || '').trim()).filter(Boolean).join(', ');
+  }
   if (e.tagName !== 'INPUT' || (e.getAttribute('role') || '').toLowerCase() !== 'combobox') return e.value || '';
   let c = e.parentElement;
   for (let i = 0; i < 4 && c; i++, c = c.parentElement) {
@@ -320,7 +580,13 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                 page.wait_for_timeout(500)
             continue
         if d.action == "fill":
-            value = str(d.value)
+            shape = read_shape(target, sel)
+            value = shape_value(d.value, shape)     # numerals-only / month / date boxes get their form
+            if date_mask_refuses(d.value, shape):
+                # 'Present' or a bare year into an MM/DD/YYYY box only leaves 'Invalid date' that reads as filled
+                # (Wipro, live 2026-10-23): leave it blank, so the field goes to the human
+                print(f"[fill] {d.label[:40]!r}: {str(d.value)[:20]!r} is not a {shape.get('placeholder')} date — left blank", flush=True)
+                continue
             try:
                 ml = target.get_attribute(sel, "maxlength")
                 if ml and str(ml).isdigit():
@@ -335,22 +601,27 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                 # CSS selectors can't cross shadow roots — use JS native-setter approach.
                 if sel.startswith('#'):
                     try:
-                        ok = target.evaluate(_SHADOW_FILL_JS, {"id": sel[1:], "value": str(d.value)})
+                        ok = target.evaluate(_SHADOW_FILL_JS, {"id": sel[1:], "value": value})
                         filled = bool(ok)
                     except Exception:
                         pass
                 if not filled and d.label:
                     try:
                         target.get_by_label(d.label, exact=False).first.fill(
-                            str(d.value), timeout=_SOFT_TIMEOUT_MS)
+                            value, timeout=_SOFT_TIMEOUT_MS)
                     except Exception:
                         pass
         elif d.action == "select":
             try:
                 target.select_option(sel, label=str(d.value), timeout=_SOFT_TIMEOUT_MS)
+                # leave the box: blur-only validators (SuccessFactors onblur=checkforMandatory) keep a stale 'required'
+                target.locator(sel).first.evaluate("e => { e.focus(); e.blur(); }", timeout=_SOFT_TIMEOUT_MS)
             except Exception:
                 pass
         elif d.action == "upload":
+            if resume_already_attached(page, d.value):
+                print(f"[fill] résumé already attached ({d.label[:40]!r}) — not uploading it again", flush=True)
+                continue
             try:
                 target.set_input_files(sel, str(d.value), timeout=_SOFT_TIMEOUT_MS)
             except Exception:
@@ -387,6 +658,10 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                         target.click(sel, timeout=_SOFT_TIMEOUT_MS)
                 except Exception:
                     pass
+        elif d.action == "check_multi":
+            # a small group of choices-together: tick each named option, exactly one decision
+            # for the whole question (Twilio's "How did you hear about us?" lived 9 questions long)
+            _pick_boxes(page, target, str(d.value))
         elif d.action == "check":
             # tick a single checkbox (a required attestation draft). Binding is
             # the SUBMIT, which stays human-gated — see screen_review.
@@ -434,4 +709,62 @@ def read_back(page, decisions: list[FillDecision]) -> dict:
             v = field_value(target, s)
             if v is not None:
                 out[d.ref] = v
+    return out
+
+
+_OPTIONAL_BOX_JS = r"""e => {
+  if (!['INPUT', 'TEXTAREA'].includes(e.tagName) || e.required || e.getAttribute('aria-required') === 'true') return false;
+  const lab = ((e.labels && e.labels[0] && e.labels[0].innerText) || e.getAttribute('aria-label') || '').trim();
+  return !/[*]\s*$|\(\*\)|\brequired\b/i.test(lab);
+}"""
+
+
+def optional_ai_boxes(page, decisions) -> list:
+    """The AI-drafted (judgment) answers sitting in OPTIONAL text boxes — a 'Message' / cover note nobody must write."""
+    out = []
+    for d in decisions:
+        get = d.get if isinstance(d, dict) else (lambda k, _d=d: getattr(_d, k, None))
+        if get("source") != "judgment" or get("kind") not in ("text", "textarea") or re.search(r"[*]\s*$", get("label") or ""):
+            continue
+        try:
+            target, sel = frame_target(page, get("ref"))
+            if target.locator(sel).first.evaluate(_OPTIONAL_BOX_JS, timeout=_SOFT_TIMEOUT_MS):
+                out.append(d)
+        except Exception:
+            continue
+    return out
+
+
+def clear_boxes(page, decisions) -> bool:
+    """Empty these boxes; True only when every one reads back empty."""
+    for d in decisions:
+        ref = d.get("ref") if isinstance(d, dict) else d.ref
+        try:
+            target, sel = frame_target(page, ref)
+            target.locator(sel).first.fill("", timeout=_SOFT_TIMEOUT_MS)
+            if (field_value(target, sel) or "").strip():
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def optional_empty(page, refs) -> list:
+    """Of these refs, the OPTIONAL boxes that hold nothing: left empty on purpose, not a doubt (SmartRecruiters' optional
+    'Website', Redica 2026-10-25). A required box, or one that cannot be read, is never in the list."""
+    out = []
+    for ref in refs:
+        try:
+            target, sel = frame_target(page, ref)
+            loc = target.locator(sel).first
+            if not loc.evaluate(_OPTIONAL_BOX_JS, timeout=_SOFT_TIMEOUT_MS):
+                continue
+            # an optional tick box left unticked (a data-processing notice: tick only when compulsory, user 2026-10-25)
+            if loc.evaluate("e => ['checkbox','radio'].includes(e.type)", timeout=_SOFT_TIMEOUT_MS):
+                if not loc.is_checked(timeout=_SOFT_TIMEOUT_MS):
+                    out.append(ref)
+            elif not (field_value(target, sel) or "").strip():
+                out.append(ref)
+        except Exception:
+            continue
     return out

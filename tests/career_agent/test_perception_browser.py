@@ -226,3 +226,57 @@ def test_a_label_wrapping_a_select_is_the_question_not_the_option_list():
         (f,) = [x for x in snapshot_form(page) if x.kind == "select"]
         assert f.label == "Source*" and f.options == ["LinkedIn", "Referral"]
         b.close()
+
+
+def test_a_select_whose_question_sits_in_a_sibling_block_is_named_by_it_not_its_options():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    # Lever custom card (live JumpCloud form): the question is in .application-label, two levels above the select
+    html = ('<ul><li class="application-question custom-question"><div>'
+            '<div class="application-label full-width dropdown"><div class="text">I acknowledge that I may not record '
+            'the interview.<span class="required">✱</span></div></div>'
+            '<div class="application-field full-width required-field"><div class="application-dropdown">'
+            '<select name="cards[46bf994f-a9a2][field0]" required><option value="">Select...</option>'
+            '<option>Yes, I acknowledge this.</option><option>No, I do not acknowledge this.</option></select>'
+            '</div></div></div></li></ul>')
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        (f,) = snapshot_form(page); b.close()
+    assert f.label.startswith("I acknowledge that I may not record the interview.")
+    assert f.options == ["Yes, I acknowledge this.", "No, I do not acknowledge this."]
+
+
+def test_a_machine_named_textarea_takes_its_question_from_its_container_and_status_text_stays_out():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    # Lever card (job 30212): two custom textareas named cards[uuid][fieldN] share one li, each question a sibling
+    # .application-label; a location typeahead carries a role=status "No location found" line beside its box.
+    html = (Path(__file__).parent / "fixtures" / "lever_card_textareas.html").read_text()
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        by_name = {f.label.rstrip("*") for f in snapshot_form(page, scroll=False)}
+        fields = {f.kind + ":" + f.ref: f for f in snapshot_form(page, scroll=False)}
+        b.close()
+    assert not any(l.startswith("cards[") for l in by_name), by_name
+    assert "Which harnesses do you have experience building with? Please name the harness." in by_name
+    assert "What is your experience with fine-tuning or adapting LLMs?" in by_name
+    loc = [f for f in fields.values() if f.kind == "combobox"]
+    assert loc and loc[0].label.startswith("Current location")
+    assert "No location found" not in loc[0].label and "Loading" not in loc[0].label
+
+
+def test_a_visibility_hidden_or_transparent_button_is_not_a_control_on_screen():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+
+    # Avature keeps a "Default Apply" button in the DOM with visibility:hidden / opacity:0; only the visible Apply counts.
+    html = ('<button style="visibility:hidden">Default Apply</button>'
+            '<button style="opacity:0">Ghost Apply</button>'
+            '<button>Apply now</button>')
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        labels = [f.label for f in snapshot_form(page, scroll=False) if f.kind == "button"]
+        b.close()
+    assert labels == ["Apply now"], labels

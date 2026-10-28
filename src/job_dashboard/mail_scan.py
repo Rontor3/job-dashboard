@@ -26,7 +26,7 @@ _LEGAL = {"inc", "ltd", "llc", "pvt", "private", "limited", "technologies", "tec
           "solutions", "corp", "corporation", "co", "group", "india", "systems", "software", "services", "the"}
 # Job boards write about everyone; their mail counts only when it carries a decision.
 _BOARDS = ("naukri.com", "linkedin.com", "indeed.com", "instahyre.com", "iimjobs.com", "wellfound.com",
-           "glassdoor.com", "ycombinator.com", "workatastartup.com", "foundit.in", "monster.com")
+           "glassdoor.com", "ycombinator.com", "workatastartup.com", "foundit.in", "monster.com", "monsterindia.com")
 _FREE = ("gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "proton.me")
 _DECISIVE = ("interview", "offer", "rejected", "assessment")
 
@@ -57,6 +57,10 @@ def _company_re(company: str):
 
 def _domain(email: str) -> str:
     return email.rsplit("@", 1)[-1].lower() if "@" in email else ""
+
+
+_JOB_ALERT = re.compile(r"great fit|jobs? for you|recommended|is hiring|new jobs|job alert|matching your profile"
+                        r"|similar jobs|apply now|jobs in [a-z]|top job|curated|explore (roles|jobs)", re.I)
 
 
 def _is_board(email: str) -> bool:
@@ -145,6 +149,8 @@ def run_scan(conn, box, llm, now: float | None = None) -> dict:
             email = email.lower()
             if conn.execute("SELECT 1 FROM job_mail WHERE message_id = ?", (m["id"],)).fetchone():
                 continue
+            if _is_board(email) and _JOB_ALERT.search(m.get("subject") or ""):
+                continue                                    # a board's job alert ("…: you would be a great fit!"), not our application
             job = match_job(jobs, senders, name, email, m.get("subject") or "")
             if job is None:
                 continue

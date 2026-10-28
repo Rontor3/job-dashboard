@@ -143,14 +143,8 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
 
 
 def _json(raw: str) -> dict:
-    import json
-    raw = _THINK.sub("", raw or "")
-    i = raw.find("{")
-    try:
-        obj = json.JSONDecoder().raw_decode(raw[i:])[0] if i >= 0 else {}
-    except ValueError:
-        return {}
-    return obj if isinstance(obj, dict) else {}
+    from ..orchestrator.claude_assist import first_json
+    return first_json(raw)
 
 
 def uncovered(text: str, asks: list[dict], llm) -> list[int]:
@@ -162,14 +156,42 @@ def uncovered(text: str, asks: list[dict], llm) -> list[int]:
     return [n for n in range(1, len(asks) + 1) if got and not str(got.get(str(n)) or "").strip()]
 
 
-def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=None) -> dict:
-    """`research` is a ResearchBundle, or a callable returning one (looked up only when an answer needs it)."""
+# A part that asks about the applicant's OWN work keeps their projects whatever a scope lesson says: the ask wins.
+_OWN_WORK = re.compile(r"\b(you|your|you've|you have)\b[^.?]{0,60}\b(built|build|did|done|led|shipped|worked|project|"
+                       r"projects|experience|developed|deployed|measured|achieved|created|designed)\b", re.I)
+
+
+def _steered(asks: list[dict], steer: dict | None) -> list[dict]:
+    """A scope lesson ('answer this kind of question from general reasoning'): applicant-history parts that don't
+    explicitly ask for the applicant's own work are answered as GENERAL (practice library, 'I would ...')."""
+    if (steer or {}).get("scope") != "general":
+        return asks
+    return [{**a, "source": "GENERAL"} if a["source"] == "CANDIDATE" and not _OWN_WORK.search(a["part"]) else a
+            for a in asks]
+
+
+def _ruled(prompt: str, steer: dict | None) -> str:
+    rule = (steer or {}).get("rule")
+    if not rule:
+        return prompt
+    return prompt.replace("\n\nAnswer:", "\n\nThe applicant's own instructions for this kind of question (follow them; "
+                          f"if one conflicts with what an ask explicitly requests, the ask wins):\n{rule}\n\nAnswer:")
+
+
+def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=None, steer=None) -> dict:
+    """`research` is a ResearchBundle, or a callable returning one (looked up only when an answer needs it).
+    `steer`: {'scope': 'general'|None, 'rule': text} from the applicant's lessons (memory/lessons.py)."""
     from .outreach import OUTREACH, answer_outreach, copied_run
     from .segments import invented_links, sub_asks
     get_research = research if callable(research) else (lambda: research)
     if OUTREACH.search(question):
-        return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm, limit=limit)
-    asks = sub_asks(question, llm)
+        cap = int(steer["max_words"] * 6.5) if (steer or {}).get("max_words") else None
+        return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm,
+                               limit=min(x for x in (limit, cap) if x) if (limit or cap) else None, steer=steer)
+    asks = _steered(sub_asks(question, llm), steer)
+    if (steer or {}).get("max_words"):                      # a length you set is a hard cap, like a field's maxlength
+        cap = int(steer["max_words"] * 6.5)                 # ~6.5 characters per English word, spaces included
+        limit = min(limit, cap) if limit else cap
     research = get_research() if any(a["source"] == "COMPANY" for a in asks) else None
     pid = project_for(asks, question, corpus) if _ONE_THING.search(question) else None
     # it10 capped a note-to-the-team at the 2 projects that fit the posting: tied with it9 on the same judge
@@ -178,17 +200,19 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     blocks = [(a, material_for(a, question, kb, corpus, pid if a["source"] == "CANDIDATE" else None,
                                allowed if a["source"] == "CANDIDATE" else None, research)) for a in asks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
+    prompt = _ruled(build_prompt(question, asks, blocks, limit, kb), steer)    # shown on the run view ("Prompt used")
     try:
-        raw = llm(build_prompt(question, asks, blocks, limit, kb))
+        raw = llm(prompt)
     except Exception as e:
-        return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"], "confidence": None}
+        return {"answer": None, "chunks": chunks, "flags": [f"writer_failed:{type(e).__name__}"], "confidence": None,
+                "prompt": prompt}
     text = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", raw or "")).strip())
     flags, notes = [], []
     posting = [c.text for c in corpus.items if c.kind == "company"]
     copied = copied_run(text, posting) if research is not None else None
     if copied:                                               # a 'why us' that restates the job post: one rewrite
         try:
-            again = llm(build_prompt(question, asks, blocks, limit, kb).replace(
+            again = llm(_ruled(build_prompt(question, asks, blocks, limit, kb), steer).replace(
                 "\n\nAnswer:", f"\n\nDo not reuse the job post's wording such as \"{copied}\".\n\nAnswer:"))
             again = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", again or "")).strip())
             if again:
@@ -199,7 +223,7 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     try:                                                     # it3: coverage repair, one grounded addition per missed ask
         for n in uncovered(text, asks, llm) if text else []:
             ask, mat = blocks[n - 1]
-            add = llm(build_prompt(question, [ask], [(ask, mat)], None, kb).replace(
+            add = llm(_ruled(build_prompt(question, [ask], [(ask, mat)], None, kb), steer).replace(
                 "Answer EVERY ask below", "Write 1-2 sentences answering ONLY the ask below") + "")
             add = _dedupe_sentences(_PREAMBLE.sub("", _THINK.sub("", add or "")).strip())
             if add:
@@ -217,8 +241,10 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     bad = invented_links(text, chunks, known)
     if bad:                                                   # a made-up link is never filled
         flags.append("invented_link:" + ",".join(bad))
-        return {"answer": None, "chunks": chunks, "flags": flags, "confidence": None, "basis": "held: invented link"}
+        return {"answer": None, "chunks": chunks, "flags": flags, "confidence": None, "basis": "held: invented link",
+                "prompt": prompt}
     # judgment.py fills when confidence clears its gate and no flag is raised; repairs are notes, not problems
     return {"answer": text or None, "chunks": chunks, "flags": flags, "notes": notes, "confidence": 85 if text else None,
             "basis": "ask by ask from your projects: " + "; ".join(a["part"] for a in asks),
-            "used": [c.id for c in chunks], "asks": [a["part"] for a in asks], "unsupported_company_claims": []}
+            "used": [c.id for c in chunks], "asks": [a["part"] for a in asks], "unsupported_company_claims": [],
+            "prompt": prompt}

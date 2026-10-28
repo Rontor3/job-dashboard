@@ -77,3 +77,23 @@ def test_drain_noop_when_nothing_pending():
     c = TelegramClient("tok", "42", transport=t)
     c.drain()
     assert c._offset == 0
+
+
+def test_poll_callback_answers_the_matched_button_so_phone_stops_spinning():
+    upd = {"ok": True, "result": [
+        {"update_id": 5, "callback_query": {"id": "cb9", "data": "abort"}}]}
+    t = FakeTransport([upd, {"ok": True, "result": True}])  # 2nd = answerCallbackQuery
+    c = TelegramClient("tok", "42", transport=t)
+    assert c.poll_callback(timeout_s=0, valid={"abort"}) == "abort"
+    answers = [p for (m, p) in t.calls if m == "answerCallbackQuery"]
+    assert answers and answers[0]["callback_query_id"] == "cb9"
+
+
+def test_answer_callback_posts_id_and_optional_text():
+    t = FakeTransport([{"ok": True, "result": True}])
+    c = TelegramClient("tok", "42", transport=t)
+    c.answer_callback("cb1", text="Working…")
+    method, payload = t.calls[0]
+    assert method == "answerCallbackQuery"
+    assert payload == {"callback_query_id": "cb1", "text": "Working…"}
+

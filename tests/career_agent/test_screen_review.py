@@ -183,3 +183,15 @@ def test_the_humans_answers_survive_the_question_bank_recall(tmp_path):
     fields = [_f("#s", "Are you legally authorized to work here?*", None, kind="combobox")]
     decisions, needs = answer_fields(fields, {"profile": P, "qa": QARecorder(conn, 7, run_key="new"), "learn": Learn()})
     assert [(d.value, d.source) for d in decisions] == [("Yes", "human_prior")] and needs == []
+
+
+def test_the_resume_goes_to_the_document_slot_not_the_profile_import_box():
+    """Oracle at Cummins (live 2026-10-18): uploading into 'Import your Profile' made the site overwrite fields."""
+    from career_agent.browser.form_model import Field
+    from career_agent.orchestrator.screen_review import map_screen
+    imp = Field("#imp", "file", "Import your Profile for filling your Application quickly", False)
+    doc = Field("#doc", "file", "Resume", False)
+    decisions, _ = map_screen([imp, doc], None, resume_pdf="/tmp/cv.pdf")
+    assert [d.ref for d in decisions if d.action == "upload"] == ["#doc"]
+    decisions, _ = map_screen([imp], None, resume_pdf="/tmp/cv.pdf")        # the only résumé input: still used
+    assert [d.ref for d in decisions if d.action == "upload"] == ["#imp"]

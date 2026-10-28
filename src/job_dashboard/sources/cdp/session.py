@@ -35,7 +35,8 @@ def _playwright_connect(cdp_url: str):
     pw = sync_playwright().start()
     try:
         browser = pw.chromium.connect_over_cdp(cdp_url)
-        page = browser.contexts[0].new_page()
+        from career_agent.browser.runner import background_page
+        page = background_page(browser.contexts[0], browser)          # behind the user's tab, not in front of it
     except Exception:
         pw.stop()
         raise

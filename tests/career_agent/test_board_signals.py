@@ -24,7 +24,9 @@ NK = "https://www.naukri.com/cloudgateway-workflow/workflow-services/apply-workf
 def test_naukri_instant_apply_and_chat_final_confirm():
     b = B("naukri.com")
     assert confirmed(b, [R(NK, {"jobs": [{"message": "You have successfully applied to this job."}]})])
-    assert confirmed(b, [R(NK, {}, req='{"strJobsarr":["1"],"applyData":{"1":{"answers":{}}}}')])
+    # the chat's answers request returns 200 even when it asks more or refuses (403031): only the landing proves it
+    assert not confirmed(b, [R(NK, {}, req='{"strJobsarr":["1"],"applyData":{"1":{"answers":{}}}}')])
+    assert confirmed(b, [], "https://www.naukri.com/myapply/saveApply?strJobsarr=[1]&multiApplyResp=%7B%221%22%3A200%7D")
 
 
 def test_naukri_questionnaire_response_alone_is_not_applied():

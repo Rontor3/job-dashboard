@@ -112,6 +112,7 @@ def test_ensure_cdp_chrome_noop_when_already_reachable(monkeypatch):
 
 
 def test_ensure_cdp_chrome_refuses_to_kill_existing_chrome(monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: False)
     monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: True)
     launched = []
@@ -196,13 +197,13 @@ def test_history_rewrites_screenshot_paths_to_urls(tmp_path, monkeypatch):
 
 def test_log_404_when_none(tmp_path, monkeypatch):
     c, jid = _client(tmp_path)
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     assert c.get(f"/api/jobs/{jid}/agent-runs/log").status_code == 404
 
 
 def test_log_returns_tail(tmp_path, monkeypatch):
     c, jid = _client(tmp_path)
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     p = tmp_path / "data" / "agent_runs"
     p.mkdir(parents=True)
     (p / f"{jid}.log").write_text("\n".join(f"line {i}" for i in range(200)) + "\n")
@@ -213,7 +214,7 @@ def test_log_returns_tail(tmp_path, monkeypatch):
 
 def test_log_clips_huge_lines(tmp_path, monkeypatch):
     c, jid = _client(tmp_path)
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     p = tmp_path / "data" / "agent_runs"
     p.mkdir(parents=True)
     (p / f"{jid}.log").write_text("short\n" + "x" * 5000 + "\n")
@@ -261,7 +262,7 @@ def test_history_of_a_board_job_comes_from_board_run_json(tmp_path, monkeypatch)
                                 job_url="https://www.naukri.com/job-listings-1", description="jd"))
     jid = conn.execute("SELECT id FROM jobs").fetchone()[0]
     conn.close()
-    monkeypatch.setattr(agent_routes, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(agent_routes, "DATA_DIR", tmp_path / "data")
     run_dir = tmp_path / "data" / "agent_runs" / str(jid)
     run_dir.mkdir(parents=True)
     (run_dir / "board_run.json").write_text(json.dumps([
@@ -273,3 +274,12 @@ def test_history_of_a_board_job_comes_from_board_run_json(tmp_path, monkeypatch)
     assert [s["stopped_reason"] for s in body["steps"]] == [None, "needs_human"]
     assert body["steps"][0]["screenshot"] == f"/api/jobs/{jid}/agent-runs/screenshot/0"
     assert body["steps"][1]["screenshot"] is None
+
+
+def test_a_busy_agent_chrome_gets_time_to_answer(monkeypatch):
+    """Right after a stalled run is stopped, the debug port answered late and the next job failed (live 2026-10-18)."""
+    answers = iter([False, False, True])
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: next(answers))
+    monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: True)
+    assert agent_routes._ensure_cdp_chrome("http://localhost:9222") is None

@@ -15,3 +15,8 @@ where = ["src"]
 # also sweeps in vendor/ai-job-search/tests/ (a second `tests` package),
 # which collides with ours and errors during collection.
 testpaths = ["tests"]
+# Every test is bounded: a hanging browser test reports as a named failure
+# instead of stalling the whole suite (2026-10-19: the board suite never
+# finished within 20 minutes, so regressions went unnoticed). Requires
+# pytest-timeout (dev dependency); plugin-missing runs skip the flags.
+addopts = "--timeout=150 --timeout-method=thread"

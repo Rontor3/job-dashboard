@@ -40,6 +40,9 @@ class Field:
     placeholder: str = ""      # what the box shows when empty ("DD/MM/YYYY") — the page's own format hint
     max_length: int = 0        # HTML maxlength (0 = none)
     unit: str = ""             # what the box is measured in, from controls sharing its row ("INR", "Years")
+    section: str = ""          # the heading the field sits under ("Education", "Contact Information") — answering context
+    row: int = -1              # which repeated entry block it is in (Education 1/2/3 -> 0/1/2); -1 = not repeated
+    value: str = ""            # what the box holds on the page now (text boxes only; "" = empty or not read)
 
 
 # Ordered most-specific-first; first hit wins.
@@ -54,7 +57,8 @@ _RULES: list[tuple[str, str]] = [
     # country rules — they want "+91", not the number or the country name.
     # "Phone number (including country code)" asks for the whole number, not just the dial code
     (r"\b(phone|mobile|contact|telephone|whatsapp|cell)\b.{0,12}\b(number|no\.?)\b.{0,25}\b(incl\w*|with|along with|and)\b.{0,10}\b(country|dial\w*|calling) code\b", "phone"),
-    (r"\bcountry (dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
+    # "Country Phone Code" (MetLife, live 2026-10-18) — the country word sits before "phone", so it must match too
+    (r"\bcountry (phone |dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
     # Sponsorship/work-auth must precede employer — "require employer sponsorship"
     # contains \bemployer\b and would otherwise be misclassified as a company-name field.
     (r"\bsponsor(ship)?\b", "visa_sponsorship"),
@@ -80,7 +84,7 @@ _RULES: list[tuple[str, str]] = [
     (r"\bfield of study\b|\bmajor\b|\bspecial", "field_of_study"),
     # Must precede the bare "degree" rule below — "year of graduation ... degree"
     # contains the word "degree" but asks for a YEAR, not the degree name.
-    (r"\byear of graduation\b|\bgraduation year\b|\byear you.{0,15}graduat", "graduation_year"),
+    (r"\byear of graduation\b|\bgraduation year\b|\byear you.{0,15}graduat|\byear of passing\b|\bpassing year\b|\bpassed out\b", "graduation_year"),
     # Bare "qualification" is gated (see _WEAK_BARE_WORD_RULES) — "minimum
     # qualification for this job" (a certify-you-meet-requirements question)
     # is not asking for a degree name.
@@ -176,6 +180,13 @@ _ATTEST = re.compile(
     re.I,
 )
 
+# A statement the applicant ticks to proceed ("By applying you acknowledge…"). Only for a checkbox: as a question
+# ("Do you agree to relocate?") the same words ask for an answer.
+_ATTEST_BOX = re.compile(r"\byou (acknowledge|consent|agree|confirm|declare|certify)\b|\bby (applying|submitting|continuing)\b"
+                         # the box's own label is the assent word, its question sits on the group ("PES India - PII
+                         # Consent Acknowledgement": boxes 'Acknowledged' / 'NO', Pretium Workday 2026-10-26)
+                         r"|^\s*(i\s+)?(acknowledged?|agreed?|accept(ed)?|consent(ed)?)\.?\s*$", re.I)
+
 
 # Purposes that resolve to a TEXT value to type — nonsensical on a checkbox
 # ("Use name only" must not become full_name).
@@ -197,14 +208,14 @@ def guess_purpose(label: str, kind: str) -> str | None:
     text = (label or "").strip().lower()
     if not text:
         return None
-    if re.match(r"(if|in case)\s+(yes|so|no|not|applicable|you answered|you selected)\b", text):
+    if re.match(r"(if|in case)\s+(yes|so|no|not|applicable|you (have )?(answered|selected|chosen|picked))\b", text):
         return None            # a follow-up to an earlier answer ("If yes, give the name, job title…") is not a profile field
     if _SITE_SEARCH.match(text):
         return None            # the site's own search box ("Search title or skill...") — never a form question
     if kind == "file":
         return "resume_upload" if _RESUME_RE.search(text) else None
     if kind == "checkbox":
-        if _ATTEST.search(text):
+        if _ATTEST.search(text) or _ATTEST_BOX.search(text):
             return "attestation"
         for pattern, purpose in _RULES:      # keep only question purposes, not text ones
             if re.search(pattern, text):

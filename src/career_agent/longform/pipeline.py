@@ -101,16 +101,27 @@ def make_longform(conn, job, contact, llm, research, ingredients_path, job_id=No
             return found[key]
         return get
 
-    def run(question, field=None, current_job=None):
+    def lessons_for(question):
+        """The applicant's essay lessons that apply to this question (memory/lessons.py); {} when none."""
+        try:
+            from career_agent.memory import lessons
+            return lessons.steer(lessons.for_question(conn, question, "textarea", default_embed, levers=("scope", "guide")))
+        except Exception as e:                           # a broken lesson store never blocks an answer
+            print(f"[warn] lessons unavailable: {e!r}", flush=True)
+            return {}
+
+    def run(question, field=None, current_job=None, steer=None):
         j = current_job if isinstance(current_job, dict) and current_job else job   # apply.py may swap the job later
         jid = job_id if job_id is not None else (job.get("id") if isinstance(job, dict) else None)
+        steer = lessons_for(question) if steer is None else steer
         if os.getenv("CAREER_AGENT_LONGFORM_LOGIC", "asks") == "asks":
             # ask by ask (longform/asks.py): held-out 1.00 answer relevancy / 0.95 faithfulness vs this module's
             # answer_longform 1.00 / 0.56 (scripts/longform_iterate.py, Haiku judge, 2026-10-12)
             from .asks import answer_asks
             from .corpus import Corpus
-            return answer_asks(question, job=j, kb=kb, corpus=Corpus(kb, j), llm=llm, limit=field_limit(field),
-                               research=research_of(j))
+            res = answer_asks(question, job=j, kb=kb, corpus=Corpus(kb, j), llm=llm, limit=field_limit(field),
+                              research=research_of(j), steer=steer)
+            return {**res, **({"lessons": steer["ids"]} if steer.get("ids") else {})}
         prior = prior_project(conn, jid, question) if jid else None
         return answer_longform(question, job=j, kb=kb, llm=llm, research=research, prior=prior, limit=field_limit(field))
     run.kb = kb

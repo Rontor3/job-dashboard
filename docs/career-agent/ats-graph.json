@@ -691,11 +691,6 @@
           "match": "successfully applied"
         },
         {
-          "capture": "apply-workflow/v1/apply",
-          "request_match": "applyData",
-          "status": 200
-        },
-        {
           "page_url_match": "multiApplyResp=%7B%22\\d+%22%3A200%7D"
         }
       ],
@@ -760,8 +755,23 @@
       ],
       "archetype": "form",
       "entry": {
-        "selector": "#indeedApplyButton, button:has-text(\"Apply now\"), a:has-text(\"Apply now\")",
-        "submits": "no"
+        "selector": "#indeedApplyButton, button:has-text(\"Apply now\"), a:has-text(\"Apply now\"), button:has-text(\"Apply on company site\"), a:has-text(\"Apply on company site\")",
+        "submits": "no",
+        "chain": [
+          {
+            "selector": "#indeedApplyButton",
+            "leg": "native"
+          },
+          {
+            "selector": "button:has-text(\"Apply now\"), a:has-text(\"Apply now\")",
+            "leg": "native"
+          },
+          {
+            "selector": "a:has-text(\"Apply on company site\"), [aria-label*='company site' i], button:has-text('Apply on company site'), a:has-text(\"Apply to the employer's site\")",
+            "leg": "external",
+            "handoff": "external"
+          }
+        ]
       },
       "advance": [
         "Continue",
@@ -1178,7 +1188,8 @@
       "errors_seen": [
         "auth_wall",
         "gate:cloudflare_interstitial",
-        "no_advance_control"
+        "no_advance_control",
+        "stuck"
       ],
       "reach_path": [
         "click link 'Apply for this position' (frame 0) -> lemon.io/for-developers/",
@@ -1244,6 +1255,50 @@
         "I'm interested"
       ],
       "reach_end": "form"
+    },
+    {
+      "id": "site:docs.google.com",
+      "type": "site",
+      "label": "docs.google.com",
+      "domains": [
+        "docs.google.com"
+      ],
+      "errors_seen": [
+        "reached_submit_dry_run"
+      ]
+    },
+    {
+      "id": "site:ibmglobal.avature.net",
+      "type": "site",
+      "label": "ibmglobal.avature.net",
+      "domains": [
+        "ibmglobal.avature.net"
+      ],
+      "errors_seen": [
+        "auth_wall"
+      ]
+    },
+    {
+      "id": "site:ars2.equest.com",
+      "type": "site",
+      "label": "ars2.equest.com",
+      "domains": [
+        "ars2.equest.com"
+      ],
+      "errors_seen": [
+        "auth_wall"
+      ]
+    },
+    {
+      "id": "site:innocode.in",
+      "type": "site",
+      "label": "innocode.in",
+      "domains": [
+        "innocode.in"
+      ],
+      "errors_seen": [
+        "no_advance_control"
+      ]
     }
   ],
   "edges": [

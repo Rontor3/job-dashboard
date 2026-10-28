@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Apply</title></head>
+<body>
+<main>
+  <h1>Choose any option to apply</h1>
+  <button style="visibility:hidden">Default Apply</button>
+  <a href="#" onclick="return false;">From Device</a>
+  <a href="#" id="manual" onclick="document.getElementById('form').style.display='block';this.style.display='none';return false;">Without Resume</a>
+  <form id="form" style="display:none">
+    <label>First name <input name="first_name" autocomplete="given-name"></label>
+    <label>Phone <input type="tel" name="phone" autocomplete="tel"></label>
+    <label>Email <input type="email" name="email"></label>
+  </form>
+</main>
+</body></html>

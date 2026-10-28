@@ -37,7 +37,8 @@ def test_result_summary_keeps_what_the_queue_needs():
            "decisions": [{"ref": "x"}], "pending_human": [{"ref": "a", "label": "Expected CTC"}, {"ref": "b"}]}
     assert result_summary(out) == {"url": "u", "board": "board:naukri", "submitted": False,
                                    "stopped_reason": "needs_human", "filled": 1,
-                                   "pending_human": ["Expected CTC", "b"]}
+                                   "pending_human": ["Expected CTC", "b"],
+                                   "gate_notice": None}      # the gate trail rides along when it exists
     assert result_summary(None)["stopped_reason"] == "error"
 
 
@@ -98,3 +99,8 @@ def test_escalation_context_reads_job_and_company_page_from_the_db(tmp_path):
     assert "https://acme.ai/about" in company and "Agent tooling." in company
     jd2, company2 = _escalation_context(conn, None, "scraped page text")
     assert "scraped page text" in jd2 and company2 == ""
+
+
+def test_a_run_that_parked_questions_without_a_reason_is_not_an_error():
+    assert result_summary({"pending_human": [{"label": "Q"}]})["stopped_reason"] == "needs_answers"
+    assert result_summary({})["stopped_reason"] == "error"

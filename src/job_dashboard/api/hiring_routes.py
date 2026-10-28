@@ -171,17 +171,28 @@ def build_hiring_router(db_path, hiring_fetcher=None, embed_model=None, role_fn=
         pdf = current_resume_pdf()
         # What the recruiter sees — not the internal "current_resume.pdf".
         attach_name = (re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_") or "Resume") + "_Resume.pdf"
-        result = None
-        if gmail_draft.authorized() and pdf.exists():
+        result, problem = None, None
+        if not gmail_draft.authorized():
+            problem = "reconnect"
+        elif pdf.exists():
             try:
                 d = gmail_draft.create_draft(gmail_draft.compose_message(to, subject, body, pdf, filename=attach_name))
                 result = {"gmail_url": gmail_draft.draft_url(d["message_id"], account),
                           "attached": attach_name, "to": to}
-            except Exception:  # noqa: BLE001 — token revoked etc. → compose URL below
-                pass
+            except Exception as e:  # noqa: BLE001
+                # an expired/revoked login is not a reason to quietly open a compose link for an account this browser
+                # may not be signed in to (live 2026-10-18: 'invalid_grant' -> Google asked to sign in): say so
+                expired = type(e).__name__ in ("RefreshError", "DraftAuthError") or "invalid_grant" in str(e)
+                problem = "reconnect" if expired else f"couldn't create the draft ({type(e).__name__})"
         if result is None:
             result = {"gmail_url": gmail_draft.compose_url(to, subject, body, account),
                       "attached": None, "to": to}
+        if problem == "reconnect":
+            result["reconnect"] = ("Gmail drafting isn't connected (its login expired or was revoked). Reconnect once: "
+                                   "PYTHONPATH=src python3 -m job_dashboard.apply.gmail_draft authorize — then Draft "
+                                   "mail attaches your résumé.")
+        elif problem:
+            result["problem"] = problem
         with db() as conn:   # remember it, without overriding a status the user set by hand
             set_hiring_status(conn, post_id, "drafted", only_if_unset=True)
         return {**result, "already": already}

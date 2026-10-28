@@ -1,10 +1,16 @@
 import sqlite3
 from job_dashboard.db import (
     init_db, insert_job, upsert_company_classification,
-    get_company_classification, unclassified_companies,
+    unclassified_companies,
     distinct_classification_values,
 )
 from job_dashboard.models import JobListing
+
+
+def get_company_classification(conn, key):
+    r = conn.execute("SELECT industry, company_type, method FROM company_classifications WHERE company_key=?",
+                     (key,)).fetchone()
+    return dict(zip(("industry", "company_type", "method"), r)) if r else None
 
 
 def _job(company, title="Data Scientist"):

@@ -266,7 +266,7 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
                 if not retrieved or not qbank.set_answer(conn, retrieved, ans):
                     raise HTTPException(status_code=422, detail="no saved answer behind this one")
             conn.execute("UPDATE application_qa SET answer=?, source='human', status='answered', updated_at=? "
-                         "WHERE id=?", (ans, qa_store._now(), row_id))
+                         "WHERE id=?", (ans, qa_store.now_iso(), row_id))
             conn.commit()
             qa_store.set_outcome(conn, row_id, "edited")
         finally:

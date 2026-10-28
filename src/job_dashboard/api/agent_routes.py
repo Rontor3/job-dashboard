@@ -27,7 +27,8 @@ from fastapi.responses import FileResponse
 from job_dashboard import qa_store
 from job_dashboard.db import init_db, job_detail
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[3]   # the code (src/) the agent runs
+DATA_DIR = Path("data").resolve()                   # the dashboard's data, beside its jobs.db (DEFAULT_DB)
 
 
 class AgentRunState:
@@ -114,7 +115,10 @@ def _launch_cdp_chrome(port: int) -> None:
         [_CDP_CHROME_APP, f"--remote-debugging-port={port}",
          f"--user-data-dir={_CDP_CHROME_PROFILE_DIR}",
          f"--profile-directory={_CDP_CHROME_PROFILE_NAME}",
-         "--no-first-run", "--no-default-browser-check"],
+         "--no-first-run", "--no-default-browser-check",
+         # Chrome freezes background tabs; a frozen tab makes CDP attach and page calls hang (live 2026-10-18)
+         "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
+         "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
@@ -136,6 +140,12 @@ def _ensure_cdp_chrome(cdp_url: str) -> Optional[str]:
     if _cdp_reachable(cdp_url):
         return None
     if _any_chrome_running():
+        # Busy, not gone: right after a stalled run is stopped the debug port can take seconds to answer (live
+        # 2026-10-18: the next queued job failed 'isn't reachable' while the agent's Chrome was up). Give it ~15 s.
+        for _ in range(5):
+            time.sleep(2)
+            if _cdp_reachable(cdp_url, timeout=3):
+                return None
         return (f"career-agent Chrome isn't reachable at {cdp_url}, and Chrome is "
                 "already running without the debug port. Auto-restarting it would "
                 "close your existing Chrome windows, so that wasn't done — close "
@@ -153,7 +163,7 @@ def _ensure_cdp_chrome(cdp_url: str) -> Optional[str]:
 
 
 def _log_path(job_id: int) -> Path:
-    return REPO_ROOT / "data" / "agent_runs" / f"{job_id}.log"
+    return DATA_DIR / "agent_runs" / f"{job_id}.log"
 
 
 def _tail_log(job_id: int, lines: int = 80, max_bytes: int = 65536) -> Optional[list[str]]:
@@ -182,7 +192,7 @@ def _clip(line: str, limit: int = 400) -> str:
 
 
 def _live_screenshot_path(job_id: int) -> Path:
-    return REPO_ROOT / "data" / "agent_runs" / str(job_id) / "live.png"
+    return DATA_DIR / "agent_runs" / str(job_id) / "live.png"
 
 
 def _run_page(ctx, job_id):
@@ -246,7 +256,11 @@ def _with_questions(job_id, steps, by_page) -> dict:
     (older runs) come back under `unpaged`."""
     for s in steps:
         s["questions"] = by_page.get(s["step"], [])
-    return {"job_id": job_id, "steps": steps, "unpaged": by_page.get(None, [])}
+    shown = {s["step"] for s in steps}
+    # rows with no page (older runs), or recorded on a page the run's trail doesn't list (a board run that logs one
+    # step), are still this run's answers: never drop them from the view
+    rest = [q for page, qs in by_page.items() if page is None or page not in shown for q in qs]
+    return {"job_id": job_id, "steps": steps, "unpaged": sorted(rest, key=lambda q: q["id"])}
 
 
 def _with_eligibility(run_dir, body):
@@ -292,9 +306,9 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         local_model.ensure_running()                 # the drafting model; left running for this single run
         cmd = [sys.executable, "-m", "career_agent.apply",
                "--job-id", str(job_id), "--url", job_url, "--claude-assist"]   # same as the queue: capped at 5 calls
-        env = {**os.environ, "PYTHONPATH": "src", "PYTHONUNBUFFERED": "1"}
+        env = {**os.environ, "PYTHONPATH": str(REPO_ROOT / "src"), "PYTHONUNBUFFERED": "1"}
         log_path = _log_path(job_id)
-        started = state.start(job_id, cmd, str(REPO_ROOT), env, log_path)
+        started = state.start(job_id, cmd, str(DATA_DIR.parent), env, log_path)
         if not started:
             raise HTTPException(status_code=409, detail="agent already running")
         return {"started": True, "job_id": job_id}
@@ -352,7 +366,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
     def agent_step_screenshot(job_id: int, step: int, part: int = 1):
         """`part` > 1 = the next scrolled segment of a long page (perceive<N>_<part>.png)."""
         name = f"perceive{step}.png" if part <= 1 else f"perceive{step}_{part}.png"
-        path = REPO_ROOT / "data" / "agent_runs" / str(job_id) / name
+        path = DATA_DIR / "agent_runs" / str(job_id) / name
         if not path.exists():
             raise HTTPException(status_code=404, detail="no screenshot for this step")
         return FileResponse(path, media_type="image/png")
@@ -368,7 +382,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         if detail is None:
             raise HTTPException(status_code=404, detail="job not found")
         job_url = detail.get("job_url") or ""
-        run_dir = REPO_ROOT / "data" / "agent_runs" / str(job_id)
+        run_dir = DATA_DIR / "agent_runs" / str(job_id)
 
         from career_agent.boards.profiles import board_for
         board_log = run_dir / "board_run.json"
@@ -388,7 +402,7 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         import hashlib
         from career_agent.orchestrator.run_history import summarize_run
 
-        checkpoint_db = str(REPO_ROOT / "data" / "jobs_graph.db")
+        checkpoint_db = str(DATA_DIR / "jobs_graph.db")
         # The run is keyed by the URL it was started on: the external apply link when there is one (a LinkedIn job
         # whose Apply opens a Google Form), else the job page. Try both so neither kind loses its history.
         urls = [u for u in ((detail.get("apply_url") if detail.get("apply_kind") == "external" else None), job_url) if u]

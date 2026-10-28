@@ -55,6 +55,18 @@ def country_is_home(c: RuleCtx):
     return answer("work_authorization", c.question)
 
 
+def job_abroad(c: RuleCtx):
+    """Yes if the job is outside India, No if it is in India, None if its location says neither ('Remote', blank).
+    Sponsorship: a flat stored Yes answered Wipro Bengaluru 'will require sponsorship' falsely (live 2026-10-23)."""
+    from job_dashboard.db import is_india_location
+    loc = (c.job.get("location") or "").strip()
+    if is_india_location(loc):
+        return "No"
+    if not loc or re.fullmatch(r"(?i)\W*(remote|anywhere|worldwide|global|hybrid|onsite|on-site)\W*", loc):
+        return None
+    return "Yes"
+
+
 def company_in_list(c: RuleCtx):
     """Entry answer = companies where the answer is Yes (or 'none')."""
     company = (c.job.get("company") or "").strip().lower()
@@ -122,13 +134,14 @@ def preference(c: RuleCtx):
     return "Yes" if all(ok) else "No" if not any(ok) else None
 
 
-RULES = {f.__name__: f for f in (local_or_escape, empty_or_escape, country_is_home,
+RULES = {f.__name__: f for f in (local_or_escape, empty_or_escape, country_is_home, job_abroad,
                                  company_in_list, years_in_skill, preference)}
-NO_INPUT_RULES = {"local_or_escape", "country_is_home"}
+NO_INPUT_RULES = {"local_or_escape", "country_is_home", "job_abroad"}
 RULE_HELP = {
     "local_or_escape": "Worked out per job: your home address if the job is in one of your local cities or remote, otherwise the word the form asks for (e.g. \"relocating\").",
     "empty_or_escape": "Your value, or 'none' if you don't have one (the form's N/A word is used then).",
     "country_is_home": "Worked out per question: Yes for India, No for any other country named.",
+    "job_abroad": "Worked out per job: Yes if the job is outside India, No if it is in India (asked when the location is unclear).",
     "company_in_list": "Companies where the answer is Yes, comma-separated — or 'none'.",
     "years_in_skill": "skill=years pairs, e.g. python=3, sql=3, default=2",
     "preference": "Best first, separated by >, e.g. Remote > Hybrid > Onsite. Add '; not: X, Y' for options you refuse. Pick-one questions get your highest-ranked offered option; yes/no questions get Yes if the option asked about is on your list, No if refused.",
@@ -149,6 +162,23 @@ _AUTOCOMPLETE = {"street-address": "address", "address-line1": "address", "posta
                  "tel": "phone", "email": "email", "url": "url"}
 _LABEL = [(r"\bstreet\b|\baddress line\b", "address"), (r"\bpin ?code\b|\bpostal code\b|\bzip\b", "postcode"),
           (r"\bphone\b|\bmobile number\b", "phone"), (r"\be-?mail\b", "email")]
+
+# Labels that ask for the calling/dial code itself ("Country Phone Code",
+# Keka's plain "Country Code"): the value is '+NN', never a ten-digit number.
+# The shape tier keeps calling such an input 'phone' (the promotion guard in
+# qa_store._candidate_guard_reason counts on it), so this intent is consulted
+# where the fill is typed, not by renaming the shape.
+_DIAL_LABEL = re.compile(
+    r"\bcountry ?(?:phone|dial(l?ing)?|call)? ?code\b|\bdial(l?ing)? ?code\b"
+    r"|\bcalling ?code\b|\bisd ?code\b|\bphone ?(?:country ?)?(?:code|prefix)\b", re.I)
+# …unless the label asks for a whole number ("Phone number (with country code)")
+_FULL_NUMBER_ASK = re.compile(r"\b(?:phone|mobile|contact|tel(?:ephone)?)\b.{0,14}\b(?:number|no)\b", re.I)
+
+
+def dial_label(label: str) -> bool:
+    """The label asks for a dial code ('+91'), not a phone number."""
+    lab = label or ""
+    return bool(_DIAL_LABEL.search(lab)) and not _FULL_NUMBER_ASK.search(lab)
 
 
 def infer_shape(entry_shape, input_type, autocomplete, label):

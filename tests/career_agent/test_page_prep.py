@@ -1,5 +1,5 @@
 from career_agent.browser.form_model import Field
-from career_agent.browser.page_prep import suppress_noise, _best_apply, _is_ad_frame, login_from_signals, site_key
+from career_agent.browser.page_prep import suppress_noise, _best_apply,  login_from_signals, site_key
 
 
 def _f(ref, label, kind="text", purpose=None):
@@ -40,10 +40,12 @@ def test_ready_to_apply_beats_an_ads_apply_now():
 
 
 def test_is_ad_frame():
-    assert _is_ad_frame("https://googleads.g.doubleclick.net/pagead/ads?x=1")
-    assert _is_ad_frame("about:blank", title="Advertisement")
-    assert _is_ad_frame("https://x.example/", name="aswift_2")
-    assert not _is_ad_frame("https://boards.greenhouse.io/embed/job_app?for=acme")
+    from career_agent.browser.cta_arbiter import is_ad_like
+    ad = lambda url, title="", name="": is_ad_like({"url": url, "frame_title": title, "frame_name": name})
+    assert ad("https://googleads.g.doubleclick.net/pagead/ads?x=1")
+    assert ad("about:blank", title="Advertisement")
+    assert ad("https://x.example/", name="aswift_2")
+    assert not ad("https://boards.greenhouse.io/embed/job_app?for=acme")
 
 
 def test_prefer_known_click_beats_phrase_rank_but_not_deny():
@@ -153,6 +155,35 @@ def test_dismiss_dialogs_never_clicks_the_pages_own_continue():
         b.close()
 
 
+def test_dismiss_dialogs_keeps_the_apply_modal_with_a_role_button_cta():
+    """Himalayas 2026-10-20: the 'Apply to <Co>' modal's only apply control was a role=button
+    div (no <button>, no a[href]) — the keep-check missed it, Close fired, and the walker
+    re-clicked Apply forever: 3 reach passes, 0 forms crossed."""
+    import os
+    if os.getenv("RUN_BROWSER_TESTS") != "1":
+        import pytest; pytest.skip("browser")
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.page_prep import dismiss_dialogs
+
+    with sync_playwright() as p:
+        b = p.chromium.launch(); pg = b.new_page()
+        # 1. A role=button CTA whose name matches the apply vocabulary: keep — never Close.
+        pg.set_content("<div role=dialog><p>Apply to Upstart</p>"
+                       "<div role=button tabindex=0 onclick=\"document.title='crossed'\">Apply now</div>"
+                       "<button onclick=\"document.title='closed'\">Close</button></div>")
+        assert dismiss_dialogs(pg) is False and pg.title() != "closed"
+        # 2. An apply-titled modal even when its CTA has no recognizable name: the modal IS the apply step.
+        pg.set_content("<div role=dialog><p>Apply to NVIDIA</p>"
+                       "<div role=button tabindex=0 onclick=\"document.title='x'\">Via custom engine</div>"
+                       "<button onclick=\"document.title='closed'\">Close</button></div>")
+        assert dismiss_dialogs(pg) is False and pg.title() != "closed"
+        # 3. Regression guard: an idle modal with no apply control/fields is still dismissed.
+        pg.set_content("<div role=dialog><p>Session idle</p>"
+                       "<button onclick=\"this.parentElement.remove()\">Continue Working</button></div>")
+        assert dismiss_dialogs(pg) is True
+        b.close()
+
+
 def test_consent_ok_never_matches_the_cookies_policy_link():
     """Live Veritech run 2026-10-12: 'OK' matched 'Cookies Policy' (c-ok-ies) and the agent left for the policy page."""
     import os
@@ -191,3 +222,75 @@ def test_a_not_accepting_banner_under_the_title_marks_a_full_page_closed():
     assert _looks_closed("This job has expired. " + "x " * 800)
     jd = "Senior Data Engineer. " + "We build pipelines. " * 200 + " Note: if the role is filled we will keep your CV."
     assert not _looks_closed(jd)                                   # mentioned deep in a JD, not a banner
+
+
+def test_wallish_url_sees_auth_paths_in_the_first_two_segments_only():
+    from career_agent.browser.page_prep import wallish_url
+    # the instahyre sign-up redirect (job 30076): the wall IS the path
+    assert wallish_url("https://www.instahyre.com/candidates/register/")
+    assert wallish_url("https://x.test/login") and wallish_url("https://x.test/users/sign-up/")
+    assert wallish_url("https://x.test/account/create-account/extra")
+    # a job slug that merely mentions a wall word deeper in the path is NOT a wall
+    assert not wallish_url("https://x.test/jobs/senior-frontend-engineer-register-30-lpa")
+    assert not wallish_url("https://x.test/jobs/9771/senior-developer-register-your-interest")
+    assert not wallish_url("") and not wallish_url("https://x.test/search?q=/login/")
+
+
+class _DomPage:
+    """A tab whose DOM answers what a wall check asks: which JS ran."""
+
+    def __init__(self, login_signals, chrome_auth=False):
+        self.url = "https://x.test/job"
+        self._signals, self._chrome = login_signals, chrome_auth
+
+    def evaluate(self, js, *a, **k):
+        if "hasPassword" in js:
+            return self._signals
+        if "role=banner" in js:
+            return self._chrome
+        return ""                                    # structural probes answer empty
+
+    def query_selector_all(self, sel):               # no elements: never email-first
+        return []
+
+
+class _EmailFirstPage(_DomPage):
+    """An email-first signIn on a clean URL (no password box yet), whose header
+    chrome still sells Sign up / Log in — instahyre walls before the password step."""
+
+    def query_selector_all(self, sel):
+        from types import SimpleNamespace as NS
+        return [] if "password" in sel else [NS(is_visible=lambda: True)]
+
+    def evaluate(self, js, *a, **k):
+        if "hasPassword" in js:
+            return {"hasPassword": False, "hasUser": True, "authControl": True, "credInputs": 1}
+        if "role=banner" in js:
+            return True                              # header has "Sign up"
+        if "every" in js:                            # alert_box_only says this is not a job-alert box
+            return False
+        return ""
+
+
+def test_is_wall_combines_url_and_dom_tells():
+    from career_agent.browser.page_prep import is_wall
+    wall = {"hasPassword": True, "hasUser": True, "authControl": True, "credInputs": 2}
+    job = {"hasPassword": False, "hasUser": False, "authControl": False, "credInputs": 0}
+    # the URL tell is decisive on its own — even when the DOM shows no auth signals
+    assert is_wall(_DomPage(job), "https://x.test/candidates/register/")
+    # DOM tell alone (SuccessFactors-style login box on a clean URL)
+    assert is_wall(_DomPage(wall), "https://x.test/job")
+    assert is_wall(_DomPage(wall), "https://companies.test/careers/opening-9")
+    # email-first form + header chrome still selling the account: a wall, too
+    assert is_wall(_EmailFirstPage(job), "https://x.test/job")
+    # each confirm alone is not enough: header chrome without an email-first form
+    # (or plain job fields) must read as a healthy JD page
+    assert not is_wall(_DomPage(job, chrome_auth=True), "https://x.test/job")
+    assert not is_wall(_DomPage(job), "https://x.test/job")
+def test_email_reveal_regex_matches_only_the_email_control():
+    from career_agent.browser.page_prep import EMAIL_REVEAL_RE, SOCIAL_SIGNIN_RE
+    for t in ("Sign in with email", "Log in with e-mail", "Continue with email", "Use email"):
+        assert EMAIL_REVEAL_RE.match(t), t
+    for t in ("Sign in with Google", "Apply with email", "Email me jobs", "Sign in"):
+        assert not EMAIL_REVEAL_RE.match(t), t
+    assert SOCIAL_SIGNIN_RE.match("Sign in with Apple") and not SOCIAL_SIGNIN_RE.match("Sign in with email")
