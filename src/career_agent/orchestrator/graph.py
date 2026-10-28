@@ -582,15 +582,28 @@ def _validation_refill(page, deps, failing, c, state) -> dict:
     print(f"[advance] the site rejected: {[f.label for f in fields]} — one refill round", flush=True)
     decs, needs = answer_fields(fields, ctx)
 
-    # a field we already decided but the site now rejects: send the SAME answer again,
-    # this time with real keystrokes (the answer itself is not the problem — the fill was)
+    # a field we already decided but the site now rejects: the fill may have been the problem
+    # (real keystrokes re-type it) — or the VALUE was (a phone with country code into a
+    # 10-digit box, a mask the placeholder states). Reshape to the field's own contract
+    # first; only when the contract can't help re-send the same answer with real keystrokes.
     prior = {d.get("ref"): d for d in (state.get("decisions") or [])}
+    from ..browser.validation import format_contract, reformatted_value
     for f in fields:
         pd = prior.get(f.ref)
         if not pd or pd.get("value") in (None, ""):
             continue
         needs = [n for n in needs if n.ref != f.ref]
         decs = [d for d in decs if d.ref != f.ref]
+        site_msg = ""
+        if "Site says:" in (f.description or ""):
+            site_msg = f.description.split("Site says:", 1)[1].strip()
+        better = reformatted_value(pd.get("value"), format_contract(page, f.ref)) if site_msg else ""
+        if better and better != pd.get("value"):
+            print(f"[refill] {f.label!r}: site said {site_msg!r} — reshaping {pd.get('value')!r} → {better!r}", flush=True)
+            decs.append(FillDecision(ref=f.ref, kind=f.kind, label=f.label, value=better,
+                                     action=pd.get("action") or _action_for_kind(f.kind),
+                                     source="revalidate"))
+            continue
         decs.append(FillDecision(ref=f.ref, kind=f.kind, label=f.label, value=pd.get("value"),
                                  action=pd.get("action") or _action_for_kind(f.kind),
                                  source="revalidate"))

@@ -12,6 +12,8 @@ frame-qualified `fN@@<selector>` in page.frames order.
 
 from __future__ import annotations
 
+import re
+
 # Per-frame: pair each visible error to the field it describes.
 #   1) aria-describedby — the one link the site draws itself between field and message.
 #   2) error nodes ([role=alert], .error/.invalid classes...) — bind the visually-nearest input
@@ -170,6 +172,92 @@ def read_errors(page, limit: int = 12) -> list[dict]:
         seen.add(k)
         out.append(e)
     return out[:limit]
+
+
+# A field's own format contract: the attributes the site uses to say WHAT SHAPE it wants.
+_FORMAT_INFO_JS = """el => ({
+  pattern: el.getAttribute('pattern') || '',
+  placeholder: el.getAttribute('placeholder') || '',
+  maxlength: el.getAttribute('maxlength') || '',
+  type: (el.getAttribute('type') || '').toLowerCase(),
+  inputmode: el.getAttribute('inputmode') || ''
+})"""
+
+
+def format_contract(page, ref):
+    """Read the field's own contract — pattern / placeholder / maxlength / type / inputmode.
+    The site drew the red box on a value we filled: these are its words for the shape it
+    wanted. {} when the element is gone (or the ref is dead)."""
+    from .perception import frame_target
+    try:
+        target, sel = frame_target(page, ref)
+        el = target.query_selector(sel)
+        if el is None:
+            return {}
+        return el.evaluate(_FORMAT_INFO_JS) or {}
+    except Exception:
+        return {}
+
+
+_DIG_RE = re.compile(r"\d+")
+
+
+def reshape_mask(value: str, mask: str) -> str:
+    """Reshape the digits of `value` into a placeholder skeleton — '(###) ###-####',
+    'MM/DD/YYYY', 'DD-MM-YYYY', '000-000-0000'. Alphanumeric mask characters are digit
+    slots, separators (/ - . ( ) space :) are literal. Needs fewer digits than the mask
+    has slots (we cannot invent a birth date's day) → ''. Pure, unit-tested."""
+    v = (value or "").strip()
+    m = (mask or "").strip()
+    if not v or not m:
+        return ""
+    # a mask that mixes slot-like tokens with ordinary words ('e.g. 555') is not a skeleton
+    if not re.fullmatch(r"[#9dND0OoMLDY/\-.()\s:]+", m):
+        return ""
+    digits = "".join(_DIG_RE.findall(v))
+    slots = sum(1 for c in m if c.isalnum())
+    if slots == 0 or len(digits) < slots:
+        return ""
+    if len(digits) > slots:
+        digits = digits[-slots:]          # a surplus prefix is a country code: keep the tail
+    out, i = [], 0
+    for c in m:
+        if c.isalnum() and i < len(digits):
+            out.append(digits[i])
+            i += 1
+        elif c.isalnum():
+            return ""
+        else:
+            out.append(c)
+    return "".join(out)
+
+
+def reformatted_value(value, contract) -> str:
+    """The bank's answer is right but shaped wrong: fit it to the field's own contract.
+    Order: a `pattern` quantifier ('[0-9]{10}' → 10 bare digits), a placeholder skeleton
+    ('(###) ###-####' → reshaped digits), then a maxlength truncation. '' = could not
+    honour it — leave the question to the human rather than guess."""
+    v = (value or "").strip()
+    if not v or not contract:
+        return ""
+    pat = (contract.get("pattern") or "").strip()
+    if pat:
+        m = re.search(r"(?:\\d|\[\d+-\d+\]|[0-9#])\{(\d+)\}", pat)
+        if m:
+            n = int(m.group(1))
+            digits = "".join(_DIG_RE.findall(v))
+            if len(digits) >= n:
+                return digits[:n]
+            return ""
+    ph = (contract.get("placeholder") or "").strip()
+    if ph:
+        shaped = reshape_mask(v, ph)
+        if shaped:
+            return shaped
+    ml = str(contract.get("maxlength") or "")
+    if ml.isdigit() and len(v) > int(ml):
+        return v[: int(ml)]
+    return ""
 
 
 def failing_fields(errors, form):
