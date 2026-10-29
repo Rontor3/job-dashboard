@@ -11,6 +11,7 @@ import tempfile
 from dataclasses import replace
 
 from .form_model import Field, guess_purpose
+from .validation import ERRISH_SEL
 
 # A field the DOM couldn't label: empty, a placeholder-only value, or a
 # checkbox/radio whose only text is the option itself (the question lives in a
@@ -275,12 +276,13 @@ _INPUT_JS = r"""
   const byId = (root, id) => (root.getElementById ? root.getElementById(id)
                               : root.querySelector('#' + CSS.escape(id)));
   // Resolve id-references to their concatenated text (aria-labelledby/describedby).
-  const idRefsText = (el, attr) => {
+  const idRefsText = (el, attr, skipErr = false) => {
     const root = el.getRootNode();
     const v = el.getAttribute(attr);
     if (!v) return '';
     return v.split(/\s+/).map(id => {
       const n = byId(root, id);
+      if (skipErr && n && n.matches(ERRISH)) return '';
       return n ? (n.textContent || '').trim().slice(0, 200) : '';
     }).join(' ').replace(/\s+/g, ' ').trim();
   };
@@ -315,7 +317,7 @@ _INPUT_JS = r"""
   };
   const labelFor0 = (el) => {
     const root = el.getRootNode();
-    const lb = idRefsText(el, 'aria-labelledby');            // 1
+    const lb = idRefsText(el, 'aria-labelledby', true);      // 1 (an error node named here is never the label)
     if (ok(lb)) return lb;
     const al = (el.getAttribute('aria-label') || '').trim(); // 2
     if (ok(al)) return al;
@@ -337,13 +339,13 @@ _INPUT_JS = r"""
     // forces full layout and can block the browser for minutes.
     let prev = el.previousElementSibling, sc = 0;
     while (prev && sc++ < 3) {
-      const t = (prev.textContent || '').trim().slice(0, 200);
+      const t = prev.matches(ERRISH) ? '' : (prev.textContent || '').trim().slice(0, 200);
       if (ok(t)) return t;
       prev = prev.previousElementSibling;
     }
     const container = el.closest('div,section,fieldset,li');
     if (container) {
-      const lbl = container.querySelector('label,legend,.label,[class*=label]');
+      const lbl = Array.from(container.querySelectorAll('label,legend,.label,[class*=label]')).find(n => !n.matches(ERRISH));
       if (lbl) { const t = (lbl.textContent || '').trim().slice(0, 200); if (ok(t)) return t; }
     }
     // a label that is only a required-star ("*") with the words beside it: the nearest small block's own text
@@ -352,10 +354,10 @@ _INPUT_JS = r"""
     let up = parentOf(el);
     // A block's words WITHOUT the field's own options: a wrapper holding only the <select> reads empty and the walk
     // climbs to the block that also holds the question (Lever card: .application-label beside .application-field).
-    const blockText = (n) => { const c = n.cloneNode(true); c.querySelectorAll('select,option,[role=listbox],[role=option],[role=status],[role=alert],[aria-live],[hidden],[aria-hidden=true],script,style').forEach(x => x.remove()); return c.textContent || ''; };
+    const blockText = (n) => { const c = n.cloneNode(true); c.querySelectorAll('select,option,[role=listbox],[role=option],[role=status],[role=alert],[aria-live],[hidden],[aria-hidden=true],script,style,' + ERRISH).forEach(x => x.remove()); return c.textContent || ''; };
     for (let i = 0; i < 4 && up; i++, up = parentOf(up)) {
       if (up.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;   // reached other fields
-      const raw = scrubStatus((el.tagName === 'SELECT' ? blockText(up) : (up.innerText || up.textContent || '')).trim().slice(0, 300));
+      const raw = scrubStatus((el.tagName === 'SELECT' || up.querySelector(ERRISH) ? blockText(up) : (up.innerText || up.textContent || '')).trim().slice(0, 300));
       const t = raw.replace(/^[\s*✱:]+|[\s*✱:]+$/g, '').replace(/\s+/g, ' ');
       if (ok(t)) return /[*✱]/.test(raw) ? t + '*' : t;           // the star moves to the end: still marks it required
     }
@@ -389,6 +391,8 @@ _INPUT_JS = r"""
     return core.length > 0 && !GENERIC_NAME.test(core) && !CODE_NAME.test(core);
   };
   const CONTROL_SEL = 'input:not([type=hidden]),select,textarea';
+  // same as validation.ERRISH_SEL (spliced in below): a site's error message is never a field's label
+  const ERRISH = '__ERRISH__';
   // Live-region chatter is not a question: a typeahead's "No location found. Try entering a different location" and its
   // "Loading" line leak into the block text beside the box. Strip them from any label text.
   const scrubStatus = (t) => (t || '').replace(/\bno [^.]{0,80}?\bfound\b\.?(\s*try [^.]*\.?)?/gi, ' ')
@@ -737,7 +741,7 @@ _INPUT_JS = r"""
   }
   return out;
 }
-"""
+""".replace("__ERRISH__", ERRISH_SEL)
 
 
 # --- Frame-qualified refs -------------------------------------------------

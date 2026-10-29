@@ -10,6 +10,19 @@ def _url(name):
     return (Path(__file__).parent / "fixtures" / name).resolve().as_uri()
 
 
+def test_error_text_beside_a_box_is_not_its_label():
+    from playwright.sync_api import sync_playwright
+    from career_agent.browser.perception import snapshot_form
+    html = ('<form><div class="row"><input id="login_id" name="login_id"><div class="error-msg">This account does not exist.</div></div>'
+            '<div class="row"><label for="city">City</label><input id="city"><div class="error-msg">Required</div></div></form>')
+    with sync_playwright() as pw:
+        b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
+        by_ref = {f.ref: f.label for f in snapshot_form(page, scroll=False)}
+        b.close()
+    assert by_ref["#login_id"] and "does not exist" not in by_ref["#login_id"]
+    assert by_ref["#city"] == "City"
+
+
 def test_greenhouse_style_labels_are_captured():
     from playwright.sync_api import sync_playwright
     from career_agent.browser.perception import snapshot_form

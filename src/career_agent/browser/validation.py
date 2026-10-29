@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import re
 
+# What an error node looks like. Shared with perception._INPUT_JS (labelFor0 must never read
+# these as a field's label): perception splices this in via the __ERRISH__ placeholder.
+ERRISH_SEL = '[role=alert],[aria-live=assertive],[id*="error" i],[class*="error" i],[class*="invalid" i]'
+
 # Per-frame: pair each visible error to the field it describes.
 #   1) aria-describedby — the one link the site draws itself between field and message.
 #   2) error nodes ([role=alert], .error/.invalid classes...) — bind the visually-nearest input
@@ -55,7 +59,7 @@ _PAIR_ERRORS_JS = r"""
   };
   // 1) aria-describedby — help/status text ('0 items selected', 'Format: MM/YYYY') unless the field is
   //    flagged invalid or the described node is itself error-shaped
-  const ERRISH = '[role=alert],[aria-live=assertive],[id*="error" i],[class*="error" i],[class*="invalid" i]';
+  const ERRISH = '__ERRISH__';
   const invalid = (el) => {
     if (el.getAttribute('aria-invalid') === 'true') return true;
     try { return el.matches(':invalid'); } catch (err) { return false; }
@@ -121,7 +125,7 @@ _PAIR_ERRORS_JS = r"""
   }
   return list.slice(0, 12);
 }
-"""
+""".replace("__ERRISH__", ERRISH_SEL)
 
 # A stepper/progress indicator moving is proof a step advanced even when every field
 # label stayed the same (Workday and Avature wizards live inside one frame).
