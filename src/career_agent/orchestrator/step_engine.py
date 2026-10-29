@@ -102,6 +102,9 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                     reason = "auth_wall"; break
 
         _page_survey(page, f"step{steps}")    # navigation rule: see page before acting
+        from ..browser.page_prep import is_chat_apply
+        if is_chat_apply(page):               # before any fill: a chat box is never answered, nor its Send clicked
+            reason = "chatbot_apply"; break
         print("[step] snapshot...", flush=True)
         form = deps.snapshot(page)
         print(f"[step] {len(form)} fields; LLM={judge_fn is not None}", flush=True)
@@ -196,7 +199,8 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                         learn.record_corrections(form, decisions, deps.read_back(page, decisions))
                     except Exception:
                         pass
-                deps.click(page, pick_advance_label(form, is_last=True))
+                o = deps.click(page, pick_advance_label(form, is_last=True))
+                page = getattr(o, "page", None) or page
                 submitted = True; reason = "submitted"
             else:
                 reason = "submit_declined"
@@ -205,12 +209,16 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
             from ..browser.page_prep import says_already_applied
             if says_already_applied(page):
                 reason = "already_applied"; break
+            from ..browser.page_prep import is_chat_apply
+            if is_chat_apply(page):                   # a chat-only apply: hand it to the human, never chat
+                reason = "chatbot_apply"; break
             if assist and assist.recover(page, "no_advance_control"):
                 continue
             reason = "no_advance_control"; break
 
         try:
-            deps.click(page, pick_advance_label(form, is_last=False))
+            o = deps.click(page, pick_advance_label(form, is_last=False))
+            page = getattr(o, "page", None) or page
         except Exception:
             if assist and assist.recover(page, "advance_failed"):
                 continue
@@ -235,12 +243,16 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
             print(f"[advance] the site rejected: {[f.label for f in flagged]} — one refill round", flush=True)
             deps.fill(page, apply_answers(flagged, human.collect(flagged)))
             try:
-                deps.click(page, pick_advance_label(after_form, is_last=False))
+                o = deps.click(page, pick_advance_label(after_form, is_last=False))
+                page = getattr(o, "page", None) or page
             except Exception:
                 pass
             after_form = deps.snapshot(page)
         after = screen_signature(deps.url(page), after_form)
         if not changed(before, after):
+            from ..browser.page_prep import is_chat_apply
+            if is_chat_apply(page):                   # before any assist: no model drives a chat
+                reason = "chatbot_apply"; break
             if assist and assist.recover(page, "stuck"):
                 continue
             still, _ = failing_fields(read_errors(page), after_form)

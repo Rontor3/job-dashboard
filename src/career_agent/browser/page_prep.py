@@ -558,6 +558,27 @@ def is_login_page(page) -> bool:
         return False
 
 
+_CHAT_JS = r"""() => {
+  const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
+  const ins = [...document.querySelectorAll('input,select,textarea')].filter(vis)
+    .filter(e => !['hidden', 'submit', 'button', 'search'].includes(e.type));
+  const log = [...document.querySelectorAll('[role=log]')].filter(vis).some(e => e.querySelector('li,p,div'));
+  const send = [...document.querySelectorAll('button,[role=button]')].filter(vis)
+    .some(e => /^send( message)?$/i.test((e.getAttribute('aria-label') || e.innerText || '').trim()));
+  return {log, send, msgbox: ins.length === 1 && (ins[0].tagName === 'TEXTAREA' || ins[0].type === 'text')};
+}"""
+
+
+def is_chat_apply(page) -> bool:
+    """A conversational apply: no form, one message box beside a message log or a Send control. Never chat on the
+    user's behalf — hand it to them."""
+    try:
+        d = page.evaluate(_CHAT_JS)
+    except Exception:
+        return False
+    return bool(d and d.get("msgbox") and (d.get("log") or d.get("send")))
+
+
 # An auth word standing as its own path segment (not mentioned inside a job slug)
 _WALL_WORDS = ("register", "signup", "sign-up", "login", "log-in", "signin",
                "authenticate", "create-account")

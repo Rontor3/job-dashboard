@@ -78,7 +78,7 @@ class BrowserDeps:
                         continue                        # the click itself failed: nothing happened, try the next frame
                     print(f"[click] {label!r}: {before_url[-60:]} -> {page.url[-60:]}"
                           f"{' | ' + '; '.join(obs.intercepts) if obs.intercepts else ''}", flush=True)
-                    return
+                    return obs
             if attempt == 0:
                 # Button may be temporarily absent during an AJAX refresh — wait and retry once. An open dropdown hides
                 # the rest of the page from the accessibility tree (Workday: a multiselect left open after a pick that

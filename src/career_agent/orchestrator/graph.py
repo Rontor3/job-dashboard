@@ -129,9 +129,27 @@ def _notify_gate(c, gate: str, message: str) -> dict:
 
 # ── Nodes ─────────────────────────────────────────────────────────────────────
 
+def _page(c):
+    """The tab the run is on. A click/reach that opened a new tab moves it — through this holder, because LangGraph
+    copies c for every node and a c["page"] assignment is lost."""
+    p = (c.get("tab") or {}).get("page")
+    return p if p is not None and not getattr(p, "is_closed", lambda: False)() else c["page"]
+
+
+def _follow(c, page, obs):
+    """Continue on the tab an action opened (Observation.page), else stay."""
+    new = getattr(obs, "page", None)
+    if new is not None and new is not page:
+        tab = c.setdefault("tab", {})
+        tab["page"], tab["intended"] = new, new.url
+        print(f"[tab] following the new tab -> {new.url[:80]}", flush=True)
+        return new
+    return page
+
+
 def classify_node(state: AgentState, config) -> dict:
     c = config["configurable"]
-    page = c["page"]
+    page = _page(c)
     if c.get("prep_fn"):
         c["prep_fn"](page)
 
@@ -185,18 +203,7 @@ def cred_provide_node(state: AgentState, config) -> dict:
     from .profile_resolver import _name_parts
     _nm = _name_parts(_prof.contact if _prof and hasattr(_prof, "contact") else {})
 
-    # reach_node may have opened a new tab (e.g. Taleo login); resolve the
-    # actual current page from state["url"] so provide() runs on the right tab.
-    _base = c["page"]
-    page = _base
-    _target = state.get("url", "")
-    if _target and _target != _base.url:
-        for _p in _base.context.pages:
-            if _p.url == _target:
-                page = _p
-                break
-        else:
-            page = _base                       # no tab at that url: stay on this job's own tab, not 'the last tab'
+    page = _page(c)                            # the tab reach/click followed (e.g. a Taleo login tab)
 
     # Run perceive_node on the login/signup page first so its captcha check
     # and remote-solve logic fires before we attempt to fill credentials.
@@ -262,6 +269,7 @@ def cred_provide_node(state: AgentState, config) -> dict:
     # After registration Darwinbox lands back on the JD page — re-enter apply
     if kind in ("none", "form") and not is_application_form(page):
         page, _ = reach_application_form(page)
+        c.setdefault("tab", {})["page"] = page
         if c.get("prep_fn"):
             c["prep_fn"](page)
         kind = classify_entry(page)
@@ -277,9 +285,10 @@ def tailor_cv_node(state: AgentState, config) -> dict:
 
 def reach_node(state: AgentState, config) -> dict:
     c = config["configurable"]
-    page = c["page"]
+    page = _page(c)
     from ..browser.page_prep import reach_application_form, classify_entry
     page, _ = reach_application_form(page)
+    c.setdefault("tab", {})["page"] = page
     if c.get("prep_fn"):
         c["prep_fn"](page)
     return {"kind": classify_entry(page), "url": page.url}
@@ -291,7 +300,7 @@ def perceive_node(state: AgentState, config) -> dict:
     if state.get("stopped_reason"):
         return {}
     c = config["configurable"]
-    page = c["page"]
+    page = _page(c)
     deps = c["deps"]
     if c.get("prep_fn"):
         c["prep_fn"](page)
@@ -302,12 +311,16 @@ def perceive_node(state: AgentState, config) -> dict:
         pass
 
     from ..browser.page_health import recover
-    if recover(page, c.get("intended_url") or state.get("url") or page.url) == "dead":
+    if recover(page, (c.get("tab") or {}).get("intended") or c.get("intended_url") or state.get("url") or page.url) == "dead":
         return {"stopped_reason": "dead_page"}      # Chrome's error shell; the one fresh GET already failed
     from ..browser.page_prep import says_already_applied
     if says_already_applied(page):
         print("[skip] the site says you already applied to this job", flush=True)
         return {"stopped_reason": "already_applied"}  # done, not a failed run (outcome.py: -> applied)
+    from ..browser.page_prep import is_chat_apply
+    if is_chat_apply(page):          # read before any fill: a chat box is never answered, nor its Send clicked
+        print("[stop] a chat-only apply page — handing it to you", flush=True)
+        return {"stopped_reason": "chatbot_apply"}
 
     from ..browser.page_prep import dismiss_consent
     from ..browser.gate_probe import HANDLERS
@@ -397,7 +410,7 @@ def fill_node(state: AgentState, config) -> dict:
     if state["steps"] >= state["max_steps"]:
         return {"stopped_reason": "max_steps"}
     c = config["configurable"]
-    page = c["page"]
+    page = _page(c)
     deps = c["deps"]
 
     form = [_d2f(d) for d in state["form"]]
@@ -572,7 +585,7 @@ def human_gate_node(state: AgentState, config) -> dict:
     print(f"[human] got {len(answers or {})} answer(s) — applying", flush=True)   # progress for the stall watchdog and the log
 
     c = config["configurable"]
-    page = c["page"]
+    page = _page(c)
     deps = c["deps"]
 
     from ..orchestrator.screen_review import apply_answers
@@ -671,7 +684,7 @@ def advance_node(state: AgentState, config) -> dict:
     if state.get("stopped_reason"):
         return {}
     c = config["configurable"]
-    page = c["page"]
+    page = _page(c)
     deps = c["deps"]
     human = c["human"]
     learn = c.get("learn")
@@ -756,7 +769,7 @@ def advance_node(state: AgentState, config) -> dict:
             before_submit = read_form_values(page)                    # what the form holds as it goes out
         except Exception:
             before_submit = {}
-        deps.click(page, pick_advance_label(form, is_last=True))
+        page = _follow(c, page, deps.click(page, pick_advance_label(form, is_last=True)))
         ok, why = deps.confirmed(page) if hasattr(deps, "confirmed") else (True, "unchecked")
         print(f"[submit] {'CONFIRMED' if ok else 'NOT confirmed'}: {why}", flush=True)
         if not ok:
@@ -785,6 +798,10 @@ def advance_node(state: AgentState, config) -> dict:
             if says_already_applied(page):        # SuccessFactors draws 'You already applied' after the page loads
                 print("[skip] the site says you already applied to this job", flush=True)
                 return {"stopped_reason": "already_applied"}
+            from ..browser.page_prep import is_chat_apply
+            if is_chat_apply(page):
+                print("[stop] a chat-only apply page — handing it to you", flush=True)
+                return {"stopped_reason": "chatbot_apply"}
             return _recovered("no_advance_control") or {"stopped_reason": "no_advance_control"}
         if has_submit and not has_advance:
             if not state.get("decisions") and not submit_seen(form):
@@ -795,7 +812,7 @@ def advance_node(state: AgentState, config) -> dict:
             # only the 'Apply' family matched with fields already filled: it opens/advances
             # the form, it does not send one — click through below instead of claiming a submit
 
-    deps.click(page, entry or pick_advance_label(form, is_last=False))
+    page = _follow(c, page, deps.click(page, entry or pick_advance_label(form, is_last=False)))
     if page.url.startswith("chrome-error://"):
         # The connection dropped as the page went (live Koch 2026-10-19: ERR_INTERNET_DISCONNECTED after a full page):
         # wait for the network, step back to the form; the next pass re-reads and re-fills what the back lost.
@@ -857,6 +874,10 @@ def advance_node(state: AgentState, config) -> dict:
             return upd
     if stuck:
         # The page did not move (MetLife's phone code, Koch's Education/Current?, Workday's loops).
+        from ..browser.page_prep import is_chat_apply
+        if is_chat_apply(page):          # before any assist/recover: no model drives a chat
+            print("[stop] a chat-only apply page — handing it to you", flush=True)
+            return {"stopped_reason": "chatbot_apply"}
         if fail:
             # The one refill round for this screen already ran and the site still flags these
             # fields (red boxes) — park as needs_answers naming them, so the dashboard shows

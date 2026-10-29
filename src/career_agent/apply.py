@@ -87,6 +87,7 @@ def _run_graph(cfg: dict, url: str, job_id, do_submit: bool, autonomous: bool,
                     print("[stop] the run's tab is gone (closed, or Chrome unreachable) after the wait", flush=True)
                     return {"stopped_reason": "tab_closed", "submitted": False}
                 cfg["configurable"]["page"] = _pg
+                cfg["configurable"].setdefault("tab", {})["page"] = _pg
             print(f"[telegram] received {len(answers)} answer(s)", flush=True)
             if not answers and getattr(getattr(human, "collector", None), "parks", False):
                 break                  # --park: the gaps stay open for the tracker
@@ -724,7 +725,7 @@ def _apply(args, box: dict) -> None:
         from pathlib import Path as _RunDirPath
         run_dir = str(_RunDirPath(args.db).parent / "agent_runs" / str(args.job_id)) if args.job_id else None
         graph_cfg = {"configurable": {
-            "thread_id": tid, "page": page, "profile": profile, "deps": deps,
+            "thread_id": tid, "page": page, "tab": {"page": page}, "profile": profile, "deps": deps,
             "human": human, "collector": collector, "resume_pdf": resume_pdf,
             "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
             "on_link": on_link, "remote_solve_notifier": notifier,
