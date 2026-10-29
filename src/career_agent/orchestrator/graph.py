@@ -579,7 +579,7 @@ def _validation_refill(page, deps, failing, c, state) -> dict:
     re-recalled, prior values re-typed with real keystrokes (React drops programmatic fills) —
     and hand what still fails to the human, quoting the site's own message in the question."""
     ctx = {**c, "page_index": state.get("steps", 0)}
-    from ..browser.validation import read_errors
+    from ..browser.validation import failing_fields, read_errors
     from ..browser.filler import has_value
     from .answering import answer_fields
     from .mapper import FillDecision, _action_for_kind
@@ -596,7 +596,6 @@ def _validation_refill(page, deps, failing, c, state) -> dict:
             continue
         fields.append(lf)
     # a value the site filled for itself is not ours to fix
-    from ..browser.filler import has_value
     fields = [f for f in fields
               if not (has_value(page, f) and f.kind not in ("combobox", "select", "radio_group", "checkbox_group"))]
     if not fields:

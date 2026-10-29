@@ -753,7 +753,14 @@ def _apply(args, box: dict) -> None:
                                  args.submit, args.autonomous, args.max_steps, human,
                                  jd_text=_db_jd, checkpoint_db=checkpoint_db)
             except Exception as _ge:
-                if "has been closed" in str(_ge):
+                import traceback
+                traceback.print_exc()
+                if isinstance(_ge, (NameError, ImportError, SyntaxError)):
+                    # a bug in our code, never the page's doing: walk() would finish the run and hide it
+                    # (graph._validation_refill's missing import fell back silently for days, 2026-10-24)
+                    print(f"[graph] engine bug ({type(_ge).__name__}: {_ge}) — stopping as engine_error", flush=True)
+                    out = {"stopped_reason": "engine_error", "submitted": False}
+                elif "has been closed" in str(_ge):
                     # the page is gone: a walk on it reads 0 fields and reports no_advance_control (Opella 2026-10-24)
                     print(f"[graph] failed ({_ge}); the tab is gone — stopping as tab_closed", flush=True)
                     out = {"stopped_reason": "tab_closed", "submitted": False}
