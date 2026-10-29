@@ -25,6 +25,7 @@ const STOP_LABEL = {
   dry_run: "Stopped before the submit click",
   unconfirmed: "Clicked submit, but the board didn't confirm it",
   logged_out: "Not logged in to the board",
+  bad_url: "broken apply link",
   challenge: "Blocked by a bot check",
   no_entry: "Couldn't find the apply button",
   daily_cap: "Daily cap for this board reached",

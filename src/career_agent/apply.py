@@ -213,6 +213,11 @@ def main() -> None:
 
 def _apply(args, box: dict) -> None:
     """The run itself; sets box["out"] to the result dict wherever it ends."""
+    from .boards.profiles import bad_url
+    if bad_url(args.url):
+        print(f"[stop] unusable apply URL ({bad_url(args.url)})", flush=True)
+        box["out"] = {"url": args.url, "stopped_reason": "bad_url", "submitted": False}
+        return
     import sqlite3
     from .config.settings import load_settings
     from .browser.runner import TabLedger, launch, close, tab_id_for

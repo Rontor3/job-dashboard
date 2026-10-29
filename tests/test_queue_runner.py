@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from job_dashboard import qa_store
 from job_dashboard.apply import queue as q
 from job_dashboard.apply.queue_runner import QueueRunner, autosubmit_key, job_target
@@ -7,6 +9,12 @@ from job_dashboard.db import init_db
 
 URLS = {1: "https://www.naukri.com/job-listings-ml-1", 2: "https://boards.greenhouse.io/acme/jobs/2",
         3: "https://www.iimjobs.com/j/data-3"}
+
+
+@pytest.fixture(autouse=True)
+def _remote_solve_on(monkeypatch):
+    # keeps the old tests hermetic: the captcha hand-off counts as set up unless a test says otherwise
+    monkeypatch.setattr("career_agent.integrations.live_view.tailscale.detect_host", lambda s: "100.64.0.1")
 
 
 def _db(tmp_path, ids=(1, 2, 3)):
@@ -165,3 +173,43 @@ def test_watcher_relaunches_run_one_at_a_time_and_respect_a_saved_pause(tmp_path
     r.pause()
     assert QueueRunner(path, lambda *a, **k: None)._paused       # the pause survives a restart
     assert QueueRunner(path, lambda *a, **k: None).run_one_detached(3) is False
+
+
+def test_bad_url_values():
+    from career_agent.boards.profiles import bad_url
+    assert bad_url("https://ad.x.net/clk;gdpr=${GDPR}?https:/a") == "unfilled_placeholder"
+    assert bad_url("https://a.com/{{id}}")
+    assert bad_url("ftp://h/") == "not_http_url"
+    assert bad_url("http:///p") == "not_http_url"
+    assert bad_url("https://boards.greenhouse.io/x/jobs/1") is None
+
+
+def test_bad_url_job_is_parked_without_launching(tmp_path):
+    path, conn = _db(tmp_path)
+    conn.execute("UPDATE jobs SET job_url=? WHERE id=1", ("https://ad.x.net/clk;gdpr=${GDPR}?https:/a",))
+    conn.commit()
+    launch = FakeLaunch({})
+    QueueRunner(path, launch, result_dir=str(tmp_path)).drain()
+    assert [c[0] for c in launch.calls] == [2, 3]
+    assert _states(conn) == {1: ("parked", "bad_url"), 2: ("done", "submitted"), 3: ("done", "submitted")}
+
+
+def test_logged_out_board_parks_the_rest_of_that_board(tmp_path):
+    path, conn = _db(tmp_path)
+    conn.execute("INSERT INTO jobs (id, title, company, job_url, source, description, fetched_at)"
+                 " VALUES (4, 't', 'c', ?, 's', '', 'now')", ("https://www.naukri.com/job-listings-ml-4",))
+    q.enqueue(conn, 4)
+    conn.commit()
+    launch = FakeLaunch({1: (0, {"submitted": False, "stopped_reason": "logged_out"})})
+    QueueRunner(path, launch, result_dir=str(tmp_path)).drain()
+    assert [c[0] for c in launch.calls] == [1, 2, 3]                  # job 4 (same board) never launched
+    assert _states(conn) == {1: ("parked", "logged_out"), 2: ("done", "submitted"),
+                             3: ("done", "submitted"), 4: ("parked", "logged_out")}
+
+
+def test_drain_warns_once_when_remote_solve_off(tmp_path, monkeypatch):
+    monkeypatch.setattr("career_agent.integrations.live_view.tailscale.detect_host", lambda s: None)
+    path, conn = _db(tmp_path)
+    QueueRunner(path, FakeLaunch({}), result_dir=str(tmp_path)).drain()
+    n = conn.execute("SELECT COUNT(*) FROM notification WHERE dedupe='remote_solve_off' AND dismissed_at IS NULL").fetchone()[0]
+    assert n == 1

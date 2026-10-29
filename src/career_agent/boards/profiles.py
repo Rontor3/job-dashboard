@@ -52,6 +52,22 @@ def on_board(url, board) -> bool:
     return not domains or any(host == d or host.endswith("." + d) for d in domains)
 
 
+_PLACEHOLDER = re.compile(r"\$\{|\{\{|%7B%7B|%24%7B", re.I)
+
+
+def bad_url(url) -> str | None:
+    """Why this apply link can't be used (None = fine): not http(s), no host, or unfilled template placeholders
+    ('gdpr=${GDPR}' in an ad-click link)."""
+    u = (url or "").strip()
+    try:
+        p = urlparse(u)
+    except ValueError:
+        return "malformed_url"
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return "not_http_url"
+    return "unfilled_placeholder" if _PLACEHOLDER.search(u) else None
+
+
 _STEP = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
 

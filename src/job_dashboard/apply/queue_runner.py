@@ -17,6 +17,7 @@ import tempfile
 import threading
 from datetime import datetime, timezone
 
+from career_agent.boards.profiles import bad_url, board_for
 from job_dashboard import notifications, qa_store
 from job_dashboard.apply import queue as q
 from job_dashboard.apply.outcome import outcome
@@ -49,6 +50,7 @@ _STOPPED = {
     "needs_approval": "is filled with best-guess answers for you to check", "logged_out": "needs you to log in to the site",
     "auth_wall": "needs you to log in to the site", "challenge": "hit a bot check", "daily_cap": "hit the site's daily cap",
     "closed": "is closed", "sensitive_field": "needs bank or ID details only you can enter",
+    "bad_url": "has a broken apply link (unfilled placeholder or not a web address)",
     "email_code": "needs the code the site emailed you", "stalled_no_progress": "stalled on a page",
     "one_click_needs_autosubmit": "is a one-click apply that needs auto-submit on for that board",
     "no_advance_control": "stopped: the agent couldn't find the Next or Submit button",
@@ -74,6 +76,25 @@ def announce(conn, job_id: int, state: str, reason: str | None) -> None:
         notifications.safe_notify(conn, "failed", f"Couldn't apply: {what}", (reason or "").replace("_", " ") or None,
                                   level="warning", job_id=job_id, source="queue", data={"reason": reason},
                                   dedupe=f"run:{job_id}")
+
+
+def _park(conn, job_id, reason) -> None:
+    q.mark(conn, job_id, "parked", reason)
+    announce(conn, job_id, "parked", reason)
+
+
+def _warn_remote_solve_off(conn) -> None:
+    """Once per drain: with no captcha hand-off every bot check is a dead end — say so up front."""
+    try:
+        from career_agent.config.settings import load_settings
+        from career_agent.integrations.live_view.tailscale import detect_host
+        if detect_host(load_settings()) is not None:
+            return
+    except Exception:
+        return
+    msg = "Captcha hand-off is off (Tailscale host not detected): bot checks can't be solved from your phone."
+    print(f"[queue] {msg}", flush=True)
+    notifications.safe_notify(conn, "agent", msg, level="warning", source="queue", dedupe="remote_solve_off")
 
 
 def autosubmit_key(url: str) -> str:
@@ -211,22 +232,32 @@ class QueueRunner:
         """Run queued jobs until none are left or the queue is paused."""
         conn = init_db(self.db_path)
         self._promote_trails()                      # runs finished outside the queue (CLI, manual)
+        _warn_remote_solve_off(conn)
         # a 'running' row at drain start belongs to a run the server restart orphaned: back to the queue, not stuck
         conn.execute("UPDATE apply_queue SET state='queued', started_at=NULL WHERE state='running'")
         conn.commit()
         from . import local_model
         started_model = local_model.ensure_running()
+        logged_out: set[str] = set()                # boards whose login wall this drain has already hit
         try:
             while not self._paused:
                 job_id = q.next_queued(conn)
                 if job_id is None:
                     break
+                job = _job(conn, job_id)
+                b = board_for(job_target(job) if job else None)
+                bid = b["id"] if b else None
+                if bid and bid in logged_out:       # not logged in there: the rest of that board waits for you too
+                    _park(conn, job_id, "logged_out")
+                    continue
                 self._job_id = job_id
                 try:
-                    self._run_one(conn, job_id)
+                    reason = self._run_one(conn, job_id)
                 finally:
                     self._job_id = None
                     self._promote_trails()
+                if reason == "logged_out" and bid:
+                    logged_out.add(bid)
         finally:
             conn.close()
             if started_model:
@@ -270,11 +301,14 @@ class QueueRunner:
         # answers' approvals (autonomy.autosubmit_policy); otherwise it is left open for your review.
         return argv + ["--review", "--autosubmit-policy"]
 
-    def _run_one(self, conn, job_id: int, target: str | None = None) -> None:
+    def _run_one(self, conn, job_id: int, target: str | None = None) -> str | None:
         job = _job(conn, job_id)
         url = target or (job_target(job) if job else None)
         if not url:
             q.mark(conn, job_id, "failed", "job_missing")
+            return
+        if bad_url(url):
+            _park(conn, job_id, "bad_url")
             return
         q.mark(conn, job_id, "running")
         marker = _run_log_marker(conn)                 # the child's own rows land above this; anything fewer is a silent death
@@ -314,3 +348,4 @@ class QueueRunner:
         now = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
         if status in VALID_STATUSES and not (now and now[0] in ("applied", "interviewing", "offer")):
             set_job_status(conn, job_id, status)       # a re-run never downgrades a job you already applied to
+        return reason
