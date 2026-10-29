@@ -52,14 +52,22 @@ _PAIR_ERRORS_JS = r"""
     out.set(ref, (cur + ' ' + m).slice(0, 220));
     return true;
   };
-  // 1) aria-describedby
+  // 1) aria-describedby — help/status text ('0 items selected', 'Format: MM/YYYY') unless the field is
+  //    flagged invalid or the described node is itself error-shaped
+  const ERRISH = '[role=alert],[aria-live=assertive],[id*="error" i],[class*="error" i],[class*="invalid" i]';
+  const invalid = (el) => {
+    if (el.getAttribute('aria-invalid') === 'true') return true;
+    try { return el.matches(':invalid'); } catch (err) { return false; }
+  };
   for (const el of fields) {
     const d = (el.getAttribute('aria-describedby') || '').trim();
     if (!d) continue;
     const root = el.getRootNode ? el.getRootNode() : document;
+    const bad = invalid(el);
     const msg = d.split(/\s+/).filter(Boolean).map(id => {
       const n = root.getElementById ? root.getElementById(id) : null;
-      return n ? (n.innerText || '') : '';
+      if (!n || !(bad || n.closest(ERRISH))) return '';
+      return n.innerText || '';
     }).join(' ');
     if (norm(msg)) add(refOf(el), msg);
   }
