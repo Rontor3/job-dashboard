@@ -561,22 +561,26 @@ def is_login_page(page) -> bool:
 _CHAT_JS = r"""() => {
   const vis = e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4; };
   const ins = [...document.querySelectorAll('input,select,textarea')].filter(vis)
-    .filter(e => !['hidden', 'submit', 'button', 'search'].includes(e.type));
+    .filter(e => !['hidden', 'submit', 'button', 'search', 'file'].includes(e.type));
+  const isSend = e => /^send( message)?$/i.test((e.getAttribute('aria-label') || e.innerText || '').trim());
+  const sends = [...document.querySelectorAll('button,[role=button]')].filter(e => vis(e) && isSend(e));
+  // a composer: a reply box whose own small container holds the Send control
+  const composer = ins.some(e => (e.tagName === 'TEXTAREA' || e.type === 'text') && (() => {
+    for (let n = e.parentElement, i = 0; n && i < 4; n = n.parentElement, i++) if (sends.some(s => n.contains(s))) return true;
+    return false; })());
   const log = [...document.querySelectorAll('[role=log]')].filter(vis).some(e => e.querySelector('li,p,div'));
-  const send = [...document.querySelectorAll('button,[role=button]')].filter(vis)
-    .some(e => /^send( message)?$/i.test((e.getAttribute('aria-label') || e.innerText || '').trim()));
-  return {log, send, msgbox: ins.length === 1 && (ins[0].tagName === 'TEXTAREA' || ins[0].type === 'text')};
+  return {fields: ins.length, composer, log};
 }"""
 
 
 def is_chat_apply(page) -> bool:
-    """A conversational apply: no form, one message box beside a message log or a Send control. Never chat on the
-    user's behalf — hand it to them."""
+    """A conversational apply: a message composer (reply box + its Send control) or a message log, and too few fields
+    to be a form — FedEx's chat beside a language picker has 2. Never chat on the user's behalf: hand it to them."""
     try:
         d = page.evaluate(_CHAT_JS)
     except Exception:
         return False
-    return bool(d and d.get("msgbox") and (d.get("log") or d.get("send")))
+    return bool(d and (d.get("composer") or d.get("log")) and 0 < d.get("fields", 0) < 3)
 
 
 # An auth word standing as its own path segment (not mentioned inside a job slug)
