@@ -396,7 +396,8 @@ def announce_site_refusal(page) -> dict:
 _CLOSED_RE = re.compile(
     r"job (not found|you requested was not found)|no longer available"
     r"|could ?n'?t find anything|posting[^.]{0,40}(closed|removed)|404 error"
-    r"|job board[^.]{0,40}no longer active|page not found",
+    r"|job board[^.]{0,40}no longer active|page not found"
+    r"|page you(?: are|'re)? looking for (?:does ?n.?t|does not|no longer) exists?",   # Workday's dead posting
     re.I)
 
 

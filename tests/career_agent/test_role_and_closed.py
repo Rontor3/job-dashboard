@@ -97,3 +97,12 @@ def test_long_form_mentioning_signing_is_a_form_not_email_auth():
     assert classify_entry(_FakePage(_d(hasEmail=True, verify=True, fillable=26))) == "form"
     # a genuine email-first gate (1 input) is still email_auth
     assert classify_entry(_FakePage(_d(hasEmail=True, verify=True, fillable=1))) == "email_auth"
+
+
+def test_workday_page_that_does_not_exist_is_closed():
+    # live Opella 2026-10-29: a removed Workday posting reads only this, and ran on as 'no_advance_control'
+    from career_agent.browser.page_prep import _looks_closed
+    body = ("Skip to main content\nEnglish\nSign In\nAbout Opella\nSearch for Jobs\n"
+            "The page you are looking for doesn't exist.\nSearch for Jobs\nFollow Us\n© 2026 Workday, Inc.")
+    assert _looks_closed(body)
+    assert not _looks_closed("Build a lookup that returns null when the key you are looking for does not exist. " * 20)
