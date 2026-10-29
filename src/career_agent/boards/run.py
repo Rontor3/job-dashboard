@@ -63,10 +63,15 @@ _ERRORS_JS = """() => [...new Set([...document.querySelectorAll(
 
 
 def _visible_errors(page):
+    """The page's error words: field errors from the shared reader (help/status text excluded, the browser's own
+    'required' flag included) plus banner text no field claims."""
+    from ..browser.validation import read_errors
+    words = [e["message"] or "(a field is flagged invalid)" for e in read_errors(page)]
     try:
-        return page.evaluate(_ERRORS_JS)
+        words += page.evaluate(_ERRORS_JS)
     except Exception:
-        return []
+        pass
+    return list(dict.fromkeys(words))[:8]
 
 
 def _posting_state(page, text):
@@ -570,7 +575,11 @@ def run_board(page, board, ctx):
                 # fields (declarations affirmatively, the rest from the human),
                 # then retry. Otherwise stop instead of refilling in a loop.
                 extra = _affirm(optional) if not retried_bounce else []
-                rest = [f for f in optional if f.ref not in {d.ref for d in extra}]
+                # the fields the board itself flagged go to the human too, with its words — not only the optional ones
+                from ..browser.validation import failing_fields, read_errors
+                flagged, _ = failing_fields(read_errors(page), fields)
+                rest = flagged + [f for f in optional
+                                  if f.ref not in {d.ref for d in extra} | {g.ref for g in flagged}]
                 if not retried_bounce and rest:
                     got, _ = _ask(rest, ctx)
                     extra += got

@@ -226,10 +226,24 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                     reason = f"gate:{_post_gate}"; break
                 if _blocking(deps.gate(page)):
                     reason = f"gate:{_post_gate}"; break
-        after = screen_signature(deps.url(page), deps.snapshot(page))
+        after_form = deps.snapshot(page)
+        # The site's red boxes, read the same way the graph reads them: the flagged fields go to the human with the
+        # site's own words, then one more Next. walk() used to see only "did the page move" (graph fallback, 2026-10-24).
+        from ..browser.validation import failing_fields, read_errors
+        flagged, _ = failing_fields(read_errors(page), after_form)
+        if flagged:
+            print(f"[advance] the site rejected: {[f.label for f in flagged]} — one refill round", flush=True)
+            deps.fill(page, apply_answers(flagged, human.collect(flagged)))
+            try:
+                deps.click(page, pick_advance_label(after_form, is_last=False))
+            except Exception:
+                pass
+            after_form = deps.snapshot(page)
+        after = screen_signature(deps.url(page), after_form)
         if not changed(before, after):
             if assist and assist.recover(page, "stuck"):
                 continue
-            reason = "stuck"; break
+            still, _ = failing_fields(read_errors(page), after_form)
+            reason = "needs_answers" if still else "stuck"; break
 
     return {"screens": steps, "submitted": submitted, "stopped_reason": reason, "cards": []}

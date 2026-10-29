@@ -820,20 +820,22 @@ def advance_node(state: AgentState, config) -> dict:
     if errs:
         shown = "; ".join(dict.fromkeys(e["message"] for e in errs if e["message"]))[:240]
         print(f"[advance] the site says: {shown or '(invalid fields, no messages)'}", flush=True)
-    if state.get("form_sig") and not changed(state["form_sig"], after):
-        # The page did not move. The site has the floor: bind its complaints to fields and
-        # refill those once (MetLife's phone code, Koch's Education/Current?, Workday's loops
-        # all stalled here yesterday with the red text unread).
-        fail, _banners = failing_fields(errs, new_form)
-        done = list(state.get("refilled") or [])
-        if fail and ref_key(after) not in done:
-            upd = _validation_refill(page, deps, fail, c, state)
-            if upd:
-                upd.setdefault("form", [_f2d(f) for f in new_form])
-                upd["form_sig"] = after
-                upd["url"] = page.url
-                upd["refilled"] = done + [ref_key(after)]
-                return upd
+    fail, _banners = failing_fields(errs, new_form)
+    done = list(state.get("refilled") or [])
+    stuck = bool(state.get("form_sig")) and not changed(state["form_sig"], after)
+    if fail and ref_key(after) not in done:
+        # The site flagged fields: refill those once, whether or not the screen's fingerprint moved —
+        # Workday adds boxes when it shows an error, and an unchanged-only check skipped the red text
+        # and re-filled the whole step in a loop (Opella 55→57 fields, 2026-10-24).
+        upd = _validation_refill(page, deps, fail, c, state)
+        if upd:
+            upd.setdefault("form", [_f2d(f) for f in new_form])
+            upd["form_sig"] = after
+            upd["url"] = page.url
+            upd["refilled"] = done + [ref_key(after)]
+            return upd
+    if stuck:
+        # The page did not move (MetLife's phone code, Koch's Education/Current?, Workday's loops).
         if fail:
             # The one refill round for this screen already ran and the site still flags these
             # fields (red boxes) — park as needs_answers naming them, so the dashboard shows
