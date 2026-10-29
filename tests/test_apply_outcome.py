@@ -34,3 +34,8 @@ def test_submitted_wins_over_a_nonzero_exit():
 def test_a_closed_posting_is_marked_closed_not_failed():
     from job_dashboard.apply.outcome import outcome
     assert outcome({"stopped_reason": "closed"}, 0) == ("parked", "closed", "closed")
+
+
+def test_engine_error_is_our_crash_not_parked_for_the_human():
+    from job_dashboard.apply.outcome import outcome
+    assert outcome({"stopped_reason": "engine_error", "submitted": False}, 0) == ("failed", "engine_error", "failed")
