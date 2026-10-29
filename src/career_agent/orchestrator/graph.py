@@ -230,6 +230,22 @@ def cred_provide_node(state: AgentState, config) -> dict:
         if is_application_form(page) and _is_combined_form(page):
             print("[auth-wall] registration is part of the application form — continuing to fill", flush=True)
             cleared = True
+    if not cleared and cred_action in ("register", "register_inline"):
+        # The sign-up form refused the submit with red boxes the credential step never answers (TE's required
+        # 'Make My Profile Visible to' radios, 2026-10-27): one round through the same answer ladder as any form,
+        # then the sign-up button once more. What still has no answer parks as needs_answers, naming the question.
+        from ..browser.validation import failing_fields, read_errors
+        flagged, _ = failing_fields(read_errors(page), c["deps"].snapshot(page, scroll=False))
+        if flagged:
+            print(f"[auth-wall] the sign-up form flagged: {[f.label for f in flagged]}", flush=True)
+            upd = _validation_refill(page, c["deps"], flagged, c, state)
+            if upd.get("pending_human"):
+                return {"stopped_reason": "needs_answers", "pending_human": upd["pending_human"],
+                        "cred_provided": True, "cred_action": cred_action}
+            from ..browser.credential_provider import _click_non_social_submit, _observe_until_change
+            if _click_non_social_submit(page):
+                _observe_until_change(page, "signup_refill")
+            cleared = classify_entry(page) not in ("password", "email_auth") or is_application_form(page)
     if not cleared:
         # otp_unanswered: the provider asked the connected human once and was
         # silent within the short window — an honest park, the queue re-drains it.
