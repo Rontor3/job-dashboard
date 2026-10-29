@@ -108,6 +108,14 @@ def fill_top_down(page, deps, fields, decisions, needs, ctx, *, answer_fn=None, 
         except Exception:
             pass
         after = _value(page, d) if d.action in ("fill", "select", "combobox") else None
+        for _ in range(6):        # a widget may commit its value late (Workday pill): look again before "did not take"
+            if after is None or str(after).strip():
+                break
+            try:
+                page.wait_for_timeout(300)
+            except Exception:
+                break
+            after = _value(page, d)
         if after is not None and not str(after).strip():
             # The answer did not take (no dropdown option matched what was typed, the box rejected it): it is not
             # filled, whatever was attempted. The field goes to the human with its real label.

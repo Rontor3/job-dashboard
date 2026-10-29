@@ -147,3 +147,38 @@ def test_a_site_value_that_contradicts_a_known_answer_is_replaced():
     assert site_value_stands("GenAI", banked) is False                      # a stored answer beats the résumé parse
     guess = FillDecision("#c", "text", "City", "Mumbai", "fill", "judgment")
     assert site_value_stands("Pune", guess) is True                          # ours is a guess: the site's stands
+
+
+def _slow_commit_setup(monkeypatch, values):
+    from types import SimpleNamespace as NS
+    from career_agent.orchestrator import top_down as td
+    from career_agent.browser.form_model import Field
+    from career_agent.orchestrator.mapper import FillDecision
+    f1 = Field("#inst", "text", "Institution", True, [], None, None)
+    d = FillDecision("#inst", "text", "Institution", "Ceramic Engineering", "fill", "profile")
+    seq = iter(values)
+    last = [""]
+
+    def fake_value(page, dec):
+        try:
+            last[0] = next(seq)
+        except StopIteration:
+            pass
+        return last[0]
+
+    monkeypatch.setattr(td, "_value", fake_value)
+    deps = NS(fill=lambda page, dd, revalidate=False: None, snapshot=lambda page, scroll=False: [f1])
+    page = NS(evaluate=lambda js, *a: "", wait_for_timeout=lambda ms: None)
+    return td, deps, page, [f1], [d]
+
+
+def test_slow_commit_is_not_did_not_take(monkeypatch):
+    td, deps, page, fields, ds = _slow_commit_setup(monkeypatch, ["", "", "Ceramic Engineering"])
+    applied, needs = td.fill_top_down(page, deps, fields, ds, [], None)
+    assert needs == [] and len(applied) == 1
+
+
+def test_still_empty_is_did_not_take(monkeypatch):
+    td, deps, page, fields, ds = _slow_commit_setup(monkeypatch, [""])
+    applied, needs = td.fill_top_down(page, deps, fields, ds, [], None)
+    assert [f.ref for f in needs] == ["#inst"] and applied == []
