@@ -8,22 +8,24 @@ pytestmark = pytest.mark.skipif(os.getenv("RUN_BROWSER_TESTS") != "1", reason="s
 
 PAGE_T = """
 <div class="field" data-automation-id="formField-skills">
-  <input id="s" data-automation-id="searchBox" role="combobox" aria-controls="lb" autocomplete="off">
+  <input id="s" data-automation-id="searchBox" role="combobox" aria-controls="lb" autocomplete="off" __HINT__>
   <div role="listbox" id="lb" style="display:none"></div>
 </div>
 <script>
-const CATALOG = __CATALOG__; const MULTI = __MULTI__;
+const CATALOG = __CATALOG__; const MULTI = __MULTI__; const ON_ENTER = __ENTER__;
+let searched = "";
 const input = document.getElementById("s"), lb = document.getElementById("lb");
 const field = document.querySelector('[data-automation-id="formField-skills"]');
 function render() {
-  const q = input.value.trim().toLowerCase();
+  // ON_ENTER (Workday prompt): only Enter runs the search; until then the first 3 A-Z show
+  const q = ON_ENTER ? searched : input.value.trim().toLowerCase();
   lb.innerHTML = "";
-  CATALOG.filter(t => !q || t.toLowerCase().includes(q)).forEach(t => {
+  CATALOG.filter(t => !q || t.toLowerCase().includes(q)).slice(0, ON_ENTER && !q ? 3 : 99).forEach(t => {
     const o = document.createElement("div"); o.setAttribute("role", "option"); o.textContent = t;
     o.addEventListener("click", () => {
       const s = document.createElement("span"); s.setAttribute("data-automation-id", "selectedItem"); s.textContent = t;
       if (!MULTI) field.querySelectorAll('[data-automation-id="selectedItem"]').forEach(x => x.remove());
-      field.insertBefore(s, input); input.value = ""; render(); lb.style.display = "none";
+      field.insertBefore(s, input); input.value = ""; searched = ""; render(); lb.style.display = "none";
     });
     lb.appendChild(o);
   });
@@ -31,16 +33,19 @@ function render() {
 }
 input.addEventListener("click", render);
 input.addEventListener("input", render);
+input.addEventListener("keydown", e => { if (e.key === "Enter") { searched = input.value.trim().toLowerCase(); render(); } });
 </script>
 """
 
 
-def _run(catalog, multi, value):
+def _run(catalog, multi, value, on_enter=False):
     import json
     from playwright.sync_api import sync_playwright
     from career_agent.browser.filler import _add_list_parts, _pick_combobox
 
     html = PAGE_T.replace("__CATALOG__", json.dumps(catalog)).replace("__MULTI__", "true" if multi else "false")
+    html = html.replace("__ENTER__", "true" if on_enter else "false").replace(
+        "__HINT__", 'enterkeyhint="search"' if on_enter else "")
     with sync_playwright() as pw:
         b = pw.chromium.launch(); page = b.new_page(); page.set_content(html)
         d = SimpleNamespace(value=value, label="Skills", alternatives=(), action="combobox")
@@ -59,3 +64,17 @@ def test_comma_list_picks_each_part():
 def test_single_choice_keeps_its_first_pick():
     picked = _run(["Mumbai", "Santacruz (E)"], False, "Santacruz (E), Mumbai")
     assert len(picked) == 1 and picked[0] in ("Mumbai", "Santacruz (E)"), picked   # one answer, never a churned blank
+
+
+SUBJECTS = ["Accounting", "Actuarial Science", "Administration", "Ceramic Engineering", "Structured Query Language (SQL)",
+            "U-SQL"]
+
+
+def test_search_on_enter_box_finds_an_answer_past_the_first_page():
+    # Workday Field of Study lists only the first 100 A-Z until Enter: 'Ceramic Engineering' was never offered
+    assert _run(SUBJECTS, False, "Ceramic Engineering", on_enter=True) == ["Ceramic Engineering"]
+
+
+def test_search_on_enter_box_is_read_after_the_search_not_before():
+    # before Enter the open list is a sample: 'SQL' fuzzily fit 'U-SQL' there (Workday Skills)
+    assert _run(SUBJECTS, True, "SQL", on_enter=True) == ["Structured Query Language (SQL)"]

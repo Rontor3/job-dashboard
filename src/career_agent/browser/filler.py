@@ -160,9 +160,9 @@ def _add_list_parts(page, target, sel, d, matcher) -> None:
     have = first
     pick = lambda v: _pick_combobox(page, target, sel, SimpleNamespace(value=v, label=d.label, alternatives=(),  # noqa: E731
                                                                        action=""), matcher)
+    # every part gets its own pick: which part the whole-list pick stood for is a guess ('Python Numpy' read as
+    # Python's left 'Python' unpicked, Workday). Re-picking an item already chosen is a no-op in _pick_combobox.
     for p in parts:
-        if any(p.lower() in h.lower() or h.lower() in p.lower() for h in have):
-            continue                            # already there
         try:
             pick(p)
         except Exception:
@@ -230,7 +230,17 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                     options = _options()
             except Exception:
                 pass
+        def _searches_on_enter():
+            try:
+                return target.locator(sel).first.evaluate(
+                    "e => e.enterKeyHint === 'search' || e.type === 'search' || e.getAttribute('role') === 'searchbox'")
+            except Exception:
+                return False
+
         opt = _fit(options)
+        if opt and _searches_on_enter() and opt.strip().lower() not in {
+                str(v).strip().lower() for v in (d.value, *(getattr(d, "alternatives", ()) or ()))}:
+            opt = None      # a search-on-Enter box's open list is a sample or the LAST search: only an exact hit counts
         if __import__("os").getenv("CAREER_AGENT_DEBUG_PICK"):
             print(f"[pick-debug] {d.label[:40]!r} value={d.value!r} alts={getattr(d, 'alternatives', ())!r} "
                   f"options={sorted(set(options))[:8]} -> {opt!r}", flush=True)
@@ -251,6 +261,14 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                     found = _options()
                     if found and not all(_SEARCHING.match(o) for o in found):
                         break
+                if _searches_on_enter():
+                    # a box that searches on Enter (enterkeyhint=search): what it lists before Enter is not the result —
+                    # Workday Field of Study shows the first 100 A-Z ('Ceramic Engineering' never listed), and Skills
+                    # 'SQL' fuzzily fit 'U-SQL' there instead of 'Structured Query Language (SQL)'
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(1500)
+                    scope = _popup(target, lb_id)
+                    found = _options()
                 return found
 
             # the answer's own wordings first, then its stand-ins: a search box filters the list to what it holds, so
@@ -266,6 +284,8 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                     opt = next((o for o in _search(q) if _OTHER_OPTION.search(o)), None)
                     if opt:
                         break
+        if opt and opt.strip().lower() in {x.strip().lower() for x in (field_value(target, sel) or "").split(",")}:
+            return          # Enter on a lone match already chose it; a click now would toggle it back off (Workday)
         if opt:
             pace(page)
             before = _options()
