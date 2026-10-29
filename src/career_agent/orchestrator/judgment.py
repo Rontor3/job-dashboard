@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from .screen_review import PROSE_PURPOSES, _EMPLOYMENT_SECTION
+from ..browser.form_model import is_credential
 try:
     from job_dashboard.apply.screening import draft_screening_answer
 except Exception:
@@ -243,6 +244,9 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
         # Rule: non-required, non-text/textarea fields have no asterisk → skip, not escalate
         if not f.required and f.kind not in ("text", "textarea"):
             continue
+        if f.kind in ("text", "textarea") and is_credential(f):
+            still_need.append(f)
+            continue                    # an account box is never an essay
         if _is_sensitive(f):
             still_need.append(f); continue
         if calls >= cap:

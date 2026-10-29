@@ -122,6 +122,18 @@ def test_judge_respects_cap():
     assert len(answered) == 1 and len(still_need) == 1   # cap hit -> one escalates
 
 
+def test_judge_never_drafts_into_a_credential_box():
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    login = _f("f1@@#login_id", "This account does not exist.", required=True)
+    email = Field("#x", "text", "Tell us about yourself", True, [], None, None, input_type="email")
+    called = {"n": 0}
+    def llm(prompt): called["n"] += 1; return "prose that must never land in a login box"
+    answered, still_need, flagged = judge([login, email], ctx, llm)
+    assert {f.ref for f in still_need} == {"f1@@#login_id", "#x"}
+    assert answered == []
+    assert called["n"] == 0
+
+
 def test_judge_never_raises_on_llm_failure():
     ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
     q = _f("#q", "Short answer?", kind="text", required=True)

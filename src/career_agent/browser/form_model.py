@@ -239,3 +239,14 @@ def guess_purpose(label: str, kind: str) -> str | None:
             if re.search(pattern, text):
                 return purpose
     return None
+
+
+_CRED_AC = {"username", "email", "current-password", "new-password", "one-time-code"}
+_CRED_REF = re.compile(r"(login|log-?in|e-?mail|user-?(name|id)|passw(or)?d|passcode)", re.I)
+
+
+def is_credential(f) -> bool:
+    """An identity/credential box: its answer is the account, never prose."""
+    return (getattr(f, "input_type", None) in ("email", "password")
+            or any(t in _CRED_AC for t in (getattr(f, "autocomplete", None) or "").split())
+            or bool(_CRED_REF.search((f.ref or "").rsplit("@@", 1)[-1])))

@@ -162,7 +162,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
             ref=r["ref"], kind=kind, label=label,
             required=bool(r.get("required")) or bool(re.search(r"^\s*\*|\*\s*(required)?\s*$", label or "", re.I)), options=list(r.get("options", [])),
             group=r.get("group"),
-            purpose=guess_purpose(label, kind),
+            purpose=guess_purpose(label, kind) or ("email" if kind == "text" and (r.get("input_type") == "email" or "email" in (r.get("autocomplete") or "").split()) else None),
             description=r.get("description", ""),
             input_type=r.get("input_type", ""),
             autocomplete=r.get("autocomplete", ""),
