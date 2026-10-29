@@ -145,6 +145,39 @@ def read_combobox_options(page, sel) -> list[str]:
         return []
 
 
+def _add_list_parts(page, target, sel, d, matcher) -> None:
+    """A comma list in a picker that kept ONE of its items ('Python' of 'Python, SQL, NumPy' — Workday Skills, every run
+    'did not take'): add the other items one at a time. The widget decides what it is: an item that grows the field's
+    items means multi-select, keep going; one that REPLACES the item means single choice — put the first pick back."""
+    from types import SimpleNamespace
+    parts = [p.strip() for p in str(d.value).split(",") if p.strip()]
+    if len(parts) < 2:
+        return
+    items = lambda: [x.strip() for x in (field_value(target, sel) or "").split(",") if x.strip()]   # noqa: E731
+    first = items()
+    if len(first) != 1 or first[0].lower() == str(d.value).strip().lower():
+        return                                  # nothing picked, several already, or the whole value is one option
+    have = first
+    pick = lambda v: _pick_combobox(page, target, sel, SimpleNamespace(value=v, label=d.label, alternatives=(),  # noqa: E731
+                                                                       action=""), matcher)
+    for p in parts:
+        if any(p.lower() in h.lower() or h.lower() in p.lower() for h in have):
+            continue                            # already there
+        try:
+            pick(p)
+        except Exception:
+            continue
+        now = items()
+        if now != have and len(now) <= len(have):
+            print(f"[fill] {d.label[:40]!r} keeps one choice — back to {first[0]!r}", flush=True)
+            try:
+                pick(first[0])
+            except Exception:
+                pass
+            return
+        have = now
+
+
 def _pick_combobox(page, target, sel, d, matcher) -> None:
     """One attempt: open the dropdown, read its live options, click the one matching d.value."""
     pace(page)
@@ -578,6 +611,7 @@ def apply_decisions(page, decisions: list[FillDecision], matcher=None) -> None:
                 if _shows_value(target, sel):
                     break
                 page.wait_for_timeout(500)
+            _add_list_parts(page, target, sel, d, matcher)
             continue
         if d.action == "fill":
             shape = read_shape(target, sel)
