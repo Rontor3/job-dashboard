@@ -39,6 +39,7 @@ _PAIR_ERRORS_JS = r"""
   walk(document, '[role=alert],[aria-live=assertive],[id*="error" i],[class*="error" i],[class*="invalid" i]', errNodes);
   const refOf = (el) => {
     if (!el || el.id === undefined) return '';
+    if (el.type === 'radio' && el.name) return 'group:' + el.name;   // perception names a radio set by its group
     if (el.id) return '#' + CSS.escape(el.id);
     const c = (el.getAttribute('data-cref') || '');
     return c ? '[data-cref="' + c + '"]' : '';
@@ -169,7 +170,7 @@ def read_errors(page, limit: int = 12) -> list[dict]:
             continue
         for r in rows or []:
             ref = r.get("ref") or ""
-            if idx > 0 and ref:
+            if idx > 0 and ref and not ref.startswith("group:"):     # group refs carry no frame prefix
                 ref = f"f{idx}@@{ref}"
             errs.append({"ref": ref, "message": (r.get("message") or "")})
     seen, out = set(), []

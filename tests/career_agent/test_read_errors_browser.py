@@ -17,6 +17,7 @@ PAGE = """<html><body>
 <input id="role" aria-invalid="true" aria-describedby="e1"><span id="e1">Contains illegal characters</span>
 <input id="city" aria-describedby="e2"><span id="e2" class="error-msg">City is required</span>
 <input id="phone" required>
+<input type="radio" id="v1" name="visible" required><input type="radio" id="v2" name="visible">
 </body></html>"""
 
 
@@ -32,3 +33,4 @@ def test_status_text_is_not_an_error_but_real_errors_are():
     assert got["#role"] == "Contains illegal characters"
     assert got["#city"] == "City is required"
     assert "#phone" in got                              # native :invalid, no words of its own needed
+    assert "group:visible" in got and "#v1" not in got   # a red radio set names its group, as perception does
