@@ -333,6 +333,26 @@ def resume_already_attached(page, pdf) -> bool:
         return False
 
 
+def resume_took(page, pdf, wait_ms: int = 10000) -> bool:
+    """The upload shows: the file's name is on the page, or a file input holds a file. Polls (uploads are slow)."""
+    for _ in range(max(1, wait_ms // 500)):
+        try:
+            if resume_already_attached(page, pdf) or page.evaluate(
+                    "() => [...document.querySelectorAll('input[type=file]')].some(i => i.files && i.files.length)"):
+                return True
+            page.wait_for_timeout(500)
+        except Exception:
+            return False
+    return False
+
+
+def _upload_shows(page, pdf) -> bool:
+    if resume_took(page, pdf):
+        return True
+    print("[fill] résumé did not show on the page after upload", flush=True)
+    return False
+
+
 def upload_resume_to_input(page, pdf) -> str | None:
     """The résumé straight into a file input already on the page (hidden ones too): the one named or labelled for a
     résumé / CV, else the page's only file input. Its name, or None when there is none or it did not take."""
@@ -366,7 +386,7 @@ def upload_resume_via_control(page, pdf) -> str | None:
             pace(page)
             ctl.click(timeout=_SOFT_TIMEOUT_MS)
         fc.value.set_files(pdf)
-        return label
+        return label if _upload_shows(page, pdf) else None
     except Exception:
         pass
     page.wait_for_timeout(800)
@@ -374,12 +394,12 @@ def upload_resume_via_control(page, pdf) -> str | None:
         box = page.locator("input[type=file]")
         if box.count():
             box.last.set_input_files(pdf, timeout=_SOFT_TIMEOUT_MS)
-            return label
+            return label if _upload_shows(page, pdf) else None
         opt = page.get_by_text(re.compile(r"upload from (device|computer)|from (my )?(device|computer)|browse", re.I)).first
         with page.expect_file_chooser(timeout=4000) as fc:
             opt.click(timeout=_SOFT_TIMEOUT_MS)
         fc.value.set_files(pdf)
-        return label
+        return label if _upload_shows(page, pdf) else None
     except Exception:
         return None
 

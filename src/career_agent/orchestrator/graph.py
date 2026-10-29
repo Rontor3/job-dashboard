@@ -436,15 +436,20 @@ def fill_node(state: AgentState, config) -> dict:
         btn = next((f for f in fillable if f.kind == "button" and re.match(r"(select|choose|upload|attach|browse)\b.*\b(file|resume|cv)\b", f.label or "", re.I)), None)
         if btn is None:
             btn = next((f for f in form if f.kind == "button" and re.match(r"(select|choose|upload|attach|browse)\b.*\b(file|resume|cv)\b", f.label or "", re.I)), None)
+        took = False
         if btn:
             from .mapper import FillDecision
+            from ..browser.filler import _upload_shows
             d = FillDecision(btn.ref, "button", btn.label, pdf, "upload_chooser", "resume")
             deps.fill(page, [d])
             page.wait_for_timeout(2500)          # the site may parse the résumé and prefill fields: fill AFTER it
-            decisions = decisions + [d]
-            print(f"[fill] uploaded résumé through the file chooser ({btn.label!r})", flush=True)
-        else:
-            # no button either: a control that only creates its file input once clicked (SuccessFactors '+' icon)
+            if _upload_shows(page, pdf):
+                took = True
+                decisions = decisions + [d]
+                print(f"[fill] uploaded résumé through the file chooser ({btn.label!r})", flush=True)
+        if not took:
+            # no button, or its upload did not show: a control that only creates its file input once clicked
+            # (SuccessFactors '+' icon)
             from ..browser.filler import upload_resume_via_control
             from .mapper import FillDecision
             label = upload_resume_via_control(page, pdf)
