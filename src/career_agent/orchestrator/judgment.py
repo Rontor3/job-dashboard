@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 
 from .screen_review import PROSE_PURPOSES, _EMPLOYMENT_SECTION
-from ..browser.form_model import is_credential
+from ..browser.form_model import asks_for_value, is_credential
 try:
     from job_dashboard.apply.screening import draft_screening_answer
 except Exception:
@@ -247,6 +247,9 @@ def judge(needs_human, ctx, llm, cap=6, orchestrator=None, min_conf=None, on_dra
         if f.kind in ("text", "textarea") and is_credential(f):
             still_need.append(f)
             continue                    # an account box is never an essay
+        if f.kind in ("text", "textarea") and asks_for_value(f.label):
+            still_need.append(f)
+            continue                    # a number/code/address is the person's own, never drafted (Walmart: '9876543210')
         if _is_sensitive(f):
             still_need.append(f); continue
         if calls >= cap:

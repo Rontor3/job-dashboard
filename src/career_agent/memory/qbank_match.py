@@ -384,7 +384,10 @@ def _compose_from_facts(conn, f, question, entry, embed, llm, job, contact):
     Only when the matched entry holds no value of its own; never for sensitive or free-essay fields."""
     from ..orchestrator.judgment import _is_sensitive
     from . import qbank_compose
-    if llm is None or f.kind == "textarea" or _is_sensitive(f):
+    # a textarea is an essay only when no short-answer entry matched it: Walmart's 'approximate timeline for beginning'
+    # box is a textarea for earliest_start, and skipping it let the drafter write 'available immediately' (2026-10-30)
+    essay = f.kind == "textarea" and (entry is None or entry.get("topic") == "story")
+    if llm is None or essay or _is_sensitive(f):
         return None, None
     if entry is None and f.purpose:
         return None, None          # an unmatched field with a known purpose (phone, email...) is the rule mapper's job
@@ -440,6 +443,11 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
     question, escape = split_escape(f.label, f.description)
     if is_junk(f) or not question:
         return Match(NONE, note="junk label"), None
+    from .qbank_rules import age_option
+    dob = (qbank.get_entry(conn, "date_of_birth") or {}).get("answer")
+    if f.options and (pick := age_option(question, f.options, dob)):
+        # an age-range pick is read off the saved date of birth, never matched as a Yes/No question
+        return Match(CONFIDENT, "date_of_birth", 1.0, "structure", note=f"age range from your date of birth"), pick
     if getattr(f, "purpose", None) == "skill_years" and qbank.get_entry(conn, "skill_years"):
         # "Years of experience with <skill>" is recognised by its shape (form_model),
         # so any skill named in the user's table answers — no per-wording seed needed.

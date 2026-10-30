@@ -216,6 +216,11 @@ class QBankMemory:
                 from . import qbank
                 entry = qbank.get_entry(self.conn, m.entry_id) or {}
                 alts = tuple((entry.get("synonyms") or {}).get(str(value), ()))   # 'Job Board' -> 'Company Portal'
+                src = str((self.job or {}).get("source") or "").strip()
+                if m.entry_id == "referral_source" and src:
+                    # where you heard of it is where the job was found: Workday's 'Job Board' sub-list lists Naukri;
+                    # without it a model guessed 'LinkedIn' (Walmart, live 2026-10-30)
+                    alts = (src, *alts)
             decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action_for_kind(f.kind), source,
                                           alternatives=alts))
         return decisions, still

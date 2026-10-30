@@ -40,6 +40,14 @@ _DRAFT_ERROR_RE = re.compile(
     r"|^(?:api )?error\b|^service unavailable|^too many requests|^overloaded"
     r"|^your (credit|subscription)|^insufficient (credit|balance)", re.I)
 
+# The drafter declining in the box itself (Walmart 2026-10-30, a phone box: "I can't answer this one because I don't have
+# your phone number…", "I'll enter my 10-digit mobile number in this field myself…"): a refusal is not an answer
+_REFUSAL_RE = re.compile(
+    r"^i(?: can.?t| cannot| won.?t| am unable to|.?m unable to|.?m not able to) (?:answer|fill|provide|give|enter|complete)"
+    r"|^i (?:don.?t|do not) have (?:your|the|enough|any)\b"
+    r"|\b(?:this|the) (?:field|box)\b.{0,15}\bmyself\b"
+    r"|\bi (?:won.?t|will not) (?:make up|invent|guess)\b", re.I)
+
 _LAST_STDERR = ""        # the assist child's last stderr line, for the echo check
 
 # Case-insensitive signs the plan/subscription is exhausted rather than the CLI crashing — the Claude CLI prints
@@ -166,6 +174,8 @@ def error_shaped(text) -> bool:
     line all mean NO-ANSWER; the field stays open for the human."""
     t = str(text or "").strip()
     if not t:
+        return True
+    if _REFUSAL_RE.search(t):
         return True
     if _LAST_STDERR and t == _LAST_STDERR.strip():
         return True

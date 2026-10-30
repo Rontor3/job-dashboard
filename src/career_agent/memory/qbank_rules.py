@@ -196,3 +196,42 @@ def shape_ok(shape, value, escape=None) -> bool:
         return True                       # the page itself allowed this word
     check = SHAPES.get(shape)
     return True if check is None else check(str(value).strip())
+
+
+_AGE_ASK = re.compile(r"\bage\b", re.I)
+
+
+def age_option(question: str, options, dob: str | None, today=None) -> str | None:
+    """'Please select your age category' with ranged options ('Under 16', '16-17', '18 years of age and Over'): the one
+    option that holds the age worked out from the saved date of birth. None when it isn't an age-range pick or no single
+    option fits — never a guess (Walmart, live 2026-10-30)."""
+    import datetime as dt
+    if not dob or not options or not _AGE_ASK.search(question or ""):
+        return None
+    born = None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y"):    # the bank stores dates day-first (17/03/2001)
+        try:
+            born = dt.datetime.strptime(str(dob).strip(), fmt).date()
+            break
+        except ValueError:
+            continue
+    if born is None:
+        return None
+    t = today or dt.date.today()
+    age = t.year - born.year - ((t.month, t.day) < (born.month, born.day))
+    hits = []
+    for o in options:
+        n = [int(x) for x in re.findall(r"\d+", o)]
+        if not n:
+            continue
+        if re.search(r"\b(under|below|less than|younger than)\b", o, re.I):
+            ok = age < n[0]
+        elif re.search(r"\b(over|above|older|or more|and up)\b|\+", o, re.I):
+            ok = age >= n[0]
+        elif len(n) >= 2:
+            ok = n[0] <= age <= n[1]
+        else:
+            ok = age == n[0]
+        if ok:
+            hits.append(o)
+    return hits[0] if len(hits) == 1 else None

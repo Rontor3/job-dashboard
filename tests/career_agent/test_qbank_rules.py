@@ -135,3 +135,15 @@ def test_job_abroad_answers_sponsorship_by_where_the_job_is():
 def test_sponsorship_entry_uses_the_job_location_rule():
     seed = {e["id"]: e for e in json.loads(SEED_PATH.read_text())["entries"]}
     assert seed["sponsorship_required"]["rule"] == "job_abroad"
+
+
+def test_age_range_is_read_off_the_date_of_birth():
+    """Walmart 'Please select your age category' (live 2026-10-30): the range that holds the age, or nothing."""
+    import datetime as dt
+    from career_agent.memory.qbank_rules import age_option
+    t = dt.date(2026, 10, 30)
+    walmart = ["Under 16 years of age", "16-17 years of age", "18 years of age and Over"]
+    assert age_option("Please select your age category:", walmart, "17/03/2001", t) == "18 years of age and Over"
+    assert age_option("Age group", ["18-24", "25-34", "35-44", "45+"], "17/03/2001", t) == "25-34"
+    assert age_option("Age group", ["18-24", "25-34"], "", t) is None              # no saved date: never a guess
+    assert age_option("Gender", ["Male", "Female"], "17/03/2001", t) is None       # not an age question

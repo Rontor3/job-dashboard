@@ -20,6 +20,7 @@ from .validation import ERRISH_SEL
 _PLACEHOLDER_LABEL = re.compile(
     r"^(select|start typing|pick( a)? date|choose|search|type here|"
     r"dd/mm|mm/dd|please select|--)\b|^\.\.\.|\.\.\.$", re.I)
+_ADDRESSED = re.compile(r"\b(you|your)\b|\?\s*\*?$", re.I)     # a label that asks the person something
 _OPTION_ONLY = {"yes", "no", "n/a", "na", "true", "false", "-"}
 
 
@@ -27,8 +28,8 @@ def is_unlabeled(field) -> bool:
     lab = (field.label or "").strip()
     if not lab:
         return True
-    if _PLACEHOLDER_LABEL.search(lab):
-        return True
+    if _PLACEHOLDER_LABEL.search(lab) and not _ADDRESSED.search(lab):
+        return True     # 'Select…' is a placeholder; 'Please select your age category:' is a question (Walmart)
     if field.kind in ("checkbox", "radio", "radio_group") and lab.lower() in _OPTION_ONLY:
         return True
     return False

@@ -381,7 +381,10 @@ def _apply(args, box: dict) -> None:
     if not args.no_llm:
         try:
             from job_dashboard.letter.draft import make_default_llm
-            _qllm = make_default_llm()
+            from .orchestrator.claude_assist import with_claude_fallback
+            # the bank's pick falls back to Claude like the drafter does: with Ollama down, the bank went silent and
+            # the free drafter answered 'Yes' to a non-compete the bank holds as 'No' (Walmart, live 2026-10-30)
+            _qllm = with_claude_fallback(make_default_llm())
         except Exception as e:
             print(f"[warn] qbank LLM pick unavailable ({type(e).__name__}: {e})")
     _facts_llm, _skills = None, []

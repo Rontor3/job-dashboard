@@ -365,3 +365,21 @@ def test_a_question_without_a_none_word_still_reaches_the_writer():
     assert split_escape("Why do you want to work at Wipro?")[1] is None
     assert split_escape("Enter none of the above if unsure")[1] is None   # 'none' starts a phrase, not the word
     assert split_escape("Certifications? Otherwise type N/A.")[1] == "N/A"
+
+
+def test_a_drafted_refusal_is_not_an_answer():
+    """Walmart (live 2026-10-30): the drafter's refusal was typed into a phone box as if it were the answer."""
+    from career_agent.orchestrator.claude_assist import error_shaped
+    assert error_shaped("I can't answer this one because I don't have your phone number.")
+    assert error_shaped("I'll enter my 10-digit mobile number in this field myself, as digits only.")
+    assert not error_shaped("I can start within 30 days of an offer.")
+    assert not error_shaped("I built a fraud model at Tata AIG that found 16 more claims.")
+
+
+def test_judge_never_drafts_a_number_the_person_owns():
+    """Walmart (live 2026-10-30): the drafter wrote '9876543210. 5551234567' into a confirm-your-phone box."""
+    ctx = JudgmentContext(job={"title": "DS", "company": "Acme"}, profile_text="x")
+    q = _f("#ph", "Please confirm your 10-digit mobile phone number using numeric values only", kind="textarea",
+           required=True)
+    answered, still_need, _ = judge([q], ctx, lambda p: "9876543210")
+    assert answered == [] and [f.ref for f in still_need] == ["#ph"]

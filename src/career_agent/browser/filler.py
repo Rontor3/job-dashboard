@@ -210,13 +210,13 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
         def _options():
             return [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
 
-        def _fit(options):
+        def _fit(options, guess=True):
             opt = _coerce_option(str(d.value), options) if options else None
             for alt in (getattr(d, "alternatives", ()) or ()) if opt is None and options else ():
                 opt = _coerce_option(str(alt), options)        # the answer's own stand-ins first ('Company Portal')
                 if opt:
                     break
-            if opt is None and options and matcher is not None:
+            if opt is None and options and matcher is not None and guess:
                 opt = matcher(d.label, str(d.value), options)
             return opt
 
@@ -297,7 +297,13 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
             pace(page)
             before = _options()
             scope.locator(_OPT_SEL).filter(has_text=_exact(opt)).first.click(timeout=_SOFT_TIMEOUT_MS)
-            _drill_to_leaf(page, scope, before, _fit, lambda: bool((field_value(target, sel) or "").strip()))
+            # a sub-list leaf: the value was spent on the category, so its stand-ins first (the job's source board, Naukri
+            # — 'Job Board' itself loosely fit 'Other Job Board'), then the value, then 'Other'; never a model's guess
+            # (it picked 'LinkedIn', Walmart 2026-10-30)
+            def _leaf(o):
+                hit = next((h for a in (getattr(d, "alternatives", ()) or ()) if (h := _coerce_option(str(a), o))), None)
+                return hit or _fit(o, guess=False)
+            _drill_to_leaf(page, scope, before, _leaf, lambda: bool((field_value(target, sel) or "").strip()))
             try:            # leave the box: blur-only validators keep a stale 'required' flag (SuccessFactors juic _onBlur)
                 page.wait_for_timeout(300)                  # the site writes the pick into the box a beat after the click
                 target.locator(sel).first.evaluate("e => { e.focus(); e.blur(); }", timeout=_SOFT_TIMEOUT_MS)

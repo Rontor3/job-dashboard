@@ -55,8 +55,9 @@ _RULES: list[tuple[str, str]] = [
      r"|\bstart a conversation with\b|\binterests? you\b", "motivation"),
     # Dial-code selects ("Phone country code") must precede both the phone and
     # country rules — they want "+91", not the number or the country name.
-    # "Phone number (including country code)" asks for the whole number, not just the dial code
-    (r"\b(phone|mobile|contact|telephone|whatsapp|cell)\b.{0,12}\b(number|no\.?)\b.{0,25}\b(incl\w*|with|along with|and)\b.{0,10}\b(country|dial\w*|calling) code\b", "phone"),
+    # "Phone number (including country code)" asks for the whole number, not just the dial code; "(without the
+    # country code)" asks for the number too (Walmart, live 2026-10-30: got '+91')
+    (r"\b(phone|mobile|contact|telephone|whatsapp|cell)\b.{0,12}\b(number|no\.?)\b.{0,25}\b(incl\w*|with|along with|and|without|excl\w*|no)\b.{0,10}\b(country|dial\w*|calling) code\b", "phone"),
     # "Country Phone Code" (MetLife, live 2026-10-18) — the country word sits before "phone", so it must match too
     (r"\bcountry (phone |dialing |calling )?code\b|\bdial(l)?ing code\b|\bphone (country|prefix)\b", "phone_country_code"),
     # Sponsorship/work-auth must precede employer — "require employer sponsorship"
@@ -190,6 +191,15 @@ _ATTEST_BOX = re.compile(r"\byou (acknowledge|consent|agree|confirm|declare|cert
 
 # Purposes that resolve to a TEXT value to type — nonsensical on a checkbox
 # ("Use name only" must not become full_name).
+# a long label that still asks for ONE value: "Please confirm your 10-digit mobile phone number (without the country
+# code) using numeric values only…" (Walmart, a textarea, live 2026-10-30: read as an essay, the drafter invented numbers)
+_ASKS_FOR_VALUE = re.compile(r"\b(confirm|enter|provide|type|give)\b.{0,20}\byour\b.{0,40}\b(number|e-?mail|address|code|url|link)\b"
+                             r"|\b\d+[- ]digit\b|\bnumeric values only\b|\bdigits only\b")
+def asks_for_value(label: str) -> bool:
+    """The label asks for one specific value (a number, an email, a code) rather than prose."""
+    return bool(_ASKS_FOR_VALUE.search(label or ""))
+
+
 _TEXT_VALUE_PURPOSES = {
     "first_name", "last_name", "middle_name", "full_name", "email", "phone",
     "phone_extension", "postal_code",
@@ -228,7 +238,8 @@ def guess_purpose(label: str, kind: str) -> str | None:
         if re.search(pattern, text):
             if yes_no and purpose in _TEXT_VALUE_PURPOSES:
                 return None    # "Are you an employee at X? (if yes, add your X email…)" is answered yes/no, never with the email
-            if kind == "textarea" and len(text.split()) >= 15 and purpose not in ("motivation", "summary"):
+            if (kind == "textarea" and len(text.split()) >= 15 and purpose not in ("motivation", "summary")
+                    and not (purpose in _TEXT_VALUE_PURPOSES and _ASKS_FOR_VALUE.search(text))):
                 return None    # an essay prompt: a word like "state" inside it ("how did you manage state/context") names no profile field
             return purpose
     # Weak single-word rules only as a short field name ("Name", "Current
