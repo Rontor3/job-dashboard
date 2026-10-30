@@ -24,6 +24,25 @@ _ADDRESSED = re.compile(r"\b(you|your)\b|\?\s*\*?$", re.I)     # a label that as
 _OPTION_ONLY = {"yes", "no", "n/a", "na", "true", "false", "-"}
 
 
+_ID_PART = re.compile(r"(first|given|last|family|sur|middle)_?name", re.I)
+_LABEL_PART = {"first": re.compile(r"\b(given|first|fore)\s*names?(\(s\))?", re.I),
+               "last": re.compile(r"\b(last|family|sur)\s*names?(\(s\))?", re.I)}
+
+
+def id_names_the_part(label: str, hay: str) -> str:
+    """A name box whose id says which part it is, under a label that says the other part: Walmart's
+    'legalName--lastNameLocal' is labelled 'Local Given Name(s)' and got the first name (live 2026-10-30). The id is
+    the site's own data model; the label's word is swapped for the id's."""
+    m = _ID_PART.search(hay or "")
+    if not m or not label:
+        return label
+    part = {"given": "first", "family": "last", "sur": "last"}.get(m.group(1).lower(), m.group(1).lower())
+    other = {"first": "last", "last": "first"}.get(part)
+    if other and _LABEL_PART[other].search(label) and not _LABEL_PART[part].search(label):
+        return _LABEL_PART[other].sub(f"{part.title()} Name", label)
+    return label
+
+
 def is_unlabeled(field) -> bool:
     lab = (field.label or "").strip()
     if not lab:
@@ -159,6 +178,7 @@ def to_form_model(raw: list[dict]) -> list[Field]:
         label = r["label"]
         if kind == "checkbox" and len((label or "").split()) <= 2 and len(r.get("group_label") or "") > len(label or ""):
             label = r["group_label"]      # a lone tick named only "Confirmed" / "I agree": the statement is the group's legend
+        label = id_names_the_part(label, r.get("part_hint") or r.get("ref") or "")
         fields.append(Field(
             ref=r["ref"], kind=kind, label=label,
             required=bool(r.get("required")) or bool(re.search(r"^\s*\*|\*\s*(required)?\s*$", label or "", re.I)), options=list(r.get("options", [])),
@@ -1057,6 +1077,8 @@ def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True) -> 
         _slow_scroll_pass(page)
     from .page_prep import suppress_noise
     fields = suppress_noise(to_form_model(collect_raw(page)))
+    from .instructions import mark_below
+    fields = mark_below(page, fields)
     # Screenshot after snapshot so a human (or next run) can verify nothing
     # visible was missed. Saved to /tmp by default; caller can override.
     shot = verify_shot or os.path.join(tempfile.gettempdir(), "career_agent_perception.png")

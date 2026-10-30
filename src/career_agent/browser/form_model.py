@@ -43,6 +43,7 @@ class Field:
     section: str = ""          # the heading the field sits under ("Education", "Contact Information") — answering context
     row: int = -1              # which repeated entry block it is in (Education 1/2/3 -> 0/1/2); -1 = not repeated
     value: str = ""            # what the box holds on the page now (text boxes only; "" = empty or not read)
+    below: tuple = ()          # (word, question ref, its answer now): "If No, enter 'X' in the fields below" above this box
 
 
 # Ordered most-specific-first; first hit wins.

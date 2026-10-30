@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-from .mapper import FillDecision
+from .mapper import FillDecision, _action_for_kind
 
 _WORK = re.compile(r"work|experience|employment|employer|job|position", re.I)
 _EDU = re.compile(r"educat|school|degree|academ|universit|college", re.I)
@@ -55,12 +55,29 @@ def _date_parts(text: str):
 def _entries(profile, kind):
     """[(start, end, bullets)] for the profile's work or education entries, in résumé order."""
     if kind == "work":
-        return [(e.start, e.end, list(e.bullets)) for e in getattr(profile, "experiences", [])]
-    edu = [(e.start, e.end, []) for e in getattr(profile, "education", [])]
+        return [(e.start, e.end, list(e.bullets), e) for e in getattr(profile, "experiences", [])]
+    edu = [(e.start, e.end, [], e) for e in getattr(profile, "education", [])]
     contact = getattr(profile, "contact", {}) or {}
     if edu and not (edu[0][0] or edu[0][1]):           # the résumé line has no dates: the profile's own education dates
-        edu[0] = (contact.get("education_start", ""), contact.get("education_end", ""), [])
+        edu[0] = (contact.get("education_start", ""), contact.get("education_end", ""), [], edu[0][3])
     return edu
+
+
+# The entry's own words, by the part its id names (Workday: workExperience-351--jobTitle, education-368--schoolName).
+# One bank answer would put the current employer into every entry (Walmart, live 2026-10-30: OYO's box too).
+_PARTS = {"work": [(re.compile(r"job ?title|position ?title|^title", re.I), "title"),
+                   (re.compile(r"company|employer|organi[sz]ation", re.I), "company")],
+          "edu": [(re.compile(r"school|institution|universit|college", re.I), "school"),
+                  (re.compile(r"degree", re.I), "degree")]}
+_CURRENT = re.compile(r"currently ?work|current ?(job|role|position)|present", re.I)
+
+
+def _part(kind, rest, entry):
+    for pat, attr in _PARTS[kind]:
+        if pat.search(rest):
+            v = str(getattr(entry, attr, "") or "").strip()
+            return re.sub(r"\s*\((?:internship|intern|contract|part[- ]time)\)\s*$", "", v, flags=re.I) or None
+    return None
 
 
 def entry_decisions(fields, profile):
@@ -88,9 +105,20 @@ def entry_decisions(fields, profile):
         if idx >= len(entries):
             remaining.append(f)
             continue
-        start, end, bullets = entries[idx]
+        start, end, bullets, entry = entries[idx]
         rest = hay[m.end():]                           # the part after the entry key: "startDate-dateSectionMonth-input"
         value = None
+        if kind == "work" and f.kind == "checkbox" and _CURRENT.search(rest + " " + (f.label or "")):
+            if _ONGOING.search(end or ""):
+                decisions.append(FillDecision(f.ref, f.kind, f.label, True, "check", "resume",
+                                              basis=f"work entry {idx + 1}: still there"))
+            continue                                   # a past job: the box stays unticked
+        if kind == "work" and re.search(r"location|city", rest, re.I) and not _ONGOING.search(end or ""):
+            continue    # a past job's place is not on the résumé; your city today is not where OYO was (Walmart 2026-10-30)
+        if f.kind != "checkbox" and (part := _part(kind, rest, entry)):
+            decisions.append(FillDecision(f.ref, f.kind, f.label, part, _action_for_kind(f.kind), "resume",
+                                          basis=f"{kind} entry {idx + 1} from your résumé"))
+            continue
         if kind == "work" and f.kind == "textarea" and _ROLE.search(rest + " " + (f.label or "")):
             value = _plain("\n".join(f"• {b}" for b in bullets)) or None
         elif _MONTH.search(rest) or _YEAR.search(rest):
@@ -110,9 +138,10 @@ def entry_decisions(fields, profile):
 
 if __name__ == "__main__":                             # one runnable check
     from types import SimpleNamespace as N
-    prof = N(experiences=[N(start="July 2023", end="Present", bullets=["a", "b"]),
-                          N(start="May 2022", end="Jul 2022", bullets=["c"])],
-             education=[N(start="", end="")], contact={"education_start": "July 2019", "education_end": "May 2023"})
+    prof = N(experiences=[N(start="July 2023", end="Present", bullets=["a", "b"], title="Data Scientist", company="Tata AIG"),
+                          N(start="May 2022", end="Jul 2022", bullets=["c"], title="Data Science Intern",
+                            company="OYO (Internship)")],
+             education=[N(start="", end="", school="IIT (BHU) Varanasi", degree="B.Tech")], contact={"education_start": "July 2019", "education_end": "May 2023"})
     F = lambda ref, kind="text", label="Month": N(ref=ref, kind=kind, label=label, part_hint=ref.lstrip("#"))
     fs = [F("#workExperience-351--startDate-dateSectionMonth-input"), F("#workExperience-351--startDate-dateSectionYear-input", label="Year"),
           F("#workExperience-351--endDate-dateSectionMonth-input"), F("#workExperience-351--roleDescription", "textarea", "Role Description"),
@@ -121,4 +150,14 @@ if __name__ == "__main__":                             # one runnable check
     ds, rest = entry_decisions(fs, prof)
     assert [d.value for d in ds] == ["07", "2023", "• a\n• b", "07", "2023"], [d.value for d in ds]
     assert [f.ref for f in rest] == ["#name"]          # the ongoing job's end month is in neither list
+    more = [F("#workExperience-351--jobTitle", label="Job Title"), F("#workExperience-352--companyName", label="Company"),
+            F("#workExperience-351--currentlyWorkHere", "checkbox", "I currently work here"),
+            F("#workExperience-352--currentlyWorkHere", "checkbox", "I currently work here"),
+            F("#education-368--schoolName", label="School"), F("#workExperience-352--location", label="Location")]
+    ds, rest = entry_decisions(fs[:5] + more, prof)
+    got = {d.ref: d.value for d in ds}
+    assert got["#workExperience-351--jobTitle"] == "Data Scientist" and got["#workExperience-352--companyName"] == "OYO"
+    assert got["#workExperience-351--currentlyWorkHere"] is True and "#workExperience-352--currentlyWorkHere" not in got
+    assert got["#education-368--schoolName"] == "IIT (BHU) Varanasi"
+    assert "#workExperience-352--location" not in got and "#workExperience-352--location" not in [f.ref for f in rest]
     print("ok")

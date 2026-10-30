@@ -383,3 +383,34 @@ def test_judge_never_drafts_a_number_the_person_owns():
            required=True)
     answered, still_need, _ = judge([q], ctx, lambda p: "9876543210")
     assert answered == [] and [f.ref for f in still_need] == ["#ph"]
+
+
+def test_if_no_enter_word_in_the_fields_below():
+    """Walmart government block (live 2026-10-30): answered No, the boxes below take 'Not Applicable', not a story."""
+    from career_agent.browser.form_model import Field
+    from career_agent.orchestrator.answering import _fill_below
+    from career_agent.orchestrator.mapper import FillDecision
+    q = Field("#q", "combobox", "If “YES”, provide the information below. If No, please enter ‘Not Applicable’ in the "
+              "fields below.*", True)
+    ent, city = Field("#e", "text", "Please identify the Government Entity:*", True), Field("#c", "text", "City*", True)
+    nxt, after = Field("#n", "combobox", "Do you have another position?*", True), Field("#a", "text", "Notes", False)
+    decisions = [FillDecision("#q", "combobox", q.label, "No", "combobox", "qbank"),
+                 FillDecision("#e", "text", ent.label, "a drafted story", "fill", "judgment")]
+    out, needs = _fill_below([q, ent, city, nxt, after], decisions, [city, after])
+    val = {d.ref: d.value for d in out}
+    assert val["#e"] == val["#c"] == "Not Applicable" and "#a" not in val
+    assert [f.ref for f in needs] == ["#a"]
+
+
+def test_boxes_tagged_below_a_no_take_the_word_before_any_drafting():
+    """Walmart (live 2026-10-30): the tag comes from page order (browser/instructions.py); a drafter is never called."""
+    from career_agent.browser.form_model import Field
+    from career_agent.orchestrator.answering import answer_fields
+    from types import SimpleNamespace
+    box = Field("#e", "textarea", "Please identify the Government Entity:*", True,
+                below=("Not Applicable", "#q", "No"))
+    def judge_fn(needs):
+        raise AssertionError("drafted a box the form said to fill with its own word")
+    decisions, needs = answer_fields([box], {"profile": SimpleNamespace(contact={}, experiences=[], education=[], skills=[]),
+                                             "judge_fn": judge_fn})
+    assert [(d.ref, d.value) for d in decisions] == [("#e", "Not Applicable")] and needs == []

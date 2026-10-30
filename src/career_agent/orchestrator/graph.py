@@ -325,6 +325,8 @@ def perceive_node(state: AgentState, config) -> dict:
     from ..browser.page_prep import dismiss_consent
     from ..browser.gate_probe import HANDLERS
     dismiss_consent(page)          # clear async cookie banners before gate check
+    from ..browser.entries import open_entries
+    open_entries(page, c.get("profile"))   # an empty Work Experience / Education behind 'Add' (Walmart My Experience)
     page.wait_for_timeout(2000)
     gate = deps.gate(page)
     _INTERACTIVE = {"recaptcha_v2_checkbox", "recaptcha_v2_image",

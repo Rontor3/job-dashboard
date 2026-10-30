@@ -101,6 +101,8 @@ def walk(page, profile, human, deps, max_steps=15, do_submit=False,
                 if classify_entry(page) in ("password", "email_auth"):
                     reason = "auth_wall"; break
 
+        from ..browser.entries import open_entries
+        open_entries(page, profile)            # empty Work Experience / Education behind 'Add'
         _page_survey(page, f"step{steps}")    # navigation rule: see page before acting
         from ..browser.page_prep import is_chat_apply
         if is_chat_apply(page):               # before any fill: a chat box is never answered, nor its Send clicked

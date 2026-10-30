@@ -48,3 +48,11 @@ def test_a_long_textarea_asking_for_your_number_is_still_the_phone():
     assert guess_purpose(label, "textarea") == "phone"
     assert guess_purpose("Tell us how you managed state and context across a long running agent project and what you "
                          "learned from it overall", "textarea") is None
+
+
+def test_a_name_box_id_overrules_its_labels_part():
+    """Walmart 'legalName--lastNameLocal' labelled 'Local Given Name(s)' got the first name (live 2026-10-30)."""
+    from career_agent.browser.perception import id_names_the_part
+    assert id_names_the_part("Local Given Name(s)", "name--legalName--lastNameLocal") == "Local Last Name"
+    assert id_names_the_part("Last Name*", "name--legalName--lastName") == "Last Name*"
+    assert id_names_the_part("Given Name", "applicant--firstName") == "Given Name"

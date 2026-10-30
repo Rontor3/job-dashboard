@@ -111,6 +111,36 @@ def _prior_human_answers(fields, qa) -> list:
 _OTHER_FOLLOWUP = re.compile(r"\b(if|in case)\b[^?.]{0,80}\bother\b|\bother\b[^?.]{0,40}\bplease (specify|state|describe)\b", re.I)
 
 
+_BELOW = re.compile(r"\bif (?:no|not)\b[^.]{0,40}?\b(?:enter|type|write|put)\s+[‘'\"“]([^’'\"”]{2,30})[’'\"”]\s+in (?:the |all )?(?:fields?|boxes?) below", re.I)
+
+
+def _fill_below(fields, decisions, needs):
+    """"If No, please enter ‘Not Applicable’ in the fields below" (Walmart government questions, live 2026-10-30): when
+    that question is answered No, the text boxes under it take the form's own word, never a drafted story."""
+    from .mapper import FillDecision
+    by_ref, told = {d.ref: d for d in decisions}, set()
+    word = None
+    for f in fields:
+        m = _BELOW.search(f.label or "")
+        if m:
+            d = by_ref.get(f.ref)
+            word = m.group(1) if d is not None and str(d.value).strip().lower() in ("no", "false") else None
+            continue
+        if f.kind in ("text", "textarea") and getattr(f, "below", ()):
+            w, qref, now = f.below            # read off the page in its own order (browser/instructions.py)
+            said = by_ref[qref].value if qref in by_ref else now
+            if str(said).strip().lower() in ("no", "false"):
+                by_ref[f.ref] = FillDecision(f.ref, f.kind, f.label, w, "fill", "form_instruction")
+                told.add(f.ref)
+            continue
+        if word and f.kind in ("text", "textarea"):
+            by_ref[f.ref] = FillDecision(f.ref, f.kind, f.label, word, "fill", "form_instruction")
+            told.add(f.ref)
+        elif f.kind not in ("text", "textarea"):
+            word = None                     # the next question ends the block the instruction spoke for
+    return list(by_ref.values()), [f for f in needs if f.ref not in told]
+
+
 def _drop_other_followups(fields, decisions, needs):
     """"In case you selected Other, specify your start date here": a box that belongs to an "Other" option. Filled only when
     some answer chose Other; otherwise it stays blank and is not asked."""
@@ -149,6 +179,9 @@ def answer_fields(fields, ctx):
     # escalation boundary, with the hold recorded to application_qa.
     from .decline_class import gate as decline_gate
     declined, remaining, held = decline_gate(remaining)
+    told, remaining = _fill_below(remaining, [], [])[0], remaining     # boxes under a question already answered No
+    remaining = [f for f in remaining if f.ref not in {d.ref for d in told}]
+    declined = declined + told
     # dates and role description inside a work/education entry: from that entry, before the bank guesses at "Year"
     from .entry_fields import entry_decisions
     entries, remaining = entry_decisions(remaining, ctx["profile"])
@@ -180,6 +213,7 @@ def answer_fields(fields, ctx):
     decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))
                  if d.action == "fill" and d.ref in by_ref and _is_phone(by_ref[d.ref]) else d for d in decisions]
     decisions, needs = _drop_other_followups(fields, decisions, needs)
+    decisions, needs = _fill_below(fields, decisions, needs)
     if qa:
         for f, basis, _ in held:          # the gate's hold-backs, auditable even when nothing else touches them
             qa.held(f, basis)
