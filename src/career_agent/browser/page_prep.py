@@ -10,6 +10,8 @@ from collections import Counter
 _NOISE_RE = re.compile(
     r"oda-|ask me something|add summary|work-summary|honey.?pot|"
     r"g-recaptcha-response|h-captcha-response|"
+    r"\bcaptcha\b|image text|(?:text|characters|code) (?:shown )?(?:in|from) the image|"   # a typed image captcha: the human's
+
     r"vendor-search-handler|"           # SR city autocomplete sub-widget
     r"upload.profile.image",            # SR avatar photo uploader — not a document upload
     re.I)

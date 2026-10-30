@@ -206,8 +206,9 @@ def answer_fields(fields, ctx):
                  if d.action == "fill" and d.value is not None else d for d in decisions]
     # A city box takes the city alone: a stored "Mumbai, India" (qbank current_city) gives "Mumbai".
     purpose = {f.ref: f.purpose for f in fields}
+    # …a city lookup too: 'Mumbai, India' typed into Zoho's City lookup had no exact hit and a guess took 'Goregaon West'
     decisions = [replace(d, value=d.value.split(",")[0].strip())
-                 if d.action == "fill" and purpose.get(d.ref) == "city" and isinstance(d.value, str) else d
+                 if d.action in ("fill", "combobox") and purpose.get(d.ref) == "city" and isinstance(d.value, str) else d
                  for d in decisions]
     dial, by_ref = has_dial_field(fields), {f.ref: f for f in fields}
     decisions = [replace(d, value=national_number(d.value, by_ref[d.ref], dial))

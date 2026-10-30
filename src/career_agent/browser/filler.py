@@ -218,6 +218,11 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                     break
             if opt is None and options and matcher is not None and guess:
                 opt = matcher(d.label, str(d.value), options)
+            if opt and opt.count(",") >= 2 and "," not in str(d.value) and \
+                    opt.split(",")[0].strip().lower() != str(d.value).strip().lower():
+                # an address suggestion ('Goregaon (Mumbai), Goregaon West, Mumbai, …') is the answer only when it
+                # starts with it: picking one rewrote Street and set City to 'Goregaon West' (Zoho, live 2026-10-31)
+                opt = None
             return opt
 
         options = _options()
@@ -309,11 +314,23 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                 target.locator(sel).first.evaluate("e => { e.focus(); e.blur(); }", timeout=_SOFT_TIMEOUT_MS)
             except Exception:
                 pass
-        elif not target.locator(sel).first.evaluate(
-                "e => !!e.closest('[role=dialog],[aria-modal=true],[class*=modal i]')"):
-            # Escape closes the listbox — but inside a modal it closes
-            # the whole application (Wellfound), so leave it open there.
-            page.keyboard.press("Escape")
+        else:
+            # nothing fit: the box keeps the ANSWER, never the last search word — 'Other' was left typed in Zoho's City and
+            # Postal Code lookups (live 2026-10-31). A free-text lookup takes it; a strict one flags it for the refill.
+            try:
+                box = target.locator(sel).first
+                if not box.evaluate("e => e.tagName === 'INPUT'"):      # a lookup wrapper (Zoho): its own text box
+                    box = box.locator("input:not([type=hidden])").first
+                if box.evaluate("e => e.tagName === 'INPUT' && !e.readOnly") and \
+                        (box.input_value() or "").strip().lower() != str(d.value).strip().lower():
+                    box.fill(str(d.value), timeout=_SOFT_TIMEOUT_MS)
+            except Exception:
+                pass
+            if not target.locator(sel).first.evaluate(
+                    "e => !!e.closest('[role=dialog],[aria-modal=true],[class*=modal i]')"):
+                # Escape closes the listbox — but inside a modal it closes
+                # the whole application (Wellfound), so leave it open there.
+                page.keyboard.press("Escape")
     except Exception:
         pass
 

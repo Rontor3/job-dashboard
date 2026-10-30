@@ -331,7 +331,7 @@ def perceive_node(state: AgentState, config) -> dict:
     gate = deps.gate(page)
     _INTERACTIVE = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
                     "hcaptcha_checkbox", "hcaptcha_image"}
-    _SUBMIT_GATED = {"hcaptcha_checkbox"}   # invisible widget; form still accessible
+    _SUBMIT_GATED = {"hcaptcha_checkbox", "image_captcha"}   # the form stays fillable; the captcha blocks only submit
     _EARLY_BLOCK = {"cloudflare_interstitial", "otp_sms", "text_challenge"}
     _submit_gate_notice = None
     from ..browser.gate_probe import HANDLERS
@@ -532,6 +532,14 @@ def fill_node(state: AgentState, config) -> dict:
         live = deps.snapshot(page, scroll=False)      # the step's first read already scrolled the whole page
     except Exception:
         live = fillable
+    present = {f.ref for f in live}
+    if uploads and any(d.ref not in present for d in rest):
+        # the résumé upload redrew the form (Zoho's parse: 39 boxes -> 87, live 2026-10-31): the answers worked out
+        # before it name boxes that are gone and were silently lost (City, Postal Code). Answer the page as it is now.
+        fresh, _ = split_sensitive([f for f in live if f.kind not in ("button", "file")])
+        rest, needs = answer_fields(fresh, {**c, "page_index": state.get("steps", 0)})
+        rest = [d for d in rest if d.action not in ("upload", "upload_chooser")]
+        print(f"[fill] the résumé upload redrew the form — answered its {len(fresh)} boxes again", flush=True)
     applied, needs = fill_top_down(page, deps, live, rest, needs, {**c, "page_index": state.get("steps", 0)},
                                    skip_prefilled=bool(uploads))
     decisions = uploads + applied
@@ -631,9 +639,12 @@ def _validation_refill(page, deps, failing, c, state) -> dict:
         if lf is None or lf.kind == "button":
             continue
         fields.append(lf)
-    # a value the site filled for itself is not ours to fix
+    # a box that holds a value and the site no longer flags is settled; one it still flags is wrong by the site's own word,
+    # even when the site put the value there itself (Zoho's résumé parse: 'Github' in LinkedIn, live 2026-10-31)
+    flagged_now = {f.ref for f in failing_fields(read_errors(page), live)[0]}
     fields = [f for f in fields
-              if not (has_value(page, f) and f.kind not in ("combobox", "select", "radio_group", "checkbox_group"))]
+              if f.ref in flagged_now
+              or not (has_value(page, f) and f.kind not in ("combobox", "select", "radio_group", "checkbox_group"))]
     if not fields:
         return {}
     print(f"[advance] the site rejected: {[f.label for f in fields]} — one refill round", flush=True)
@@ -679,6 +690,23 @@ def _validation_refill(page, deps, failing, c, state) -> dict:
         print(f"[advance] still failing after the refill: {[f.label for f in still]}", flush=True)
         out["pending_human"] = [_f2d(f) for f in still]
     return out
+
+
+def _ready_for_review(page, deps, c, state) -> dict:
+    """The last stop of a dry run: Submit is never clicked, so the site's own red boxes would never be read. Read what it
+    already flags on screen (Zoho: 'Please enter a valid LinkedIn' under a parsed 'Github'), refill once, and name what
+    still fails — a draft is ready for review only when the page itself has nothing to say against it."""
+    from ..browser.validation import failing_fields, read_errors
+    try:
+        flagged, _ = failing_fields(read_errors(page), deps.snapshot(page, scroll=False))
+    except Exception:
+        flagged = []                     # the page could not be read: the stop stays what it was
+    if flagged:
+        upd = _validation_refill(page, deps, flagged, c, state)
+        if upd.get("pending_human"):
+            return {**upd, "stopped_reason": "needs_answers"}
+        return {**upd, "stopped_reason": "reached_submit_dry_run"}
+    return {"stopped_reason": "reached_submit_dry_run"}
 
 
 def advance_node(state: AgentState, config) -> dict:
@@ -732,7 +760,7 @@ def advance_node(state: AgentState, config) -> dict:
         verdict = policy(page.url, state.get("decisions") or []) if policy else None
         policy_allows = bool(verdict and verdict["allow"])
         if not state["do_submit"] and not policy_allows:
-            return {"stopped_reason": "reached_submit_dry_run"}
+            return _ready_for_review(page, deps, c, state)
         # Pre-submit gate re-check
         from ..browser.gate_probe import HANDLERS
         _INTERACTIVE = {"recaptcha_v2_checkbox", "recaptcha_v2_image",
@@ -810,7 +838,7 @@ def advance_node(state: AgentState, config) -> dict:
                 return {"stopped_reason": "no_form_found"}
             if submit_seen(form):
                 if not state["do_submit"]:
-                    return {"stopped_reason": "reached_submit_dry_run"}
+                    return _ready_for_review(page, deps, c, state)
             # only the 'Apply' family matched with fields already filled: it opens/advances
             # the form, it does not send one — click through below instead of claiming a submit
 

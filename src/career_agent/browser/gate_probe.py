@@ -10,7 +10,7 @@ GATES = frozenset({
     "recaptcha_v2_checkbox", "recaptcha_v2_image", "recaptcha_v3",
     "hcaptcha_checkbox", "hcaptcha_image", "turnstile",
     "cloudflare_interstitial", "otp_email", "otp_sms",
-    "text_challenge", "cleared", "none",
+    "text_challenge", "image_captcha", "cleared", "none",
 })
 
 # Detection routing only. `escalate` = hand to a human (Phase 1: stop + report).
@@ -70,6 +70,22 @@ _GATHER_JS = r"""
       return /check your email|enter the code|one.?time|otp|verification code|we (just )?sent/.test(txt);
     })(),
     otp_sms_field: false,
+    // a typed image captcha (Zoho Recruit 'CAPTCHA *' / 'Type below image text' under a distorted-word image, live
+    // 2026-10-31): a visible text box named like a captcha with an image beside it. Never typed into — the human's.
+    image_captcha: Array.from(document.querySelectorAll('input:not([type=hidden]):not([type=file])')).some(e => {
+      const r = e.getBoundingClientRect();         // sized, not on-screen: it sits at the foot of a long form
+      if (r.width < 4 || r.height < 4 || e.value) return false;   // typed in: the human has answered it
+      const lab = Array.from(e.labels || []).map(l => l.innerText).join(' ');
+      const said = [e.name, e.id, e.placeholder, e.getAttribute('aria-label'), lab].join(' ');
+      let box = e.parentElement, near = '';
+      for (let i = 0; box && i < 6 && !box.querySelector('img,canvas'); i++) box = box.parentElement;
+      for (let a = e.parentElement, i = 0; a && i < 7; a = a.parentElement, i++) {   // its own row's text, no further
+        if (a.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;
+        near = (a.innerText || '').slice(0, 120);
+      }
+      return /captcha|image text|characters (shown|in the image)|text (shown )?in the image/i.test(said + ' ' + near)
+             && !!(box && box.querySelector('img,canvas'));
+    }),
   };
 }
 """
@@ -96,6 +112,8 @@ def classify_from_signals(sig: dict) -> str:
         return "recaptcha_v2_checkbox" if sig.get("recaptcha_anchor_visible", True) else "recaptcha_v3"
     if sig.get("turnstile_iframe"):
         return "turnstile"
+    if sig.get("image_captcha"):
+        return "image_captcha"
     if sig.get("otp_email_field"):
         return "otp_email"
     if sig.get("otp_sms_field"):

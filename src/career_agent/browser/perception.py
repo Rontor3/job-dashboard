@@ -286,12 +286,12 @@ _INPUT_JS = r"""
   // '#inner' always hit the FIRST date box and the rest stayed empty (Wipro, live 2026-10-23). There, #id is used only
   // when no other element on the page shares it; otherwise the read's own data-cref stamp.
   const _idCount = {};
+  // The page's own ids repeat too: Zoho Recruit gives City, Postal Code and Job Title all id="inputId", so '#inputId'
+  // named one box and the others were merged away unread (live 2026-10-31). An id is used only when it is unique.
   const refOf = (el, cref) => {
     if (!el.id) return `[data-cref="${cref}"]`;
-    if (el.getRootNode() !== document) {
-      if (!(el.id in _idCount)) _idCount[el.id] = deepQuery(`[id="${CSS.escape(el.id)}"]`).length;
-      if (_idCount[el.id] !== 1) return `[data-cref="${cref}"]`;
-    }
+    if (!(el.id in _idCount)) _idCount[el.id] = deepQuery(`[id="${CSS.escape(el.id)}"]`).length;
+    if (_idCount[el.id] !== 1) return `[data-cref="${cref}"]`;
     return `#${CSS.escape(el.id)}`;
   };
   const byId = (root, id) => (root.getElementById ? root.getElementById(id)
@@ -352,6 +352,24 @@ _INPUT_JS = r"""
     if (wrap) { const t = ownText(wrap); if (ok(t)) return t; }
     const fs = el.closest('fieldset');                       // 3: fieldset legend
     if (fs) { const lg = fs.querySelector('legend'); if (lg) { const t = (lg.textContent || '').trim().slice(0, 200); if (ok(t)) return t; } }
+    // a row's own unlinked <label> a few wrappers up (Zoho Recruit: <div row><label>City</label><div field>…5 wrappers…
+    // <input id=inputId></div></div> — read as '' / '-None-' / its own value, live 2026-10-31): the nearest preceding
+    // <label> child of an ancestor, provided no sibling holding other controls sits between it and this box's branch
+    for (let br = el, a = el.parentElement, i = 0; a && i < 8 && !/^(FORM|BODY)$/.test(a.tagName); br = a, a = a.parentElement, i++) {
+      let hit = null;
+      for (let s = br.previousElementSibling; s; s = s.previousElementSibling) {
+        if (s.tagName === 'LABEL' && !s.htmlFor) { hit = s; break; }
+        if (s.matches(CONTROL_SEL) || s.querySelector(CONTROL_SEL)) break;
+      }
+      if (hit) {
+        // a side widget (the title picker beside First Name, the dial code beside Mobile) is not what the row's label
+        // names: the row's own text box is. A lookup that wraps its own box (Zoho City / Postal Code) still is.
+        const side = !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+          && [...a.querySelectorAll('input[type=text],input:not([type]),input[type=email],input[type=tel],textarea')].some(x => !el.contains(x));
+        if (side) break;
+        const t = ownText(hit).replace(/[\s*✱:]+$/, ''); if (ok(t)) return /[*✱]/.test(hit.textContent) ? t + '*' : t; break;
+      }
+    }
     const title = (el.getAttribute('title') || '').trim();   // 4
     if (ok(title)) return title;
     // ---- fallbacks below are NOT accname; only for forms with no association ----
@@ -520,7 +538,20 @@ _INPUT_JS = r"""
   // Stamp a unique handle on every field so it's addressable even with no id and
   // no name (custom widgets share [name=""] otherwise). Prefer #id when present
   // (stable, readable); else use the stamped [data-cref="fN"].
-  let _ci = 0;
+  // A box keeps its stamp across reads: the filler addresses fields by the ref from an EARLIER read, and restarting at
+  // f0 on every read shifted the numbers once the page grew (Zoho's résumé parse added education rows between reads, so
+  // LinkedIn's 'f11' became Institute #1's and the URL went there, live 2026-10-31). New boxes take numbers from a
+  // page-wide counter; a stamp two boxes share (a cloned node) is replaced.
+  if (window.__crefN === undefined) window.__crefN = 0;
+  const _seen = {};
+  for (const e of deepQuery('[data-cref]')) { const c = e.getAttribute('data-cref'); _seen[c] = (_seen[c] || 0) + 1; }
+  const stamp = el => {
+    const had = el.getAttribute('data-cref');
+    if (had && _seen[had] === 1) return had;
+    const c = 'f' + (window.__crefN++);
+    el.setAttribute('data-cref', c);
+    return c;
+  };
   for (const el of deepQuery('input,select,textarea')) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute('type') || 'text').toLowerCase();
@@ -579,8 +610,7 @@ _INPUT_JS = r"""
     // A combobox is interacted with by clicking, not typing, so readOnly is
     // normal there and must NOT drop it as if disabled.
     const isCombo = role === 'combobox' || haspopup === 'listbox' || isUxiSelect;
-    const cref = 'f' + (_ci++);
-    el.setAttribute('data-cref', cref);          // unique, id/name-independent handle
+    const cref = stamp(el);
     // A read-only text box that opens a calendar: it cannot be typed into, so it is its own kind ('datepicker')
     // and is kept even though it is readonly. Signals are structural (date-ish name/class/placeholder/popup role).
     const dateish = /date|calendar|picker|dd.?mm|yyyy/i;
@@ -630,8 +660,7 @@ _INPUT_JS = r"""
     // (<a role=combobox aria-haspopup> beside Sign Out) was read as 'Language' and set Wipro to Deutsch (2026-10-23).
     if (tag === 'a') continue;
     if (el.checkVisibility ? !el.checkVisibility() : getComputedStyle(el).display === 'none') continue;
-    const cref = 'f' + (_ci++);
-    el.setAttribute('data-cref', cref);
+    const cref = stamp(el);
     const lab = labelFor(el);
     const row = {
       ref: refOf(el, cref),
@@ -656,7 +685,7 @@ _INPUT_JS = r"""
     if (el.closest('header, nav, [role="navigation"], [role="banner"], [role="search"]')) continue;
     const container = el.closest('[role="radiogroup"]') || el.parentElement;
     if (!container.hasAttribute('data-cref-group')) {
-      container.setAttribute('data-cref-group', 'g' + (_ci++));
+      container.setAttribute('data-cref-group', 'g' + (window.__crefN++));
     }
     const heading = container.previousElementSibling;
     // the group's own accessible name first (Google Forms: aria-labelledby -> the question), else the preceding sibling
@@ -667,8 +696,7 @@ _INPUT_JS = r"""
     // heading is the fallback required signal, same convention groupLabel()
     // already strips elsewhere.
     const hasAsterisk = /[✱*✶†✳＊]\s*$/.test(headingText);
-    const cref = 'f' + (_ci++);
-    el.setAttribute('data-cref', cref);
+    const cref = stamp(el);
     out.push({
       ref: refOf(el, cref),
       kind: 'radio', label: visibleText(el),
@@ -742,8 +770,7 @@ _INPUT_JS = r"""
           if (t) label = t;
         }
       }
-      const cref = 'f' + (_ci++);
-      el.setAttribute('data-cref', cref);
+      const cref = stamp(el);
       out.push({
         ref: refOf(el, cref),
         kind: 'combobox', label, required,

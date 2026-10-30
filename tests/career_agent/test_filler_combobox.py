@@ -178,3 +178,15 @@ def test_a_slow_sub_list_is_waited_for():
     page = type("P", (), {"wait_for_timeout": lambda s, ms: None})()
     _drill_to_leaf(page, Scope(), ["Job Board", "Other"], lambda opts: None)
     assert clicks and re.search(clicks[0], "Other Job Board")
+
+
+def test_an_address_suggestion_counts_only_when_it_starts_with_the_answer():
+    """Zoho's City lookup lists whole addresses; one that merely contains 'Mumbai' rewrote Street (live 2026-10-31)."""
+    from career_agent.browser.filler import apply_decisions
+    page = FakeComboPage(["Goregaon (Mumbai), Goregaon West, Mumbai, Maharashtra, India - 400104",
+                          "Bangur Nagar, Goregaon West, Mumbai, Maharashtra, India - 400104"])
+    apply_decisions(page, [FillDecision("#city", "combobox", "City", "Mumbai", "combobox", "qbank")])
+    assert not any(e[0] == "click_option" for e in page.events)
+    page = FakeComboPage(["Mumbai, Maharashtra, India", "Navi Mumbai, Maharashtra, India"])
+    apply_decisions(page, [FillDecision("#city", "combobox", "City", "Mumbai", "combobox", "qbank")])
+    assert ("click_option", "Mumbai, Maharashtra, India") in page.events
