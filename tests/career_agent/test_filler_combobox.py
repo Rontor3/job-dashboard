@@ -141,3 +141,40 @@ def test_a_category_with_one_option_commits_that_option():
     _drill_to_leaf(page, Scope(), ["Company Portal", "Events"], lambda opts: None)
     import re
     assert clicks and re.search(clicks[0], "Company Career Site")
+
+
+def test_a_category_falls_back_to_its_own_other_entry():
+    """Workday 'Job Board' opens CareerBuilder, Indeed, LinkedIn, Naukri, 'Other Job Board' (Walmart, live 2026-10-29):
+    none fits 'Job Board', and the catch-all is 'Other Job Board', not a bare 'Other' — it is still the pick."""
+    import re
+    from career_agent.browser.filler import _drill_to_leaf
+    clicks = []
+
+    class Scope:
+        def locator(self, sel): return self
+        def all_text_contents(self): return ["CareerBuilder", "Indeed", "LinkedIn", "Naukri", "Other Job Board"]
+        def filter(self, has_text=None):
+            return type("O", (), {"first": type("F", (), {"click": lambda s, timeout=None: clicks.append(has_text.pattern)})()})()
+
+    page = type("P", (), {"wait_for_timeout": lambda s, ms: None})()
+    _drill_to_leaf(page, Scope(), ["Job Board", "Company Portal"], lambda opts: None)
+    assert clicks and re.search(clicks[0], "Other Job Board")
+
+
+def test_a_slow_sub_list_is_waited_for():
+    """Walmart Workday (live 2026-10-30): 'Job Board's leaves were still empty at 400 ms, so nothing was picked."""
+    import re
+    from career_agent.browser.filler import _drill_to_leaf
+    clicks, reads = [], []
+
+    class Scope:
+        def locator(self, sel): return self
+        def all_text_contents(self):
+            reads.append(1)
+            return [] if len(reads) < 4 else ["Indeed", "LinkedIn", "Other Job Board"]
+        def filter(self, has_text=None):
+            return type("O", (), {"first": type("F", (), {"click": lambda s, timeout=None: clicks.append(has_text.pattern)})()})()
+
+    page = type("P", (), {"wait_for_timeout": lambda s, ms: None})()
+    _drill_to_leaf(page, Scope(), ["Job Board", "Other"], lambda opts: None)
+    assert clicks and re.search(clicks[0], "Other Job Board")

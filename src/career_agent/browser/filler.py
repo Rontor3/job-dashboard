@@ -110,14 +110,21 @@ def _popup(target, lb_id):
     return target
 
 
-def _drill_to_leaf(page, scope, pre: list[str], fit) -> None:
+def _drill_to_leaf(page, scope, pre: list[str], fit, committed=lambda: False) -> None:
     """A hierarchical prompt (Workday "How Did You Hear"): the chosen option was a category, so it opened a sub-list
-    instead of committing. Pick the leaf: the one that fits the answer, else 'Other'. Nothing new listed = committed."""
-    page.wait_for_timeout(400)
-    leaves = [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
-    if not leaves or leaves == pre:          # the list did not change: the pick committed (popup closed or pill shown)
+    instead of committing. Pick the leaf: the one that fits the answer, else its 'Other …' entry. Nothing new listed = committed."""
+    leaves = []
+    for _ in range(8):      # the sub-list loads in ~1 s (Walmart 2026-10-30: empty at 400 ms, so the field stayed blank)
+        page.wait_for_timeout(300)
+        leaves = [t.strip() for t in scope.locator(_OPT_SEL).all_text_contents() if t.strip()]
+        if leaves == pre or committed():     # the list did not change / the box holds the pick: it committed
+            return
+        if leaves:
+            break
+    if not leaves:
         return
-    leaf = fit(leaves) or next((t for t in leaves if t.lower() == "other"), None)
+    # the category's own catch-all counts as 'Other' ('Other Job Board' under 'Job Board', Walmart 2026-10-29)
+    leaf = fit(leaves) or next((t for t in leaves if _OTHER_OPTION.search(t)), None)
     if leaf is None and len(set(leaves)) == 1:
         leaf = leaves[0]          # the chosen category's only option (Workday 'Company Portal' > 'Company Career Site')
     if leaf:
@@ -290,7 +297,7 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
             pace(page)
             before = _options()
             scope.locator(_OPT_SEL).filter(has_text=_exact(opt)).first.click(timeout=_SOFT_TIMEOUT_MS)
-            _drill_to_leaf(page, scope, before, _fit)
+            _drill_to_leaf(page, scope, before, _fit, lambda: bool((field_value(target, sel) or "").strip()))
             try:            # leave the box: blur-only validators keep a stale 'required' flag (SuccessFactors juic _onBlur)
                 page.wait_for_timeout(300)                  # the site writes the pick into the box a beat after the click
                 target.locator(sel).first.evaluate("e => { e.focus(); e.blur(); }", timeout=_SOFT_TIMEOUT_MS)
