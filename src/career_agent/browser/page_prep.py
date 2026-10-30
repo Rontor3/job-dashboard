@@ -470,23 +470,7 @@ SOCIAL_SIGNIN_RE = re.compile(r"^(?:sign ?in|log ?in|sign ?up|continue) with (?:
                               re.I)
 
 
-def classify_entry(page, status=None) -> str:
-    """Which of the two application shapes (or a JD/password gate) is on screen:
-    'closed' | 'form' | 'email_auth' | 'password' | 'none'.
-
-    Reasoning for 'closed': a 404/410 HTTP status is decisive; otherwise it needs
-    BOTH no fillable form AND dead-posting language — so a live form is never
-    'closed', and a page that's alive but whose form we didn't reach is 'none'
-    (a different problem: a second hop / login / render), not 'closed'."""
-    if status in (404, 410):
-        return "closed"
-    # Darwinbox uses shadow-DOM inputs that querySelectorAll can't see;
-    # detect its auth pages by URL instead of DOM probing.
-    _u = page.url
-    if "darwinbox.com/cookie-policy" in _u or "/ms/candidatev2/main/auth/" in _u:
-        return "password"
-    try:
-        d = page.evaluate("""(pats) => {
+_ENTRY_JS = """(pats) => {
           const vis = e => { const r=e.getBoundingClientRect(); return r.width>4 && r.height>4; };
           const ctlText = e => (e.innerText || e.value || '').trim().replace(/\\s+/g, ' ');
           const ctls = Array.from(document.querySelectorAll('button,a[href],[role=button],input[type=button],input[type=submit]'))
@@ -508,9 +492,55 @@ def classify_entry(page, status=None) -> str:
           return { hasPw, hasEmail: !!email, authBtn, emailReveal, social,
             verify: /verify|one-time|we'll send|continue with email|create .*profile|create (an |your )?account|confirm your identity|start application|begin.*apply|sign.?in|sign.?up|log.?in or|register/i.test(txt),
             fillable };
-        }""", [EMAIL_REVEAL_RE.pattern, SOCIAL_SIGNIN_RE.pattern])
+        }"""
+
+
+def _framed_wall(page) -> str | None:
+    """A sign-in that lives in an embedded frame of the same site: Zoho Recruit's candidate portal shows 'Create an
+    account' on the page and its Login box inside /accounts/p/…/signin?_embed=true (Training Basket, live 2026-10-29:
+    read as a form, no account was made). The frame is classified like a page; only a wall verdict is taken from it."""
+    from urllib.parse import urlparse
+    host = lambda u: ".".join((urlparse(u or "").hostname or "").split(".")[-2:])     # noqa: E731
+    for fr in getattr(page, "frames", None) or []:
+        if fr is page.main_frame or host(fr.url) != host(page.url):
+            continue                                  # a captcha / analytics / other-company frame is never the wall
+        try:
+            box = fr.frame_element().bounding_box()
+            if not box or box["width"] < 100 or box["height"] < 60:
+                continue
+            d = fr.evaluate(_ENTRY_JS, [EMAIL_REVEAL_RE.pattern, SOCIAL_SIGNIN_RE.pattern])
+        except Exception:
+            continue
+        if d["hasPw"]:
+            return "password"
+        if d["hasEmail"] and (d["verify"] or d["authBtn"]) and d["fillable"] <= 4:
+            return "email_auth"
+    return None
+
+
+def classify_entry(page, status=None) -> str:
+    """Which of the two application shapes (or a JD/password gate) is on screen:
+    'closed' | 'form' | 'email_auth' | 'password' | 'none'.
+
+    Reasoning for 'closed': a 404/410 HTTP status is decisive; otherwise it needs
+    BOTH no fillable form AND dead-posting language — so a live form is never
+    'closed', and a page that's alive but whose form we didn't reach is 'none'
+    (a different problem: a second hop / login / render), not 'closed'."""
+    if status in (404, 410):
+        return "closed"
+    # Darwinbox uses shadow-DOM inputs that querySelectorAll can't see;
+    # detect its auth pages by URL instead of DOM probing.
+    _u = page.url
+    if "darwinbox.com/cookie-policy" in _u or "/ms/candidatev2/main/auth/" in _u:
+        return "password"
+    try:
+        d = page.evaluate(_ENTRY_JS, [EMAIL_REVEAL_RE.pattern, SOCIAL_SIGNIN_RE.pattern])
     except Exception:
         return "none"
+    if not d["hasPw"] and d["fillable"] < 2:
+        framed = _framed_wall(page)
+        if framed:
+            return framed
     if d["hasPw"]:
         return "password"
     # Social buttons + "Sign in with email" on a small page: the password gate, one click away (no box shown yet).
@@ -675,7 +705,14 @@ _REAL_FIELDS_JS = r"""() => {
     if (['hidden','submit','button'].includes(e.type)) continue;
     // <label for> text too: SuccessFactors names its boxes fbclc_userName / fbclc_fName, the label says "Email Address"
     const forText = Array.from(e.labels || []).map(l => l.innerText || '').join(' ');
-    const hay = ((e.getAttribute('aria-label')||'')+' '+labelText(e)+' '+forText+' '+(e.name||'')+' '+(e.id||'')
+    // a label that is not linked: the text of the smallest wrapper holding only this box (Zoho Recruit sign-up,
+    // 'rec-form_4607…' boxes under a plain 'First Name' — counted 1 real field, so registration+application stopped)
+    let near = '';
+    for (let a = e.parentElement, i = 0; a && i < 7; a = a.parentElement, i++) {   // Zoho: 6 wrappers deep
+      if (a.querySelectorAll('input:not([type=hidden]),select,textarea').length > 1) break;
+      near = (a.innerText || '').slice(0, 80);
+    }
+    const hay = ((e.getAttribute('aria-label')||'')+' '+labelText(e)+' '+forText+' '+near+' '+(e.name||'')+' '+(e.id||'')
                  +' '+(e.placeholder||'')+' '+(e.type||'')).toLowerCase();
     let k = null;
     if (e.type==='email' || /\be-?mail\b/.test(hay)) k='email';
