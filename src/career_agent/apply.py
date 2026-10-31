@@ -323,6 +323,7 @@ def _apply(args, box: dict) -> None:
     _policy_fn = _policy if args.autosubmit_policy else None
     qa_min_conf = qa_store.confidence_min(conn)     # editable on the dashboard
     judge_fn = None
+    section_llm = None
     longform_kb = None
     option_matcher = None
     if not args.no_llm:
@@ -357,6 +358,7 @@ def _apply(args, box: dict) -> None:
                 longform_kb = getattr(ctx.longform, "kb", None)
                 if ctx.longform is not None:
                     print("[longform] need-based long answers ON", flush=True)
+            section_llm = llm                     # CAREER_AGENT_ANSWER=sections: one call per section (section_answer.py)
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
@@ -735,7 +737,7 @@ def _apply(args, box: dict) -> None:
         graph_cfg = {"configurable": {
             "thread_id": tid, "page": page, "tab": {"page": page}, "profile": profile, "deps": deps,
             "human": human, "collector": collector, "resume_pdf": resume_pdf,
-            "judge_fn": judge_fn, "prep_fn": prepare, "learn": learn,
+            "judge_fn": judge_fn, "section_llm": section_llm, "prep_fn": prepare, "learn": learn,
             "on_link": on_link, "remote_solve_notifier": notifier,
             "human_wait_s": args.human_wait,
             "judgment_ctx": ctx if judge_fn else None,  # so classify_node can update resume_text

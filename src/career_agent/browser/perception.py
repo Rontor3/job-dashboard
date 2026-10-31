@@ -922,9 +922,19 @@ def _frame_is_visible_and_sizeable(fr) -> bool:
         return False                              # detached / not attached to a visible element
 
 
-# Each field's SECTION (the nearest heading above it in document order: h1-h6, role=heading, a fieldset legend) and
-# ROW (its index among sibling blocks that repeat the same class and each hold form controls: Education 1/2/3). Pure
-# DOM; used to answer a section's fields together (orchestrator/sections.py).
+# SECTION RULES — what a section is (used to answer a section's fields together, orchestrator/section_answer.py):
+#  1. A section is named by a page HEADING: h1-h6 or [role=heading]. A fieldset <legend> names one only when the
+#     fieldset holds question text of its own beside it ('Work authorization' over 'Will you require sponsorship?');
+#     otherwise the legend IS the question or groups its parts (Workday 'From*' = Month + Year; a radio group's
+#     'Current?'), and a <label> names one field. (Live 2026-10-31: 'From*' / 'To*' became sections of 1-2 boxes.)
+#  2. A field's section is the nearest heading ABOVE it in document order that is shown and short (<= 80 chars).
+#     A heading with no field under it (the job title, 'Review') names nothing, because no field picks it.
+#  3. A numbered heading is an ENTRY of a repeated section: 'Work Experience 2' -> section 'Work Experience', row 1.
+#     Every field under it, to the next heading, is that entry's. Without a number, ROW comes from repeated sibling
+#     blocks (Education 1/2/3 laid out as identical blocks), else -1 (not repeated).
+#  4. A field with no heading above it belongs to the page's own title (the first heading), else ''.
+#  5. Sections keep page order; the answer step sends each one with a brief of the whole page, so a small
+#     section still has its context.
 _SECTION_JS = r"""
 (refs) => {
   const vis = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
@@ -938,20 +948,22 @@ _SECTION_JS = r"""
   // shown = the heading or a direct child has a box: SuccessFactors wraps a block button in an inline <h2>, which
   // measures 0x0, so every field fell back to the page title as its section (Wipro, live 2026-10-23)
   const shown = h => vis(h) || Array.from(h.children).some(vis);
-  const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],legend'))
+  // rule 1: headings; a legend only over question text of its own (not option labels, not Month / Year parts)
+  const ownText = lg => {
+    const c = lg.closest('fieldset').cloneNode(true);
+    c.querySelectorAll('legend,label,input,select,textarea,option,[role=option]').forEach(x => x.remove());
+    return (c.textContent || '').replace(/\b(month|year|day|mm|dd|yyyy|yy)\b|[\s\/*:-]/gi, '');
+  };
+  const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],fieldset > legend'))
     .filter(h => shown(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80
-                 && !(h.tagName === 'LEGEND' && h.closest('fieldset') && fields(h.closest('fieldset')) < 2));   // a question, not a section
-  const sectionOf = el => {
+                 && (h.tagName !== 'LEGEND' || ownText(h).length > 0));
+  const sectionOf = el => {                                     // rules 2 and 4
     let best = '';
     for (const h of heads) {
-      if (h === el || h.contains(el)) { if (h.tagName === 'LEGEND') best = h.innerText.trim(); continue; }
+      if (h === el || h.contains(el)) continue;
       if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) best = h.innerText.trim(); else break;
     }
-    // a fieldset's legend names a SECTION only when the fieldset holds several questions; a radio group's own
-    // fieldset legend is the question itself (Koch Avature 'Current? *', live 2026-10-19)
-    const fs = el.closest('fieldset'); const lg = fs && fs.querySelector(':scope > legend');
-    const ownGroup = fs && fields(fs) < 2;
-    return (lg && !ownGroup && lg.innerText.trim() && lg.innerText.trim().length <= 80) ? lg.innerText.trim() : best;
+    return best || (heads[0] ? heads[0].innerText.trim() : '');
   };
   const rowOf = el => {
     let a = el.parentElement;
@@ -983,7 +995,9 @@ _SECTION_JS = r"""
     try { el = document.querySelector(ref) || deepFind(ref); } catch (e) {}
     if (!el) return {section: '', row: -1};
     el = host(el);
-    return {section: sectionOf(el).replace(/\s+/g, ' ').slice(0, 80), row: rowOf(el)};
+    const sec = sectionOf(el).replace(/\s+/g, ' ').slice(0, 80);
+    const m = sec.match(/^(.*\D)\s+(\d{1,2})$/);                // rule 3: 'Work Experience 2' is entry 2
+    return m ? {section: m[1].trim(), row: parseInt(m[2], 10) - 1} : {section: sec, row: rowOf(el)};
   });
 }
 """

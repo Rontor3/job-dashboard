@@ -193,6 +193,14 @@ def answer_fields(fields, ctx):
     from .screen_review import map_screen
     decisions, needs = map_screen(remaining, ctx["profile"], ctx.get("resume_pdf"))
     decisions = declined + recalled + decisions
+    import os
+    if needs and os.getenv("CAREER_AGENT_ANSWER") == "sections" and ctx.get("section_llm") and learn is not None:
+        # section by section with the page in view, before the one-field drafter (orchestrator/section_answer.py)
+        from .judgment import profile_to_text
+        from .section_answer import answer_sections
+        more, needs = answer_sections(needs, fields, decisions, {**ctx, "job": getattr(learn, "job", {})},
+                                      ctx["section_llm"], learn.conn, profile_to_text(ctx["profile"]))
+        decisions += more
     judge_fn = ctx.get("judge_fn")
     if needs and judge_fn:
         answered, needs, _ = judge_fn(needs)
