@@ -205,6 +205,13 @@ def answer_fields(fields, ctx):
     if needs and judge_fn:
         answered, needs, _ = judge_fn(needs)
         decisions += answered
+    if os.getenv("CAREER_AGENT_ANSWER") == "sections" and ctx.get("section_llm") and learn is not None:
+        # every answer read again in its section: 'likely' / drafted / repeated values kept, changed or cleared
+        from .judgment import profile_to_text
+        from .section_answer import review_sections
+        decisions, cleared = review_sections(fields, decisions, {**ctx, "job": getattr(learn, "job", {})},
+                                             ctx["section_llm"], learn.conn, profile_to_text(ctx["profile"]))
+        needs += cleared
     needs += [f for f, _, escalated in held if escalated]     # judge() has already run: these were never its questions
     itype = {f.ref: getattr(f, "input_type", "") or "" for f in fields}
     # a form with its own currency field wants the salary as an amount (Keka: Current Salary + INR select got "25 LPA")

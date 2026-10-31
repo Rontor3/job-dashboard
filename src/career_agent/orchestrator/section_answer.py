@@ -13,6 +13,7 @@ dropped and the field stays open for the drafter or you. What a section is: brow
 from __future__ import annotations
 
 import json
+import re
 
 from ..browser.form_model import asks_for_value, is_credential
 from .claude_assist import first_json
@@ -132,3 +133,99 @@ def answer_sections(needs, fields, decisions, ctx, llm, conn, profile_text):
             decided[f.label[:60]] = value
         print(f"[section] {_title(k)!r}: {sum(f.ref in answered for f in section)}/{len(section)} answered", flush=True)
     return out, [f for f in needs if f.ref not in answered]
+
+
+# --- Review: the whole section, every answer in view ------------------------------------------------------------------
+# The bank matches one label at a time, so it cannot see that 'Location' under 'Work Experience #1 · Tata AIG' is the
+# job's location, nor that Address Line 1, 2 and 3 all got the same full address (live 2026-10-31). Answers that came
+# from an exact source stay locked; the rest are read again in their section and kept, changed or cleared.
+_LOCKED = {"qbank", "resume", "form_instruction", "attestation", "human_prior", "decline_class", "revalidate"}
+_REPEAT_OK = re.compile(r"confirm|re-?enter|repeat|verify|again", re.I)
+
+
+def _norm(v) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(v).lower())
+
+
+def duplicates(section_fields, by_ref) -> set:
+    """Refs whose value already appears in an earlier, different box of the same section (all but the first holder).
+    A box that asks to confirm / re-enter a value is meant to repeat it."""
+    seen, dup = {}, set()
+    for f in section_fields:
+        d = by_ref.get(f.ref)
+        if d is None or not isinstance(d.value, str) or len(_norm(d.value)) < 6 or _REPEAT_OK.search(f.label or ""):
+            continue
+        k = _norm(d.value)
+        if k in seen and seen[k] != f.label:
+            dup.add(f.ref)
+        seen.setdefault(k, f.label)
+    return dup
+
+
+def review_prompt(section, by_ref, ask, page_fields, facts, job) -> str:
+    rows = []
+    for f in section:
+        d = by_ref.get(f.ref)
+        rows.append({"id": f.ref, "label": f.label, "type": f.kind, "required": bool(f.required),
+                     **({"options": f.options[:40]} if f.options else {}),
+                     "proposed": (str(d.value)[:200] if d is not None else None),
+                     "review": f.ref in ask})
+    return (
+        f"You check a job application before it is sent. Company: {job.get('company', '')}; role: {job.get('title', '')}.\n\n"
+        "THE WHOLE PAGE:" + _brief(page_fields) + "\n\n"
+        f"THIS SECTION: [{_title(_key(section[0]))}] — each field with the answer proposed for it:\n"
+        + json.dumps(rows, ensure_ascii=False, indent=1) + "\n\n" + facts + "\n\n"
+        "For every field with \"review\": true, decide in the context of its section:\n"
+        "- keep: the proposed answer is right for THIS field here.\n"
+        "- change: it is wrong here; give the right value from the facts (an option field: one option verbatim).\n"
+        "- clear: the field should stay empty (nothing in the facts fits, or it only repeats another field).\n"
+        "Read each label in its section: a 'Location' inside a work-experience entry is where that job is, not your home "
+        "address; 'Address Line 2/3' hold only what does not fit on line 1 (usually nothing); an answer copied from a "
+        "neighbouring field is wrong unless the field asks to confirm it. Never invent.\n\n"
+        'Reply with JSON only: {"<id>": {"verdict": "keep|change|clear", "value": <string or null>, "why": "<short>"}}')
+
+
+def review_sections(fields, decisions, ctx, llm, conn, profile_text):
+    """(decisions, cleared_fields): every section's answers read together; 'likely' / drafted / duplicated short answers
+    are kept, changed or cleared. A cleared REQUIRED field is returned so it goes to the human."""
+    by_ref = {d.ref: d for d in decisions}
+    order, groups = [], {}
+    for f in fields:
+        if f.kind == "button":
+            continue
+        k = _key(f)
+        if k not in groups:
+            groups[k] = []
+            order.append(k)
+        groups[k].append(f)
+    facts, job, cleared = _facts(conn, profile_text), ctx.get("job") or {}, []
+    for k in order:
+        section = groups[k]
+        dup = duplicates(section, by_ref)
+        def locked(d):        # a résumé value is exact only when it came from that entry (entry_fields), not a mapping
+            return d.source in _LOCKED and not (d.source == "resume" and "entry" not in (getattr(d, "basis", "") or ""))
+        ask = {f.ref for f in section if f.ref in by_ref and _short(f) and not is_credential(f)
+               and (not locked(by_ref[f.ref]) or f.ref in dup)}
+        if not ask:
+            continue
+        try:
+            reply = first_json(llm(review_prompt(section, by_ref, ask, fields, facts, job)))
+        except Exception as e:
+            print(f"[review] {_title(k)!r}: model unavailable ({type(e).__name__})", flush=True)
+            continue
+        for f in section:
+            if f.ref not in ask:
+                continue
+            item = reply.get(f.ref) if isinstance(reply.get(f.ref), dict) else {}
+            verdict, why = str(item.get("verdict", "keep")).lower(), item.get("why", "")
+            old = by_ref[f.ref]
+            if verdict == "change" and (new := _valid(f, item.get("value"))) and _norm(new) != _norm(old.value):
+                by_ref[f.ref] = FillDecision(f.ref, f.kind, f.label, new, old.action, "review",
+                                             basis=f"section {_title(k)}: {why}"[:200])
+                print(f"[review] {f.label[:40]!r}: {str(old.value)[:30]!r} -> {new[:30]!r} ({why[:60]})", flush=True)
+            elif verdict == "clear" or (f.ref in dup and verdict != "keep"):
+                del by_ref[f.ref]
+                if f.required:
+                    cleared.append(f)
+                print(f"[review] {f.label[:40]!r}: cleared {str(old.value)[:30]!r} ({why[:60]})", flush=True)
+    return list(by_ref.values()), cleared
