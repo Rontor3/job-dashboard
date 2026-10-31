@@ -215,14 +215,15 @@ def _rows_by_repeat(fields: list[Field]) -> list[Field]:
     key = lambda f: (f.section, _re.sub(r"[\s*:]+", " ", (f.label or "").lower()).strip())   # noqa: E731
     counts: dict = {}
     for f in fields:
-        if f.kind != "button" and f.section:
+        if f.kind != "button" and f.section and f.row < 0:
             counts[key(f)] = counts.get(key(f), 0) + 1
     import dataclasses as _dc
     seen: dict = {}
     out = []
     for f in fields:
         k = key(f)
-        if f.kind != "button" and f.section and counts.get(k, 0) >= 2:
+        # only where no numbered heading set the entry (SECTION RULES 3): within an entry, 'Year' twice is From and To
+        if f.kind != "button" and f.section and f.row < 0 and counts.get(k, 0) >= 2:
             f = _dc.replace(f, row=seen.get(k, 0))
             seen[k] = f.row + 1
         out.append(f)
