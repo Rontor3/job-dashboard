@@ -923,15 +923,17 @@ def _frame_is_visible_and_sizeable(fr) -> bool:
 
 
 # SECTION RULES — what a section is (used to answer a section's fields together, orchestrator/section_answer.py):
-#  1. A section is named by a page HEADING: h1-h6 or [role=heading]. A fieldset <legend> names one only when the
-#     fieldset holds question text of its own beside it ('Work authorization' over 'Will you require sponsorship?');
-#     otherwise the legend IS the question or groups its parts (Workday 'From*' = Month + Year; a radio group's
-#     'Current?'), and a <label> names one field. (Live 2026-10-31: 'From*' / 'To*' became sections of 1-2 boxes.)
+#  1. A section is named by a page HEADING: h1-h6 or [role=heading] — its own words, without the buttons inside it
+#     (Zoho 'Basic Info' + a 'Clear' button). A fieldset <legend> names one only when the fieldset holds two or more
+#     DIFFERENT questions (a radio group counts once; Month / Year / Day boxes count once) or a direct child that is a
+#     question prompt ending in '?' ('Work authorization' over 'Will you require sponsorship?'). Otherwise the legend
+#     IS the question or groups its parts (Workday 'From*' = Month + Year; 'Are you a citizen?' over its dropdown).
+#     Text inside a widget never counts: it is the widget's value ('current value is 7/2023', 'Select One').
 #  2. A field's section is the nearest heading ABOVE it in document order that is shown and short (<= 80 chars).
 #     A heading with no field under it (the job title, 'Review') names nothing, because no field picks it.
 #  3. A numbered heading is an ENTRY of a repeated section: 'Work Experience 2' -> section 'Work Experience', row 1.
-#     Every field under it, to the next heading, is that entry's. Without a number, ROW comes from repeated sibling
-#     blocks (Education 1/2/3 laid out as identical blocks), else -1 (not repeated).
+#     A step counter is not ('Application Questions 1 of 2'). Without a numbered heading, ROW comes only from the same
+#     question asked again in one section (_rows_by_repeat), else -1. Layout guesses gave Address / Phone fake rows.
 #  4. A field with no heading above it belongs to the page's own title (the first heading), else ''.
 #  5. Sections keep page order; the answer step sends each one with a brief of the whole page, so a small
 #     section still has its context.
@@ -948,34 +950,32 @@ _SECTION_JS = r"""
   // shown = the heading or a direct child has a box: SuccessFactors wraps a block button in an inline <h2>, which
   // measures 0x0, so every field fell back to the page title as its section (Wipro, live 2026-10-23)
   const shown = h => vis(h) || Array.from(h.children).some(vis);
-  // rule 1: headings; a legend only over question text of its own (not option labels, not Month / Year parts)
-  const ownText = lg => {
-    const c = lg.closest('fieldset').cloneNode(true);
-    c.querySelectorAll('legend,label,input,select,textarea,option,[role=option]').forEach(x => x.remove());
-    return (c.textContent || '').replace(/\b(month|year|day|mm|dd|yyyy|yy)\b|[\s\/*:-]/gi, '');
+  // rule 1: headings; a legend only over 2+ different questions or a prompt of its own
+  const PART = /^(month|year|day|mm|dd|yyyy|yy)$/i;
+  const questions = fs => {
+    const keys = new Set();
+    for (const c of fs.querySelectorAll(CTL)) {
+      const lab = (c.getAttribute('aria-label') || ((c.labels || [])[0] || {}).innerText || '').trim();
+      if ((c.type === 'radio' || c.type === 'checkbox') && c.name) keys.add('n:' + c.name);
+      else if (PART.test(lab) || c.getAttribute('role') === 'spinbutton') keys.add('date');
+      else keys.add(c);
+    }
+    return keys.size;
   };
+  const prompted = fs => Array.from(fs.children).some(ch => ch.tagName !== 'LEGEND' && !ch.querySelector(CTL)
+                                                     && /\?\s*\*?$/.test((ch.innerText || '').trim()));
+  const words = h => { const c = h.cloneNode(true); c.querySelectorAll('button,a,[role=button]').forEach(x => x.remove());
+                       return (c.textContent || '').replace(/\s+/g, ' ').trim(); };
   const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],fieldset > legend'))
-    .filter(h => shown(h) && (h.innerText || '').trim() && (h.innerText || '').trim().length <= 80
-                 && (h.tagName !== 'LEGEND' || ownText(h).length > 0));
+    .filter(h => shown(h) && words(h) && words(h).length <= 80
+                 && (h.tagName !== 'LEGEND' || questions(h.closest('fieldset')) >= 2 || prompted(h.closest('fieldset'))));
   const sectionOf = el => {                                     // rules 2 and 4
     let best = '';
     for (const h of heads) {
       if (h === el || h.contains(el)) continue;
-      if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) best = h.innerText.trim(); else break;
+      if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) best = words(h); else break;
     }
-    return best || (heads[0] ? heads[0].innerText.trim() : '');
-  };
-  const rowOf = el => {
-    let a = el.parentElement;
-    for (let d = 0; a && a.parentElement && d < 8; d++, a = a.parentElement) {
-      // an ENTRY repeats (School + Degree + Major...), not one field's wrapper: each repeat holds 2+ controls and is
-      // shown; class names may differ between repeats (MetLife Avature live 2026-10-19: 'TableSampleRow' then rows,
-      // and field wrappers were numbered School 0 / Degree 1 / Major 2 as if they were entries)
-      if (fields(a) < 2) continue;
-      const sibs = Array.from(a.parentElement.children).filter(s => s.tagName === a.tagName && vis(s) && fields(s) >= 2);
-      if (sibs.length >= 2) return sibs.indexOf(a);
-    }
-    return -1;
+    return best || (heads[0] ? words(heads[0]) : '');
   };
   // a field inside a shadow root (UI5 date picker): find it there, and place it by its outermost host in the page
   const deepFind = (sel) => {
@@ -996,8 +996,8 @@ _SECTION_JS = r"""
     if (!el) return {section: '', row: -1};
     el = host(el);
     const sec = sectionOf(el).replace(/\s+/g, ' ').slice(0, 80);
-    const m = sec.match(/^(.*\D)\s+(\d{1,2})$/);                // rule 3: 'Work Experience 2' is entry 2
-    return m ? {section: m[1].trim(), row: parseInt(m[2], 10) - 1} : {section: sec, row: rowOf(el)};
+    const m = /\bof\s+\d+$/i.test(sec) ? null : sec.match(/^(.*\D)\s+(\d{1,2})$/);   // rule 3 ('1 of 2' is a step)
+    return m ? {section: m[1].trim(), row: parseInt(m[2], 10) - 1} : {section: sec, row: -1};
   });
 }
 """
