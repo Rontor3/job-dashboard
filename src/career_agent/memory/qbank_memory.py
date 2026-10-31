@@ -215,7 +215,11 @@ class QBankMemory:
             if m.entry_id:
                 from . import qbank
                 entry = qbank.get_entry(self.conn, m.entry_id) or {}
-                basis = f"your saved answer to: {entry.get('question') or m.entry_id}"   # the section review reads it
+                q, saved = entry.get("question") or m.entry_id, str(entry.get("answer") or "")
+                # the section review reads it; a value the rules worked out for this job (sponsorship 'No' for a job in
+                # India from a saved global 'Yes') must not read as the raw saved answer, or the review 'restores' it
+                basis = (f"your saved answer to: {q}" if saved.strip().lower() == str(value).strip().lower()
+                         else f"worked out for this job from your saved answer to: {q}")
                 alts = tuple((entry.get("synonyms") or {}).get(str(value), ()))   # 'Job Board' -> 'Company Portal'
                 src = str((self.job or {}).get("source") or "").strip()
                 if m.entry_id == "referral_source" and src:

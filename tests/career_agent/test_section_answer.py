@@ -78,3 +78,15 @@ def test_review_sees_which_saved_answer_and_leaves_essays_alone(monkeypatch):
     assert '"id": "#w"' in asked[0] and json.loads(asked[0].split("each field with the answer proposed for it:\n")[1]
                                                     .split("\n\n")[0])[1]["review"] is False
     assert {d.ref: d.value for d in out} == {"#y": "3", "#w": "Because..."}
+
+
+def test_review_never_touches_a_value_worked_out_for_this_job(monkeypatch):
+    """Zoom (Bengaluru), 2026-11-01: sponsorship 'No' (derived for India from a saved global 'Yes') was flipped back."""
+    import career_agent.orchestrator.section_answer as S
+    monkeypatch.setattr(S, "_facts", lambda conn, p: "")
+    sp = Field("#s", "combobox", "Do you require sponsorship?", True, options=["Yes", "No"], section="Q")
+    d = FillDecision("#s", "combobox", sp.label, "No", "combobox", "qbank_likely",
+                     basis="worked out for this job from your saved answer to: sponsorship")
+    asked = []
+    out, _ = S.review_sections([sp], [d], {"job": {}}, lambda p: asked.append(p) or "{}", None, "")
+    assert asked == [] and out[0].value == "No"

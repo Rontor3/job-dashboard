@@ -205,7 +205,10 @@ def review_sections(fields, decisions, ctx, llm, conn, profile_text):
         section = groups[k]
         dup = duplicates(section, by_ref)
         def locked(d):        # a résumé value is exact only when it came from that entry (entry_fields), not a mapping
-            return d.source in _LOCKED and not (d.source == "resume" and "entry" not in (getattr(d, "basis", "") or ""))
+            basis = getattr(d, "basis", "") or ""
+            if basis.startswith("worked out for this job"):   # a rule turned the saved answer for this job (sponsorship
+                return True    # 'No' in India): the model read the raw saved 'Yes' and put it back (Zoom, 2026-11-01)
+            return d.source in _LOCKED and not (d.source == "resume" and "entry" not in basis)
         ask = {f.ref for f in section if f.ref in by_ref and _short(f) and f.kind != "textarea" and not is_credential(f)
                and (not locked(by_ref[f.ref]) or f.ref in dup)}
         if not ask:
