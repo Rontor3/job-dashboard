@@ -81,9 +81,11 @@ def _part(kind, rest, entry):
 
 
 def entry_decisions(fields, profile):
-    """(decisions, remaining): every field whose id places it in a work/education entry and names its date part or
-    the role description, answered from that entry. An ongoing job's end date is left out of both lists — the
-    'I currently work here' tick covers it."""
+    """(decisions, remaining, ask): every field whose id places it in a work/education entry and names its date part or
+    the role description, answered from that entry. An ongoing job's end date is left out of every list — the
+    'I currently work here' tick covers it. An entry the profile does not have (Workday's résumé parse added your
+    schools: City Montessori, Jaipuria — live 2026-10-31) is the site's own record: nothing in it is answered from the
+    profile's other entries; its blank required boxes go to you (`ask`), the rest stay as the site filled them."""
     order: dict = {}
     for f in fields:                                   # entry number by first appearance on the page, per kind
         m = _ENTRY.search(_hay(f))
@@ -93,7 +95,7 @@ def entry_decisions(fields, profile):
                 order.setdefault(kind, [])
                 if m.group(0) not in order[kind]:
                     order[kind].append(m.group(0))
-    decisions, remaining = [], []
+    decisions, remaining, ask = [], [], []
     for f in fields:
         hay, m = _hay(f), _ENTRY.search(_hay(f))
         kind = m and ("work" if _WORK.search(m.group(1)) else "edu" if _EDU.search(m.group(1)) else None)
@@ -103,7 +105,8 @@ def entry_decisions(fields, profile):
         idx = order[kind].index(m.group(0))
         entries = _entries(profile, kind)
         if idx >= len(entries):
-            remaining.append(f)
+            if f.required and not str(getattr(f, "value", "") or "").strip():
+                ask.append(f)
             continue
         start, end, bullets, entry = entries[idx]
         rest = hay[m.end():]                           # the part after the entry key: "startDate-dateSectionMonth-input"
@@ -133,7 +136,7 @@ def entry_decisions(fields, profile):
                                           basis=f"{kind} entry {idx + 1} from your résumé"))
         else:
             remaining.append(f)
-    return decisions, remaining
+    return decisions, remaining, ask
 
 
 if __name__ == "__main__":                             # one runnable check
@@ -147,17 +150,23 @@ if __name__ == "__main__":                             # one runnable check
           F("#workExperience-351--endDate-dateSectionMonth-input"), F("#workExperience-351--roleDescription", "textarea", "Role Description"),
           F("#workExperience-352--endDate-dateSectionMonth-input"), F("#education-368--lastYearAttended-dateSectionYear-input", label="Year"),
           F("#name", label="Name")]
-    ds, rest = entry_decisions(fs, prof)
+    ds, rest, _ = entry_decisions(fs, prof)
     assert [d.value for d in ds] == ["07", "2023", "• a\n• b", "07", "2023"], [d.value for d in ds]
     assert [f.ref for f in rest] == ["#name"]          # the ongoing job's end month is in neither list
     more = [F("#workExperience-351--jobTitle", label="Job Title"), F("#workExperience-352--companyName", label="Company"),
             F("#workExperience-351--currentlyWorkHere", "checkbox", "I currently work here"),
             F("#workExperience-352--currentlyWorkHere", "checkbox", "I currently work here"),
             F("#education-368--schoolName", label="School"), F("#workExperience-352--location", label="Location")]
-    ds, rest = entry_decisions(fs[:5] + more, prof)
+    ds, rest, _ = entry_decisions(fs[:5] + more, prof)
     got = {d.ref: d.value for d in ds}
     assert got["#workExperience-351--jobTitle"] == "Data Scientist" and got["#workExperience-352--companyName"] == "OYO"
     assert got["#workExperience-351--currentlyWorkHere"] is True and "#workExperience-352--currentlyWorkHere" not in got
     assert got["#education-368--schoolName"] == "IIT (BHU) Varanasi"
     assert "#workExperience-352--location" not in got and "#workExperience-352--location" not in [f.ref for f in rest]
+    extra = [N(ref="#education-369--schoolName", kind="text", label="School", part_hint="", required=True, value="CMS"),
+             N(ref="#education-369--degree", kind="combobox", label="Degree", part_hint="", required=True, value=""),
+             N(ref="#education-369--firstYearAttended-dateSectionYear-input", kind="text", label="Year", part_hint="",
+               required=False, value="")]
+    ds, rest, ask = entry_decisions(fs[5:6] + extra, prof)     # education-368 is the profile's one; 369 is the site's
+    assert [d.ref for d in ds] == [fs[5].ref] and rest == [] and [f.ref for f in ask] == ["#education-369--degree"]
     print("ok")

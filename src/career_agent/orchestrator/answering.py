@@ -184,7 +184,7 @@ def answer_fields(fields, ctx):
     declined = declined + told
     # dates and role description inside a work/education entry: from that entry, before the bank guesses at "Year"
     from .entry_fields import entry_decisions
-    entries, remaining = entry_decisions(remaining, ctx["profile"])
+    entries, remaining, entry_asks = entry_decisions(remaining, ctx["profile"])
     declined = declined + entries
     learn = ctx.get("learn")
     if learn:
@@ -213,6 +213,7 @@ def answer_fields(fields, ctx):
                                              ctx["section_llm"], learn.conn, profile_to_text(ctx["profile"]))
         needs += cleared
     needs += [f for f, _, escalated in held if escalated]     # judge() has already run: these were never its questions
+    needs += entry_asks                                        # an entry only the site knows: you fill its blanks
     itype = {f.ref: getattr(f, "input_type", "") or "" for f in fields}
     # a form with its own currency field wants the salary as an amount (Keka: Current Salary + INR select got "25 LPA")
     cur = has_currency_field(fields)

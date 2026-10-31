@@ -13,7 +13,7 @@ def F(ref, kind="text", label="Month"):
 
 
 def _vals(fields):
-    ds, rest = entry_decisions(fields, PROF)
+    ds, rest, _ = entry_decisions(fields, PROF)
     return {d.ref: d.value for d in ds}, [f.ref for f in rest]
 
 
@@ -48,12 +48,12 @@ def test_fields_outside_an_entry_are_untouched():
 
 def test_role_description_drops_characters_workday_refuses():
     prof = N(experiences=[N(start="July 2023", end="Present", bullets=['ROC >85 on [claims] "fast"'])], education=[], contact={})
-    ds, _ = entry_decisions([F("#workExperience-1--roleDescription", "textarea", "Role Description")], prof)
+    ds, _, _ = entry_decisions([F("#workExperience-1--roleDescription", "textarea", "Role Description")], prof)
     assert not set('<>[]"{}\\') & set(ds[0].value) and "over 85" in ds[0].value
 
 
 def test_role_description_drops_markdown_bold():
     prof = N(experiences=[N(start="July 2023", end="Present", bullets=["meeting **IRDAI** audit, **50%** overlap"])],
              education=[], contact={})
-    ds, _ = entry_decisions([F("#workExperience-1--roleDescription", "textarea", "Role Description")], prof)
+    ds, _, _ = entry_decisions([F("#workExperience-1--roleDescription", "textarea", "Role Description")], prof)
     assert "**" not in ds[0].value and "IRDAI" in ds[0].value

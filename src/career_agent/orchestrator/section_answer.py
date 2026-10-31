@@ -169,6 +169,7 @@ def review_prompt(section, by_ref, ask, page_fields, facts, job) -> str:
         rows.append({"id": f.ref, "label": f.label, "type": f.kind, "required": bool(f.required),
                      **({"options": f.options[:40]} if f.options else {}),
                      "proposed": (str(d.value)[:200] if d is not None else None),
+                     **({"from": d.basis[:120]} if d is not None and getattr(d, "basis", "") else {}),
                      "review": f.ref in ask})
     return (
         f"You check a job application before it is sent. Company: {job.get('company', '')}; role: {job.get('title', '')}.\n\n"
@@ -181,7 +182,8 @@ def review_prompt(section, by_ref, ask, page_fields, facts, job) -> str:
         "- clear: the field should stay empty (nothing in the facts fits, or it only repeats another field).\n"
         "Read each label in its section: a 'Location' inside a work-experience entry is where that job is, not your home "
         "address; 'Address Line 2/3' hold only what does not fit on line 1 (usually nothing); an answer copied from a "
-        "neighbouring field is wrong unless the field asks to confirm it. Never invent.\n\n"
+        "neighbouring field is wrong unless the field asks to confirm it. An answer 'from' your saved answer to a question that "
+        "asks the same thing as this field is right: keep it. Never invent.\n\n"
         'Reply with JSON only: {"<id>": {"verdict": "keep|change|clear", "value": <string or null>, "why": "<short>"}}')
 
 
@@ -204,7 +206,7 @@ def review_sections(fields, decisions, ctx, llm, conn, profile_text):
         dup = duplicates(section, by_ref)
         def locked(d):        # a résumé value is exact only when it came from that entry (entry_fields), not a mapping
             return d.source in _LOCKED and not (d.source == "resume" and "entry" not in (getattr(d, "basis", "") or ""))
-        ask = {f.ref for f in section if f.ref in by_ref and _short(f) and not is_credential(f)
+        ask = {f.ref for f in section if f.ref in by_ref and _short(f) and f.kind != "textarea" and not is_credential(f)
                and (not locked(by_ref[f.ref]) or f.ref in dup)}
         if not ask:
             continue

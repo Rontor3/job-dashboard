@@ -211,10 +211,11 @@ class QBankMemory:
                     continue
                 decisions.append(FillDecision(f.ref, f.kind, f.label, yes, "check" if yes else "uncheck", source))
                 continue
-            alts = ()
+            alts, basis = (), ""
             if m.entry_id:
                 from . import qbank
                 entry = qbank.get_entry(self.conn, m.entry_id) or {}
+                basis = f"your saved answer to: {entry.get('question') or m.entry_id}"   # the section review reads it
                 alts = tuple((entry.get("synonyms") or {}).get(str(value), ()))   # 'Job Board' -> 'Company Portal'
                 src = str((self.job or {}).get("source") or "").strip()
                 if m.entry_id == "referral_source" and src:
@@ -222,7 +223,7 @@ class QBankMemory:
                     # without it a model guessed 'LinkedIn' (Walmart, live 2026-10-30)
                     alts = (src, *alts)
             decisions.append(FillDecision(f.ref, f.kind, f.label, value, _action_for_kind(f.kind), source,
-                                          alternatives=alts))
+                                          basis=basis, alternatives=alts))
         return decisions, still
 
     def record(self, field, answer):

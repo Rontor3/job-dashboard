@@ -59,3 +59,22 @@ def test_review_reads_the_whole_section_and_fixes_what_the_bank_matched_alone(mo
     assert got["#loc"] == "Mumbai, India" and got["#e2"] == "me@example.com"     # the confirm box may repeat
     assert len(asked) == 2 and not any("THIS SECTION: [Contact]" in p for p in asked)          # nothing in Contact needed a look
     assert cleared == []                                                         # optional boxes: left blank
+
+
+def test_review_sees_which_saved_answer_and_leaves_essays_alone(monkeypatch):
+    """Live 2026-10-31 (Fractal): 'total years of experience' 3 -> 2 when the review could not see the 3 was your saved
+    answer to that very question; it also rewrote the Armis 'why us' essay."""
+    import career_agent.orchestrator.section_answer as S
+    monkeypatch.setattr(S, "_facts", lambda conn, p: "")
+    yrs = Field("#y", "combobox", "Total years of experience", True, options=["1", "2", "3"], section="Q")
+    essay = Field("#w", "textarea", "Why us?", True, section="Q", purpose="cover_letter")
+    decs = [FillDecision("#y", "combobox", yrs.label, "3", "combobox", "qbank_likely",
+                         basis="your saved answer to: Total years of experience"),
+            FillDecision("#w", "textarea", essay.label, "Because...", "fill", "judgment")]
+    asked = []
+    out, _ = S.review_sections([yrs, essay], decs, {"job": {}},
+                               lambda p: asked.append(p) or json.dumps({"#y": {"verdict": "keep"}}), None, "")
+    assert "your saved answer to: Total years of experience" in asked[0]
+    assert '"id": "#w"' in asked[0] and json.loads(asked[0].split("each field with the answer proposed for it:\n")[1]
+                                                    .split("\n\n")[0])[1]["review"] is False
+    assert {d.ref: d.value for d in out} == {"#y": "3", "#w": "Because..."}
