@@ -38,4 +38,13 @@ def test_the_rewrite_gives_the_fact_to_the_writer_as_material():
         def scores(self, q): return []
     answer_asks("Describe the business result of a model you shipped", job={}, kb=kb, corpus=Corpus(), llm=llm,
                 steer={"facts": ["total saving 20 cr per year"]})
-    assert any("The applicant states: total saving 20 cr per year" in p for p in seen)
+    assert any("The applicant's own note: total saving 20 cr per year" in p for p in seen)
+
+
+
+def test_a_length_the_question_states_caps_the_answer():
+    from career_agent.longform.asks import _ASKED_LEN
+    m = _ASKED_LEN.search("In 3-5 lines, describe one ML model you took to production")
+    assert m and m.group(2) == "5" and m.group(3) == "lines"
+    assert _ASKED_LEN.search("Answer within 150 words please").group(1) == "150"
+    assert _ASKED_LEN.search("Describe your 5 years of experience") is None

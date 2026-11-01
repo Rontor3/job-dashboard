@@ -19,6 +19,9 @@ _LINK = re.compile(r"\b(link|url|github|repo\w*|demo|portfolio|website|write-?up
 _THINK = re.compile(r"<think>.*?</think>", re.S | re.I)
 _PREAMBLE = re.compile(r"^\s*(closest example from my work|here is|here's|sure)[^:\n]{0,40}:\s*", re.I)
 _LINK_KEYS = ("github_url", "linkedin_url", "portfolio_url")
+# 'In 3-5 lines', 'in 2–3 sentences', 'within 150 words', 'in under 100 words'
+_ASKED_LEN = re.compile(r"\b(?:in|within|under|max(?:imum)?|up to)\s+(?:under\s+|about\s+)?(\d{1,3})(?:\s*[-–to]+\s*(\d{1,3}))?"
+                        r"\s+(lines?|sentences?|words?)\b", re.I)
 _STACK = re.compile(r"\b(model|tool\w*|stack|tech\w*|framework|librar\w*|language)\b", re.I)
 _ONE_THING = re.compile(r"\b(describe|share|tell us about|give)\s+(a|an|one|the)\b|\bthe most\b|\bone example\b|\ban? (ai|llm|ml)?\s*"
                         r"(product|system|agent|project|workflow|application)\b", re.I)
@@ -124,6 +127,8 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
             "- If an ask is a yes/no question, start that part with Yes or No. When the true answer is a qualified yes (a PoC, "
             "an internal tool, batch rather than real-time), write 'Yes — ' and then the true scope in the same sentence.\n"
             "- Name the specifics the ask wants (model, tools, numbers, the link) when the material states them.\n"
+            "- 'The applicant's own note' is what they just told you: use EVERY number and fact in it, on the ask it "
+            "answers (a lift over the old process is the baseline you beat).\n"
             "- About the applicant, say ONLY what that ask's MATERIAL states: no invented projects, numbers, users, links or outcomes.\n"
             "- Keep every fact with the PROJECT it is listed under; never credit one project with another's work.\n"
             "- State facts in the material's own wording. Do not add qualities or effects it does not state ('reliable', "
@@ -194,6 +199,10 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
         return answer_outreach(question, job=job, corpus=corpus, research=get_research(), llm=llm,
                                limit=min(x for x in (limit, cap) if x) if (limit or cap) else None, steer=steer)
     asks = _steered(sub_asks(question, llm), steer)
+    if (m := _ASKED_LEN.search(question)):                  # 'In 3-5 lines' / 'in 100 words': the question's own cap
+        n, unit = int(m.group(2) or m.group(1)), m.group(3).lower()
+        cap = n * (6 if unit.startswith("word") else 110)  # ~110 characters to a line or a sentence
+        limit = min(limit, cap) if limit else cap
     if (steer or {}).get("max_words"):                      # a length you set is a hard cap, like a field's maxlength
         cap = int(steer["max_words"] * 6.5)                 # ~6.5 characters per English word, spaces included
         limit = min(limit, cap) if limit else cap
@@ -206,7 +215,7 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
                                allowed if a["source"] == "CANDIDATE" else None, research)) for a in asks]
     # a fact the applicant just told us ("3x lift in the rejection bucket, 20 cr a year") is material for every ask
     # about their own work — what the rewrite of an answer they corrected must use (2026-11-02)
-    told = [Chunk(f"told:{i}", "fact", f"The applicant states: {t}") for i, t in enumerate((steer or {}).get("facts") or [])]
+    told = [Chunk(f"told:{i}", "fact", f"The applicant's own note: {t}") for i, t in enumerate((steer or {}).get("facts") or [])]
     if told:
         blocks = [(a, cs + told) if a["source"] == "CANDIDATE" else (a, cs) for a, cs in blocks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
