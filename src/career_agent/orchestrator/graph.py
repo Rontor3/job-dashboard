@@ -143,6 +143,14 @@ def _follow(c, page, obs):
         tab = c.setdefault("tab", {})
         tab["page"], tab["intended"] = new, new.url
         print(f"[tab] following the new tab -> {new.url[:80]}", flush=True)
+        if c.get("run_dir"):           # the dashboard's live view shows the tab named here (Lingaro: stayed on Himalayas)
+            try:
+                import json
+                from pathlib import Path
+                tid = new.context.new_cdp_session(new).send("Target.getTargetInfo")["targetInfo"]["targetId"]
+                (Path(c["run_dir"]) / "tab.json").write_text(json.dumps({"tab_id": tid}))
+            except Exception:
+                pass
         return new
     return page
 
