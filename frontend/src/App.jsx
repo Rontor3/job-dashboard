@@ -85,10 +85,14 @@ function InboxPage({ onNeeds, onUnread, onGoJobs, onOpenJob, onShowJobs, onChang
   );
 }
 
+const BROWSE_PAGE = 50;
+
 export default function App() {
   const [tab, setTab] = useHashTab();
   const [filters, setFilters] = useState({ sort: "embed", india: true });
   const [jobs, setJobs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [limit, setLimit] = useState(BROWSE_PAGE);        // Browse shows the first page; "Show more" asks for the next
   const [stats, setStats] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [error, setError] = useState(null);
@@ -99,10 +103,11 @@ export default function App() {
   const [focusJobs, setFocusJobs] = useState(null);
 
   const reload = useCallback(() => {
-    Promise.all([fetchJobs(filters), fetchStats()])
-      .then(([feed, s]) => { setJobs(feed.jobs); setStats(s); setError(null); })
+    Promise.all([fetchJobs({ ...filters, limit }), fetchStats()])
+      .then(([feed, s]) => { setJobs(feed.jobs); setTotal(feed.total ?? feed.jobs.length); setStats(s); setError(null); })
       .catch((e) => setError(String(e)));
-  }, [filters]);
+  }, [filters, limit]);
+  useEffect(() => { setLimit(BROWSE_PAGE); }, [filters]);   // new filters start from the first page again
 
   useEffect(() => { reload(); }, [reload]);
   const reloadStats = useCallback(() => fetchStats().then(setStats).catch(() => {}), []);   // the donut and header counts only
@@ -178,6 +183,13 @@ export default function App() {
             </section>
             <BrowseOverview stats={stats} onIndustry={(ind) => setFilters((f) => ({ ...f, industry: ind }))} />
             <Feed jobs={jobs} selectedId={selectedId} onSelect={setSelectedId} onApply={onApply} onQueue={onQueue} queue={queue} />
+            {total > jobs.length && (
+              <div className="jobs-more">
+                <span>Showing {jobs.length} of {total}</span>
+                <button className="btn btn-sm" onClick={() => setLimit((n) => n + BROWSE_PAGE)}>
+                  Show {Math.min(BROWSE_PAGE, total - jobs.length)} more</button>
+              </div>
+            )}
             <DuplicatesSection />
           </section>
         )}
