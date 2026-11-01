@@ -46,7 +46,14 @@ def test_blocked_becomes_auth_error():
         f.search_posts("x")
 
 
-def test_unreachable_chrome_is_auth_error(monkeypatch):
+def test_unreachable_chrome_is_started_first_and_a_failed_start_is_auth_error(monkeypatch):
+    from job_dashboard.api import agent_routes
     monkeypatch.setattr(cdp_fetch, "cdp_reachable", lambda url: False)
-    with pytest.raises(LinkedInAuthError, match="CDP"):
-        cdp_fetch.CdpHiringFetcher().search_posts("x")
+    started = []
+    monkeypatch.setattr(agent_routes, "_ensure_cdp_chrome", lambda url: started.append(url) or "Chrome did not come up")
+    with pytest.raises(LinkedInAuthError, match="did not come up"):
+        cdp_fetch.CdpHiringFetcher(cdp_url="http://localhost:9223").search_posts("x")
+    assert started == ["http://localhost:9223"]          # the Hiring tab starts the agent Chrome like Apply/Queue do
+    monkeypatch.setattr(agent_routes, "_ensure_cdp_chrome", lambda url: None)
+    f = cdp_fetch.CdpHiringFetcher(cdp_url="http://localhost:9223", session_factory=lambda: FakeSession(), nap=lambda: None)
+    assert isinstance(f.search_posts("x"), list)         # started: the search goes ahead

@@ -321,7 +321,8 @@ def build_agent_router(db_path, state: Optional[AgentRunState] = None) -> APIRou
         if urlparse(url).scheme not in ("http", "https"):
             raise HTTPException(status_code=422, detail="url must be http(s)")
         from career_agent.config.settings import load_settings
-        cdp_url = load_settings().cdp_url or "http://localhost:9222"
+        from job_dashboard.sources.cdp.runner import agent_cdp_url
+        cdp_url = agent_cdp_url()
         problem = _ensure_cdp_chrome(cdp_url)
         if problem:
             raise HTTPException(status_code=503, detail=problem)

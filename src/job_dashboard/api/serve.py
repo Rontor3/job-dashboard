@@ -27,7 +27,7 @@ from job_dashboard.db import init_db  # noqa: E402
 from job_dashboard.api.app import DEFAULT_DB  # noqa: E402
 from job_dashboard.match.embedder import load_default_model  # noqa: E402
 
-# Hiring posts come through the user's own logged-in Chrome over CDP (port 9222).
+# Hiring posts come through the agent's logged-in Chrome over CDP (CAREER_AGENT_CDP_URL; started when it is not up).
 # The cookie-based LinkedInBrowserFetcher (li_at/JSESSIONID in .env) is
 # superseded; kept in linkedin/browser_fetch.py for reference only.
 _fetcher = CdpHiringFetcher()

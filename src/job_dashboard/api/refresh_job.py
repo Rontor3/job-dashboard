@@ -70,10 +70,9 @@ def _summarize(result):
 def _agent_chrome() -> str:
     """The agent Chrome's address from settings (9223 here; the browser sources used to try a fixed 9222 and reported
     'not reachable'), started first when it is not running."""
-    from career_agent.config.settings import load_settings
     from job_dashboard.api.agent_routes import _ensure_cdp_chrome
-    from job_dashboard.sources.cdp.runner import CDP_URL
-    cdp = load_settings().cdp_url or CDP_URL
+    from job_dashboard.sources.cdp.runner import agent_cdp_url
+    cdp = agent_cdp_url()
     problem = _ensure_cdp_chrome(cdp)
     if problem:
         print(f"[refresh] {problem}", flush=True)       # the browser sources then note it per site

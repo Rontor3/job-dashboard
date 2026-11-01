@@ -12,7 +12,17 @@ ADAPTERS = {linkedin.SITE: (linkedin.run, linkedin.TERMS), naukri.SITE: (naukri.
             wellfound.SITE: (wellfound.run, []),        # wellfound queries wellfound.TITLES itself
             instahyre.SITE: (instahyre.run, instahyre.TERMS), iimjobs.SITE: (iimjobs.run, iimjobs.TERMS),
             indeed.SITE: (indeed.run, indeed.TERMS), ycstartups.SITE: (ycstartups.run, ycstartups.TERMS)}
-CDP_URL = "http://localhost:9222"
+def agent_cdp_url() -> str:
+    """THE agent Chrome's address, for every CDP user (Refresh sources, Hiring posts, the submit watcher, the agent):
+    CAREER_AGENT_CDP_URL from settings. Each used its own fixed 9222 while the agent ran on 9223 (2026-11-02)."""
+    try:
+        from career_agent.config.settings import load_settings
+        return load_settings().cdp_url or "http://localhost:9222"
+    except Exception:
+        return "http://localhost:9222"
+
+
+CDP_URL = agent_cdp_url()
 # mode -> (max search pages per term, page-load cap, stop after N consecutive known)
 LIMITS = {"incremental": (3, 30, 10), "backfill": (2, 60, 10**9)}
 WINDOWS = {"linkedin": tuple(sorted(linkedin.TPR)), "naukri": tuple(sorted(naukri.AGES)),

@@ -53,7 +53,10 @@ def cutoff_ts() -> str:
 
 
 class SubmitWatcher:
-    def __init__(self, db_path: str, cdp_url: str = "http://localhost:9222", interval_s: int = POLL_S, on_requeue=None):
+    def __init__(self, db_path: str, cdp_url: str | None = None, interval_s: int = POLL_S, on_requeue=None):
+        if cdp_url is None:                           # the agent's Chrome (settings), not a fixed 9222
+            from job_dashboard.sources.cdp.runner import agent_cdp_url
+            cdp_url = agent_cdp_url()
         self.db_path, self.cdp_url, self.interval_s = db_path, cdp_url, interval_s
         self.on_requeue = on_requeue                  # called with no args after a re-queue: kick the queue runner
         self._thread: threading.Thread | None = None

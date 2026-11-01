@@ -23,8 +23,10 @@ class CdpHiringFetcher:
 
     def search_posts(self, keyword, *, date_posted="past-24h"):
         if not cdp_reachable(self.cdp_url):
-            raise LinkedInAuthError(f"Chrome not reachable over CDP at {self.cdp_url} — "
-                                    "start Chrome with --remote-debugging-port=9222")
+            from job_dashboard.api.agent_routes import _ensure_cdp_chrome
+            problem = _ensure_cdp_chrome(self.cdp_url)       # not running: start the agent Chrome, as Apply/Queue do
+            if problem:
+                raise LinkedInAuthError(problem)
         if self._calls:
             self._nap()                      # pace keywords like a person would
         self._calls += 1
