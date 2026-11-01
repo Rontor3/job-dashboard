@@ -195,7 +195,13 @@ _ATTEST_BOX = re.compile(r"\byou (acknowledge|consent|agree|confirm|declare|cert
 # a long label that still asks for ONE value: "Please confirm your 10-digit mobile phone number (without the country
 # code) using numeric values only…" (Walmart, a textarea, live 2026-10-30: read as an essay, the drafter invented numbers)
 _ASKS_FOR_VALUE = re.compile(r"\b(confirm|enter|provide|type|give)\b.{0,20}\byour\b.{0,40}\b(number|e-?mail|address|code|url|link)\b"
-                             r"|\b\d+[- ]digit\b|\bnumeric values only\b|\bdigits only\b")
+                             r"|\b\d+[- ]digit\b|\bnumeric values only\b|\bdigits only\b"
+                             # an identifier: 'Roll number / Seat Number / Registration Number' (Fractal 2026-10-31)
+                             r"|\b(roll|seat|registration|enrol?ment|identification|passport|licen[cs]e|membership"
+                             r"|employee|reference|aadhaa?r|pan)\s*(number|no\b|#)", re.I)
+_WHICH_PLACE = re.compile(r"\b(in )?which (country|state|city|province|region)\b|\b(country|state|city) (is it|it is) in\b", re.I)
+
+
 def asks_for_value(label: str) -> bool:
     """The label asks for one specific value (a number, an email, a code) rather than prose."""
     return bool(_ASKS_FOR_VALUE.search(label or ""))
@@ -237,6 +243,8 @@ def guess_purpose(label: str, kind: str) -> str | None:
     yes_no = bool(_YES_NO_Q.match(text))
     for pattern, purpose in _RULES:
         if re.search(pattern, text):
+            if purpose in ("school", "employer") and _WHICH_PLACE.search(text):
+                continue       # "The Institution … is located in which Country?" asks a place, not the school (Fractal 2026-10-31)
             if yes_no and purpose in _TEXT_VALUE_PURPOSES:
                 return None    # "Are you an employee at X? (if yes, add your X email…)" is answered yes/no, never with the email
             if (kind == "textarea" and len(text.split()) >= 15 and purpose not in ("motivation", "summary")

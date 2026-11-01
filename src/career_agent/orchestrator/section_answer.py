@@ -153,7 +153,9 @@ def duplicates(section_fields, by_ref) -> set:
     seen, dup = {}, set()
     for f in section_fields:
         d = by_ref.get(f.ref)
-        if d is None or not isinstance(d.value, str) or len(_norm(d.value)) < 6 or _REPEAT_OK.search(f.label or ""):
+        # a long, many-word value (an address) is the one that gets smeared over boxes; a name or a city repeats
+        # legitimately (Local Given Name = Given Name, Workday 2026-11-01)
+        if d is None or not isinstance(d.value, str) or len(d.value.split()) < 3 or _REPEAT_OK.search(f.label or ""):
             continue
         k = _norm(d.value)
         if k in seen and seen[k] != f.label:

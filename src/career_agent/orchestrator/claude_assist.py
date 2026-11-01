@@ -44,7 +44,7 @@ _DRAFT_ERROR_RE = re.compile(
 # your phone number…", "I'll enter my 10-digit mobile number in this field myself…"): a refusal is not an answer
 _REFUSAL_RE = re.compile(
     r"^i(?: can.?t| cannot| won.?t| am unable to|.?m unable to|.?m not able to) (?:answer|fill|provide|give|enter|complete)"
-    r"|^i (?:don.?t|do not) have (?:your|the|enough|any)\b"
+    r"|^i (?:don.?t|do not) have (?:access|your|the|enough|any)\b"
     r"|\b(?:this|the) (?:field|box)\b.{0,15}\bmyself\b"
     r"|\bi (?:won.?t|will not) (?:make up|invent|guess)\b", re.I)
 

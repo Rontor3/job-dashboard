@@ -205,8 +205,8 @@ def answer_fields(fields, ctx):
     if needs and judge_fn:
         answered, needs, _ = judge_fn(needs)
         decisions += answered
-    if os.getenv("CAREER_AGENT_ANSWER") == "sections" and ctx.get("section_llm") and learn is not None:
-        # every answer read again in its section: 'likely' / drafted / repeated values kept, changed or cleared
+    if os.getenv("CAREER_AGENT_ANSWER") in ("sections", "review") and ctx.get("section_llm") and learn is not None:
+        # 'review' = field by field, then this pass alone. Every answer read again in its section: 'likely' / drafted / repeated values kept, changed or cleared
         from .judgment import profile_to_text
         from .section_answer import review_sections
         decisions, cleared = review_sections(fields, decisions, {**ctx, "job": getattr(learn, "job", {})},
