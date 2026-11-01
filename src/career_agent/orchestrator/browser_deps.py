@@ -78,6 +78,8 @@ class BrowserDeps:
                         continue                        # the click itself failed: nothing happened, try the next frame
                     print(f"[click] {label!r}: {before_url[-60:]} -> {page.url[-60:]}"
                           f"{' | ' + '; '.join(obs.intercepts) if obs.intercepts else ''}", flush=True)
+                    if obs.modal and obs.page is page:
+                        obs = _after_modal(page, obs)
                     return obs
             if attempt == 0:
                 # Button may be temporarily absent during an AJAX refresh — wait and retry once. An open dropdown hides
@@ -104,6 +106,31 @@ _OPEN_LIST_JS = """() => {
   const dialog = [...document.querySelectorAll('[role=dialog], [aria-modal=true]')].some(vis);
   return list && !dialog;
 }"""
+
+
+def _after_modal(page, obs):
+    """The click opened a modal: handle it now, before anything else looks at the page. Himalayas' Apply opens an
+    upsell whose 'I'm ready to apply' opens the Lever form in a NEW tab; left alone, the modal was gone by the next
+    step and Apply was clicked again, four times (Lingaro 2026-11-01). Continue on the tab it opened."""
+    from dataclasses import replace
+    from ..browser.page_prep import prepare
+    try:
+        before = list(page.context.pages)
+        prepare(page)
+        page.wait_for_timeout(1500)
+        fresh = [p for p in page.context.pages if p not in before and not p.is_closed()]
+    except Exception:
+        return obs
+    if not fresh:
+        return obs
+    tab = fresh[-1]
+    try:
+        tab.wait_for_load_state("domcontentloaded", timeout=15000)
+    except Exception:
+        pass
+    print(f"[click] the modal handed off to a new tab: {tab.url[:90]}", flush=True)
+    return replace(obs, page=tab, url=tab.url, changed=True, modal=None,
+                   intercepts=obs.intercepts + [f"modal handoff -> new tab"])
 
 
 def _close_open_list(page) -> None:

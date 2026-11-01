@@ -880,6 +880,13 @@ def _handle_state(page, state: str, cred: dict, site: str) -> None:
             pass
 
 
+def _still_login(page) -> bool:
+    try:
+        return any(_truly_visible(el) for el in page.query_selector_all('input[type="password"]'))
+    except Exception:
+        return False
+
+
 def _open_verify_link(page, site: str, after_epoch: int) -> bool:
     """A sign-up that mails an activation link: open it (a link on the same site only — gmail_otp checks)."""
     from ..integrations.gmail_otp import available, poll_verify_link
@@ -1576,6 +1583,17 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
         parked, _ASK["collector"] = _PARK["reason"], None
     if parked and not ok:
         action = parked                            # the honest park reason, not a plain failed attempt
+    if not _retried and not parked and _still_login(page) and _open_verify_link(page, site, int(_time.time()) - 2 * 86400):
+        # every sign-in path ends here: a login that did not open may be an account whose emailed link was never
+        # opened (Capital One Workday, 2026-11-01: email-first login, 'no change after 30s'). Open it, sign in once more.
+        if original_url:
+            try:
+                page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(2000)
+            except Exception:
+                pass
+        return provide(page, gate, site, original_url, email, phone, collector, _retried=True,
+                       first_name=first_name, last_name=last_name)
     print(f"[cred] provide(site={site}): done outcome={'handled' if ok else 'unhandled'}:"
           f"{action or 'none'}", flush=True)
     return ok, action
@@ -1736,17 +1754,6 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
             # Traditional form, have credentials — login
             _ensure_login_form(page)
             _fill_wall(page, gate, cred, site=site)
-            if (not _retried and _is_login_form(page) and _login_rejected(page)
-                    and _open_verify_link(page, site, int(_time.time()) - 2 * 86400)):
-                # an account made earlier whose emailed link was never opened: open it, then sign in once more
-                if original_url:
-                    try:
-                        page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_timeout(2000)
-                    except Exception:
-                        pass
-                return provide(page, gate, site, original_url, email, phone, _retried=True,
-                               first_name=first_name, last_name=last_name)
             if not _retried and _is_login_form(page) and _login_rejected(page):
                 # Still the login form: the stored account does not open (Koch, Deloitte live 2026-10-18 — a password
                 # was saved for an account whose sign-up was never sent). Retire it and register instead, once.
