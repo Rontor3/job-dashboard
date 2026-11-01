@@ -880,6 +880,24 @@ def _handle_state(page, state: str, cred: dict, site: str) -> None:
             pass
 
 
+def _open_verify_link(page, site: str, after_epoch: int) -> bool:
+    """A sign-up that mails an activation link: open it (a link on the same site only — gmail_otp checks)."""
+    from ..integrations.gmail_otp import available, poll_verify_link
+    if not available():
+        return False
+    link = poll_verify_link(site, after_epoch)
+    if not link:
+        return False
+    try:
+        page.goto(link, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(3000)
+        print(f"[cred] {site}: opened the account verification link", flush=True)
+        return True
+    except Exception as e:
+        print(f"[cred] {site}: verification link did not open ({type(e).__name__})", flush=True)
+        return False
+
+
 def _is_combined_form(page) -> bool:
     """A password box inside a long application form (address, work history, ...): registration and application in one.
     Submitting from here only trips validation on everything the credential step did not fill. Needs a field only an
@@ -1687,6 +1705,7 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
             # visit tried to LOG IN with it.
             had_password = any(_truly_visible(el) for el in page.query_selector_all('input[type="password"]'))
             combined = _is_combined_form(page)
+            signed_up_at = int(_time.time()) - 30
             _fill_wall(page, gate, cred, site=site)
             combined = combined or _is_combined_form(page)        # read again once settled: the first look can be early
             if had_password:
@@ -1694,6 +1713,17 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
                 # live 2026-10-19): keep the password PENDING — never used to log in — until a submit is confirmed.
                 save_credential(site, cred["username"], cred["password"], label=gate, pending=combined,
                                 first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
+                if not combined and not _retried and _open_verify_link(page, site, signed_up_at):
+                    # the account opens only after its emailed link (Workday 'Verify your candidate account'): back to
+                    # the job and sign in with what was just saved (Capital One, 2026-11-01: stopped at the login wall)
+                    if original_url:
+                        try:
+                            page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
+                            page.wait_for_timeout(2000)
+                        except Exception:
+                            pass
+                    return provide(page, gate, site, original_url, email, phone, _retried=True,
+                                   first_name=first_name, last_name=last_name)
             else:
                 print(f"[cred] {site}: no password box yet — nothing saved, the account does not exist", flush=True)
         elif _is_combined_form(page) and not _is_login_form(page):
@@ -1706,6 +1736,17 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
             # Traditional form, have credentials — login
             _ensure_login_form(page)
             _fill_wall(page, gate, cred, site=site)
+            if (not _retried and _is_login_form(page) and _login_rejected(page)
+                    and _open_verify_link(page, site, int(_time.time()) - 2 * 86400)):
+                # an account made earlier whose emailed link was never opened: open it, then sign in once more
+                if original_url:
+                    try:
+                        page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_timeout(2000)
+                    except Exception:
+                        pass
+                return provide(page, gate, site, original_url, email, phone, _retried=True,
+                               first_name=first_name, last_name=last_name)
             if not _retried and _is_login_form(page) and _login_rejected(page):
                 # Still the login form: the stored account does not open (Koch, Deloitte live 2026-10-18 — a password
                 # was saved for an account whose sign-up was never sent). Retire it and register instead, once.

@@ -309,11 +309,21 @@ def test_an_apply_boundary_modal_without_upsell_copy_is_also_handed_off():
     assert ("click", "I'm ready to apply") in page.events
 
 
-def test_a_two_control_upsell_never_auto_clicks_the_sell():
-    page = _ModalPage("Boost your resume with the AI writer",
-                      ["Generate cover letter", "I'm ready to apply"])
+def test_an_upsell_with_close_and_sells_takes_its_one_way_on():
+    # Himalayas/Lingaro 2026-11-01: Close only re-opened the modal on the next Apply (4 loops, run stopped)
+    page = _ModalPage("Don't let your application get lost in the pile",
+                      ["Close", "Generate cover letter with AI", "Generate resume with AI", "I'm ready to apply",
+                       "Don't show this again"], closes_on_click=True)
     from career_agent.browser.page_prep import dismiss_dialogs
-    assert dismiss_dialogs(page) is True           # Escape: not the buy button
+    assert dismiss_dialogs(page) is True
+    assert [e for e in page.events if e[0] == "click"] == [("click", "I'm ready to apply")]
+
+
+def test_two_ways_on_are_ambiguous_and_never_auto_clicked():
+    page = _ModalPage("Boost your resume with the AI writer",
+                      ["Apply now with Premium", "I'm ready to apply"])
+    from career_agent.browser.page_prep import dismiss_dialogs
+    assert dismiss_dialogs(page) is True           # Escape: neither is clicked
     assert not any(e[0] == "click" for e in page.events)
     assert ("escape", "Escape") in page.events
 

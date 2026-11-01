@@ -123,13 +123,16 @@ def _press_escape(page) -> bool:
 
 
 def _click_handoff(page, dialog, names):
-    """Final rung, tried once per modal snapshot: the ONLY named control is the
-    site's own continue-style handoff ("I'm ready to apply" skipped the upsell and
-    opened the form on 31867). An ad-marked dialog is never a handoff — its Apply
-    is the ad's — so that closes via Escape instead."""
+    """Tried once per modal snapshot: the site's own continue-style handoff ("I'm ready to apply" skipped the upsell
+    and opened the form on 31867). It must be the ONE short control that reads as continuing to apply — the upsell's
+    other links ("Generate cover letter with AI") are the sell, and Close only re-opens the same modal on the next
+    Apply (Himalayas/Lingaro 2026-11-01: four Close → Apply loops, 'not an application form'). Two such controls
+    are ambiguous: none is clicked. An ad-marked dialog is never a handoff — its Apply is the ad's."""
     controls = [" ".join(n.split()) for n in names if n.strip()]
-    if len(controls) != 1 or len(controls[0]) > 80 or not _HANDOFF_RE.search(controls[0].lower()):
+    hand = [c for c in controls if len(c.split()) <= 6 and _HANDOFF_RE.search(c.lower())]
+    if len(hand) != 1:
         return None
+    controls = hand
     try:
         ad_marked = dialog.locator(_AD_DIALOG_CSS).count() > 0
     except Exception:
@@ -210,15 +213,15 @@ def dismiss_dialogs(page) -> bool:
     upsell = not fillable and bool(_UPSELL_RE.search(text))
     degraded = strikes >= 1                    # this snapshot survived one dismiss attempt already
     if upsell:
-        via = _click_first(page, _UPSELL_CLOSE, within=dialog)
-        if not via:
-            via = _click_close_x(page, dialog)
+        via = _click_handoff(page, dialog, names) if strikes == 0 else None   # the way on beats Close: Close loops
         if via:
-            trail_note(step="modal_dismissed", via=via, upsell=True)
-        elif strikes == 0:
-            via = _click_handoff(page, dialog, names)
+            trail_note(step="modal_advanced", via=via)
+        if not via:
+            via = _click_first(page, _UPSELL_CLOSE, within=dialog)
+            if not via:
+                via = _click_close_x(page, dialog)
             if via:
-                trail_note(step="modal_advanced", via=via)
+                trail_note(step="modal_dismissed", via=via, upsell=True)
         if not via and _press_escape(page):
             via = "Escape"
             trail_note(step="modal_dismissed", via=via, upsell=True)

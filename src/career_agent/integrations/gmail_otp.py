@@ -120,19 +120,72 @@ def _extract_code(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _parts(part):
+    """Every leaf part, however deeply nested (multipart/mixed > related > text/html)."""
+    yield part
+    for p in part.get("parts") or []:
+        yield from _parts(p)
+
+
+def _html_text(html_src: str) -> str:
+    """An HTML mail as text: styles and tags out (their numbers are not codes), every link kept."""
+    import html as _html
+    links = re.findall(r'href=["\']([^"\']+)', html_src, re.I)
+    txt = re.sub(r"<(style|script)[^>]*>.*?</\1>", " ", html_src, flags=re.S | re.I)
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    return _html.unescape(" ".join(txt.split()) + "\n" + "\n".join(links))
+
+
 def _body_text(service, msg_id: str) -> str:
-    """Decode the plaintext body of a Gmail message."""
+    """Decode a Gmail message's body: plain text when it has one, else its HTML as text. Workday's 'Verify your
+    candidate account' is HTML only, two levels deep; reading only the top level fell back to the snippet, which cuts
+    the activation link short (Capital One, 2026-11-01)."""
     msg = service.users().messages().get(
         userId="me", id=msg_id, format="full"
     ).execute()
-    parts = msg.get("payload", {}).get("parts") or [msg.get("payload", {})]
-    for part in parts:
-        if part.get("mimeType") == "text/plain":
+    leaves = list(_parts(msg.get("payload", {})))
+    for mime in ("text/plain", "text/html"):
+        for part in leaves:
             data = part.get("body", {}).get("data", "")
-            if data:
-                return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
-    # fallback: snippet
+            if part.get("mimeType") == mime and data:
+                text = base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+                return text if mime == "text/plain" else _html_text(text)
     return msg.get("snippet", "")
+
+
+def _same_site(url: str, site: str) -> bool:
+    """The link is on the site we signed up at (its host, or the same last-two-label domain)."""
+    from urllib.parse import urlparse
+    host, site = (urlparse(url).hostname or "").lower(), (site or "").lower()
+    return bool(host) and (host == site or host.split(".")[-2:] == site.split(".")[-2:])
+
+
+def poll_verify_link(site: str, after_epoch: int, timeout_s: int = 90, poll_interval_s: int = 5) -> str | None:
+    """An account-verification link for `site` mailed after `after_epoch`, or None. Only a link on that same site is
+    returned: a broad inbox scan must never open some other mail's link."""
+    if not _TOKEN_PATH.exists():
+        return None
+    try:
+        service = _build_service()
+    except Exception as e:
+        print(f"[gmail-otp] Gmail unavailable ({type(e).__name__})", flush=True)
+        return None
+    seen: set[str] = set()
+    deadline = time.time() + timeout_s
+    print(f"[gmail-otp] waiting up to {timeout_s}s for a verification link from {site} …", flush=True)
+    while time.time() < deadline:
+        res = service.users().messages().list(userId="me", q=f"after:{after_epoch}", maxResults=10).execute()
+        for m in res.get("messages", []):
+            if m["id"] in seen:
+                continue
+            seen.add(m["id"])
+            for link in _VERIFY_LINK_RE.findall(_body_text(service, m["id"])):
+                if _same_site(link, site):
+                    print(f"[gmail-otp] verification link from {site} found", flush=True)
+                    return link
+        time.sleep(poll_interval_s)
+    print(f"[gmail-otp] no verification link from {site}", flush=True)
+    return None
 
 
 # ---------------------------------------------------------------------------
