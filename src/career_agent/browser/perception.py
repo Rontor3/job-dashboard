@@ -598,7 +598,14 @@ _INPUT_JS = r"""
     // Workday's prompt widgets (searchBox inside multiselectInputContainer) are the same kind: a popup that opens on
     // click and lists the choices, not free text.
     const isPromptBox = !!el.closest('[data-automation-id="multiselectInputContainer"]') || el.getAttribute('data-automation-id') === 'searchBox';
-    const isUxiSelect = uxiWidget.includes('select') || isPromptBox;
+    // A type-ahead with no ARIA at all: a text box whose field also holds its results list or the hidden value a pick
+    // writes (Lever 'Current location': .dropdown-results + input[name=selectedLocation]). Typed text alone is
+    // thrown away on blur (Lingaro 2026-11-01: 'Mumbai, India' typed, box empty, 'No location found').
+    const wrap = el.parentElement;
+    const isTypeAhead = tag === 'input' && ['text', 'search', ''].includes(type) && !!wrap &&
+      wrap.querySelectorAll('input:not([type=hidden]), select, textarea').length === 1 &&   // its own field, not the page
+      !!wrap.querySelector('[class*="dropdown-results"], [class*="autocomplete-results"], input[type=hidden][name^="selected" i]');
+    const isUxiSelect = uxiWidget.includes('select') || isPromptBox || isTypeAhead;
     let kind = tag === 'textarea' ? 'textarea'
              : tag === 'select' ? 'select'
              : isUxiSelect ? 'combobox'
@@ -965,8 +972,11 @@ _SECTION_JS = r"""
   };
   const prompted = fs => Array.from(fs.children).some(ch => ch.tagName !== 'LEGEND' && !ch.querySelector(CTL)
                                                      && /\?\s*\*?$/.test((ch.innerText || '').trim()));
+  // a heading's own words, without its buttons ('Basic Info Clear' -> 'Basic Info', Zoho) — unless the button IS the
+  // title (SuccessFactors wraps 'Education' in a block button inside the <h2>)
   const words = h => { const c = h.cloneNode(true); c.querySelectorAll('button,a,[role=button]').forEach(x => x.remove());
-                       return (c.textContent || '').replace(/\s+/g, ' ').trim(); };
+                       const own = (c.textContent || '').replace(/\s+/g, ' ').trim();
+                       return own || (h.textContent || '').replace(/\s+/g, ' ').trim(); };
   const heads = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role=heading],fieldset > legend'))
     .filter(h => shown(h) && words(h) && words(h).length <= 80
                  && (h.tagName !== 'LEGEND' || questions(h.closest('fieldset')) >= 2 || prompted(h.closest('fieldset'))));

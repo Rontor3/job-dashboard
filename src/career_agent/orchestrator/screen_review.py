@@ -12,6 +12,8 @@ from ..orchestrator.mapper import FillDecision, _action_for_kind as _action
 from ..orchestrator.profile_resolver import resolve, highest_degree_level, row_degree_level
 from ..orchestrator import standard_answers
 
+_PREVIOUS = re.compile(r"\b(previous|prior|former|last|past)\b(?!\s+(?:\d|few|year|month))", re.I)
+
 _SELECT_KINDS = {"select", "radio_group"}
 # Free-text purposes answered in prose: when the profile has no value they go to
 # the judgment drafter (never to a structured purpose like postal_code).
@@ -319,7 +321,9 @@ def map_screen(form, profile, resume_pdf=None):
         purpose, section = f.purpose, getattr(f, "section", "") or ""
         if purpose == "graduation_year" and date_mask_refuses("2000", {"placeholder": getattr(f, "placeholder", "")}):
             purpose, section = "end_date", "Education"    # 'Year Of Passing' as an MM/DD/YYYY box: the completion date
-        value = resolve(purpose, profile, section=section) if purpose else None
+        # 'Mention your previous company?' asks the job before this one (Lingaro on Lever, 2026-11-01: got Tata AIG)
+        before = purpose in ("employer", "job_title") and bool(_PREVIOUS.search(f.label or ""))
+        value = resolve(purpose, profile, index=1 if before else 0, section=section) if purpose else None
         if value is not None:
             _place(f, value, "resume", decisions, needs_human)
         elif f.required or (f.kind == "textarea" or (f.kind == "text" and f.purpose in PROSE_PURPOSES)):

@@ -170,6 +170,9 @@ def is_cleared_for(gate: str):
 
 
 
+NOTIFY = None        # apply.py sets it to the Telegram sender when one is configured
+
+
 def wait_for_human(page, still_blocked, seconds: float, poll_s: float = 3.0, what: str = "a check") -> bool:
     """A human is at the screen: wait (up to `seconds`) for THEM to clear the gate — a human check, a login.
     Polls `still_blocked()`; touches nothing on the page. True once it is clear. 0 seconds = no wait (unattended)."""
@@ -177,6 +180,12 @@ def wait_for_human(page, still_blocked, seconds: float, poll_s: float = 3.0, wha
     if seconds <= 0:
         return False
     print(f"[gate] waiting up to {int(seconds)}s for you to clear {what} on {page.url[:80]}", flush=True)
+    if NOTIFY is not None:
+        try:
+            NOTIFY(f"\u270b {what} on {page.url[:120]}\nClear it in the agent's Chrome within {int(seconds) // 60} min "
+                   "and the run carries on (an expired job is then skipped by itself).")
+        except Exception:
+            pass
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         try:

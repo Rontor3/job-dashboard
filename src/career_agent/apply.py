@@ -432,6 +432,8 @@ def _apply(args, box: dict) -> None:
         from .integrations.live_view.session import RemoteSolveSession
         from .browser.gate_probe import is_cleared_for
         _tg = TelegramClient(settings.telegram_bot_token, settings.telegram_chat_id)
+        from .browser import gate_probe as _gp
+        _gp.NOTIFY = _tg.send_message          # 'clear the check in the agent's Chrome' reaches your phone
         approver = TelegramApprover(_tg)
         collector = TelegramCollector(_tg)
 

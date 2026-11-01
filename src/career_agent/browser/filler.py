@@ -84,7 +84,7 @@ def _type_ahead_queries(value: str) -> list[str]:
 
 # The popup a combobox opens: role=listbox, or Workday's activeListContainer (no role on some builds). Only a
 # VISIBLE one counts — a closed listbox keeps its old options in the DOM.
-_POPUP_SEL = "[role=listbox], [data-automation-id='activeListContainer']"
+_POPUP_SEL = "[role=listbox], [data-automation-id='activeListContainer'], :has(> [class*='dropdown-results']), .pac-container"
 # Options must be visible: a closed popup (or another prompt's) keeps its rows in the DOM and would be read as choices.
 def _exact(text: str):
     """Whole-text match for an option/label click: has_text=str is a substring test, so 'Male' clicked 'Female'
@@ -94,7 +94,9 @@ def _exact(text: str):
 
 # a pill in Workday's selectedItemList is a choice already made in ANOTHER field ('India (+91)'), never an option here
 _NOT_PILL = ":not([data-automation-id=selectedItemList] *)"
-_OPT_SEL = ", ".join(s + ":visible" + _NOT_PILL for s in ("[role=option]", "[id*='-option-']", "[data-automation-id='promptOption']"))
+# ARIA options, Workday's, and the rows of a plain type-ahead list (Lever's .dropdown-results, Google Places' .pac-item)
+_OPT_SEL = ", ".join(s + ":visible" + _NOT_PILL for s in ("[role=option]", "[id*='-option-']", "[data-automation-id='promptOption']",
+                                                         "[class*='dropdown-results'] > *", ".pac-item"))
 
 
 def _popup(target, lb_id):
@@ -285,8 +287,14 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
 
             # the answer's own wordings first, then its stand-ins: a search box filters the list to what it holds, so
             # 'Job Board' typed into Workday's prompt showed nothing and 'Company Portal' was never looked for (Opella)
+            parts = {p.strip().lower() for p in str(d.value).split(",") if p.strip()}
             for q in [*_type_ahead_queries(str(d.value)), *(getattr(d, "alternatives", ()) or ())]:
-                opt = _fit(_search(q))
+                found = _search(q)
+                opt = _fit(found)
+                if opt is None and q.strip().lower() in parts:
+                    # one part of the answer searched alone (the city of 'Mumbai, India'): a row NAMED by that part is
+                    # it — Lever lists 'Mumbai, Maharashtra, IND', which no whole-value match accepts (Lingaro 2026-11-01)
+                    opt = next((o for o in found if o.split(",")[0].strip().lower() == q.strip().lower()), None)
                 if opt:
                     break
             if opt is None and getattr(d, "action", "") == "combobox":

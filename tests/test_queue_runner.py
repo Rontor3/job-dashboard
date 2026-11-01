@@ -127,8 +127,10 @@ def test_argv_asks_on_telegram_for_the_configured_wait_unless_zero(tmp_path):
     runner = QueueRunner(path, None, result_dir=str(tmp_path))
     argv = runner.argv(conn, URLS[1], 1, "r.json")
     assert argv[argv.index("--ask-wait-minutes") + 1] == "10"
+    assert argv[argv.index("--human-wait") + 1] == "600"          # a robot check waits for you too (Siemens/Indeed)
     qa_store.set_setting(conn, "telegram_wait_minutes", 0)
     assert "--ask-wait-minutes" not in runner.argv(conn, URLS[1], 1, "r.json")
+    assert "--human-wait" not in runner.argv(conn, URLS[1], 1, "r.json")
 
 
 def test_only_a_form_left_open_for_review_is_watched_for_a_hand_submit(tmp_path):

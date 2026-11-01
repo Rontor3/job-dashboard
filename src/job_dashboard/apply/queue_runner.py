@@ -296,7 +296,9 @@ class QueueRunner:
             argv += ["--cdp-url", cdp]
         wait = qa_store.get_setting(conn, "telegram_wait_minutes")
         if wait.isdigit() and int(wait) > 0:
-            argv += ["--ask-wait-minutes", wait]
+            # the same window covers a robot check: the run waits for you to tick it in the agent's Chrome and then
+            # reads the page (Siemens on Indeed, 2026-11-01: stopped at the check; the posting behind it had expired)
+            argv += ["--ask-wait-minutes", wait, "--human-wait", str(int(wait) * 60)]
         # Whether the form goes out without you is decided at its last step, from the destination site's switch and the
         # answers' approvals (autonomy.autosubmit_policy); otherwise it is left open for your review.
         return argv + ["--review", "--autosubmit-policy"]

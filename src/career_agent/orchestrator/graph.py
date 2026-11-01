@@ -850,7 +850,13 @@ def advance_node(state: AgentState, config) -> dict:
             # only the 'Apply' family matched with fields already filled: it opens/advances
             # the form, it does not send one — click through below instead of claiming a submit
 
+    clicked_on = page
     page = _follow(c, page, deps.click(page, entry or pick_advance_label(form, is_last=False)))
+    if page is not clicked_on:
+        # a new tab: a fresh screen for perceive → fill (résumé, every field), never "the site rejected" — an empty
+        # form's required boxes all report 'Please fill out this field' (Lingaro on Lever, 2026-11-01: only the
+        # flagged boxes were refilled; no résumé, no location, no links)
+        return {"form": [_f2d(f) for f in deps.snapshot(page)], "url": page.url, "form_sig": None}
     if page.url.startswith("chrome-error://"):
         # The connection dropped as the page went (live Koch 2026-10-19: ERR_INTERNET_DISCONNECTED after a full page):
         # wait for the network, step back to the form; the next pass re-reads and re-fills what the back lost.

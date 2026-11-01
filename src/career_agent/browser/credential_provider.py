@@ -895,10 +895,13 @@ def _open_verify_link(page, site: str, after_epoch: int) -> bool:
     link = poll_verify_link(site, after_epoch)
     if not link:
         return False
+    back = page.url                      # the sign-in page we were on: return there, not to the job's landing page
     try:
         page.goto(link, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(3000)
         print(f"[cred] {site}: opened the account verification link", flush=True)
+        page.goto(back, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(2000)
         return True
     except Exception as e:
         print(f"[cred] {site}: verification link did not open ({type(e).__name__})", flush=True)
@@ -1585,13 +1588,8 @@ def provide(page, gate: str, site: str, original_url: str | None = None,
         action = parked                            # the honest park reason, not a plain failed attempt
     if not _retried and not parked and _still_login(page) and _open_verify_link(page, site, int(_time.time()) - 2 * 86400):
         # every sign-in path ends here: a login that did not open may be an account whose emailed link was never
-        # opened (Capital One Workday, 2026-11-01: email-first login, 'no change after 30s'). Open it, sign in once more.
-        if original_url:
-            try:
-                page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(2000)
-            except Exception:
-                pass
+        # opened (Capital One Workday, 2026-11-01: email-first login, 'no change after 30s'). Open it, sign in once
+        # more on the same sign-in page — the job's own URL was the careers site, whose 'Sign in' opened another tab.
         return provide(page, gate, site, original_url, email, phone, collector, _retried=True,
                        first_name=first_name, last_name=last_name)
     print(f"[cred] provide(site={site}): done outcome={'handled' if ok else 'unhandled'}:"
@@ -1732,14 +1730,8 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
                 save_credential(site, cred["username"], cred["password"], label=gate, pending=combined,
                                 first_name=cred.get("first_name", ""), last_name=cred.get("last_name", ""))
                 if not combined and not _retried and _open_verify_link(page, site, signed_up_at):
-                    # the account opens only after its emailed link (Workday 'Verify your candidate account'): back to
-                    # the job and sign in with what was just saved (Capital One, 2026-11-01: stopped at the login wall)
-                    if original_url:
-                        try:
-                            page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
-                            page.wait_for_timeout(2000)
-                        except Exception:
-                            pass
+                    # the account opens only after its emailed link (Workday 'Verify your candidate account'): sign in
+                    # with what was just saved (Capital One, 2026-11-01: stopped at the login wall)
                     return provide(page, gate, site, original_url, email, phone, _retried=True,
                                    first_name=first_name, last_name=last_name)
             else:
