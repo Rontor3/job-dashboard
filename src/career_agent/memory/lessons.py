@@ -161,6 +161,30 @@ def reach(conn, concept: str, applies_to: str, label: str, kind: str, embed, lim
             "examples": [{"label": h[0], "seen": h[1]} for h in hits[:limit]]}
 
 
+def add_project_fact(conn, fact: str, about: str, path=None) -> str | None:
+    """Append `fact` to the impact list of the project `about` names (the rewritten answer cites projects by title), in
+    the ingredients the essay writer reads — so the next essay on that project has it. None when no project is named."""
+    import json
+    from pathlib import Path
+    if not fact.strip():
+        return None
+    path = Path(path) if path else Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent / "answer_style" / "ingredients.json"
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return None
+    low = (about or "").lower()
+    hits = [u for u in data.get("units", []) if u.get("type") == "project" and u.get("title")
+            and u["title"].lower() in low]
+    if not hits:
+        return None
+    unit = max(hits, key=lambda u: low.count(u["title"].lower()))
+    if fact not in unit.setdefault("impact", []):
+        unit["impact"].append(fact)
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+    return unit["id"]
+
+
 def file(conn, p: dict, answer, embed) -> dict:
     """File an accepted insight where it removes the cause; returns {lesson_id, filed_in}.
     p = rewrite()'s proposal (lever, label, kind, entry_id, value, concept, rule, why, applies_to, derived, …)."""
@@ -187,6 +211,10 @@ def file(conn, p: dict, answer, embed) -> dict:
             rec["filed_in"] = f"new answer {eid}"
         if lever != "identify":
             return {"lesson_id": add(conn, rec, embed), "filed_in": rec["filed_in"]}
+    if lever == "fact" and is_long(kind):
+        pid = add_project_fact(conn, str(p.get("value") or ""), " ".join([str(answer or ""), *map(str, p.get("notes") or [])]))
+        rec["filed_in"] = f"project {pid} impact" if pid else "rule"
+        return {"lesson_id": add(conn, rec, embed), "filed_in": rec["filed_in"]}
     if lever in ("fact", "policy"):
         value = str(p.get("value") or answer)
         if entry and entry.get("profile_ref"):

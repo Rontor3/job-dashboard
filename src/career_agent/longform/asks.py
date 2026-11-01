@@ -204,6 +204,11 @@ def answer_asks(question: str, *, job, kb, corpus, llm, limit=None, research=Non
     allowed = None
     blocks = [(a, material_for(a, question, kb, corpus, pid if a["source"] == "CANDIDATE" else None,
                                allowed if a["source"] == "CANDIDATE" else None, research)) for a in asks]
+    # a fact the applicant just told us ("3x lift in the rejection bucket, 20 cr a year") is material for every ask
+    # about their own work — what the rewrite of an answer they corrected must use (2026-11-02)
+    told = [Chunk(f"told:{i}", "fact", f"The applicant states: {t}") for i, t in enumerate((steer or {}).get("facts") or [])]
+    if told:
+        blocks = [(a, cs + told) if a["source"] == "CANDIDATE" else (a, cs) for a, cs in blocks]
     chunks = _dedupe_chunks([c for _, cs in blocks for c in cs])
     prompt = _ruled(build_prompt(question, asks, blocks, limit, kb), steer)    # shown on the run view ("Prompt used")
     try:

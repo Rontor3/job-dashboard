@@ -125,6 +125,14 @@ def rewrite(conn, row_id: int, notes: list[str], eng: Engines) -> dict:
     if lever == "trust":
         answer = row.get("answer")
         proposal["entry_id"] = _entry_holding(conn, answer, label, job, contact, eng.embed)
+    elif lever == "fact" and lessons.is_long(row.get("kind") or "") and eng.longform is not None:
+        # a fact for an essay is material, not the answer: the essay is rewritten with it (a note of numbers became the
+        # whole 3-5 line answer, 2026-11-02); Accept files it on the project the answer is about (lessons.file)
+        fact = str(d.get("value") or notes[-1])
+        res = eng.longform(label, {"facts": [fact], "rule": None, "scope": None}) or {}
+        answer = res.get("answer")
+        proposal["value"] = fact
+        eng.trace.append(f"essay with your fact: {len(answer or '')} chars, flags {res.get('flags') or []}")
     elif lever in ("fact", "policy"):
         answer = fit_option(label, d["value"], options, None, eng.llm) or d["value"]
         m = match_question(conn, d.get("concept") or label, embed=eng.embed, llm=eng.llm)
