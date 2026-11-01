@@ -67,10 +67,23 @@ def _summarize(result):
     return ", ".join(parts)
 
 
+def _agent_chrome() -> str:
+    """The agent Chrome's address from settings (9223 here; the browser sources used to try a fixed 9222 and reported
+    'not reachable'), started first when it is not running."""
+    from career_agent.config.settings import load_settings
+    from job_dashboard.api.agent_routes import _ensure_cdp_chrome
+    from job_dashboard.sources.cdp.runner import CDP_URL
+    cdp = load_settings().cdp_url or CDP_URL
+    problem = _ensure_cdp_chrome(cdp)
+    if problem:
+        print(f"[refresh] {problem}", flush=True)       # the browser sources then note it per site
+    return cdp
+
+
 def default_pipeline_runner(db_path, on_stage):
     conn = init_db(db_path)  # own connection: sqlite is per-thread
     try:
         return run_pipeline(conn, job_sources(), company_sources(), on_stage=on_stage,
-                            browser_fetch=partial(fetch_browser_sources, insert_as_you_go=True))
+                            browser_fetch=partial(fetch_browser_sources, insert_as_you_go=True, cdp_url=_agent_chrome()))
     finally:
         conn.close()

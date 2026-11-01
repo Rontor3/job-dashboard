@@ -106,21 +106,35 @@ def test_history_404_for_missing_job(tmp_path):
 def test_ensure_cdp_chrome_noop_when_already_reachable(monkeypatch):
     monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: True)
     launched = []
-    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port: launched.append(port))
+    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port, d=None: launched.append(port))
     assert agent_routes._ensure_cdp_chrome("http://localhost:9222") is None
     assert launched == []
 
 
-def test_ensure_cdp_chrome_refuses_to_kill_existing_chrome(monkeypatch):
+def test_ensure_cdp_chrome_waits_for_a_busy_agent_chrome_and_never_starts_a_second(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: False)
-    monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: True)
+    monkeypatch.setattr(agent_routes, "_agent_chrome_running", lambda d: True)
     launched = []
-    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port: launched.append(port))
-    problem = agent_routes._ensure_cdp_chrome("http://localhost:9222")
-    assert problem is not None
-    assert "close your existing Chrome" in problem
-    assert launched == []  # never auto-restarts over an existing Chrome
+    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port, d=None: launched.append(port))
+    problem = agent_routes._ensure_cdp_chrome("http://localhost:9223")
+    assert problem is not None and "not answering" in problem
+    assert launched == []  # never a second Chrome on the same profile, never a restart
+
+
+def test_ensure_cdp_chrome_launches_beside_your_own_chrome(monkeypatch):
+    # your personal Chrome is open, the agent's profile is not running: launch (2026-11-02, Apply/Queue/Refresh)
+    calls = {"reachable": 0}
+
+    def fake_reachable(url, timeout=1.5):
+        calls["reachable"] += 1
+        return calls["reachable"] > 1
+    launched = []
+    monkeypatch.setattr(agent_routes, "_cdp_reachable", fake_reachable)
+    monkeypatch.setattr(agent_routes, "_agent_chrome_running", lambda d: False)
+    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port, d=None: launched.append(port))
+    assert agent_routes._ensure_cdp_chrome("http://localhost:9223") is None
+    assert launched == [9223]
 
 
 def test_ensure_cdp_chrome_auto_launches_when_nothing_running(monkeypatch):
@@ -132,8 +146,8 @@ def test_ensure_cdp_chrome_auto_launches_when_nothing_running(monkeypatch):
 
     launched = []
     monkeypatch.setattr(agent_routes, "_cdp_reachable", fake_reachable)
-    monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: False)
-    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port: launched.append(port))
+    monkeypatch.setattr(agent_routes, "_agent_chrome_running", lambda d: False)
+    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port, d=None: launched.append(port))
     assert agent_routes._ensure_cdp_chrome("http://localhost:9222") is None
     assert launched == [9222]
 
@@ -146,8 +160,8 @@ def test_ensure_cdp_chrome_reports_timeout_if_it_never_comes_up(monkeypatch):
         calls["n"] += 1
         return 0 if calls["n"] == 1 else 100
     monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: False)
-    monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: False)
-    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port: None)
+    monkeypatch.setattr(agent_routes, "_agent_chrome_running", lambda d: False)
+    monkeypatch.setattr(agent_routes, "_launch_cdp_chrome", lambda port, d=None: None)
     monkeypatch.setattr(agent_routes.time, "monotonic", fake_monotonic)
     problem = agent_routes._ensure_cdp_chrome("http://localhost:9222")
     assert problem is not None and "didn't come up" in problem
@@ -160,10 +174,11 @@ def test_launch_triggers_cdp_chrome_recovery_and_503s_if_refused(tmp_path, monke
         lambda: type("S", (), {"cdp_url": "http://localhost:9222"})(),
     )
     monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: False)
-    monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: True)
+    monkeypatch.setattr(agent_routes, "_agent_chrome_running", lambda d: True)
+    monkeypatch.setattr("time.sleep", lambda s: None)
     r = c.post(f"/api/jobs/{jid}/apply-agent")
     assert r.status_code == 503
-    assert "close your existing Chrome" in r.json()["detail"]
+    assert "not answering" in r.json()["detail"]
 
 
 def test_live_screenshot_404_when_none_saved(tmp_path):
@@ -281,5 +296,5 @@ def test_a_busy_agent_chrome_gets_time_to_answer(monkeypatch):
     answers = iter([False, False, True])
     monkeypatch.setattr("time.sleep", lambda s: None)
     monkeypatch.setattr(agent_routes, "_cdp_reachable", lambda url, timeout=1.5: next(answers))
-    monkeypatch.setattr(agent_routes, "_any_chrome_running", lambda: True)
+    monkeypatch.setattr(agent_routes, "_agent_chrome_running", lambda d: True)
     assert agent_routes._ensure_cdp_chrome("http://localhost:9222") is None

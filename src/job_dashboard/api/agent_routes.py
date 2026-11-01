@@ -94,72 +94,70 @@ def _cdp_reachable(cdp_url: str, timeout: float = 1.5) -> bool:
         return False
 
 
-def _any_chrome_running() -> bool:
-    """True if any Google Chrome process is running — including ones without
-    the debug port. Used to decide whether auto-launching the career-agent
-    Chrome is safe (nothing open to disturb)."""
-    try:
-        return subprocess.run(["pgrep", "-x", "Google Chrome"],
-                              capture_output=True).returncode == 0
-    except Exception:
-        return True  # can't tell -> assume yes, the non-destructive default
+def _agent_profile_dir() -> Path:
+    """The agent Chrome's own profile folder: CAREER_AGENT_CHROME_DIR, else the Profile 3 copy the runs use
+    (~/.career_agent/chrome-p3b, port 9223), else the older chrome-p3."""
+    env = os.getenv("CAREER_AGENT_CHROME_DIR")
+    if env:
+        return Path(env).expanduser()
+    b = Path.home() / ".career_agent" / "chrome-p3b"
+    return b if b.exists() else Path.home() / ".career_agent" / "chrome-p3"
 
 
-_CDP_CHROME_PROFILE_DIR = Path.home() / ".career_agent" / "chrome-p3"
 _CDP_CHROME_PROFILE_NAME = "Profile 3"
 _CDP_CHROME_APP = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 
-def _launch_cdp_chrome(port: int) -> None:
+def _agent_chrome_running(profile_dir: Path) -> bool:
+    """True if a Chrome on THE AGENT'S profile folder is running (with or without its port). Another Chrome — your
+    own — is a separate instance and never matters here."""
+    try:
+        return subprocess.run(["pgrep", "-f", f"user-data-dir={profile_dir}"], capture_output=True).returncode == 0
+    except Exception:
+        return True  # can't tell -> assume yes, the non-destructive default
+
+
+def _launch_cdp_chrome(port: int, profile_dir: Path | None = None) -> None:
     subprocess.Popen(
         [_CDP_CHROME_APP, f"--remote-debugging-port={port}",
-         f"--user-data-dir={_CDP_CHROME_PROFILE_DIR}",
+         f"--user-data-dir={profile_dir or _agent_profile_dir()}",
          f"--profile-directory={_CDP_CHROME_PROFILE_NAME}",
          "--no-first-run", "--no-default-browser-check",
          # Chrome freezes background tabs; a frozen tab makes CDP attach and page calls hang (live 2026-10-18)
          "--disable-background-timer-throttling", "--disable-renderer-backgrounding",
          "--disable-backgrounding-occluded-windows", "--disable-features=CalculateNativeWinOcclusion,IntensiveWakeUpThrottling"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
     )
 
 
 def _ensure_cdp_chrome(cdp_url: str) -> Optional[str]:
-    """Make the career-agent Chrome reachable before launching the agent
-    against it. Returns None once it's ready (or already was), or an error
-    message if it couldn't be made ready — never raises.
+    """Make the career-agent Chrome reachable (Apply, Queue, Refresh all come here). None once it is ready, else a
+    message — never raises, and never closes or restarts any Chrome.
 
-    Only auto-launches when NO Chrome process is running at all. macOS
-    treats Chrome as single-instance: launching a second one with
-    --remote-debugging-port while another Chrome window is already open just
-    focuses that window and silently ignores the flag, so the documented
-    manual recovery (career_agent/CLAUDE.md) does `pkill -x "Google Chrome"`
-    first. Killing the user's existing Chrome closes their tabs/windows —
-    a real, disruptive action — so this never does that automatically; it
-    surfaces a clear error with the manual command instead.
-    """
+    Not reachable and no Chrome on the agent's profile folder: launch it (its own instance, beside your personal
+    Chrome — a different --user-data-dir is a separate Chrome; the old 'any Chrome running -> refuse' rule meant it
+    never launched while your own Chrome was open, 2026-11-02). Running on that folder but not answering: it is busy
+    (right after a stalled run is stopped the port can take seconds) — wait for it, never start a second one."""
     if _cdp_reachable(cdp_url):
         return None
-    if _any_chrome_running():
-        # Busy, not gone: right after a stalled run is stopped the debug port can take seconds to answer (live
-        # 2026-10-18: the next queued job failed 'isn't reachable' while the agent's Chrome was up). Give it ~15 s.
+    profile = _agent_profile_dir()
+    if _agent_chrome_running(profile):
         for _ in range(5):
             time.sleep(2)
             if _cdp_reachable(cdp_url, timeout=3):
                 return None
-        return (f"career-agent Chrome isn't reachable at {cdp_url}, and Chrome is "
-                "already running without the debug port. Auto-restarting it would "
-                "close your existing Chrome windows, so that wasn't done — close "
-                "Chrome yourself and try again, or run the launch command from "
-                "career_agent/CLAUDE.md.")
+        return (f"The career-agent Chrome is open but not answering at {cdp_url}. Close that Chrome window "
+                f"(profile {profile.name}) and try again; it is started automatically.")
     from urllib.parse import urlparse
     port = urlparse(cdp_url).port or 9222
-    _launch_cdp_chrome(port)
-    deadline = time.monotonic() + 10
+    print(f"[chrome] career-agent Chrome not running — starting it on port {port} ({profile})", flush=True)
+    _launch_cdp_chrome(port, profile)
+    deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         if _cdp_reachable(cdp_url):
             return None
         time.sleep(0.5)
-    return f"Launched career-agent Chrome but it didn't come up at {cdp_url} within 10s."
+    return f"Launched career-agent Chrome but it didn't come up at {cdp_url} within 20s."
 
 
 def _log_path(job_id: int) -> Path:
