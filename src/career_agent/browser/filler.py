@@ -269,12 +269,21 @@ def _pick_combobox(page, target, sel, d, matcher) -> None:
                     page.keyboard.press("ControlOrMeta+A")
                     page.keyboard.type(q)
                 found = []
-                for _ in range(16):             # a remote list answers in its own time ('Searching…'): up to ~8 s
+                for i in range(16):             # a remote list answers in its own time ('Searching…'): up to ~8 s
                     page.wait_for_timeout(500)
                     scope = _popup(target, lb_id)   # the popup may only appear once something is typed
                     found = _options()
                     if found and not all(_SEARCHING.match(o) for o in found):
                         break
+                    if i == 3:
+                        # pasted text was not searched: some boxes search on key events only (Lever's location, live
+                        # 2026-11-01: 'Mumbai' pasted listed nothing, typed listed 'Mumbai, Maharashtra, IND')
+                        try:
+                            box = target.locator(sel).first
+                            box.fill("", timeout=_SOFT_TIMEOUT_MS)
+                            box.press_sequentially(q, delay=40, timeout=_SOFT_TIMEOUT_MS)
+                        except Exception:
+                            pass
                 if _searches_on_enter():
                     # a box that searches on Enter (enterkeyhint=search): what it lists before Enter is not the result —
                     # Workday Field of Study shows the first 100 A-Z ('Ceramic Engineering' never listed), and Skills
