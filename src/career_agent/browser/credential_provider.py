@@ -236,14 +236,29 @@ def _email_on_page(page) -> str:
         return _default_email()
 
 
-def _type_into(page, el, value: str) -> None:
-    """Click an input and type value using native keyboard events (isTrusted=True)."""
-    _safe_click(el)
-    page.keyboard.press("ControlOrMeta+a")   # plain Control+a is line-start on macOS: a second pass would type before the old text
-    page.keyboard.press("Backspace")
-    page.keyboard.type(value, delay=30)   # slight delay = more human-like
-    page.keyboard.press("Tab")            # blur so the field commits
-    page.wait_for_timeout(300)
+def _type_into(page, el, value: str) -> bool:
+    """Click an input and type value using native keyboard events (isTrusted=True), then read the box back: True when it
+    holds the value. A miss (the click focused something else) is typed once more straight into the box."""
+    for attempt in range(2):
+        if attempt == 0:
+            _safe_click(el)
+        else:
+            try:
+                el.focus()
+            except Exception:
+                pass
+        page.keyboard.press("ControlOrMeta+a")   # plain Control+a is line-start on macOS: a second pass would type before the old text
+        page.keyboard.press("Backspace")
+        page.keyboard.type(value, delay=30)   # slight delay = more human-like
+        page.keyboard.press("Tab")            # blur so the field commits
+        page.wait_for_timeout(300)
+        try:
+            if (el.input_value() or "") == value:
+                return True
+        except Exception:
+            return True                       # cannot read it back (gone after submit): not a miss we can see
+    print("[cred] a box did not take what was typed into it", flush=True)
+    return False
 
 
 import hashlib as _hashlib
@@ -403,6 +418,19 @@ def _observe_until_change(page, label: str, max_wait_s: int = 30, interval_s: in
 _EMAIL_ATTR_SEL = ('input[type="email"], input[name*="email" i], input[id*="email" i],'
                     'input[name*="userName" i], input[id*="userName" i],'
                     'input[name*="user_name" i]')
+
+
+def _email_box_empty(page) -> bool:
+    """A visible email box that holds nothing: the login was never really tried, so a 'rejected' message says nothing
+    about the saved password (NatWest 2026-11-02: 'Please enter a valid email' retired a good login)."""
+    try:
+        boxes = [el for el in page.query_selector_all(_EMAIL_ATTR_SEL) if _truly_visible(el)]
+        if not boxes:
+            loc = page.get_by_label("email", exact=False).first
+            boxes = [loc] if loc.count() > 0 and loc.is_visible() else []
+        return any(not (b.input_value() or "").strip() for b in boxes)
+    except Exception:
+        return False
 
 
 def _has_visible_email_field(page) -> bool:
@@ -856,10 +884,11 @@ def _handle_state(page, state: str, cred: dict, site: str) -> None:
             _click_non_social_submit(page)
             _observe_until_change(page, "post_verify_login")
     elif state == "password":
-        # Email-first: password step appeared — fill password and submit
-        for el in page.query_selector_all('input[type="password"]'):
-            if el.is_visible():
-                _type_into(page, el, cred["password"])
+        # A password box is on screen. Email-first sites hide the email by now, but a sign-in or Create Account form
+        # shows email AND password together: every visible box is filled, not only the password (NatWest Workday,
+        # 2026-11-02: password typed, email left empty -> 'Please enter a valid email' -> the good login was retired,
+        # and the Create Account form was left half-filled the same way)
+        _fill_visible_fields(page, cred)
         page.wait_for_timeout(500)
         _click_non_social_submit(page, ("Sign In", "Log In", "Continue", "Submit"))
         _observe_until_change(page, "pw_submit")
@@ -1746,7 +1775,7 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
             # Traditional form, have credentials — login
             _ensure_login_form(page)
             _fill_wall(page, gate, cred, site=site)
-            if not _retried and _is_login_form(page) and _login_rejected(page):
+            if not _retried and _is_login_form(page) and _login_rejected(page) and not _email_box_empty(page):
                 # Still the login form: the stored account does not open (Koch, Deloitte live 2026-10-18 — a password
                 # was saved for an account whose sign-up was never sent). Retire it and register instead, once.
                 print(f"[cred] {site}: the stored login did not open — retiring it and registering", flush=True)
