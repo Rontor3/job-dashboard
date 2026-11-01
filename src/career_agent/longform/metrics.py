@@ -63,14 +63,16 @@ def explicit_asks(question: str, judge) -> list[dict]:
               f'QUESTION: "{question}"\n\nFor each ask give:\n'
               '- "item": a short phrase\n- "quote": the exact words from the question that ask for it\n'
               '- "kind": own (needs the applicant\'s own experience, projects or numbers) | company (facts about the employer or role) | '
-              'general (industry-standard knowledge or a reasoned plan)\n'
-              'Reply with ONLY JSON: {"items": [{"item": "...", "quote": "...", "kind": "own|company|general"}]} (1 to 6 items).')
+              'general (industry-standard knowledge or a reasoned plan) | '
+              'fact (a plain fact about the applicant\'s situation, not their work: referral, who referred them, availability, '
+              'notice period, relocation, visa, salary, how they heard of the job)\n'
+              'Reply with ONLY JSON: {"items": [{"item": "...", "quote": "...", "kind": "own|company|general|fact"}]} (1 to 6 items).')
     data = _ask(judge, prompt)
     items = data.get("items") if isinstance(data, dict) else None
     qwords = _words(question)
     out = []
     for i in items if isinstance(items, list) else []:
-        if not isinstance(i, dict) or i.get("kind") not in ("own", "company", "general") or not i.get("item"):
+        if not isinstance(i, dict) or i.get("kind") not in ("own", "company", "general", "fact") or not i.get("item"):
             continue
         quote = _words(str(i.get("quote") or ""))
         if len(quote) >= 2 and quote <= qwords:                       # the quote really is from the question

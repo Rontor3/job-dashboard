@@ -63,7 +63,7 @@ def split_sections(text: str) -> dict[str, str]:
 
 
 class KnowledgeBase:
-    def __init__(self, units, stories=None, project_stories=None, facts=None, skills=None, embed=None):
+    def __init__(self, units, stories=None, project_stories=None, facts=None, skills=None, embed=None, saved=None):
         self.embed = embed                       # texts -> unit vectors; None = word matching only
         self.practices = _load_practices()
         self.units = {u["id"]: u for u in units}
@@ -71,6 +71,7 @@ class KnowledgeBase:
         self._project_stories = project_stories or {}
         self._facts = facts or {}
         self.skills = skills or []
+        self._saved = saved or []                # (question, answer) the applicant saved on the Answers tab
 
     @classmethod
     def load(cls, conn, ingredients_path, contact=None, embed=None) -> "KnowledgeBase":
@@ -82,7 +83,10 @@ class KnowledgeBase:
                 project_stories[eid[len("story_project_"):]] = ans
             else:
                 stories[eid] = ans
-        return cls(data.get("units", []), stories, project_stories, dict(contact or {}), data.get("skills_pool", []), embed=embed)
+        saved = list(conn.execute("SELECT question, answer FROM qbank_entry WHERE topic != 'story' AND status='active' "
+                                  "AND TRIM(COALESCE(answer, '')) != ''"))
+        return cls(data.get("units", []), stories, project_stories, dict(contact or {}), data.get("skills_pool", []),
+                   embed=embed, saved=saved)
 
     # -- tools -----------------------------------------------------------------------------------
     def projects(self) -> list[dict]:
@@ -116,6 +120,24 @@ class KnowledgeBase:
     def get_story(self, slot) -> Chunk | None:
         text = self._stories.get(slot, "")
         return Chunk(f"story:{slot}", "story_slot", text) if text.strip() else None
+
+    def saved_answers(self, query: str, k: int = 4) -> list[Chunk]:
+        """The applicant's saved answers closest in words to `query` (a FACT ask: referral, notice, visa, salary)."""
+        if not self._saved:
+            return []
+        if sum(len(q) + len(a) for q, a in self._saved) <= 12000:
+            # all of them: they are short, and the writer reads 'a Consultant from our Group recommended you' as the
+            # saved 'referred by a current employee', which neither shared words nor MiniLM rank near (2026-11-01)
+            ranked = list(self._saved)
+        elif self.embed is not None:
+            import numpy as np
+            vecs = np.asarray(self.embed([query] + [q for q, _ in self._saved]))
+            sims = vecs[1:] @ vecs[0]
+            ranked = [self._saved[i] for i in np.argsort(-sims)[:k] if sims[i] >= 0.3]
+        else:
+            want = tokens(query)
+            ranked = [qa for qa in sorted(self._saved, key=lambda qa: -len(want & tokens(qa[0])))[:k] if want & tokens(qa[0])]
+        return [Chunk(f"saved:{i}", "fact", f"Saved answer — {q}: {a}") for i, (q, a) in enumerate(ranked)]
 
     def get_facts(self, keys) -> list[Chunk]:
         return [Chunk(f"fact:{k}", "fact", f"{k}: {self._facts[k]}") for k in keys if str(self._facts.get(k, "")).strip()]

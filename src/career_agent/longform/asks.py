@@ -60,6 +60,8 @@ def material_for(ask: dict, question: str, kb, corpus, project_id: str | None = 
         facts = [Chunk(f"research:{i}", "company", f"{f.text} (source: {f.source_url})")
                  for i, f in enumerate((getattr(research, "facts", None) or [])[:5])]
         return facts + corpus.search(query, 1 if facts else 2, kinds={"company"}, floor=0.0)
+    if src == "FACT":                 # a fact about the applicant, never their projects (Lingaro 'consultant referred you?')
+        return kb.saved_answers(query) if hasattr(kb, "saved_answers") else []
     if src == "PREFERENCE":
         return corpus.search(query, 2, kinds={"story"}, floor=0.05)
     # it2: the ask on its own AND in context, fused (the whole question alone dilutes a narrow ask like "primary model")
@@ -129,8 +131,11 @@ def build_prompt(question: str, asks: list[dict], blocks: list[tuple[dict, list[
             "- Keep the material's own status words. A PoC / prototype / internal tool is NOT 'shipped to production', 'customer-"
             "facing', 'real-time' or 'used by N users' unless the material says so; if the question asks for that, state the true "
             "status plainly (e.g. 'a working PoC deployed on an internal server').\n"
-            "- Never answer with a denial ('No, I have not...', 'I have not personally...'). Lead with the strongest real example "
-            "and its true status instead; the reader judges the fit.\n"
+            "- For an ask about experience, never answer with a denial ('No, I have not...', 'I have not personally...'). Lead "
+            "with the strongest real example and its true status instead; the reader judges the fit.\n"
+            "- A FACT ask (referral, availability, notice, visa, salary) is one short sentence from its saved answers, a plain "
+            "'No' or 'N/A' when that is the fact; never add projects to it. A question that is ONLY fact asks is answered in "
+            "one sentence.\n"
             "- When an ask wants a link, give the link itself as that ask's answer (e.g. 'My work is on GitHub: <url>').\n"
             "- Refer to projects by their titles, never by internal ids.\n"
             "- A GENERAL ask (how would you / what would you investigate) is answered from sound standard practice.\n"

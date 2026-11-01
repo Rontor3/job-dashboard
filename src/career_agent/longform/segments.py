@@ -81,7 +81,7 @@ def segment(question: str, llm) -> list[dict]:
     return out[:3] or [{"part": _strip_number(question), "source": "CANDIDATE" if _EXP.search(question) else "GENERAL"}]
 
 
-_KIND_SOURCE = {"own": "CANDIDATE", "company": "COMPANY", "general": "GENERAL"}
+_KIND_SOURCE = {"own": "CANDIDATE", "company": "COMPANY", "general": "GENERAL", "fact": "FACT"}
 _FOLLOW_UP = re.compile(r"^\s*(if|in case|when)\s+(yes|so|no|not|applicable|you answered|you selected)\b", re.I)
 _URL = re.compile(r"https?://[^\s)\]>\"']+|\b(?:www\.)?(?:github|gitlab|linkedin|medium|kaggle|huggingface)\.(?:com|co|io)/[^\s)\]>\"']+", re.I)
 
