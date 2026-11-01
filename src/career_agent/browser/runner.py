@@ -154,6 +154,45 @@ class TabLedger:
         return n
 
 
+def note_left_tabs(ledger, context, path) -> None:
+    """End of run: the tabs THIS run leaves open (the form under review) by Chrome's id, so a re-run of the same job
+    can retire them."""
+    import json
+    ids = []
+    for p in ledger.opened:
+        if ledger._mine(p) and not _closed(p):
+            try:
+                ids.append(context.new_cdp_session(p).send("Target.getTargetInfo")["targetInfo"]["targetId"])
+            except Exception:
+                continue
+    try:
+        Path(path).write_text(json.dumps(ids))
+    except Exception:
+        pass
+
+
+def retire_left_tabs(context, path, keep=()) -> int:
+    """Start of a re-run: close the tabs the previous run of THIS job left (Lingaro 2026-11-01: four Lever forms after
+    four runs). Only ids that run recorded as its own; never `keep`, never any other tab."""
+    import json
+    try:
+        ids = set(json.loads(Path(path).read_text()))
+    except Exception:
+        return 0
+    n = 0
+    for p in list(getattr(context, "pages", [])):
+        if any(p is k for k in keep):
+            continue
+        try:
+            if context.new_cdp_session(p).send("Target.getTargetInfo")["targetInfo"]["targetId"] in ids:
+                n += _close(p)
+        except Exception:
+            continue
+    if n:
+        print(f"[browser] closed {n} tab(s) the last run of this job left open", flush=True)
+    return n
+
+
 def revive(page, cdp_url, tab_id):
     """The run's tab after a long wait. The page itself if it still answers; else the same tab (by Chrome's own id)
     through a fresh CDP connection — the Mac slept with the lid shut and the old connection died while Chrome and the

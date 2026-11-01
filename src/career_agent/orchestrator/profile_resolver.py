@@ -94,6 +94,8 @@ def resolve(purpose, profile, index=0, section=""):
             v = getattr(profile.experiences[index], _EXP[purpose]) or None
             if purpose == "end_date" and v and _ONGOING.match(v):
                 return None                # a current job has no end date: 'Present' is never typed into a date box
+            if purpose == "employer" and v:   # 'OYO (Internship)' is the company OYO (as entry_fields._part)
+                v = re.sub(r"\s*\((?:internship|intern|contract|part[- ]time)\)\s*$", "", v, flags=re.I) or v
             return v
         return None
     if purpose in _EDU:

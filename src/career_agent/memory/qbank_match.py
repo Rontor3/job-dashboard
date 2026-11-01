@@ -437,6 +437,11 @@ def generic_company(question: str, job) -> str:
     return re.sub(r"\b" + re.escape(name) + r"(?:'s)?\b", "this company", question, flags=re.I)
 
 
+_BEFORE = re.compile(r"\b(previous|prior|former|past)\s+(company|employer|job|role|position|organi[sz]ation|title|"
+                     r"designation|manager|salary|ctc)|\blast\s+(company|employer|job|role|position|organi[sz]ation|"
+                     r"designation|drawn)", re.I)
+
+
 def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAULT_HIGH):
     if f.kind in ("file", "button") or f.purpose == "attestation":
         return Match(NONE, note="not a bank field"), None
@@ -455,6 +460,10 @@ def answer_field(conn, f, *, embed, llm=None, job=None, contact=None, high=DEFAU
     else:
         m = match_question(conn, without_format_hint(generic_company(question, job)), embed=embed, llm=llm, high=high)
     m.escape = escape
+    if m.entry_id and bool(_BEFORE.search(question)) != bool(_BEFORE.search((qbank.get_entry(conn, m.entry_id) or {}).get("question", ""))):
+        # 'Mention your previous company?' is not your saved CURRENT employer, however close the words (0.93, Lingaro
+        # 2026-11-01): the job before this one comes from the résumé (screen_review)
+        m = Match(NONE, candidates=m.candidates, note=f"{m.entry_id}: previous vs current")
     if m.entry_id is None and _TOTAL_EXP.search(question) and any(re.search(r"\d", o) for o in f.options or []):
         # "Total full-time experience in Data Scientist / AI / ML (internships not included)?" with year-range options:
         # the qualifiers keep the model from calling it the total-experience question, but it is that question.

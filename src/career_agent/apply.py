@@ -487,6 +487,10 @@ def _apply(args, box: dict) -> None:
     _cdp_url = args.cdp_url or settings.cdp_url
     pw, context, page, _cdp_browser = launch(settings, cdp_url=_cdp_url)
     _tabs = TabLedger(context, page)             # the tabs this run opens: closed when they have served
+    _left = (_RunPath(args.db).parent / "agent_runs" / str(args.job_id) / "left_tabs.json") if args.job_id else None
+    if _left is not None:
+        from .browser.runner import retire_left_tabs
+        retire_left_tabs(context, _left, keep=[page])
     try:
         # Reuse a tab the human already opened on this job: bot-challenged boards
         # (Indeed's Cloudflare) pass a human-opened tab but block a fresh one.
@@ -817,6 +821,10 @@ def _apply(args, box: dict) -> None:
             # a form that went out has nothing left to review: its tab goes too (2026-10-25, "remove the page")
             _keep = args.review and not (isinstance(_out, dict) and _out.get("submitted"))
             _tabs.close_all_but(keep=[page] if _keep else [], keep_urls=[_final] if _keep else [])
+            if _left is not None:
+                from .browser.runner import note_left_tabs
+                _left.parent.mkdir(parents=True, exist_ok=True)
+                note_left_tabs(_tabs, context, _left)
         except Exception:
             _keep = args.review
         # shutdown close: only a tab THIS run opened. A reused operator tab (marked user-owned above)
