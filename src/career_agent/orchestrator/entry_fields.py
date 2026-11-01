@@ -116,8 +116,14 @@ def entry_decisions(fields, profile):
                 decisions.append(FillDecision(f.ref, f.kind, f.label, True, "check", "resume",
                                               basis=f"work entry {idx + 1}: still there"))
             continue                                   # a past job: the box stays unticked
-        if kind == "work" and re.search(r"location|city", rest, re.I) and not _ONGOING.search(end or ""):
-            continue    # a past job's place is not on the résumé; your city today is not where OYO was (Walmart 2026-10-30)
+        if kind == "work" and re.search(r"location|city", rest, re.I):
+            if not _ONGOING.search(end or ""):
+                continue    # a past job's place is not on the résumé; your city today is not where OYO was (Walmart 2026-10-30)
+            here = str((getattr(profile, "contact", {}) or {}).get("location") or "").strip()
+            if here:        # the job you are in is where you live now; the bank gave the home address (Fractal 2026-10-31)
+                decisions.append(FillDecision(f.ref, f.kind, f.label, here, _action_for_kind(f.kind), "resume",
+                                              basis=f"work entry {idx + 1}: your current city"))
+                continue
         if f.kind != "checkbox" and (part := _part(kind, rest, entry)):
             decisions.append(FillDecision(f.ref, f.kind, f.label, part, _action_for_kind(f.kind), "resume",
                                           basis=f"{kind} entry {idx + 1} from your résumé"))
@@ -144,7 +150,7 @@ if __name__ == "__main__":                             # one runnable check
     prof = N(experiences=[N(start="July 2023", end="Present", bullets=["a", "b"], title="Data Scientist", company="Tata AIG"),
                           N(start="May 2022", end="Jul 2022", bullets=["c"], title="Data Science Intern",
                             company="OYO (Internship)")],
-             education=[N(start="", end="", school="IIT (BHU) Varanasi", degree="B.Tech")], contact={"education_start": "July 2019", "education_end": "May 2023"})
+             education=[N(start="", end="", school="IIT (BHU) Varanasi", degree="B.Tech")], contact={"education_start": "July 2019", "education_end": "May 2023", "location": "Mumbai, India"})
     F = lambda ref, kind="text", label="Month": N(ref=ref, kind=kind, label=label, part_hint=ref.lstrip("#"))
     fs = [F("#workExperience-351--startDate-dateSectionMonth-input"), F("#workExperience-351--startDate-dateSectionYear-input", label="Year"),
           F("#workExperience-351--endDate-dateSectionMonth-input"), F("#workExperience-351--roleDescription", "textarea", "Role Description"),
@@ -162,6 +168,8 @@ if __name__ == "__main__":                             # one runnable check
     assert got["#workExperience-351--jobTitle"] == "Data Scientist" and got["#workExperience-352--companyName"] == "OYO"
     assert got["#workExperience-351--currentlyWorkHere"] is True and "#workExperience-352--currentlyWorkHere" not in got
     assert got["#education-368--schoolName"] == "IIT (BHU) Varanasi"
+    ds, _, _ = entry_decisions([F("#workExperience-351--location", label="Location")], prof)
+    assert [d.value for d in ds] == ["Mumbai, India"]
     assert "#workExperience-352--location" not in got and "#workExperience-352--location" not in [f.ref for f in rest]
     extra = [N(ref="#education-369--schoolName", kind="text", label="School", part_hint="", required=True, value="CMS"),
              N(ref="#education-369--degree", kind="combobox", label="Degree", part_hint="", required=True, value=""),
