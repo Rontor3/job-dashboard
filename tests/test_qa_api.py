@@ -282,3 +282,18 @@ def test_ingredient_edit_keeps_source_locked_and_backs_up(env):
     assert json.loads(path.read_text())["units"][0]["source"] == "changed"
     assert c.put("/api/ingredients/nope", json={"title": "x"}).status_code == 404
     assert c.put("/api/ingredients/u1", json={"title": " "}).status_code == 422
+
+
+def test_confirming_onto_an_empty_saved_answer_fills_it(env):
+    # Lingaro 'Portfolio URL': the saved portfolio entry had no answer, so linking the wording alone asked again next time
+    c, db = env
+    rid = _open(db, "Portfolio URL", "text")
+    from career_agent.memory import qbank
+    import sqlite3
+    c.get("/api/answers")                                   # the bank's tables are made on first use
+    conn = sqlite3.connect(db); conn.row_factory = sqlite3.Row
+    qbank.upsert_entry(conn, {"id": "portfolio_x", "question": "Do you have a portfolio?", "topic": "links", "atype": "text"})
+    conn.commit(); conn.close()
+    r = c.post(f"/api/jobs/1/questions/{rid}/reply", json={"answer": "https://github.com/me/app", "save_as": "wording",
+                                                         "entry_id": "portfolio_x"})
+    assert r.status_code == 200 and _entry(c, "portfolio_x")["value"] == "https://github.com/me/app"

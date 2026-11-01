@@ -84,3 +84,11 @@ def make_field():
         return Field(ref=ref, kind=kind, label=label, required=False,
                      options=list(options), description=description, **kw)
     return make
+
+
+@pytest.fixture(autouse=True)
+def _no_local_model_start(monkeypatch):
+    """The queue starts Ollama when it drains: never from a test (it holds GBs of RAM, and a missing model made the
+    single-flight test wait 25 s for it, 2026-11-01)."""
+    from job_dashboard.apply import local_model
+    monkeypatch.setattr(local_model, "ensure_running", lambda *a, **k: False)

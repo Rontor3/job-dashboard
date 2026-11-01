@@ -5,7 +5,10 @@ import EntryPicker from "./EntryPicker.jsx";
 // About THIS company ("why do you want to join us") -> stays with the application.
 // Everything else defaults to the Answers tab so it is answered from there next time.
 const COMPANY_Q = /why\s+(this\s+)?(company|role|join|apply|us\b|our|do you want|are you interested)|motivat|what.{0,20}attract|interest\s+in\s+(this|the|our)\s+(role|position|company|job)|tell\s+us\s+why|what\s+interests\s+you/i;
-const defaultMode = (q) => (COMPANY_Q.test(q.label || "") ? "once" : "new");
+// A best guess matched to one of your saved answers: confirming links this wording to it, so the next form asking it
+// the same way is answered without you (not "Add to Answers", which made a second entry and asked again next time).
+const linked = (q) => q.source === "qbank_likely" && !!q.retrieved_qkey;
+const defaultMode = (q) => (linked(q) ? "wording" : COMPANY_Q.test(q.label || "") ? "once" : "new");
 
 const INPUT = { fontSize: 12, padding: "6px 10px", border: "0.5px solid var(--hairline)", borderRadius: 8, background: "var(--canvas)", color: "var(--ink)", width: "100%", boxSizing: "border-box" };
 
@@ -55,8 +58,9 @@ export default function QuestionsPanel({ jobId, onChanged }) {
   const reply = (q) => {
     const answer = (text[q.id] ?? q.answer ?? "").trim();
     const m = mode[q.id] || defaultMode(q);
-    if (!answer || (m === "wording" && !pick[q.id])) return;
-    replyQuestion(jobId, q.id, answer, m, m === "wording" ? pick[q.id] : null)
+    const entry = pick[q.id] ?? (linked(q) ? q.retrieved_qkey : null);
+    if (!answer || (m === "wording" && !entry)) return;
+    replyQuestion(jobId, q.id, answer, m, m === "wording" ? entry : null)
       .then(() => { setErr(null); load(); if (onChanged) onChanged(); })
       .catch((e) => setErr(String(e)));
   };
@@ -76,6 +80,11 @@ export default function QuestionsPanel({ jobId, onChanged }) {
             {q.source === "qbank_likely" && (
               <div style={{ fontSize: 11, color: "var(--ink-soft)", margin: "2px 0 6px" }}>
                 Filled with a best guess from your questionnaire (“{q.retrieved_qkey}”, score {q.retrieval_score}) — check it.
+              </div>
+            )}
+            {linked(q) && !mode[q.id] && (
+              <div style={{ fontSize: 11, color: "var(--ink-soft)", margin: "2px 0 6px" }}>
+                Confirm to link this wording to your saved answer “{q.retrieved_qkey}” — next time it is filled without asking.
               </div>
             )}
             {q.asked_in > 1 && (
@@ -112,7 +121,7 @@ export default function QuestionsPanel({ jobId, onChanged }) {
             <button onClick={() => reply(q)}
                     style={{ marginTop: 6, border: "none", cursor: "pointer", fontSize: 12, padding: "5px 12px",
                              borderRadius: "var(--radius-pill)", background: "var(--green)", color: "#fff" }}>
-              Save answer
+              {(mode[q.id] || defaultMode(q)) === "wording" && !mode[q.id] ? "Confirm" : "Save answer"}
             </button>
           </div>
         ))}

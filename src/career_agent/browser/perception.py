@@ -425,7 +425,8 @@ _INPUT_JS = r"""
   const GENERIC_NAME = /^(checkbox|radio|text|input|select|combobox|option)( ?(field|input|box|button|control))?$/i;
   // A code identifier is no name either: an accessibility overlay (UserWay) stamps aria-label="hidden-control-element"
   // on Koch's required 'I Agree' box (live 2026-10-19).
-  const CODE_NAME = /^[a-z0-9]+([-_][a-z0-9]+)+$|^[a-z]+([A-Z][a-z0-9]*)+$/;
+  // 'first-name', 'user_id', 'firstName' — never a number range: '21-29' is Lever's age-range option (2026-11-01)
+  const CODE_NAME = /^(?=[^a-z]*[a-z])[a-z0-9]+([-_][a-z0-9]+)+$|^[a-z]+([A-Z][a-z0-9]*)+$/;
   const ok = (t) => {
     const core = (t || '').replace(/[*✱:]/g, ' ').replace(/\s+/g, ' ').trim();
     return core.length > 0 && !GENERIC_NAME.test(core) && !CODE_NAME.test(core);

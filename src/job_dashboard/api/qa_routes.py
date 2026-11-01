@@ -224,6 +224,8 @@ def build_qa_router(db_path, embed=None) -> APIRouter:
                 if not body.entry_id or qbank.get_entry(conn, body.entry_id) is None:
                     raise HTTPException(status_code=422, detail="pick an existing entry")
                 link(conn, label, body.entry_id, "human", replace=True)
+                if not str((qbank.get_entry(conn, body.entry_id) or {}).get("answer") or "").strip():
+                    qbank.set_answer(conn, body.entry_id, ans)   # a saved question with no answer yet takes this one
             keep_source = source == "qbank_likely"
             if keep_source:
                 same = (prior_answer or "").strip().casefold() == ans.casefold()

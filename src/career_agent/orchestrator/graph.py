@@ -143,16 +143,24 @@ def _follow(c, page, obs):
         tab = c.setdefault("tab", {})
         tab["page"], tab["intended"] = new, new.url
         print(f"[tab] following the new tab -> {new.url[:80]}", flush=True)
-        if c.get("run_dir"):           # the dashboard's live view shows the tab named here (Lingaro: stayed on Himalayas)
-            try:
-                import json
-                from pathlib import Path
-                tid = new.context.new_cdp_session(new).send("Target.getTargetInfo")["targetInfo"]["targetId"]
-                (Path(c["run_dir"]) / "tab.json").write_text(json.dumps({"tab_id": tid}))
-            except Exception:
-                pass
+        _note_tab(c, new)
         return new
     return page
+
+
+def _note_tab(c, page) -> None:
+    """The dashboard's live view shows the tab named in tab.json: name the one this step works on, however the run got
+    there (a click, a modal hand-off, or the reach step's own new tab — Lingaro's Lever form showed as Himalayas)."""
+    if not c.get("run_dir") or c.get("_noted") is page:
+        return
+    try:
+        import json
+        from pathlib import Path
+        tid = page.context.new_cdp_session(page).send("Target.getTargetInfo")["targetInfo"]["targetId"]
+        (Path(c["run_dir"]) / "tab.json").write_text(json.dumps({"tab_id": tid}))
+        c["_noted"] = page
+    except Exception:
+        pass
 
 
 def classify_node(state: AgentState, config) -> dict:
@@ -309,6 +317,7 @@ def perceive_node(state: AgentState, config) -> dict:
         return {}
     c = config["configurable"]
     page = _page(c)
+    _note_tab(c, page)
     deps = c["deps"]
     if c.get("prep_fn"):
         c["prep_fn"](page)

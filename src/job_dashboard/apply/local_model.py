@@ -22,8 +22,16 @@ def ensure_running(wait_s: int = 25) -> bool:
     """True if WE started it (so the caller may stop it later). Never raises; a failed start just means Claude drafts."""
     if sys.platform != "darwin" or is_up():
         return False
+    import shutil
     try:
-        subprocess.run(["open", "-a", "Ollama"], timeout=10)
+        if subprocess.run(["open", "-a", "Ollama"], timeout=10, capture_output=True).returncode != 0:
+            # no Ollama.app: the Homebrew / command-line install ('Unable to find application named Ollama', 2026-11-01 —
+            # every run drafted with Claude and the queue waited 25 s for nothing)
+            cli = shutil.which("ollama") or next((p for p in ("/opt/homebrew/bin/ollama", "/usr/local/bin/ollama")
+                                                  if os.path.exists(p)), None)
+            if not cli:
+                return False
+            subprocess.Popen([cli, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except Exception:
         return False
     end = time.monotonic() + wait_s
@@ -34,3 +42,4 @@ def ensure_running(wait_s: int = 25) -> bool:
 
 def stop() -> None:
     subprocess.run(["pkill", "-f", "Ollama.app"], timeout=10)
+    subprocess.run(["pkill", "-f", "ollama serve"], timeout=10)      # the command-line install
