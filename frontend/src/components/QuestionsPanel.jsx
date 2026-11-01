@@ -9,6 +9,34 @@ const defaultMode = (q) => (COMPANY_Q.test(q.label || "") ? "once" : "new");
 
 const INPUT = { fontSize: 12, padding: "6px 10px", border: "0.5px solid var(--hairline)", borderRadius: 8, background: "var(--canvas)", color: "var(--ink)", width: "100%", boxSizing: "border-box" };
 
+// A choice question (radio / select on the form) shows its options; the agent's pick, matched loosely, is preselected.
+const optionsOf = (q) => (Array.isArray(q.options_json) ? q.options_json.filter((o) => String(o).trim()) : []);
+function AnswerInput({ q, value, onChange }) {
+  const opts = optionsOf(q);
+  if (!opts.length) {
+    return <textarea aria-label={`Answer for ${q.label}`} rows={2} style={INPUT} value={value} placeholder="Your answer"
+                     onChange={(e) => onChange(e.target.value)} />;
+  }
+  const chosen = opts.find((o) => o.toLowerCase() === String(value).trim().toLowerCase()) || "";
+  if (opts.length > 8) {
+    return (
+      <select aria-label={`Answer for ${q.label}`} style={INPUT} value={chosen} onChange={(e) => onChange(e.target.value)}>
+        <option value="">Choose…</option>
+        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    );
+  }
+  return (
+    <div role="radiogroup" aria-label={`Answer for ${q.label}`} style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", fontSize: 12, margin: "4px 0" }}>
+      {opts.map((o) => (
+        <label key={o} style={{ color: "var(--ink)" }}>
+          <input type="radio" name={`ans-${q.id}`} checked={chosen === o} onChange={() => onChange(o)} /> {o}
+        </label>
+      ))}
+    </div>
+  );
+}
+
 // Open questions for one application: ones the agent couldn't answer, or
 // drafted below the confidence threshold. Replying teaches memory and the
 // question leaves this list (it then lives in the Answers tab).
@@ -70,9 +98,7 @@ export default function QuestionsPanel({ jobId, onChanged }) {
                 </pre>
               </details>
             )}
-            <textarea aria-label={`Answer for ${q.label}`} rows={2} style={INPUT}
-                      value={text[q.id] ?? q.answer ?? ""} placeholder="Your answer"
-                      onChange={(e) => setText({ ...text, [q.id]: e.target.value })} />
+            <AnswerInput q={q} value={text[q.id] ?? q.answer ?? ""} onChange={(v) => setText({ ...text, [q.id]: v })} />
             <div role="radiogroup" aria-label={`Save ${q.label} as`} style={{ display: "flex", gap: 10, fontSize: 11, margin: "6px 0" }}>
               {[["new", "Add to Answers"], ["once", "Just this application"], ["wording", "Another wording of…"]].map(([v, t]) => (
                 <label key={v}><input type="radio" name={`mode-${q.id}`} checked={(mode[q.id] || defaultMode(q)) === v}
