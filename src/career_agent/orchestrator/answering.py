@@ -194,7 +194,10 @@ def answer_fields(fields, ctx):
     decisions, needs = map_screen(remaining, ctx["profile"], ctx.get("resume_pdf"))
     decisions = declined + recalled + decisions
     import os
-    if needs and os.getenv("CAREER_AGENT_ANSWER") == "sections" and ctx.get("section_llm") and learn is not None:
+    # CAREER_AGENT_ANSWER: sections (default) | review | fields. Re-score 2026-11-01, 183 blanks on 4 fresh jobs:
+    # fields 3 wrong, review 1, sections 0 (Fractal 77 s / 211 s / 253 s)
+    mode = os.getenv("CAREER_AGENT_ANSWER") or "sections"
+    if needs and mode == "sections" and ctx.get("section_llm") and learn is not None:
         # section by section with the page in view, before the one-field drafter (orchestrator/section_answer.py)
         from .judgment import profile_to_text
         from .section_answer import answer_sections
@@ -205,7 +208,7 @@ def answer_fields(fields, ctx):
     if needs and judge_fn:
         answered, needs, _ = judge_fn(needs)
         decisions += answered
-    if os.getenv("CAREER_AGENT_ANSWER") in ("sections", "review") and ctx.get("section_llm") and learn is not None:
+    if mode in ("sections", "review") and ctx.get("section_llm") and learn is not None:
         # 'review' = field by field, then this pass alone. Every answer read again in its section: 'likely' / drafted / repeated values kept, changed or cleared
         from .judgment import profile_to_text
         from .section_answer import review_sections

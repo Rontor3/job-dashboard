@@ -358,7 +358,7 @@ def _apply(args, box: dict) -> None:
                 longform_kb = getattr(ctx.longform, "kb", None)
                 if ctx.longform is not None:
                     print("[longform] need-based long answers ON", flush=True)
-            section_llm = llm                     # CAREER_AGENT_ANSWER=sections: one call per section (section_answer.py)
+            section_llm = llm                     # sections + review by default; CAREER_AGENT_ANSWER=fields turns it off (section_answer.py)
             judge_fn = lambda needs: judge(needs, ctx, llm, cap=20,
                                            min_conf=qa_min_conf, on_draft=qa_rec.on_draft)
         except Exception as e:
