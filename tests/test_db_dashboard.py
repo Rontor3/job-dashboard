@@ -157,7 +157,8 @@ def test_response_statuses_are_valid_and_counted(tmp_path):
 
 def test_browse_hides_jobs_the_agent_has_run_but_they_stay_filterable(tmp_path):
     conn = init_db(tmp_path / "t.db")
-    new, queued, failed, applied, interviewing = (_seed(conn, i) for i in (1, 2, 3, 4, 5))
+    new, queued, failed, applied, interviewing, closed = (_seed(conn, i) for i in (1, 2, 3, 4, 5, 6))
+    set_job_status(conn, closed, "closed")         # the posting is gone: nothing to apply to
     set_job_status(conn, interviewing, "interviewing")  # a response, not an agent outcome: stays
     set_job_status(conn, queued, "saved")          # queued: still to run, stays in Browse
     set_job_status(conn, failed, "failed")         # exercised by the agent -> tracker
@@ -167,4 +168,4 @@ def test_browse_hides_jobs_the_agent_has_run_but_they_stay_filterable(tmp_path):
     assert sorted(r["id"] for r in rows) == sorted([new, queued, interviewing]) and total == 3
     rows, _ = query_jobs(conn, status="failed")    # the tracker / status filter can still reach them
     assert [r["id"] for r in rows] == [failed]
-    assert query_jobs(conn, include_dismissed=True)[1] == 5
+    assert query_jobs(conn, include_dismissed=True)[1] == 6
