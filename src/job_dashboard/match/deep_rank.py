@@ -3,7 +3,9 @@
 Nuisance titles are auto-marked Poor Fit (no LLM call). The rest are judged by
 the local LLM (verdict + score + strengths + gaps), down-ranked by the
 eligibility rule, and recorded. Idempotent: only touches jobs with no verdict.
-Never raises per-job — a judging failure records a neutral Moderate Fit.
+Never raises per-job. A judging failure records NOTHING: the job stays un-verdicted, so the next batch judges it.
+(A neutral 'Moderate Fit 50' used to be stored instead — with Ollama down that stamped 2,107 jobs, every non-Indeed
+source near-wholesale, and they were never judged again: they sank below the few real verdicts, 2026-11-02.)
 """
 from __future__ import annotations
 
@@ -42,7 +44,7 @@ def _parse(text):
                    else "Moderate Fit" if score >= 48 else "Weak Fit" if score >= 30
                    else "Poor Fit")
     if verdict is None:
-        verdict, score = "Moderate Fit", 50
+        return None                  # no verdict and no score: not a judgment
     if score is None:
         score = _DEFAULT_SCORE[verdict]
 
@@ -62,8 +64,7 @@ def judge_job(job, profile_text, llm):
         out = llm(_build_prompt(job, profile_text))
         return _parse(out if isinstance(out, str) else "")
     except Exception:
-        return {"verdict": "Moderate Fit", "llm_score": 50,
-                "strengths": [], "gaps": ["auto: judge failed"]}
+        return None
 
 
 def deep_rank_unranked(conn, llm=None, profile_text=None, candidate_years=None,
@@ -86,7 +87,8 @@ def deep_rank_unranked(conn, llm=None, profile_text=None, candidate_years=None,
     if limit:
         rows = rows[:limit]
 
-    counts = {"nuisance": 0, "llm": 0, "skipped": 0, "total": 0}
+    counts = {"nuisance": 0, "llm": 0, "skipped": 0, "failed": 0, "total": 0}
+    misses = 0                       # in a row: the model is down — stop, the rest wait for the next batch
     for jid, title, company, desc in rows:
         job = {"id": jid, "title": title, "company": company, "description": desc}
         hit = nuisance_match(title)
@@ -95,7 +97,15 @@ def deep_rank_unranked(conn, llm=None, profile_text=None, candidate_years=None,
                        "gaps": [f"off-target role ({hit})"], "flags": {}}
             bucket = "nuisance"
         else:
-            payload = {**judge_job(job, profile_text, llm), "flags": {}}
+            judged = judge_job(job, profile_text, llm)
+            if judged is None:
+                counts["failed"] += 1
+                misses += 1
+                if misses >= 3:
+                    break
+                continue
+            misses = 0
+            payload = {**judged, "flags": {}}
             bucket = "llm"
         adj = apply_eligibility(job, payload, candidate_years)
         try:
