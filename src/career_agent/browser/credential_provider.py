@@ -190,6 +190,14 @@ def retire_credential(site: str, label: str = "") -> None:
         _STORE.write_text(json.dumps(data, indent=2))
 
 
+def _reset_from_sign_in(page, cred, site, gate) -> bool:
+    """Go to the sign-in page if the site opened elsewhere (Create Account), then reset the password there."""
+    from .password_reset import reset_password
+    if not _is_login_form(page):
+        _navigate_to_form(page, _LOGIN_TEXTS, "login form")
+    return reset_password(page, cred, site, label=gate) is not None
+
+
 def _had_account(site: str, label: str = "") -> bool:
     """A login for this site was saved once and later refused (kept as ':stale' by retire_credential)."""
     if not _STORE.exists():
@@ -1730,18 +1738,16 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
                                 last_name=cred.get("last_name", ""))
                 print(f"[cred] saved credential for {site}", flush=True)
             _handle_state(page, state, cred, site)
+        elif is_new and _had_account(site, gate) and not _retried and _reset_from_sign_in(page, cred, site, gate):
+            # an earlier login here was refused and set aside: the account exists, a new sign-up cannot work — the reset
+            # starts from the sign-in page whichever form the site opened on (NatWest opened on Create Account)
+            return provide(page, gate, site, original_url, email, phone, _retried=True,
+                           first_name=first_name, last_name=last_name)
         elif is_new:
             # Traditional form (email+password together) — need to register first
             if _form_already_visible(page) and not _is_login_form(page):
                 print(f"[cred] registration form already visible on {site}", flush=True)
             else:
-                if _is_login_form(page) and _had_account(site, gate) and not _retried:
-                    # an earlier login here was refused and set aside: the account exists, so a new sign-up cannot work
-                    # (NatWest Workday 2026-11-02) — get back in with a password reset first
-                    from .password_reset import reset_password
-                    if reset_password(page, cred, site, label=gate):
-                        return provide(page, gate, site, original_url, email, phone, _retried=True,
-                                       first_name=first_name, last_name=last_name)
                 # email+password boxes are ALSO what a login page shows: with no account yet, go to its sign-up link
                 why = "this is a login page" if _form_already_visible(page) else "no stored cred"
                 print(f"[cred] {why} for {site} — navigating to signup", flush=True)

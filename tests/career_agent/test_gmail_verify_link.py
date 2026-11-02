@@ -30,3 +30,9 @@ def test_only_a_link_on_the_signup_site_counts():
     site = "capitalone.wd12.myworkdayjobs.com"
     assert g._same_site("https://capitalone.wd12.myworkdayjobs.com/x/activate/1", site)
     assert not g._same_site("https://evil.example.com/verify?x", site)
+
+
+
+def test_a_reset_link_is_never_a_verification_link_and_back():
+    assert g._RESET_LINK.search("https://x.myworkdayjobs.com/RBS/passwordreset/abc")
+    assert not g._RESET_LINK.search("https://x.myworkdayjobs.com/Capital_One/activate/abc")

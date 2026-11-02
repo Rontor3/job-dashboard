@@ -31,7 +31,7 @@ def test_a_refused_login_is_recovered_by_a_password_reset(tmp_path, monkeypatch)
     monkeypatch.setattr(gmail_otp, "available", lambda: True)
     asked = []
     monkeypatch.setattr(gmail_otp, "poll_verify_link",
-                        lambda site, after, timeout_s=90: asked.append(site) or "https://site.test/reset?token=abc")
+                        lambda site, after, timeout_s=90, reset=False: asked.append((site, reset)) or "https://site.test/reset?token=abc")
     pages = {"/login": LOGIN, "/forgot": FORGOT, "/reset": RESET, "/home": "<h1>Welcome back</h1>"}
     cred = {"username": "me@example.com", "password": "Old#pass1"}
     cp.save_credential("site.test", cred["username"], cred["password"])
@@ -42,7 +42,7 @@ def test_a_refused_login_is_recovered_by_a_password_reset(tmp_path, monkeypatch)
         page.goto("https://site.test/login")
         new = reset_password(page, cred, "site.test", wait_s=1)
         assert new and new["password"] != "Old#pass1"
-        assert page.evaluate("localStorage.asked") == "me@example.com" and asked == ["site.test"]
+        assert page.evaluate("localStorage.asked") == "me@example.com" and asked == [("site.test", True)]
         assert page.evaluate("localStorage.pw") == new["password"]          # the site took the new password
         assert page.url.endswith("/login")                                  # back to sign in
         stored = json.loads((tmp_path / "creds.json").read_text())

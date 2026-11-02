@@ -57,7 +57,7 @@ def reset_password(page, cred: dict, site: str, label: str = "", wait_s: int = 1
         print(f"[cred] {site}: could not send the password-reset request", flush=True)
         return None
     print(f"[cred] {site}: password reset requested — waiting for the email", flush=True)
-    link = poll_verify_link(site, asked, timeout_s=wait_s)
+    link = poll_verify_link(site, asked, timeout_s=wait_s, reset=True)
     if not link:
         return None
     page.goto(link, wait_until="domcontentloaded", timeout=30000)

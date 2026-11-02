@@ -160,9 +160,14 @@ def _same_site(url: str, site: str) -> bool:
     return bool(host) and (host == site or host.split(".")[-2:] == site.split(".")[-2:])
 
 
-def poll_verify_link(site: str, after_epoch: int, timeout_s: int = 90, poll_interval_s: int = 5) -> str | None:
-    """An account-verification link for `site` mailed after `after_epoch`, or None. Only a link on that same site is
-    returned: a broad inbox scan must never open some other mail's link."""
+_RESET_LINK = re.compile(r"reset|forgot|recover", re.I)
+
+
+def poll_verify_link(site: str, after_epoch: int, timeout_s: int = 90, poll_interval_s: int = 5,
+                     reset: bool = False) -> str | None:
+    """An account-verification link (or, with `reset`, a password-reset link) for `site` mailed after `after_epoch`,
+    else None. Only a link on that same site is returned: a broad inbox scan must never open some other mail's link.
+    The two kinds never stand in for each other (an earlier reset link was opened as 'verification', NatWest 2026-11-02)."""
     if not _TOKEN_PATH.exists():
         return None
     try:
@@ -180,7 +185,7 @@ def poll_verify_link(site: str, after_epoch: int, timeout_s: int = 90, poll_inte
                 continue
             seen.add(m["id"])
             for link in _VERIFY_LINK_RE.findall(_body_text(service, m["id"])):
-                if _same_site(link, site):
+                if _same_site(link, site) and bool(_RESET_LINK.search(link)) == reset:
                     print(f"[gmail-otp] verification link from {site} found", flush=True)
                     return link
         time.sleep(poll_interval_s)
