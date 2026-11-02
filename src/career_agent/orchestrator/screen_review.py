@@ -12,6 +12,16 @@ from ..orchestrator.mapper import FillDecision, _action_for_kind as _action
 from ..orchestrator.profile_resolver import resolve, highest_degree_level, row_degree_level
 from ..orchestrator import standard_answers
 
+_ASSENT = re.compile(r"\b(yes|agree[ds]?|accept(ed)?|acknowledged?|consent|confirm(ed)?|i have read|true)\b", re.I)
+_DISSENT = re.compile(r"\b(no|not|don'?t|do not|disagree|decline[ds]?|reject)\b", re.I)
+
+
+def _assent(options) -> str | None:
+    """The one option of a declaration that agrees ('I have read and agree to this statement'), never a 'No'."""
+    hits = [o for o in options or [] if _ASSENT.search(o) and not _DISSENT.search(o)]
+    return hits[0] if len(hits) == 1 else None
+
+
 _PREVIOUS = re.compile(r"\b(previous|prior|former|last|past)\b(?!\s+(?:\d|few|year|month))", re.I)
 
 _SELECT_KINDS = {"select", "radio_group"}
@@ -261,7 +271,7 @@ def map_screen(form, profile, resume_pdf=None):
                 if not f.required:
                     decisions.append(FillDecision(f.ref, f.kind, f.label, None, "attestation", "flag"))
                     continue
-                opt = _coerce_option("Yes", f.options)
+                opt = _coerce_option("Yes", f.options) or _assent(f.options)
                 if opt is None:
                     needs_human.append(f)
                 else:

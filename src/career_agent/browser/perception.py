@@ -1141,6 +1141,38 @@ def sub_levels(fields: list) -> list:
     return out
 
 
+_LEAD_JS = r"""(name) => {
+  const el = document.querySelector(`input[name="${CSS.escape(name)}"]`);
+  for (let a = el, i = 0; a && i < 8 && !/^(FORM|BODY|MAIN)$/.test(a.tagName); a = a.parentElement, i++) {
+    for (let s = a.previousElementSibling, j = 0; s && j < 3; s = s.previousElementSibling, j++) {
+      if (s.querySelector('input,select,textarea')) return '';
+      const t = (s.innerText || '').replace(/\s+/g, ' ').trim();
+      if (t.length > 25) return t.slice(0, 600);
+    }
+  }
+  return '';
+}"""
+
+
+def lead_ins(page, fields: list) -> list:
+    """A choice question whose own label is a word or two ('Acceptance: Yes / No') asks about the statement right above
+    it ('I certify that my answers … are true and correct'): that text becomes its description and decides its purpose
+    (Innovecture on Indeed 2026-11-02: asked of the human as an unknown question)."""
+    from .form_model import guess_purpose
+    out = []
+    for f in fields:
+        if f.kind == "radio_group" and not f.purpose and len((f.label or "").split()) <= 2 and not f.description \
+                and str(f.ref).startswith("group:"):
+            try:
+                lead = page.evaluate(_LEAD_JS, f.ref.split(":", 1)[1])
+            except Exception:
+                lead = ""
+            if lead:
+                f = replace(f, description=lead, purpose=guess_purpose(lead, f.kind))
+        out.append(f)
+    return out
+
+
 def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True) -> list[Field]:
     """Scroll through the page to trigger all lazy-rendered fields, snapshot
     the DOM, then optionally save a screenshot for visual verification.
@@ -1149,7 +1181,7 @@ def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True) -> 
     if scroll:
         _slow_scroll_pass(page)
     from .page_prep import suppress_noise
-    fields = sub_levels(suppress_noise(to_form_model(collect_raw(page))))
+    fields = lead_ins(page, sub_levels(suppress_noise(to_form_model(collect_raw(page)))))
     from .instructions import mark_below
     fields = mark_below(page, fields)
     # Screenshot after snapshot so a human (or next run) can verify nothing
