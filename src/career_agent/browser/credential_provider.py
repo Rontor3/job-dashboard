@@ -1776,6 +1776,12 @@ def _provide_attempt(page, gate: str, site: str, original_url: str | None = None
             _ensure_login_form(page)
             _fill_wall(page, gate, cred, site=site)
             if not _retried and _is_login_form(page) and _login_rejected(page) and not _email_box_empty(page):
+                # Refused with the email filled in: the account exists, the password is wrong. Reset it first (NatWest
+                # Workday 2026-11-02: registering again only returned to Sign In) — browser/password_reset.py.
+                from .password_reset import reset_password
+                if reset_password(page, cred, site, label=gate):
+                    return provide(page, gate, site, original_url, email, phone, _retried=True,
+                                   first_name=first_name, last_name=last_name)
                 # Still the login form: the stored account does not open (Koch, Deloitte live 2026-10-18 — a password
                 # was saved for an account whose sign-up was never sent). Retire it and register instead, once.
                 print(f"[cred] {site}: the stored login did not open — retiring it and registering", flush=True)
