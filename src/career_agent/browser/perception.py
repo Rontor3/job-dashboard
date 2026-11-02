@@ -1121,6 +1121,26 @@ def _slow_scroll_pass(page, step_px: int = 400, delay_ms: int = 350) -> None:
         pass   # non-scrollable page / framed page — proceed anyway
 
 
+_NEXT_LEVEL = {"country": "state", "state": "city"}
+
+
+def sub_levels(fields: list) -> list:
+    """A drop-down that repeats the label of the drop-down just before it is that one's NEXT LEVEL — its choices depend
+    on the choice above (Country -> State -> City). Indeed's address shows 'Country *' (India) and then a second
+    'Country *' listing India's states, helper text 'Which applies to you?': it was asked of the human as an unknown
+    question (Innovecture 2026-11-02). It is named for what it is and answered as a state."""
+    out, prev = [], None
+    for f in fields:
+        if (prev is not None and f.kind in ("select", "combobox") and prev.kind in ("select", "combobox")
+                and (f.label or "").strip() == (prev.label or "").strip() and _NEXT_LEVEL.get(prev.purpose or "")):
+            level = _NEXT_LEVEL[prev.purpose]
+            f = replace(f, label=level.capitalize() + ("*" if "*" in (f.label or "") else ""), purpose=level,
+                        description="")
+        out.append(f)
+        prev = f
+    return out
+
+
 def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True) -> list[Field]:
     """Scroll through the page to trigger all lazy-rendered fields, snapshot
     the DOM, then optionally save a screenshot for visual verification.
@@ -1129,7 +1149,7 @@ def snapshot_form(page, verify_shot: str | None = None, scroll: bool = True) -> 
     if scroll:
         _slow_scroll_pass(page)
     from .page_prep import suppress_noise
-    fields = suppress_noise(to_form_model(collect_raw(page)))
+    fields = sub_levels(suppress_noise(to_form_model(collect_raw(page))))
     from .instructions import mark_below
     fields = mark_below(page, fields)
     # Screenshot after snapshot so a human (or next run) can verify nothing
