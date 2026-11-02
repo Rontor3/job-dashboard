@@ -62,7 +62,12 @@ def reset_password(page, cred: dict, site: str, label: str = "", wait_s: int = 1
         return None
     page.goto(link, wait_until="domcontentloaded", timeout=30000)
     _settle(page)
-    boxes = [e for e in page.query_selector_all('input[type="password"]') if cp._truly_visible(e)]
+    boxes = []
+    for _ in range(20):          # Workday draws its new-password form a few seconds after load (NatWest, live 2026-11-02)
+        boxes = [e for e in page.query_selector_all('input[type="password"]') if cp._truly_visible(e)]
+        if boxes:
+            break
+        page.wait_for_timeout(1000)
     if not boxes:
         print(f"[cred] {site}: the reset link opened no new-password form", flush=True)
         return None
